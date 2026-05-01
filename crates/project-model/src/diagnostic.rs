@@ -56,4 +56,14 @@ pub mod codes {
     pub const SOURCE_TARGET_AMBIGUOUS: &str = "source-target-ambiguous";
     pub const SOURCE_TARGET_MISSING: &str = "source-target-missing";
     pub const SOURCE_SCAN_SKIPPED: &str = "source-scan-skipped";
+
+    // 第三刀 rootResolution 新增 diagnostic codes
+    pub const CRATE_ROOT_MISSING: &str = "crate-root-missing";
+    pub const CRATE_PATH_UNRESOLVED: &str = "crate-path-unresolved";
+    pub const CRATE_PATH_AMBIGUOUS: &str = "crate-path-ambiguous";
+    pub const MODULE_NOT_DECLARED: &str = "module-not-declared";
+    pub const MODULE_FILE_MISSING: &str = "module-file-missing";
+    pub const CFG_GATED_MODULE_UNKNOWN: &str = "cfg-gated-module-unknown";
+    pub const PATH_ATTRIBUTE_UNSUPPORTED: &str = "path-attribute-unsupported";
+    pub const ROOT_RESOLUTION_SKIPPED: &str = "root-resolution-skipped";
 }

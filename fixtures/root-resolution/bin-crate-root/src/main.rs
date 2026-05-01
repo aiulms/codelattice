@@ -1,0 +1,2 @@
+mod app;
+fn main() {}

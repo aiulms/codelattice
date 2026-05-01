@@ -160,6 +160,10 @@ pub struct RootResolution {
     pub target_kind: Option<String>,
     pub root_reason: String,
     pub confidence: f32,
+    /// "module" / "file" / null（解析失败时）
+    pub resolved_kind: Option<String>,
+    /// 当前 source file 的 crate root 文件路径
+    pub crate_root_file: Option<String>,
 }
 
 /// 非致命警告，runtime-only

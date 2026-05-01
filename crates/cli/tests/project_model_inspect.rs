@@ -26,6 +26,11 @@ fn source_fixture_dir(name: &str) -> PathBuf {
     base.join("fixtures").join("source-ownership").join(name)
 }
 
+fn root_fixture_dir(name: &str) -> PathBuf {
+    let base = find_workspace_root();
+    base.join("fixtures").join("root-resolution").join(name)
+}
+
 fn find_workspace_root() -> PathBuf {
     let mut base = std::env::current_dir().unwrap();
     while !base.join("fixtures").exists() && base.parent().is_some() {
@@ -57,6 +62,10 @@ fn inspect_manifest(name: &str) -> (String, serde_json::Value) {
 
 fn inspect_source(name: &str) -> (String, serde_json::Value) {
     inspect_dir(&source_fixture_dir(name))
+}
+
+fn inspect_root(name: &str) -> (String, serde_json::Value) {
+    inspect_dir(&root_fixture_dir(name))
 }
 
 // === 基础契约测试 ===
@@ -394,10 +403,10 @@ fn so_virtual_workspace_stray_outside() {
 }
 
 #[test]
-fn so_root_resolution_still_empty() {
+fn so_root_resolution_empty_without_queries() {
     let (_, parsed) = inspect_source("root-package");
     let rr = parsed["rootResolution"].as_array().unwrap();
-    assert_eq!(rr.len(), 0, "rootResolution 仍应为空数组");
+    assert_eq!(rr.len(), 0, "无 root-queries.txt 时 rootResolution 应为空");
 }
 
 #[test]
@@ -409,4 +418,132 @@ fn so_stats_reflect_counts() {
     assert!(source_count > 0, "sourceFileCount 应 > 0");
     assert!(owned_count > 0, "ownedFileCount 应 > 0");
     assert_eq!(source_count, owned_count, "所有 .rs 都应有 package owner");
+}
+
+// === Root resolution 场景测试 ===
+
+#[test]
+fn rr_lib_crate_root() {
+    let (_, parsed) = inspect_root("lib-crate-root");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    let entry = &rr[0];
+    assert_eq!(entry["sourcePath"].as_str(), Some("src/lib.rs"));
+    assert_eq!(entry["queryPath"].as_str(), Some("crate::models"));
+    assert_eq!(entry["resolvedPath"].as_str(), Some("src/models.rs"));
+    assert_eq!(entry["targetKind"].as_str(), Some("lib"));
+    assert_eq!(
+        entry["rootReason"].as_str(),
+        Some("module-declaration-resolved")
+    );
+    assert_eq!(entry["confidence"].as_f64(), Some(0.85));
+    assert_eq!(entry["resolvedKind"].as_str(), Some("module"));
+    assert_eq!(entry["crateRootFile"].as_str(), Some("./src/lib.rs"));
+}
+
+#[test]
+fn rr_bin_crate_root() {
+    let (_, parsed) = inspect_root("bin-crate-root");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[0]["resolvedPath"].as_str(), Some("src/app.rs"));
+    assert_eq!(rr[0]["targetKind"].as_str(), Some("bin"));
+}
+
+#[test]
+fn rr_named_bin_crate_root() {
+    let (_, parsed) = inspect_root("named-bin-crate-root");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(
+        rr[0]["resolvedPath"].as_str(),
+        Some("src/bin/worker_local.rs")
+    );
+    assert_eq!(rr[0]["targetKind"].as_str(), Some("bin"));
+}
+
+#[test]
+fn rr_chained_module() {
+    let (_, parsed) = inspect_root("chained-module");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[0]["resolvedPath"].as_str(), Some("src/api/models.rs"));
+    assert_eq!(rr[0]["rootReason"].as_str(), Some("module-chain-resolved"));
+    assert_eq!(rr[0]["confidence"].as_f64(), Some(0.80));
+}
+
+#[test]
+fn rr_missing_mod_declaration() {
+    let (_, parsed) = inspect_root("missing-mod-declaration");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[0]["resolvedPath"].as_str(), None);
+    assert_eq!(rr[0]["rootReason"].as_str(), Some("module-not-declared"));
+    let diagnostics = parsed["diagnostics"].as_array().unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("module-not-declared")));
+}
+
+#[test]
+fn rr_missing_module_file() {
+    let (_, parsed) = inspect_root("missing-module-file");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[0]["resolvedPath"].as_str(), None);
+    assert_eq!(rr[0]["rootReason"].as_str(), Some("module-file-missing"));
+    let diagnostics = parsed["diagnostics"].as_array().unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("module-file-missing")));
+}
+
+#[test]
+fn rr_ambiguous_module_file() {
+    let (_, parsed) = inspect_root("ambiguous-module-file");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[0]["resolvedPath"].as_str(), None);
+    assert_eq!(rr[0]["rootReason"].as_str(), Some("crate-path-ambiguous"));
+    let diagnostics = parsed["diagnostics"].as_array().unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("crate-path-ambiguous")));
+}
+
+#[test]
+fn rr_source_target_ambiguous_skipped() {
+    let (_, parsed) = inspect_root("source-target-ambiguous");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(rr[0]["resolvedPath"].as_str(), None);
+    assert_eq!(
+        rr[0]["rootReason"].as_str(),
+        Some("root-resolution-skipped")
+    );
+    let diagnostics = parsed["diagnostics"].as_array().unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("root-resolution-skipped")));
+}
+
+#[test]
+fn rr_nested_package_root() {
+    let (_, parsed) = inspect_root("nested-package-root");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 1);
+    assert_eq!(
+        rr[0]["resolvedPath"].as_str(),
+        Some("backend/tools/src/helpers.rs")
+    );
+}
+
+#[test]
+fn rr_stats_reflect_resolution_counts() {
+    let (_, parsed) = inspect_root("lib-crate-root");
+    let stats = &parsed["stats"];
+    let success = stats["resolutionSuccessCount"].as_u64().unwrap();
+    let fail = stats["resolutionFailCount"].as_u64().unwrap();
+    assert_eq!(success, 1);
+    assert_eq!(fail, 0);
 }
