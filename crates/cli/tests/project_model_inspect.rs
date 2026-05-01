@@ -2,7 +2,7 @@
 //!
 //! 验证 project-model inspect 命令的输出契约：
 //! - 输出可解析 JSON
-//! - 顶层 13 个字段全部存在
+//! - 顶层 14 个字段全部存在
 //! - diagnostics 包含 scan-not-implemented
 //! - root 不存在时 exit 非 0
 //! - stdout 只包含 JSON，不混入 human logs
@@ -33,7 +33,7 @@ fn inspect_current_dir_outputs_valid_json() {
 }
 
 #[test]
-fn inspect_json_has_13_top_level_fields() {
+fn inspect_json_has_14_top_level_fields() {
     let output = cli_bin()
         .arg("project-model")
         .arg("inspect")

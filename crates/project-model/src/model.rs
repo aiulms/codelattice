@@ -5,7 +5,7 @@
 
 use serde::Serialize;
 
-/// 顶层输出，覆盖 CLI/output contract 的 13 个字段
+/// 顶层输出，覆盖 CLI/output contract 的 14 个字段
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectModelOutput {

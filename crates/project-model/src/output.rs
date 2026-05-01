@@ -25,7 +25,7 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
         version: env!("CARGO_PKG_VERSION").to_string(),
         command: "project-model inspect".to_string(),
         repo_root: repo_root.to_string(),
-        generated_at: chrono_now_iso8601(),
+        generated_at: stub_generated_at_iso8601(),
         project_model: ProjectModelSummary {
             manifest_count: 0,
             package_count: 0,
@@ -51,13 +51,9 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
     }
 }
 
-/// 获取当前时间的 ISO 8601 字符串，不引入 chrono 依赖
-fn chrono_now_iso8601() -> String {
-    // 使用 std::time::SystemTime 获取近似时间戳
-    // 精度到秒即可，generated_at 是 runtime-only 字段
-    let duration = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    format!("1970-01-01T00:00:00Z+{secs}")
+/// 返回合法 ISO 8601 占位值。
+/// 当前工程骨架不引入时间库，generatedAt 又是 runtime-only 字段，
+/// 因此先使用稳定占位值，避免输出看似 ISO 但实际不可解析的时间字符串。
+fn stub_generated_at_iso8601() -> String {
+    "1970-01-01T00:00:00Z".to_string()
 }

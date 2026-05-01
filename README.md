@@ -1,14 +1,14 @@
 # GitNexus Rust-core 复刻 staging workspace
 
 > **创建时间：** 2026-05-01
-> **类型：** Rust-core 复刻 staging workspace
-> **状态：** 初始 bootstrap
+> **类型：** Rust-core 复刻 staging workspace + 最小 Rust 工程骨架
+> **状态：** Cargo workspace bootstrap 已落地，ProjectModel 仍为 stub
 
 ---
 
 ## 目的
 
-本 workspace（`gitnexus-rust-core`）是 **GitNexus Rust-core 复刻项目的实现契约 / staging workspace**。它不是 GitNexus-RC 的子目录。
+本 workspace（`gitnexus-rust-core`）是 **GitNexus Rust-core 复刻项目的实现契约 / staging workspace**，现在也包含最小可运行的 Rust 工程骨架。它不是 GitNexus-RC 的子目录。
 
 **与 GitNexus-RC 的关系：**
 - GitNexus-RC（`/Users/jiangxuanyang/Desktop/GitNexus-RC`）是 **研究来源与历史账本**。
@@ -58,6 +58,8 @@ Rust-core 推荐原因：
 | Confidence/reason 策略 | GitNexus-RC | 已冻结 |
 | No-edge 策略 | GitNexus-RC | 已冻结 |
 | ProjectModel 模块设计 | GitNexus-RC | 已冻结 |
+| Cargo workspace 骨架 | 本 workspace | 已落地 |
+| CLI stub | 本 workspace | 可输出 contract-compliant JSON |
 
 ---
 
@@ -83,7 +85,11 @@ node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js <c
 
 ```
 gitnexus-rust-core/
+  Cargo.toml                         # Cargo workspace
   README.md                          # 本文件
+  crates/
+    project-model/                   # ProjectModel 输出类型和 stub 生成器
+    cli/                             # gitnexus-rust-core CLI
   docs/
     architecture/
       project-model.md               # ProjectModel 职责摘要
@@ -112,6 +118,19 @@ gitnexus-rust-core/
 
 第一个实现目标是 **Rust-core ProjectModel 模块**。
 
+当前已实现：
+
+- `project-model inspect --root <path> --format json`
+- 输出 CLI/output contract 要求的 14 个顶层字段
+- `diagnostics` 显式包含 `project-model-scan-not-implemented`
+- 暂不执行 Cargo manifest scan，避免把 stub 误读为真实 project facts
+
+运行示例：
+
+```bash
+cargo run -p gitnexus-rust-core-cli -- project-model inspect --root . --format json
+```
+
 来源：
 - [Rust-core rebuild preflight](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-04-28-rust-core-rebuild-preflight.md)
 - [ProjectModel consolidation handoff](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-05-01-rust-project-model-consolidation-handoff-review.md)
@@ -125,8 +144,8 @@ Golden truth：GitNexus-RC 中 14 个 `expected.json` 文件，位于 `gitnexus/
 
 ## 下一步
 
-1. **Rust-core ProjectModel CLI/output contract preflight** — 定义 CLI 接口和 JSON 输出契约
-2. **Rust-core workspace source-map enrichment** — 细化迁移 source-map 的字段级映射
+1. **Rust-core ProjectModel manifest scan implementation** — 读取 Cargo.toml，先对齐 baseline/subdirectory fixtures。
+2. **Rust-core workspace source-map enrichment** — 细化迁移 source-map 的字段级映射。
 
 ---
 
