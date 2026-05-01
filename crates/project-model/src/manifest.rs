@@ -410,9 +410,9 @@ fn add_package_from_manifest(
     });
 }
 
-/// 扫描 immediate subdirectories 发现 package
+/// 递归扫描子目录发现 package（支持嵌套 package 如 backend/tools/）
 fn scan_subdirectory_packages(
-    root: &Path,
+    dir: &Path,
     base: &Path,
     packages: &mut Vec<PackageModel>,
     targets: &mut Vec<TargetModel>,
@@ -420,10 +420,9 @@ fn scan_subdirectory_packages(
     manifest_count: &mut u32,
     seen: &mut HashSet<PathBuf>,
 ) {
-    // 跳过的目录名
     let skip_dirs: HashSet<&str> = HashSet::from(["node_modules", ".git", "target", "fixtures"]);
 
-    if let Ok(entries) = std::fs::read_dir(root) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if !path.is_dir() {
@@ -451,7 +450,6 @@ fn scan_subdirectory_packages(
                     }
                 };
 
-                // 只有含 [package] 的才是 subdirectory package
                 if toml_content.package.is_some() {
                     add_package_from_manifest(
                         &toml_content,
@@ -464,7 +462,39 @@ fn scan_subdirectory_packages(
                         diagnostics,
                         seen,
                     );
+                    // 递归扫描：package 子目录可能还有嵌套 package
+                    scan_subdirectory_packages(
+                        &path,
+                        base,
+                        packages,
+                        targets,
+                        diagnostics,
+                        manifest_count,
+                        seen,
+                    );
+                } else {
+                    // 非 package 子目录也递归扫描
+                    scan_subdirectory_packages(
+                        &path,
+                        base,
+                        packages,
+                        targets,
+                        diagnostics,
+                        manifest_count,
+                        seen,
+                    );
                 }
+            } else {
+                // 无 Cargo.toml 的子目录也递归扫描
+                scan_subdirectory_packages(
+                    &path,
+                    base,
+                    packages,
+                    targets,
+                    diagnostics,
+                    manifest_count,
+                    seen,
+                );
             }
         }
     }

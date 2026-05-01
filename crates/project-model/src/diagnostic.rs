@@ -50,4 +50,10 @@ pub mod codes {
     pub const WORKSPACE_MEMBERS_INVALID: &str = "workspace-members-invalid";
     pub const WORKSPACE_MEMBER_PATH_MISSING: &str = "workspace-member-path-missing";
     pub const TARGET_ROOT_MISSING: &str = "target-root-missing";
+
+    // 第二刀 source ownership 新增 diagnostic codes
+    pub const SOURCE_OUTSIDE_PACKAGE: &str = "source-outside-package";
+    pub const SOURCE_TARGET_AMBIGUOUS: &str = "source-target-ambiguous";
+    pub const SOURCE_TARGET_MISSING: &str = "source-target-missing";
+    pub const SOURCE_SCAN_SKIPPED: &str = "source-scan-skipped";
 }

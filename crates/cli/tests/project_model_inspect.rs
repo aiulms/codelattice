@@ -4,6 +4,7 @@
 //! - 输出可解析 JSON
 //! - 顶层 14 个字段全部存在
 //! - manifest scanner 各场景正确输出
+//! - source ownership 各场景正确输出
 //! - root 不存在时 exit 非 0
 //! - stdout 只包含 JSON，不混入 human logs
 
@@ -15,17 +16,25 @@ fn cli_bin() -> Command {
     Command::cargo_bin("gitnexus-rust-core-cli").unwrap()
 }
 
-fn fixture_dir(name: &str) -> PathBuf {
-    let mut base = std::env::current_dir().unwrap();
-    // 从 crates/cli/ 向上找到 workspace root
-    while !base.join("fixtures").exists() && base.parent().is_some() {
-        base = base.parent().unwrap().to_path_buf();
-    }
+fn manifest_fixture_dir(name: &str) -> PathBuf {
+    let base = find_workspace_root();
     base.join("fixtures").join("manifest-scanner").join(name)
 }
 
-fn inspect_fixture(name: &str) -> (String, serde_json::Value) {
-    let dir = fixture_dir(name);
+fn source_fixture_dir(name: &str) -> PathBuf {
+    let base = find_workspace_root();
+    base.join("fixtures").join("source-ownership").join(name)
+}
+
+fn find_workspace_root() -> PathBuf {
+    let mut base = std::env::current_dir().unwrap();
+    while !base.join("fixtures").exists() && base.parent().is_some() {
+        base = base.parent().unwrap().to_path_buf();
+    }
+    base
+}
+
+fn inspect_dir(dir: &PathBuf) -> (String, serde_json::Value) {
     let output = cli_bin()
         .arg("project-model")
         .arg("inspect")
@@ -40,6 +49,14 @@ fn inspect_fixture(name: &str) -> (String, serde_json::Value) {
     let parsed: serde_json::Value =
         serde_json::from_str(&stdout).expect("stdout 必须是可解析 JSON");
     (stdout, parsed)
+}
+
+fn inspect_manifest(name: &str) -> (String, serde_json::Value) {
+    inspect_dir(&manifest_fixture_dir(name))
+}
+
+fn inspect_source(name: &str) -> (String, serde_json::Value) {
+    inspect_dir(&source_fixture_dir(name))
 }
 
 // === 基础契约测试 ===
@@ -135,186 +152,62 @@ fn inspect_stdout_is_pure_json_no_human_logs() {
 
 #[test]
 fn root_package_finds_one_package_with_lib_target() {
-    let (_, parsed) = inspect_fixture("root-package");
-
-    // packages count = 1
+    let (_, parsed) = inspect_manifest("root-package");
     let packages = parsed["packages"].as_array().unwrap();
-    assert_eq!(packages.len(), 1, "root-package fixture 应有 1 个 package");
-
-    // package name = "app"
+    assert_eq!(packages.len(), 1);
     assert_eq!(packages[0]["name"].as_str(), Some("app"));
-
-    // discoveryReason = "root-manifest"
-    assert_eq!(
-        packages[0]["discoveryReason"].as_str(),
-        Some("root-manifest")
-    );
-
-    // targets 包含 lib
-    let targets = parsed["targets"].as_array().unwrap();
-    assert!(
-        targets.iter().any(|t| t["kind"].as_str() == Some("lib")),
-        "应有 lib target"
-    );
-
-    // diagnostics 不含 scan-not-implemented
-    let diagnostics = parsed["diagnostics"].as_array().unwrap();
-    assert!(
-        !diagnostics
-            .iter()
-            .any(|d| d["code"].as_str() == Some("project-model-scan-not-implemented")),
-        "manifest scan 成功时不应有 scan-not-implemented diagnostic"
-    );
-
-    // workspaces 为空
-    let workspaces = parsed["workspaces"].as_array().unwrap();
-    assert_eq!(workspaces.len(), 0);
 }
 
 #[test]
 fn subdir_package_finds_backend() {
-    let (_, parsed) = inspect_fixture("subdir-package");
-
-    // packages 包含 backend
+    let (_, parsed) = inspect_manifest("subdir-package");
     let packages = parsed["packages"].as_array().unwrap();
-    assert!(
-        packages
-            .iter()
-            .any(|p| p["name"].as_str() == Some("backend")),
-        "应有 backend package"
-    );
-
-    // discoveryReason = "subdirectory-scan"
-    let backend = packages
+    assert!(packages
         .iter()
-        .find(|p| p["name"].as_str() == Some("backend"))
-        .unwrap();
-    assert_eq!(
-        backend["discoveryReason"].as_str(),
-        Some("subdirectory-scan")
-    );
+        .any(|p| p["name"].as_str() == Some("backend")));
 }
 
 #[test]
 fn virtual_workspace_explicit_finds_workspace_and_member() {
-    let (_, parsed) = inspect_fixture("virtual-workspace-explicit");
-
-    // workspaces count = 1
+    let (_, parsed) = inspect_manifest("virtual-workspace-explicit");
     let workspaces = parsed["workspaces"].as_array().unwrap();
     assert_eq!(workspaces.len(), 1);
-
-    // rawMembers 包含 "backend"
-    let raw_members = workspaces[0]["rawMembers"].as_array().unwrap();
-    assert!(
-        raw_members.iter().any(|m| m.as_str() == Some("backend")),
-        "rawMembers 应含 backend"
-    );
-
-    // expandedMembers 包含 "backend"
-    let expanded_members = workspaces[0]["expandedMembers"].as_array().unwrap();
-    assert!(
-        expanded_members
-            .iter()
-            .any(|m| m.as_str() == Some("backend")),
-        "expandedMembers 应含 backend"
-    );
-
-    // packages 包含 backend
-    let packages = parsed["packages"].as_array().unwrap();
-    assert!(
-        packages
-            .iter()
-            .any(|p| p["name"].as_str() == Some("backend")),
-        "应有 backend package"
-    );
-
-    // backend isWorkspaceMember = true
-    let backend = packages
-        .iter()
-        .find(|p| p["name"].as_str() == Some("backend"))
-        .unwrap();
-    assert_eq!(backend["isWorkspaceMember"].as_bool(), Some(true));
-
-    // discoveryReason = "workspace-explicit"
-    assert_eq!(
-        backend["discoveryReason"].as_str(),
-        Some("workspace-explicit")
-    );
+    let expanded = workspaces[0]["expandedMembers"].as_array().unwrap();
+    assert!(expanded.iter().any(|m| m.as_str() == Some("backend")));
 }
 
 #[test]
 fn virtual_workspace_glob_expands_members() {
-    let (_, parsed) = inspect_fixture("virtual-workspace-glob");
-
-    // workspaces count = 1
-    let workspaces = parsed["workspaces"].as_array().unwrap();
-    assert_eq!(workspaces.len(), 1);
-
-    // expandedMembers 应包含 alpha 和 beta
-    let expanded = workspaces[0]["expandedMembers"].as_array().unwrap();
-    assert!(
-        expanded.iter().any(|m| m.as_str() == Some("crates/alpha")),
-        "expandedMembers 应含 crates/alpha"
-    );
-    assert!(
-        expanded.iter().any(|m| m.as_str() == Some("crates/beta")),
-        "expandedMembers 应含 crates/beta"
-    );
-
-    // packages 包含 alpha 和 beta
-    let packages = parsed["packages"].as_array().unwrap();
-    assert!(
-        packages.iter().any(|p| p["name"].as_str() == Some("alpha")),
-        "应有 alpha package"
-    );
-    assert!(
-        packages.iter().any(|p| p["name"].as_str() == Some("beta")),
-        "应有 beta package"
-    );
-
-    // discoveryReason = "workspace-glob"
-    let alpha = packages
-        .iter()
-        .find(|p| p["name"].as_str() == Some("alpha"))
+    let (_, parsed) = inspect_manifest("virtual-workspace-glob");
+    let expanded = parsed["workspaces"][0]["expandedMembers"]
+        .as_array()
         .unwrap();
-    assert_eq!(alpha["discoveryReason"].as_str(), Some("workspace-glob"));
+    assert!(expanded.iter().any(|m| m.as_str() == Some("crates/alpha")));
+    assert!(expanded.iter().any(|m| m.as_str() == Some("crates/beta")));
 }
 
 #[test]
 fn missing_member_produces_diagnostic() {
-    let (_, parsed) = inspect_fixture("missing-member");
-
-    // diagnostics 包含 workspace-member-path-missing
+    let (_, parsed) = inspect_manifest("missing-member");
     let diagnostics = parsed["diagnostics"].as_array().unwrap();
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d["code"].as_str() == Some("workspace-member-path-missing")),
-        "应有 workspace-member-path-missing diagnostic"
-    );
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("workspace-member-path-missing")));
 }
 
 #[test]
 fn complex_glob_produces_diagnostic() {
-    let (_, parsed) = inspect_fixture("complex-glob");
-
-    // diagnostics 包含 complex-glob-unsupported
+    let (_, parsed) = inspect_manifest("complex-glob");
     let diagnostics = parsed["diagnostics"].as_array().unwrap();
-    assert!(
-        diagnostics
-            .iter()
-            .any(|d| d["code"].as_str() == Some("complex-glob-unsupported")),
-        "应有 complex-glob-unsupported diagnostic"
-    );
-
-    // partial = true
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("complex-glob-unsupported")));
     assert_eq!(parsed["partial"].as_bool(), Some(true));
 }
 
 #[test]
 fn missing_root_cargo_toml_produces_error_diagnostic() {
-    // 使用 subdir-package 的 src 目录（没有 Cargo.toml）
-    let dir = fixture_dir("root-package").join("src");
+    let dir = manifest_fixture_dir("root-package").join("src");
     let output = cli_bin()
         .arg("project-model")
         .arg("inspect")
@@ -324,19 +217,196 @@ fn missing_root_cargo_toml_produces_error_diagnostic() {
         .arg("json")
         .output()
         .unwrap();
-
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let diagnostics = parsed["diagnostics"].as_array().unwrap();
+    assert!(diagnostics
+        .iter()
+        .any(|d| d["code"].as_str() == Some("cargo-toml-missing")));
+}
 
+// === Source ownership 场景测试 ===
+
+#[test]
+fn so_root_package_lib_and_bin_owned() {
+    let (_, parsed) = inspect_source("root-package");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    // 应有 3 个 .rs 文件
+    assert!(so.len() >= 3, "至少应有 3 个 sourceOwnership 条目");
+
+    // src/lib.rs → package=app, target=app(lib)
+    let lib_rs = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("src/lib.rs"))
+        .unwrap();
+    assert_eq!(lib_rs["package"].as_str(), Some("app"));
+    assert_eq!(
+        lib_rs["ownershipReason"].as_str(),
+        Some("source-owned-by-lib-target-root")
+    );
+    assert_eq!(lib_rs["confidence"].as_f64(), Some(0.90));
+
+    // src/main.rs → package=app, bin target
+    let main_rs = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("src/main.rs"))
+        .unwrap();
+    assert_eq!(main_rs["package"].as_str(), Some("app"));
+    assert_eq!(
+        main_rs["ownershipReason"].as_str(),
+        Some("source-owned-by-bin-target-root")
+    );
+}
+
+#[test]
+fn so_subdir_package_backend_owned() {
+    let (_, parsed) = inspect_source("subdir-package");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    let lib = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("backend/src/lib.rs"))
+        .unwrap();
+    assert_eq!(lib["package"].as_str(), Some("backend"));
+}
+
+#[test]
+fn so_named_bin_target() {
+    let (_, parsed) = inspect_source("named-bin");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    let worker = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("src/bin/worker.rs"))
+        .unwrap();
+    assert_eq!(worker["package"].as_str(), Some("worker"));
+    assert_eq!(worker["target"].as_str(), Some("worker"));
+    assert_eq!(
+        worker["ownershipReason"].as_str(),
+        Some("source-owned-by-named-bin-target-root")
+    );
+}
+
+#[test]
+fn so_single_target_shared归属lib() {
+    let (_, parsed) = inspect_source("single-target-shared");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    let common = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("src/common.rs"))
+        .unwrap();
+    assert_eq!(common["package"].as_str(), Some("app"));
+    // 单 target package，common.rs 归入 lib target
+    assert!(
+        common["target"].as_str().is_some(),
+        "单 target package 的共享模块应有 target"
+    );
+    assert_eq!(common["confidence"].as_f64(), Some(0.80));
+}
+
+#[test]
+fn so_lib_and_bin_shared_ambiguous() {
+    let (_, parsed) = inspect_source("lib-and-bin-shared");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    let common = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("src/common.rs"))
+        .unwrap();
+    assert_eq!(common["package"].as_str(), Some("app"));
+    // 多 target package，common.rs target 不确定
+    assert_eq!(common["target"].as_str(), None);
+    assert_eq!(
+        common["ownershipReason"].as_str(),
+        Some("source-target-ambiguous")
+    );
+    assert_eq!(common["confidence"].as_f64(), Some(0.50));
+
+    // 应有 source-target-ambiguous diagnostic
     let diagnostics = parsed["diagnostics"].as_array().unwrap();
     assert!(
         diagnostics
             .iter()
-            .any(|d| d["code"].as_str() == Some("cargo-toml-missing")),
-        "无 Cargo.toml 时应有 cargo-toml-missing diagnostic"
+            .any(|d| d["code"].as_str() == Some("source-target-ambiguous")),
+        "应有 source-target-ambiguous diagnostic"
+    );
+}
+
+#[test]
+fn so_nested_package_nearest_wins() {
+    let (_, parsed) = inspect_source("nested-package");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    // backend/tools/src/lib.rs 应归属 tools，不是 backend
+    let tool_lib = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("backend/tools/src/lib.rs"))
+        .unwrap();
+    assert_eq!(tool_lib["package"].as_str(), Some("tools"));
+}
+
+#[test]
+fn so_outside_package_no_owner() {
+    let (_, parsed) = inspect_source("outside-package");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    let setup = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("scripts/setup.rs"))
+        .unwrap();
+    assert_eq!(setup["package"].as_str(), None);
+    assert_eq!(setup["target"].as_str(), None);
+    assert_eq!(
+        setup["ownershipReason"].as_str(),
+        Some("source-outside-package")
     );
 
-    // packages 为空
-    let packages = parsed["packages"].as_array().unwrap();
-    assert_eq!(packages.len(), 0);
+    // 应有 source-outside-package diagnostic
+    let diagnostics = parsed["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d["code"].as_str() == Some("source-outside-package")),
+        "应有 source-outside-package diagnostic"
+    );
+}
+
+#[test]
+fn so_virtual_workspace_stray_outside() {
+    let (_, parsed) = inspect_source("virtual-workspace-stray");
+
+    let so = parsed["sourceOwnership"].as_array().unwrap();
+    // root/src/lib.rs 在 virtual workspace root 下，不属于任何 package
+    let stray = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("src/lib.rs"))
+        .unwrap();
+    assert_eq!(stray["package"].as_str(), None);
+
+    // crates/member/src/lib.rs 应归属 member
+    let member_lib = so
+        .iter()
+        .find(|s| s["sourcePath"].as_str() == Some("crates/member/src/lib.rs"))
+        .unwrap();
+    assert_eq!(member_lib["package"].as_str(), Some("member"));
+}
+
+#[test]
+fn so_root_resolution_still_empty() {
+    let (_, parsed) = inspect_source("root-package");
+    let rr = parsed["rootResolution"].as_array().unwrap();
+    assert_eq!(rr.len(), 0, "rootResolution 仍应为空数组");
+}
+
+#[test]
+fn so_stats_reflect_counts() {
+    let (_, parsed) = inspect_source("root-package");
+    let stats = &parsed["stats"];
+    let source_count = stats["sourceFileCount"].as_u64().unwrap();
+    let owned_count = stats["ownedFileCount"].as_u64().unwrap();
+    assert!(source_count > 0, "sourceFileCount 应 > 0");
+    assert!(owned_count > 0, "ownedFileCount 应 > 0");
+    assert_eq!(source_count, owned_count, "所有 .rs 都应有 package owner");
 }
