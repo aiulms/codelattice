@@ -1,0 +1,45 @@
+//! Diagnostic 类型
+//!
+//! 覆盖 CLI/output contract 冻结的 8 个 MVP diagnostic codes。
+//! Diagnostics 是 no-edge / absence 策略的核心表达方式：
+//! - 当无法确定 ownership/resolution 时，通过 diagnostic 解释原因
+//! - 当已知局限触发时，通过 diagnostic 记录
+//! - 不允许默默跳过或产出 fake edges
+
+use serde::Serialize;
+
+/// Diagnostic 条目
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Diagnostic {
+    /// enum-like string，有限集合，不是自然语言
+    pub code: String,
+    /// "error" / "warning" / "info"
+    pub severity: String,
+    /// 人类可读描述
+    pub message: String,
+    /// 受影响路径
+    pub path: String,
+    /// 关联置信度（如有）
+    pub confidence: Option<f32>,
+    /// reason code（如有）
+    pub reason: Option<String>,
+    /// 相关路径
+    pub related_paths: Vec<String>,
+    /// 修复建议
+    pub suggested_action: Option<String>,
+}
+
+/// MVP diagnostic codes 冻结集合
+pub mod codes {
+    pub const CARGO_ROOT_MISSING: &str = "cargo-root-missing";
+    pub const CARGO_ROOT_AMBIGUOUS: &str = "cargo-root-ambiguous";
+    pub const WORKSPACE_MEMBER_AMBIGUOUS: &str = "workspace-member-ambiguous";
+    pub const VIRTUAL_WORKSPACE_ROOT_NOT_CRATE_ROOT: &str = "virtual-workspace-root-not-crate-root";
+    pub const NESTED_PACKAGE_INSIDE_WORKSPACE_MEMBER: &str =
+        "nested-package-inside-workspace-member";
+    pub const NONSTANDARD_BIN_PATH_UNSUPPORTED: &str = "nonstandard-bin-path-unsupported";
+    pub const COMPLEX_GLOB_UNSUPPORTED: &str = "complex-glob-unsupported";
+    pub const PARTIAL_INDEXING: &str = "partial-indexing";
+    pub const SCAN_NOT_IMPLEMENTED: &str = "project-model-scan-not-implemented";
+}
