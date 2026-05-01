@@ -273,29 +273,20 @@ const KNOWN_MISMATCHES: &[KnownMismatch] = &[
         reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
     },
     // rootResolution：fixture 缺 root-queries.txt，具体 field 不确定，整层 skip
-    KnownMismatch {
-        fixture: "rust-cargo-root-baseline",
-        layer: "rootResolution",
-        field: None,
-        reason: "Rust-core rootResolution 依赖 root-queries.txt，fixture 可能无此文件",
-    },
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
-        layer: "rootResolution",
-        field: None,
-        reason: "Rust-core rootResolution 依赖 root-queries.txt",
-    },
+    // 已移除 4 条 rootResolution layer-level known mismatch：
+    // P0 fixtures 已补齐 root-queries.txt，rootResolution 层可真实比较
+    // 残留 2 条 field-level rootReason mapping gap（同 ownershipReason 歧义模式）
     KnownMismatch {
         fixture: "rust-workspace-explicit-member",
         layer: "rootResolution",
-        field: None,
-        reason: "Rust-core rootResolution 依赖 root-queries.txt",
+        field: Some("backend/src/api/handlers.rs.rootReason"),
+        reason: "rootReason 映射歧义：module-chain-resolved 在 workspace 场景应为 WorkspaceMemberRoot（C2）",
     },
     KnownMismatch {
         fixture: "rust-virtual-workspace-glob",
         layer: "rootResolution",
-        field: None,
-        reason: "Rust-core rootResolution 依赖 root-queries.txt",
+        field: Some("crates/api/src/handlers.rs.rootReason"),
+        reason: "rootReason 映射歧义：module-declaration-resolved 在 virtual workspace 场景应为 VirtualWorkspaceRoot（C2）",
     },
     // virtual-workspace-glob：actual 有 extra sourcePath
     KnownMismatch {
@@ -309,7 +300,7 @@ const KNOWN_MISMATCHES: &[KnownMismatch] = &[
 
 /// 判断某个 mismatch 是否为已知 mismatch。
 /// field-level 匹配：如果 KnownMismatch 指定了 field，则 mismatch.field 必须以该 field 开头。
-/// 如果 KnownMismatch.field 为 None，则整层匹配（仅用于 shape/diagnostics/rootResolution）。
+/// 如果 KnownMismatch.field 为 None，则整层匹配（仅用于 shape/diagnostics 等无具体 field 的层）。
 fn is_known_mismatch_for(fixture: &str, layer: &str, field: &str) -> Option<&'static str> {
     KNOWN_MISMATCHES
         .iter()
@@ -1127,9 +1118,9 @@ fn compare_fixture(fixture: &str) -> ComparisonResult {
         &mut known_skips,
     ));
 
-    // Layer 6: RootResolution — layer-level（field 不确定，整层 skip）
+    // Layer 6: RootResolution — per-mismatch（field-level 粒度）
     let rr_mismatches = compare_root_resolution(fixture, &expected, &actual);
-    all_mismatches.extend(filter_known_layer(
+    all_mismatches.extend(filter_known_mismatches(
         fixture,
         "rootResolution",
         rr_mismatches,
