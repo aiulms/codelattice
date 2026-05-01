@@ -228,83 +228,118 @@ impl std::fmt::Display for Mismatch {
 }
 
 // === Known Mismatch 集中登记 ===
-// 为什么只允许 UnsupportedMismatch / FixtureMismatch：
-//   ContractMismatch 意味着格式根本不对，不应 ignore。
-//   所有层都 ignore 等于没有 comparison。
+// 收紧为 field-level 粒度：只有匹配到具体 (fixture, layer, field) 的 mismatch 才 skip。
+// 同一 fixture/layer 里未登记的 mismatch 必须进入 unblocked mismatches。
+// field 为 None 表示整层（仅用于 shape/diagnostics 等无具体 field 的层）。
 
 struct KnownMismatch {
     fixture: &'static str,
     layer: &'static str,
+    /// 具体字段前缀，如 "src/lib.rs.confidence"。None 表示该层所有 mismatch。
+    field: Option<&'static str>,
     reason: &'static str,
 }
 
 /// 已知 mismatch 集中表
-/// 每条登记一个 (fixture, layer) 组合，表示该 fixture 的该层 comparison 有已知能力缺口。
 /// ⚠ 临时能力缺口登记，不是测试豁免。语义实现完成后必须删除对应条目。
+/// 每条必须匹配到具体 mismatch，禁止整层粗粒度跳过（shape/diagnostics 除外）。
 const KNOWN_MISMATCHES: &[KnownMismatch] = &[
-    // shape 层：Rust-core 可能输出更多 diagnostics（如 workspace-member-path-missing 等）
-    // expected.json 记录 diagnosticsCount=0 但 actual 可能 >0
+    // shape 层：diagnosticsCount 差异（C1 语义缺口），无具体 field
     KnownMismatch {
         fixture: "rust-cargo-root-subdirectory",
         layer: "shape",
-        reason: "Rust-core 可能输出 diagnostics（如 complex-glob-unsupported），expected 记录 diagnosticsCount=0",
+        field: None,
+        reason: "diagnosticsCount：Rust-core 输出 1 个 diagnostic，expected 记录 0（C1 语义缺口）",
     },
-    // diagnostics 层：Rust-core 在 subdirectory 场景发出 1 个 diagnostic，
-    // expected.json 无 diagnostics 记录（diagnosticsCount=0），属于 C1 语义缺口
+    // diagnostics 层：diagnosticsCount 差异（C1 语义缺口），无具体 field
     KnownMismatch {
         fixture: "rust-cargo-root-subdirectory",
         layer: "diagnostics",
-        reason: "Rust-core subdirectory 场景发出 diagnostic，expected 记录 diagnosticsCount=0（C1 语义缺口）",
+        field: None,
+        reason: "diagnosticsCount：Rust-core subdirectory 场景发出 1 个 diagnostic（C1 语义缺口）",
     },
-    // sourceOwnership 层：ownershipReason 已通过 contextual mapping 对齐，
-    // 残留 mismatch 为 confidence 经验值差异（C4 drift）
+    // sourceOwnership confidence drift：具体到 sourcePath.confidence
     KnownMismatch {
         fixture: "rust-cargo-root-baseline",
         layer: "sourceOwnership",
-        reason: "confidence 经验值差异：expected 0.9/0.95 vs actual 0.8/0.9（C4 drift）",
+        field: Some("src/models/mod.rs.confidence"),
+        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
     },
+    KnownMismatch {
+        fixture: "rust-cargo-root-subdirectory",
+        layer: "sourceOwnership",
+        field: Some("backend/src/models/mod.rs.confidence"),
+        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
+    },
+    KnownMismatch {
+        fixture: "rust-cargo-root-subdirectory",
+        layer: "sourceOwnership",
+        field: Some("backend/src/api/mod.rs.confidence"),
+        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
+    },
+    KnownMismatch {
+        fixture: "rust-cargo-root-subdirectory",
+        layer: "sourceOwnership",
+        field: Some("backend/src/api/handlers.rs.confidence"),
+        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
+    },
+    // rootResolution：fixture 缺 root-queries.txt，具体 field 不确定，整层 skip
     KnownMismatch {
         fixture: "rust-cargo-root-baseline",
         layer: "rootResolution",
+        field: None,
         reason: "Rust-core rootResolution 依赖 root-queries.txt，fixture 可能无此文件",
     },
     KnownMismatch {
         fixture: "rust-cargo-root-subdirectory",
-        layer: "sourceOwnership",
-        reason: "confidence 经验值差异：expected 0.9/0.95 vs actual 0.8/0.9（C4 drift）",
-    },
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
         layer: "rootResolution",
+        field: None,
         reason: "Rust-core rootResolution 依赖 root-queries.txt",
     },
     KnownMismatch {
         fixture: "rust-workspace-explicit-member",
-        layer: "sourceOwnership",
-        reason: "confidence 浮点精度：|0.85-0.9|≈0.05+ε 超 tolerance（C4 drift）",
-    },
-    KnownMismatch {
-        fixture: "rust-workspace-explicit-member",
         layer: "rootResolution",
+        field: None,
         reason: "Rust-core rootResolution 依赖 root-queries.txt",
     },
     KnownMismatch {
         fixture: "rust-virtual-workspace-glob",
-        layer: "sourceOwnership",
-        reason: "confidence 浮点精度：|0.85-0.9|≈0.05+ε 超 tolerance（C4 drift）",
-    },
-    KnownMismatch {
-        fixture: "rust-virtual-workspace-glob",
         layer: "rootResolution",
+        field: None,
         reason: "Rust-core rootResolution 依赖 root-queries.txt",
     },
-    // 已移除 (rust-virtual-workspace-glob, workspace)：实测无 mismatch（C6）
+    // virtual-workspace-glob：actual 有 extra sourcePath
+    KnownMismatch {
+        fixture: "rust-virtual-workspace-glob",
+        layer: "sourceOwnership",
+        field: Some("crates/api/src/mod.rs (extra in actual)"),
+        reason:
+            "actual 有 extra sourcePath crates/api/src/mod.rs，expected 未记录（C4 fixture 不完整）",
+    },
 ];
 
-fn is_known_mismatch(fixture: &str, layer: &str) -> Option<&'static str> {
+/// 判断某个 mismatch 是否为已知 mismatch。
+/// field-level 匹配：如果 KnownMismatch 指定了 field，则 mismatch.field 必须以该 field 开头。
+/// 如果 KnownMismatch.field 为 None，则整层匹配（仅用于 shape/diagnostics/rootResolution）。
+fn is_known_mismatch_for(fixture: &str, layer: &str, field: &str) -> Option<&'static str> {
     KNOWN_MISMATCHES
         .iter()
-        .find(|km| km.fixture == fixture && km.layer == layer)
+        .find(|km| {
+            km.fixture == fixture
+                && km.layer == layer
+                && match km.field {
+                    None => true,
+                    Some(f) => field == f || field.starts_with(&format!("{}.", f)),
+                }
+        })
+        .map(|km| km.reason)
+}
+
+/// 判断某层是否有整层 known mismatch（用于 layer-level 跳过的向后兼容）
+fn is_known_mismatch_layer(fixture: &str, layer: &str) -> Option<&'static str> {
+    KNOWN_MISMATCHES
+        .iter()
+        .find(|km| km.fixture == fixture && km.layer == layer && km.field.is_none())
         .map(|km| km.reason)
 }
 
@@ -783,10 +818,12 @@ fn compare_source_ownership(
                     }
                 }
 
-                // confidence：±0.05 tolerance
+                // confidence：±0.05 tolerance + f64 epsilon（防止 |0.85-0.9| 因浮点精度略超 0.05 被误判）
                 let e_conf = e["confidence"].as_f64().unwrap_or(0.0);
                 let a_conf = a["confidence"].as_f64().unwrap_or(0.0);
-                if (e_conf - a_conf).abs() > CONFIDENCE_TOLERANCE {
+                let diff = (e_conf - a_conf).abs();
+                let tolerance = CONFIDENCE_TOLERANCE + f64::EPSILON;
+                if diff > tolerance {
                     mismatches.push(Mismatch {
                         fixture: fixture.to_string(),
                         layer: "sourceOwnership".to_string(),
@@ -795,13 +832,32 @@ fn compare_source_ownership(
                         actual: format!("{}", a_conf),
                         mismatch_type: MismatchType::GoldenMismatch,
                         detail: format!(
-                            "confidence 差 {} 超过 tolerance {}",
-                            (e_conf - a_conf).abs(),
-                            CONFIDENCE_TOLERANCE
+                            "confidence 差 {:.6} 超过 tolerance {:.6}",
+                            diff, CONFIDENCE_TOLERANCE
                         ),
                     });
                 }
             }
+        }
+    }
+
+    // 检查 actual 中有但 expected 中没有的 sourcePath（禁止静默忽略）
+    let expected_paths: std::collections::HashSet<_> = expected_so
+        .iter()
+        .filter_map(|e| e["sourcePath"].as_str())
+        .collect();
+    for a in &actual_so {
+        let sp = a["sourcePath"].as_str().unwrap_or("?");
+        if !expected_paths.contains(sp) {
+            mismatches.push(Mismatch {
+                fixture: fixture.to_string(),
+                layer: "sourceOwnership".to_string(),
+                field: format!("{} (extra in actual)", sp),
+                expected: "(not in expected)".to_string(),
+                actual: sp.to_string(),
+                mismatch_type: MismatchType::GoldenMismatch,
+                detail: format!("actual source {} 不在 expectedSourceOwnership 中", sp),
+            });
         }
     }
 
@@ -999,6 +1055,49 @@ struct ComparisonResult {
     known_skips: Vec<String>,
 }
 
+/// 对 mismatch 列表做 per-mismatch known skip 过滤。
+/// 每个 mismatch 按其 (fixture, layer, field) 查找 KNOWN_MISMATCHES，
+/// 匹配到的进入 known_skips，未匹配的进入 unblocked mismatches。
+fn filter_known_mismatches(
+    fixture: &str,
+    layer: &str,
+    mismatches: Vec<Mismatch>,
+    known_skips: &mut Vec<String>,
+) -> Vec<Mismatch> {
+    let mut unblocked = Vec::new();
+    for m in mismatches {
+        if let Some(reason) = is_known_mismatch_for(fixture, layer, &m.field) {
+            known_skips.push(format!(
+                "{}.{}: {} (known: {})",
+                layer, m.field, m.detail, reason
+            ));
+        } else {
+            unblocked.push(m);
+        }
+    }
+    unblocked
+}
+
+/// 对整层 mismatch 做 layer-level 过滤（仅用于 field=None 的 known mismatch）
+fn filter_known_layer(
+    fixture: &str,
+    layer: &str,
+    mismatches: Vec<Mismatch>,
+    known_skips: &mut Vec<String>,
+) -> Vec<Mismatch> {
+    if is_known_mismatch_layer(fixture, layer).is_some() && !mismatches.is_empty() {
+        known_skips.push(format!(
+            "{}: {} mismatches (known: {})",
+            layer,
+            mismatches.len(),
+            is_known_mismatch_layer(fixture, layer).unwrap()
+        ));
+        Vec::new()
+    } else {
+        mismatches
+    }
+}
+
 fn compare_fixture(fixture: &str) -> ComparisonResult {
     let expected = load_expected(fixture);
     let actual = inspect_fixture(fixture);
@@ -1006,71 +1105,56 @@ fn compare_fixture(fixture: &str) -> ComparisonResult {
     let mut all_mismatches = Vec::new();
     let mut known_skips = Vec::new();
 
-    // Layer 1: Shape
+    // Layer 1: Shape — layer-level（无具体 field）
     let shape_mismatches = compare_shape(fixture, &expected, &actual);
-    if is_known_mismatch(fixture, "shape").is_some() && !shape_mismatches.is_empty() {
-        known_skips.push(format!(
-            "shape: {} mismatches (known: {})",
-            shape_mismatches.len(),
-            is_known_mismatch(fixture, "shape").unwrap()
-        ));
-    } else {
-        all_mismatches.extend(shape_mismatches);
-    }
+    all_mismatches.extend(filter_known_layer(
+        fixture,
+        "shape",
+        shape_mismatches,
+        &mut known_skips,
+    ));
 
     // Layer 2: Package — P0 required
     all_mismatches.extend(compare_packages(fixture, &expected, &actual));
 
-    // Layer 3: Workspace
+    // Layer 3: Workspace — per-mismatch
     let ws_mismatches = compare_workspaces(fixture, &expected, &actual);
-    if is_known_mismatch(fixture, "workspace").is_some() && !ws_mismatches.is_empty() {
-        known_skips.push(format!(
-            "workspace: {} mismatches (known: {})",
-            ws_mismatches.len(),
-            is_known_mismatch(fixture, "workspace").unwrap()
-        ));
-    } else {
-        all_mismatches.extend(ws_mismatches);
-    }
+    all_mismatches.extend(filter_known_mismatches(
+        fixture,
+        "workspace",
+        ws_mismatches,
+        &mut known_skips,
+    ));
 
     // Layer 4: Target — P0 required
     all_mismatches.extend(compare_targets(fixture, &expected, &actual));
 
-    // Layer 5: SourceOwnership
+    // Layer 5: SourceOwnership — per-mismatch（field-level 粒度）
     let so_mismatches = compare_source_ownership(fixture, &expected, &actual);
-    if is_known_mismatch(fixture, "sourceOwnership").is_some() && !so_mismatches.is_empty() {
-        known_skips.push(format!(
-            "sourceOwnership: {} mismatches (known: {})",
-            so_mismatches.len(),
-            is_known_mismatch(fixture, "sourceOwnership").unwrap()
-        ));
-    } else {
-        all_mismatches.extend(so_mismatches);
-    }
+    all_mismatches.extend(filter_known_mismatches(
+        fixture,
+        "sourceOwnership",
+        so_mismatches,
+        &mut known_skips,
+    ));
 
-    // Layer 6: RootResolution
+    // Layer 6: RootResolution — layer-level（field 不确定，整层 skip）
     let rr_mismatches = compare_root_resolution(fixture, &expected, &actual);
-    if is_known_mismatch(fixture, "rootResolution").is_some() && !rr_mismatches.is_empty() {
-        known_skips.push(format!(
-            "rootResolution: {} mismatches (known: {})",
-            rr_mismatches.len(),
-            is_known_mismatch(fixture, "rootResolution").unwrap()
-        ));
-    } else {
-        all_mismatches.extend(rr_mismatches);
-    }
+    all_mismatches.extend(filter_known_layer(
+        fixture,
+        "rootResolution",
+        rr_mismatches,
+        &mut known_skips,
+    ));
 
-    // Layer 7: Diagnostics
+    // Layer 7: Diagnostics — layer-level（无具体 field）
     let diag_mismatches = compare_diagnostics(fixture, &expected, &actual);
-    if is_known_mismatch(fixture, "diagnostics").is_some() && !diag_mismatches.is_empty() {
-        known_skips.push(format!(
-            "diagnostics: {} mismatches (known: {})",
-            diag_mismatches.len(),
-            is_known_mismatch(fixture, "diagnostics").unwrap()
-        ));
-    } else {
-        all_mismatches.extend(diag_mismatches);
-    }
+    all_mismatches.extend(filter_known_layer(
+        fixture,
+        "diagnostics",
+        diag_mismatches,
+        &mut known_skips,
+    ));
 
     // Layer 8: Absence
     let abs_mismatches = compare_absence(fixture, &expected, &actual);
@@ -1132,20 +1216,20 @@ fn shape_layer_passes_for_p0_fixtures() {
         let expected = load_expected(name);
         let actual = inspect_fixture(name);
         let mismatches = compare_shape(name, &expected, &actual);
-        // 过滤 known mismatch
+        // 过滤 known mismatch（shape 用 layer-level）
         let unexpected: Vec<_> = mismatches
             .iter()
-            .filter(|_| is_known_mismatch(name, "shape").is_none())
+            .filter(|_| is_known_mismatch_layer(name, "shape").is_none())
             .collect();
         for m in &unexpected {
             eprintln!("{}", m);
         }
-        if is_known_mismatch(name, "shape").is_some() && !mismatches.is_empty() {
+        if is_known_mismatch_layer(name, "shape").is_some() && !mismatches.is_empty() {
             eprintln!(
                 "  KNOWN SKIP shape for {}: {} mismatches (known: {})",
                 name,
                 mismatches.len(),
-                is_known_mismatch(name, "shape").unwrap()
+                is_known_mismatch_layer(name, "shape").unwrap()
             );
         }
         total_mismatches += unexpected.len();
