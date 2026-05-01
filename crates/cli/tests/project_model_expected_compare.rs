@@ -244,20 +244,9 @@ struct KnownMismatch {
 /// ⚠ 临时能力缺口登记，不是测试豁免。语义实现完成后必须删除对应条目。
 /// 每条必须匹配到具体 mismatch，禁止整层粗粒度跳过（shape/diagnostics 除外）。
 const KNOWN_MISMATCHES: &[KnownMismatch] = &[
-    // shape 层：diagnosticsCount 差异（C1 语义缺口），无具体 field
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
-        layer: "shape",
-        field: None,
-        reason: "diagnosticsCount：Rust-core 输出 1 个 diagnostic，expected 记录 0（C1 语义缺口）",
-    },
-    // diagnostics 层：diagnosticsCount 差异（C1 语义缺口），无具体 field
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
-        layer: "diagnostics",
-        field: None,
-        reason: "diagnosticsCount：Rust-core subdirectory 场景发出 1 个 diagnostic（C1 语义缺口）",
-    },
+    // 已移除 (rust-cargo-root-subdirectory, shape) 和 (rust-cargo-root-subdirectory, diagnostics)：
+    // C1 语义缺口已通过 expected.json golden drift 解决——subdirectory fixture root 无 Cargo.toml，
+    // Rust-core 输出 cargo-toml-missing diagnostic 是合理行为，expected.json 已更新
     // sourceOwnership confidence drift：具体到 sourcePath.confidence
     KnownMismatch {
         fixture: "rust-cargo-root-baseline",
