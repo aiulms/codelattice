@@ -1,6 +1,6 @@
 //! Diagnostic 类型
 //!
-//! 覆盖 CLI/output contract 冻结的 8 个 MVP diagnostic codes。
+//! 覆盖 CLI/output contract 冻结的 diagnostic codes。
 //! Diagnostics 是 no-edge / absence 策略的核心表达方式：
 //! - 当无法确定 ownership/resolution 时，通过 diagnostic 解释原因
 //! - 当已知局限触发时，通过 diagnostic 记录
@@ -30,7 +30,7 @@ pub struct Diagnostic {
     pub suggested_action: Option<String>,
 }
 
-/// MVP diagnostic codes 冻结集合
+/// diagnostic codes 冻结集合
 pub mod codes {
     pub const CARGO_ROOT_MISSING: &str = "cargo-root-missing";
     pub const CARGO_ROOT_AMBIGUOUS: &str = "cargo-root-ambiguous";
@@ -42,4 +42,12 @@ pub mod codes {
     pub const COMPLEX_GLOB_UNSUPPORTED: &str = "complex-glob-unsupported";
     pub const PARTIAL_INDEXING: &str = "partial-indexing";
     pub const SCAN_NOT_IMPLEMENTED: &str = "project-model-scan-not-implemented";
+
+    // 第一刀 manifest scanner 新增 diagnostic codes
+    pub const CARGO_TOML_MISSING: &str = "cargo-toml-missing";
+    pub const CARGO_TOML_PARSE_ERROR: &str = "cargo-toml-parse-error";
+    pub const PACKAGE_NAME_MISSING: &str = "package-name-missing";
+    pub const WORKSPACE_MEMBERS_INVALID: &str = "workspace-members-invalid";
+    pub const WORKSPACE_MEMBER_PATH_MISSING: &str = "workspace-member-path-missing";
+    pub const TARGET_ROOT_MISSING: &str = "target-root-missing";
 }

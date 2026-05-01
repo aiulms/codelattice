@@ -5,6 +5,52 @@
 
 use serde::Serialize;
 
+/// package 发现方式，有限集合枚举
+#[derive(Debug, Clone, Serialize)]
+pub enum DiscoveryReason {
+    RootManifest,
+    SubdirectoryScan,
+    WorkspaceExplicit,
+    WorkspaceGlob,
+}
+
+impl DiscoveryReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            DiscoveryReason::RootManifest => "root-manifest",
+            DiscoveryReason::SubdirectoryScan => "subdirectory-scan",
+            DiscoveryReason::WorkspaceExplicit => "workspace-explicit",
+            DiscoveryReason::WorkspaceGlob => "workspace-glob",
+        }
+    }
+}
+
+/// target 类型，有限集合枚举
+#[derive(Debug, Clone, Serialize)]
+pub enum TargetKind {
+    Lib,
+    Bin,
+    Test,
+    Bench,
+    Example,
+    CustomBuild,
+    Unknown,
+}
+
+impl TargetKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TargetKind::Lib => "lib",
+            TargetKind::Bin => "bin",
+            TargetKind::Test => "test",
+            TargetKind::Bench => "bench",
+            TargetKind::Example => "example",
+            TargetKind::CustomBuild => "custom-build",
+            TargetKind::Unknown => "unknown",
+        }
+    }
+}
+
 /// 顶层输出，覆盖 CLI/output contract 的 14 个字段
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

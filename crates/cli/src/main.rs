@@ -1,7 +1,7 @@
 //! GitNexus Rust-core CLI
 //!
 //! 提供 project-model inspect / validate / fixtures list 命令。
-//! 当前 MVP 只实现 inspect，输出 contract-compliant JSON 到 stdout。
+//! MVP 只实现 inspect，输出 contract-compliant JSON 到 stdout。
 //! Human-readable logs 输出到 stderr，确保 stdout 只包含 JSON，可管道到 jq / 文件。
 
 use clap::{Parser, Subcommand};
@@ -57,10 +57,8 @@ fn main() {
                     std::process::exit(1);
                 }
 
-                // 获取规范化的相对路径表达
-                let root_display = root.clone();
-
-                let output = gitnexus_project_model::output::generate_stub_output(&root_display);
+                // 调用真实 manifest scanner
+                let output = gitnexus_project_model::output::inspect_project_model(root_path);
                 let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
                     eprintln!("错误：JSON 序列化失败: {e}");
                     std::process::exit(1);

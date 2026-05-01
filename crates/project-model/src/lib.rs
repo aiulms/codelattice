@@ -1,8 +1,9 @@
 //! GitNexus Rust-core ProjectModel 库
 //!
 //! 提供 ProjectModel 输出类型和 CLI/output contract 冻结的序列化格式。
-//! 当前为工程骨架 stub，不执行 Cargo manifest 扫描。
+//! 第一刀实现 manifest scanner：读取 Cargo.toml，发现 package/workspace/target。
 
 pub mod diagnostic;
+pub mod manifest;
 pub mod model;
 pub mod output;
