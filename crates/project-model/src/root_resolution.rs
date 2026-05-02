@@ -297,9 +297,17 @@ enum ModuleResolveResult {
 /// 解析 crate:: 路径为 module segments
 fn parse_crate_path(query: &str) -> Vec<&str> {
     // crate::a::b::c → ["a", "b", "c"]
+    // crate:: → []（crate root 自身）
+    // 过滤空字符串："".split("::") = [""] 而非 []，需显式排除
     query
         .strip_prefix("crate::")
-        .map(|rest| rest.split("::").collect())
+        .map(|rest| {
+            if rest.is_empty() {
+                vec![]
+            } else {
+                rest.split("::").collect()
+            }
+        })
         .unwrap_or_default()
 }
 

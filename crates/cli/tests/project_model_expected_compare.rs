@@ -22,13 +22,28 @@
 use assert_cmd::Command;
 use std::path::PathBuf;
 
-// === P0 fixture 列表 ===
+// === Fixture 列表 ===
 
 const P0_FIXTURES: &[&str] = &[
     "rust-cargo-root-baseline",
     "rust-cargo-root-subdirectory",
     "rust-workspace-explicit-member",
     "rust-virtual-workspace-glob",
+];
+
+const P1_FIXTURES: &[&str] = &[
+    "rust-nested-package-explicit-member",
+    "rust-nested-package-glob-member",
+];
+
+/// 所有 fixture（P0 + P1）
+const ALL_FIXTURES: &[&str] = &[
+    "rust-cargo-root-baseline",
+    "rust-cargo-root-subdirectory",
+    "rust-workspace-explicit-member",
+    "rust-virtual-workspace-glob",
+    "rust-nested-package-explicit-member",
+    "rust-nested-package-glob-member",
 ];
 
 // === GitNexus-RC root 定位 ===
@@ -159,10 +174,12 @@ fn map_ownership_reason_ctx(kebab: &str, ctx: &OwnershipContext) -> Option<&'sta
 /// 同 ownershipReason 歧义模式：module-declaration-resolved / module-chain-resolved
 /// 在 standalone 场景 → LibTargetRoot，workspace member → WorkspaceMemberRoot，
 /// virtual workspace member → VirtualWorkspaceRoot。
+/// crate-root-resolved 需额外 target_kind 区分 lib → WorkspaceMemberRoot / bin → BinTargetRoot。
 #[derive(Clone)]
 struct RootResolutionContext {
     is_workspace_member: bool,
     is_virtual_workspace_member: bool,
+    target_kind: Option<String>,
 }
 
 /// 带 fixture 上下文的 rootReason 映射。
@@ -177,6 +194,20 @@ fn map_root_reason_ctx(kebab: &str, ctx: &RootResolutionContext) -> Option<&'sta
                 Some("LibTargetRoot")
             }
         }
+        "crate-root-resolved" => {
+            // crate-root-resolved 需根据 target_kind 和 workspace context 区分
+            if ctx.is_virtual_workspace_member || ctx.is_workspace_member {
+                match ctx.target_kind.as_deref() {
+                    Some("bin") => Some("BinTargetRoot"),
+                    _ => Some("WorkspaceMemberRoot"),
+                }
+            } else {
+                match ctx.target_kind.as_deref() {
+                    Some("bin") => Some("BinTargetRoot"),
+                    _ => Some("LibTargetRoot"),
+                }
+            }
+        }
         "lib-target-root" => Some("LibTargetRoot"),
         "bin-target-root" => Some("BinTargetRoot"),
         "workspace-member-target-root" => Some("WorkspaceMemberRoot"),
@@ -186,7 +217,6 @@ fn map_root_reason_ctx(kebab: &str, ctx: &RootResolutionContext) -> Option<&'sta
         "crate-path-ambiguous" => Some("CratePathAmbiguous"),
         "root-resolution-skipped" => Some("RootResolutionSkipped"),
         "crate-root-missing" => Some("CrateRootMissing"),
-        "crate-root-resolved" => Some("LibTargetRoot"),
         _ => None,
     }
 }
@@ -850,6 +880,7 @@ fn compare_root_resolution(
                 RootResolutionContext {
                     is_workspace_member: is_ws && !is_virtual,
                     is_virtual_workspace_member: is_virtual,
+                    target_kind: None,
                 },
             ))
         })
@@ -908,17 +939,23 @@ fn compare_root_resolution(
                     });
                 }
 
-                // rootReason：带 package 上下文的映射
+                // rootReason：带 package 上下文 + targetKind 的映射
                 let actual_reason = a["rootReason"].as_str().unwrap_or("");
                 let expected_reason = e["rootReason"].as_str().unwrap_or("");
-                let ctx = source_to_pkg
+                let base_ctx = source_to_pkg
                     .get(source_path)
                     .and_then(|pkg| pkg_rr_ctx.get(pkg))
                     .cloned()
                     .unwrap_or(RootResolutionContext {
                         is_workspace_member: false,
                         is_virtual_workspace_member: false,
+                        target_kind: None,
                     });
+                // 从 actual rr entry 读取 targetKind
+                let ctx = RootResolutionContext {
+                    target_kind: a["targetKind"].as_str().map(|s| s.to_string()),
+                    ..base_ctx
+                };
                 match map_root_reason_ctx(actual_reason, &ctx) {
                     Some(m) if m == expected_reason => {}
                     Some(m) => {
@@ -1297,14 +1334,53 @@ fn target_layer_compares_for_p0_fixtures() {
 
 #[test]
 fn full_comparison_reports_mismatches_for_p0_fixtures() {
-    // 为什么这个测试不 assert 全通过：
-    //   当前 Rust-core 实现与 expected.json 有已知差异，
-    //   此测试验证 harness 可运行、可报告 mismatch，不是要求全 pass。
+    // P0 专项：验证 P0 仍然 0 mismatches 0 known skips
+    let mut total_mismatches = 0;
+    let mut total_known_skips = 0;
+
+    for name in P0_FIXTURES {
+        let result = compare_fixture(name);
+
+        eprintln!("\n=== P0 Comparison report for {} ===", name);
+        eprintln!("  mismatches: {}", result.mismatches.len());
+        eprintln!("  known skips: {}", result.known_skips.len());
+
+        for m in &result.mismatches {
+            eprintln!("  {}", m);
+        }
+
+        for skip in &result.known_skips {
+            eprintln!("  KNOWN SKIP: {}", skip);
+        }
+
+        total_mismatches += result.mismatches.len();
+        total_known_skips += result.known_skips.len();
+    }
+
+    eprintln!("\n=== P0 Total ===");
+    eprintln!("  mismatches: {}", total_mismatches);
+    eprintln!("  known skips: {}", total_known_skips);
+
+    assert_eq!(
+        total_mismatches, 0,
+        "P0: {} unblocked mismatches",
+        total_mismatches
+    );
+    assert_eq!(
+        total_known_skips, 0,
+        "P0: {} known skips",
+        total_known_skips
+    );
+}
+
+#[test]
+fn full_comparison_reports_mismatches_for_all_fixtures() {
+    // P0 + P1 全量 comparison
     let mut total_mismatches = 0;
     let mut total_known_skips = 0;
     let mut any_assertion = false;
 
-    for name in P0_FIXTURES {
+    for name in ALL_FIXTURES {
         let result = compare_fixture(name);
 
         eprintln!("\n=== Comparison report for {} ===", name);
@@ -1322,21 +1398,19 @@ fn full_comparison_reports_mismatches_for_p0_fixtures() {
         total_mismatches += result.mismatches.len();
         total_known_skips += result.known_skips.len();
 
-        // 为什么 shape+package+target 层不 allowed skip：
-        //   这些是 ProjectModel 核心身份层，skip 等于没有 comparison。
         if !result.mismatches.is_empty() || !result.known_skips.is_empty() {
             any_assertion = true;
         }
     }
 
-    eprintln!("\n=== Total ===");
+    eprintln!("\n=== All Fixtures Total ===");
     eprintln!("  mismatches: {}", total_mismatches);
     eprintln!("  known skips: {}", total_known_skips);
 
-    // 不允许零断言通过：harness 必须执行真实 comparison
+    // 不允许零断言通过
     assert!(
         any_assertion || total_mismatches == 0,
-        "harness 必须执行至少一个 comparison，不允许空测试"
+        "harness 必须执行至少一个 comparison"
     );
 }
 
