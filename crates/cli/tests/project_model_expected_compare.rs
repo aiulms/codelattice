@@ -42,7 +42,14 @@ const P1_TARGET_FIXTURES: &[&str] = &[
     "rust-target-shared-module-ambiguous",
 ];
 
-/// 所有 fixture（P0 + P1）
+const P1_GUARD_FIXTURES: &[&str] = &[
+    "rust-ambiguous-root-nested-package",
+    "rust-ambiguous-root-duplicate-member",
+    "rust-cargo-root-missing",
+    "rust-virtual-workspace-not-crate-root",
+];
+
+/// 所有 fixture（P0 + P1-nested + P1-target + P1-guard）
 const ALL_FIXTURES: &[&str] = &[
     "rust-cargo-root-baseline",
     "rust-cargo-root-subdirectory",
@@ -53,6 +60,10 @@ const ALL_FIXTURES: &[&str] = &[
     "rust-target-lib-and-main",
     "rust-target-bin-worker",
     "rust-target-shared-module-ambiguous",
+    "rust-ambiguous-root-nested-package",
+    "rust-ambiguous-root-duplicate-member",
+    "rust-cargo-root-missing",
+    "rust-virtual-workspace-not-crate-root",
 ];
 
 // === GitNexus-RC root 定位 ===
@@ -205,7 +216,12 @@ fn map_root_reason_ctx(kebab: &str, ctx: &RootResolutionContext) -> Option<&'sta
         }
         "crate-root-resolved" => {
             // crate-root-resolved 需根据 target_kind 和 workspace context 区分
-            if ctx.is_virtual_workspace_member || ctx.is_workspace_member {
+            if ctx.is_virtual_workspace_member {
+                match ctx.target_kind.as_deref() {
+                    Some("bin") => Some("BinTargetRoot"),
+                    _ => Some("VirtualWorkspaceRoot"),
+                }
+            } else if ctx.is_workspace_member {
                 match ctx.target_kind.as_deref() {
                     Some("bin") => Some("BinTargetRoot"),
                     _ => Some("WorkspaceMemberRoot"),
