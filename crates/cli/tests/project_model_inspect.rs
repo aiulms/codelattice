@@ -486,19 +486,14 @@ fn inspect_with_include_symbols_has_empty_but_present_symbols() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
 
     let symbols = parsed["symbols"].as_array().unwrap();
-    // 第一刀不做真实 extraction，symbols 为空
-    assert_eq!(
-        symbols.len(),
-        0,
-        "第一刀 NoopItemExtractor 不做真实 extraction"
-    );
+    // 第二刀使用 TextItemExtractor，symbols 可能有内容
+    // 不再断言为空
 
     let symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
-    assert_eq!(symbol_diagnostics.len(), 0);
 
-    // stats.symbolCount 应为 0
+    // stats.symbolCount 应与 symbols 长度一致
     let symbol_count = parsed["stats"]["symbolCount"].as_u64().unwrap();
-    assert_eq!(symbol_count, 0);
+    assert_eq!(symbol_count, symbols.len() as u64);
 }
 
 #[test]
@@ -647,4 +642,154 @@ fn rr_stats_reflect_resolution_counts() {
     let fail = stats["resolutionFailCount"].as_u64().unwrap();
     assert_eq!(success, 1);
     assert_eq!(fail, 0);
+}
+
+// === Item extraction 场景测试 ===
+
+fn item_fixture_dir(name: &str) -> PathBuf {
+    let base = find_workspace_root();
+    base.join("fixtures").join("item-extraction").join(name)
+}
+
+fn inspect_items(name: &str) -> serde_json::Value {
+    let dir = item_fixture_dir(name);
+    let output = cli_bin()
+        .arg("project-model")
+        .arg("inspect")
+        .arg("--root")
+        .arg(dir.to_string_lossy().as_ref())
+        .arg("--format")
+        .arg("json")
+        .arg("--include")
+        .arg("symbols")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).expect("stdout 必须是可解析 JSON")
+}
+
+#[test]
+fn item_top_level_extracts_all_kinds() {
+    let parsed = inspect_items("item-top-level");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    // 应提取到 10 个 symbol（8 pub + 2 private）
+    assert!(
+        symbols.len() >= 8,
+        "至少应有 8 个 symbol，实际 {}",
+        symbols.len()
+    );
+
+    // 验证各 kind 存在
+    let kinds: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s["symbolKind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"function"), "应有 function");
+    assert!(kinds.contains(&"struct"), "应有 struct");
+    assert!(kinds.contains(&"enum"), "应有 enum");
+    assert!(kinds.contains(&"trait"), "应有 trait");
+    assert!(kinds.contains(&"type-alias"), "应有 type-alias");
+    assert!(kinds.contains(&"const"), "应有 const");
+    assert!(kinds.contains(&"static"), "应有 static");
+    assert!(kinds.contains(&"macro-definition"), "应有 macro-definition");
+
+    // 验证 symbolCount
+    let symbol_count = parsed["stats"]["symbolCount"].as_u64().unwrap();
+    assert_eq!(symbol_count, symbols.len() as u64);
+}
+
+#[test]
+fn item_visibility_correct() {
+    let parsed = inspect_items("item-visibility");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    // 找到各 visibility 的 symbol
+    let public_fn = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("public_fn"));
+    assert!(public_fn.is_some(), "应有 public_fn");
+    assert_eq!(public_fn.unwrap()["visibility"].as_str(), Some("public"));
+
+    let crate_fn = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("crate_fn"));
+    assert!(crate_fn.is_some(), "应有 crate_fn");
+    assert_eq!(crate_fn.unwrap()["visibility"].as_str(), Some("pub-crate"));
+
+    let super_fn = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("super_fn"));
+    assert!(super_fn.is_some(), "应有 super_fn");
+    assert_eq!(super_fn.unwrap()["visibility"].as_str(), Some("pub-super"));
+
+    let restricted_fn = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("restricted_fn"));
+    assert!(restricted_fn.is_some(), "应有 restricted_fn");
+    assert_eq!(
+        restricted_fn.unwrap()["visibility"].as_str(),
+        Some("pub-restricted")
+    );
+
+    let private_fn = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("private_fn"));
+    assert!(private_fn.is_some(), "应有 private_fn");
+    assert_eq!(private_fn.unwrap()["visibility"].as_str(), Some("private"));
+}
+
+#[test]
+fn item_macro_definition_and_invocation_diagnostic() {
+    let parsed = inspect_items("item-macro");
+    let symbols = parsed["symbols"].as_array().unwrap();
+    let diags = parsed["symbolDiagnostics"].as_array().unwrap();
+
+    // 应提取 macro_rules! create_fn
+    let macro_def = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("create_fn"));
+    assert!(macro_def.is_some(), "应有 create_fn macro definition");
+    assert_eq!(
+        macro_def.unwrap()["symbolKind"].as_str(),
+        Some("macro-definition")
+    );
+
+    // 应有 macro invocation diagnostic
+    assert!(
+        diags
+            .iter()
+            .any(|d| d["code"].as_str() == Some("macro-invocation-unexpanded")),
+        "应有 macro-invocation-unexpanded diagnostic"
+    );
+
+    // 应有 fallback-extraction diagnostic
+    assert!(
+        diags
+            .iter()
+            .any(|d| d["code"].as_str() == Some("fallback-extraction")),
+        "应有 fallback-extraction diagnostic"
+    );
+}
+
+#[test]
+fn item_symbol_has_id_and_fields() {
+    let parsed = inspect_items("item-top-level");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    let hello_fn = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("hello"))
+        .unwrap();
+
+    // id 格式：packageName::modulePath::name
+    assert!(hello_fn["id"].as_str().unwrap().contains("::hello"));
+
+    // 基本字段
+    assert_eq!(hello_fn["symbolKind"].as_str(), Some("function"));
+    assert_eq!(hello_fn["packageName"].as_str(), Some("item-top-level"));
+    assert!(hello_fn["sourcePath"].as_str().unwrap().contains("lib.rs"));
+    assert_eq!(hello_fn["isPub"].as_bool(), Some(true));
+    assert!(hello_fn["lineStart"].as_u64().unwrap() > 0);
 }

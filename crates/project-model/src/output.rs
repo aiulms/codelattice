@@ -6,6 +6,7 @@
 //! stdout 只输出 JSON，human-readable logs 输出到 stderr。
 
 use crate::diagnostic::{codes, Diagnostic};
+use crate::item::{ItemExtractionInput, TextItemExtractor};
 use crate::manifest;
 use crate::model::*;
 use crate::root_resolution;
@@ -41,11 +42,13 @@ pub fn inspect_project_model_with_symbols(
     all_diagnostics.extend(rr_result.diagnostics);
     let diagnostics_count = all_diagnostics.len() as u32;
 
-    // item/symbol 提取：第一刀使用 NoopItemExtractor，返回空
+    // item/symbol 提取：第二刀使用 TextItemExtractor
     let (symbols, symbol_diagnostics, symbol_count) = if include_symbols {
-        // 第一刀不做真实 extraction，只返回空结构
-        // 后续第二刀在此处调用真实 extractor
-        (vec![], vec![], 0u32)
+        let extractor = TextItemExtractor;
+        let inputs = build_extraction_inputs(root, &source_result.source_ownership, &scan.packages);
+        let result = crate::item::extract_symbols_from_files(&extractor, &inputs);
+        let count = result.symbols.len() as u32;
+        (result.symbols, result.diagnostics, count)
     } else {
         (vec![], vec![], 0u32)
     };
@@ -131,4 +134,44 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
         symbols: vec![],
         symbol_diagnostics: vec![],
     }
+}
+
+/// 从 sourceOwnership 构建提取输入
+///
+/// 只处理有 package owner 的 .rs 文件，跳过 outside-package 文件。
+/// 读取文件内容用于 text-level 扫描。
+fn build_extraction_inputs(
+    root: &std::path::Path,
+    source_ownership: &[SourceOwnership],
+    packages: &[PackageModel],
+) -> Vec<ItemExtractionInput> {
+    let mut inputs = Vec::new();
+
+    for so in source_ownership {
+        // 跳过无 package owner 的文件
+        let pkg_name = match &so.package {
+            Some(p) => p.clone(),
+            None => continue,
+        };
+
+        let module_path = Some("crate".to_string());
+
+        // 使用绝对路径读取文件内容
+        let abs_path = root.join(&so.source_path);
+        let source_text = match std::fs::read_to_string(&abs_path) {
+            Ok(content) => content,
+            Err(_) => continue,
+        };
+
+        inputs.push(ItemExtractionInput {
+            source_path: so.source_path.clone(),
+            source_text,
+            package_name: pkg_name,
+            target_name: so.target.clone(),
+            module_path,
+        });
+    }
+
+    let _ = packages;
+    inputs
 }
