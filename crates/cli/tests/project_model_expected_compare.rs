@@ -36,6 +36,12 @@ const P1_FIXTURES: &[&str] = &[
     "rust-nested-package-glob-member",
 ];
 
+const P1_TARGET_FIXTURES: &[&str] = &[
+    "rust-target-lib-and-main",
+    "rust-target-bin-worker",
+    "rust-target-shared-module-ambiguous",
+];
+
 /// 所有 fixture（P0 + P1）
 const ALL_FIXTURES: &[&str] = &[
     "rust-cargo-root-baseline",
@@ -44,6 +50,9 @@ const ALL_FIXTURES: &[&str] = &[
     "rust-virtual-workspace-glob",
     "rust-nested-package-explicit-member",
     "rust-nested-package-glob-member",
+    "rust-target-lib-and-main",
+    "rust-target-bin-worker",
+    "rust-target-shared-module-ambiguous",
 ];
 
 // === GitNexus-RC root 定位 ===
