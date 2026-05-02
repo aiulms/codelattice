@@ -261,28 +261,14 @@ struct KnownMismatch {
 /// ⚠ 临时能力缺口登记，不是测试豁免。语义实现完成后必须删除对应条目。
 /// 每条必须匹配到具体 mismatch，禁止整层粗粒度跳过（shape/diagnostics 除外）。
 const KNOWN_MISMATCHES: &[KnownMismatch] = &[
-    // 已移除 (rust-cargo-root-subdirectory, shape) 和 (rust-cargo-root-subdirectory, diagnostics)：
-    // C1 语义缺口已通过 expected.json golden drift 解决——subdirectory fixture root 无 Cargo.toml，
-    // Rust-core 输出 cargo-toml-missing diagnostic 是合理行为，expected.json 已更新
-    // 已移除 4 条 sourceOwnership confidence drift known mismatch：
-    // Rust-core SingleTarget confidence 从 0.80 修正为 0.90（确定性推理，非启发式猜测），
-    // standalone package non-target-root 对齐 expected=0.9，
-    // workspace member non-target-root diff=0.05 在 harness tolerance 内
-    // rootResolution：fixture 缺 root-queries.txt，具体 field 不确定，整层 skip
-    // 已移除 4 条 rootResolution layer-level known mismatch：
-    // P0 fixtures 已补齐 root-queries.txt，rootResolution 层可真实比较
-    // 已移除 2 条 rootReason mapping gap known mismatch：
-    // rootReason 引入 contextual mapping（同 ownershipReason 模式），
-    // module-declaration-resolved / module-chain-resolved 根据 package 上下文
-    // 映射为 WorkspaceMemberRoot / VirtualWorkspaceRoot / LibTargetRoot
-    // virtual-workspace-glob：actual 有 extra sourcePath
-    KnownMismatch {
-        fixture: "rust-virtual-workspace-glob",
-        layer: "sourceOwnership",
-        field: Some("crates/api/src/mod.rs (extra in actual)"),
-        reason:
-            "actual 有 extra sourcePath crates/api/src/mod.rs，expected 未记录（C4 fixture 不完整）",
-    },
+    // P0 fixtures 已完全对齐：0 unblocked mismatches, 0 known skips
+    // 历史移除记录：
+    // - C1: subdirectory diagnostics golden drift（expected.json 更新）
+    // - C2: ownershipReason contextual mapping（OwnershipContext）
+    // - C2: rootReason contextual mapping（RootResolutionContext）
+    // - C4: SingleTarget confidence 0.80→0.90（Rust-core policy bug）
+    // - C4: virtual-workspace mod.rs expected.json 补齐
+    // - C5: root-queries.txt 补齐 + rootResolution golden drift
 ];
 
 /// 判断某个 mismatch 是否为已知 mismatch。
