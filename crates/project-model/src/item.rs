@@ -2,11 +2,14 @@
 //!
 //! 第一刀：定义 trait 和 NoopItemExtractor（已落地）。
 //! 第二刀：TextItemExtractor，保守逐行扫描提取 top-level items。
-//! 第三刀（未来）：TreeSitterItemExtractor，完整 11 种 SymbolKind。
+//! 第三刀：TreeSitterItemExtractor，基于 tree-sitter CST 提取完整 12 种 SymbolKind。
 //!
 //! TextItemExtractor 只提取 8 种 top-level item：
 //! Function / Struct / Enum / Trait / TypeAlias / Const / Static / MacroDefinition
 //! 不提取 ImplBlock / Method / AssociatedFunction / Module（需花括号匹配，留给 tree-sitter）。
+//!
+//! TreeSitterItemExtractor 额外提取：
+//! Module / ImplBlock / Method / AssociatedFunction + 更精确的 span 和 identity。
 
 use crate::diagnostic::codes;
 use crate::model::{Symbol, SymbolDiagnostic, SymbolKind, Visibility};
@@ -653,5 +656,831 @@ fn dedup_symbol_ids(symbols: &mut Vec<Symbol>) {
             symbol.id = format!("{}::_L{}", symbol.id, symbol.line_start);
         }
         seen_ids.insert(symbol.id.clone());
+    }
+}
+
+// ============================================================
+// 第三刀：TreeSitterItemExtractor — 基于 tree-sitter CST
+// ============================================================
+
+#[cfg(feature = "tree-sitter-extraction")]
+mod tree_sitter_impl {
+    use crate::diagnostic::codes;
+    use crate::item::{ItemExtractionInput, ItemExtractionOutput, ItemExtractor};
+    use crate::model::{ImplBlockDetail, Symbol, SymbolDiagnostic, SymbolKind, Visibility};
+
+    /// tree-sitter 提取器：基于 CST 提取 12 种 SymbolKind
+    pub struct TreeSitterItemExtractor;
+
+    impl ItemExtractor for TreeSitterItemExtractor {
+        fn extract_items(&self, input: &ItemExtractionInput) -> ItemExtractionOutput {
+            extract_with_tree_sitter(input)
+        }
+    }
+
+    /// 尝试初始化 tree-sitter Rust grammar
+    pub fn try_init_parser() -> Option<tree_sitter::Parser> {
+        let mut parser = tree_sitter::Parser::new();
+        let language = tree_sitter_rust::LANGUAGE;
+        if parser.set_language(&language.into()).is_ok() {
+            Some(parser)
+        } else {
+            None
+        }
+    }
+
+    /// 使用 tree-sitter 提取 items
+    fn extract_with_tree_sitter(input: &ItemExtractionInput) -> ItemExtractionOutput {
+        let mut symbols = Vec::new();
+        let mut diagnostics = Vec::new();
+
+        let mut parser = match try_init_parser() {
+            Some(p) => p,
+            None => {
+                // grammar 初始化失败，返回空结果 + diagnostic
+                diagnostics.push(SymbolDiagnostic {
+                    code: codes::FALLBACK_TO_TEXT_EXTRACTOR.to_string(),
+                    severity: "warning".to_string(),
+                    message: "tree-sitter grammar 初始化失败".to_string(),
+                    source_path: input.source_path.clone(),
+                    symbol_id: None,
+                    suggested_action: Some("将回退到 TextItemExtractor".to_string()),
+                });
+                return ItemExtractionOutput {
+                    symbols,
+                    diagnostics,
+                };
+            }
+        };
+
+        let tree = match parser.parse(&input.source_text, None) {
+            Some(t) => t,
+            None => {
+                // 解析完全失败
+                diagnostics.push(SymbolDiagnostic {
+                    code: codes::TREE_SITTER_PARSE_ERROR.to_string(),
+                    severity: "warning".to_string(),
+                    message: "tree-sitter 解析完全失败".to_string(),
+                    source_path: input.source_path.clone(),
+                    symbol_id: None,
+                    suggested_action: None,
+                });
+                return ItemExtractionOutput {
+                    symbols,
+                    diagnostics,
+                };
+            }
+        };
+
+        let root_node = tree.root_node();
+
+        // 检测 parse error 节点
+        let has_error = root_node.has_error();
+        if has_error {
+            diagnostics.push(SymbolDiagnostic {
+                code: codes::TREE_SITTER_PARSE_ERROR.to_string(),
+                severity: "warning".to_string(),
+                message: "文件含语法错误，部分提取可能不完整".to_string(),
+                source_path: input.source_path.clone(),
+                symbol_id: None,
+                suggested_action: None,
+            });
+        }
+
+        // 提取当前文件的行数映射（用于 byte→line 转换）
+        let source_bytes = input.source_text.as_bytes();
+
+        // 递归遍历 CST
+        let module_path = input.module_path.as_deref().unwrap_or("crate");
+        walk_node(
+            &root_node,
+            source_bytes,
+            input,
+            module_path,
+            None, // 顶层无 parentId
+            None, // 顶层无 impl 上下文
+            &mut symbols,
+            &mut diagnostics,
+        );
+
+        // 如果有 error 且提取到部分 symbols，发 item-extraction-partial
+        if has_error && !symbols.is_empty() {
+            diagnostics.push(SymbolDiagnostic {
+                code: codes::ITEM_EXTRACTION_PARTIAL.to_string(),
+                severity: "info".to_string(),
+                message: format!("部分提取 {} 个 symbol", symbols.len()),
+                source_path: input.source_path.clone(),
+                symbol_id: None,
+                suggested_action: None,
+            });
+        }
+
+        // 同名 disambiguator
+        crate::item::dedup_symbol_ids_pub(&mut symbols);
+
+        ItemExtractionOutput {
+            symbols,
+            diagnostics,
+        }
+    }
+
+    /// 递归遍历 CST 节点
+    ///
+    /// `impl_context` 包含 (impl_target, impl_id)，当非 None 时表示当前在 impl 块内
+    fn walk_node(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+        parent_id: Option<&str>,
+        impl_context: Option<(&str, &str)>, // (impl_target, impl_id)
+        symbols: &mut Vec<Symbol>,
+        diagnostics: &mut Vec<SymbolDiagnostic>,
+    ) {
+        // 跳过 ERROR 和 MISSING 节点
+        if node.is_error() || node.is_missing() {
+            return;
+        }
+
+        let kind = node.kind();
+
+        // 调试：记录所有顶层节点类型（仅当 module_path == "crate" 且无 parent 时）
+        // 已确认节点名：mod_item / impl_item / function_item / struct_item / enum_item / trait_item / type_item / const_item / static_item / macro_definition / macro_invocation
+
+        match kind {
+            // 顶层 item 定义
+            "function_item" => {
+                if let Some((impl_target, impl_id)) = impl_context {
+                    // impl 块内的 function_item → Method 或 AssociatedFunction
+                    if let Some(fn_sym) = extract_impl_function(
+                        node,
+                        source_bytes,
+                        input,
+                        module_path,
+                        impl_target,
+                        impl_id,
+                    ) {
+                        symbols.push(fn_sym);
+                    }
+                } else if let Some(sym) =
+                    extract_function(node, source_bytes, input, module_path, parent_id)
+                {
+                    symbols.push(sym);
+                }
+            }
+            "struct_item" => {
+                if let Some(sym) = extract_simple_item(
+                    node,
+                    source_bytes,
+                    input,
+                    module_path,
+                    parent_id,
+                    SymbolKind::Struct,
+                    "name",
+                ) {
+                    symbols.push(sym);
+                }
+            }
+            "enum_item" => {
+                if let Some(sym) = extract_simple_item(
+                    node,
+                    source_bytes,
+                    input,
+                    module_path,
+                    parent_id,
+                    SymbolKind::Enum,
+                    "name",
+                ) {
+                    symbols.push(sym);
+                }
+            }
+            "trait_item" => {
+                if let Some(sym) = extract_simple_item(
+                    node,
+                    source_bytes,
+                    input,
+                    module_path,
+                    parent_id,
+                    SymbolKind::Trait,
+                    "name",
+                ) {
+                    symbols.push(sym);
+                }
+                // trait 内 associated type/const 不提取，发 diagnostic
+                emit_unsupported_associated_items(node, &input.source_path, diagnostics);
+            }
+            "type_item" => {
+                if let Some(sym) = extract_simple_item(
+                    node,
+                    source_bytes,
+                    input,
+                    module_path,
+                    parent_id,
+                    SymbolKind::TypeAlias,
+                    "name",
+                ) {
+                    symbols.push(sym);
+                }
+            }
+            "const_item" => {
+                if let Some(sym) = extract_simple_item(
+                    node,
+                    source_bytes,
+                    input,
+                    module_path,
+                    parent_id,
+                    SymbolKind::Const,
+                    "name",
+                ) {
+                    symbols.push(sym);
+                }
+            }
+            "static_item" => {
+                if let Some(sym) = extract_simple_item(
+                    node,
+                    source_bytes,
+                    input,
+                    module_path,
+                    parent_id,
+                    SymbolKind::Static,
+                    "name",
+                ) {
+                    symbols.push(sym);
+                }
+            }
+            "macro_definition" => {
+                // macro_rules! name { ... }
+                if let Some(sym) = extract_macro_definition(node, source_bytes, input, module_path)
+                {
+                    symbols.push(sym);
+                }
+            }
+            "meta_item" if node.kind() == "meta_item" => {
+                // 属性节点，不提取
+            }
+
+            // Module 声明（tree-sitter 节点名：mod_item）
+            "mod_item" => {
+                if let Some(sym) =
+                    extract_module_symbol(node, source_bytes, input, module_path, parent_id)
+                {
+                    // inline module 需要更新 modulePath 和 parentId
+                    let has_body = node.child_by_field_name("body").is_some();
+                    if has_body {
+                        let name = sym.name.clone();
+                        let module_id = sym.id.clone();
+                        let nested_module_path = if module_path == "crate" {
+                            format!("crate::{}", name)
+                        } else {
+                            format!("{}::{}", module_path, name)
+                        };
+                        symbols.push(sym);
+                        // 递归 body 内子节点，用新的 modulePath 和 parentId
+                        if let Some(body_node) = node.child_by_field_name("body") {
+                            let mut cursor = body_node.walk();
+                            for child in body_node.children(&mut cursor) {
+                                walk_node(
+                                    &child,
+                                    source_bytes,
+                                    input,
+                                    &nested_module_path,
+                                    Some(&module_id),
+                                    None,
+                                    symbols,
+                                    diagnostics,
+                                );
+                            }
+                        }
+                        return;
+                    }
+                    symbols.push(sym);
+                }
+            }
+
+            // Impl 块
+            "impl_item" => {
+                if let Some(sym) = extract_impl_block_symbol(node, source_bytes, input, module_path)
+                {
+                    let impl_id = sym.id.clone();
+                    let (impl_target, _) = parse_impl_header(node, source_bytes);
+                    symbols.push(sym);
+                    // 递归 body 内子节点，传入 impl 上下文
+                    if let Some(body_node) = node.child_by_field_name("body") {
+                        let mut cursor = body_node.walk();
+                        for child in body_node.children(&mut cursor) {
+                            walk_node(
+                                &child,
+                                source_bytes,
+                                input,
+                                module_path,
+                                Some(&impl_id),
+                                Some((impl_target.as_str(), &impl_id)),
+                                symbols,
+                                diagnostics,
+                            );
+                        }
+                    }
+                    return;
+                }
+            }
+
+            // macro invocation（非 macro_rules! 定义）
+            "macro_invocation" => {
+                diagnostics.push(SymbolDiagnostic {
+                    code: codes::UNSUPPORTED_MACRO_EXPANSION.to_string(),
+                    severity: "info".to_string(),
+                    message: "宏调用不展开".to_string(),
+                    source_path: input.source_path.clone(),
+                    symbol_id: None,
+                    suggested_action: None,
+                });
+            }
+
+            _ => {}
+        }
+
+        // 继续递归子节点
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            walk_node(
+                &child,
+                source_bytes,
+                input,
+                module_path,
+                parent_id,
+                impl_context,
+                symbols,
+                diagnostics,
+            );
+        }
+    }
+
+    /// 提取 fn 定义（含 async/unsafe/const 修饰符）
+    fn extract_function(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+        parent_id: Option<&str>,
+    ) -> Option<Symbol> {
+        let name_node = node.child_by_field_name("name")?;
+        let name = name_node.utf8_text(source_bytes).ok()?;
+
+        let visibility = extract_visibility(node, source_bytes);
+        let generic_params = extract_generic_params(node, source_bytes);
+        let (is_async, is_unsafe, is_const_fn) = extract_fn_modifiers(node, source_bytes);
+
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        Some(build_symbol_full(
+            name,
+            SymbolKind::Function,
+            &visibility,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            parent_id,
+            generic_params.as_deref(),
+            is_async,
+            is_unsafe,
+            is_const_fn,
+            None, // function 无 implDetails
+        ))
+    }
+
+    /// 提取简单 item（struct/enum/trait/type/const/static）
+    fn extract_simple_item(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+        parent_id: Option<&str>,
+        kind: SymbolKind,
+        name_field: &str,
+    ) -> Option<Symbol> {
+        let name_node = node.child_by_field_name(name_field)?;
+        let name = name_node.utf8_text(source_bytes).ok()?;
+
+        let visibility = extract_visibility(node, source_bytes);
+        let generic_params = extract_generic_params(node, source_bytes);
+
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        Some(build_symbol_full(
+            name,
+            kind,
+            &visibility,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            parent_id,
+            generic_params.as_deref(),
+            false,
+            false,
+            false,
+            None,
+        ))
+    }
+
+    /// 提取 macro_rules! 定义
+    fn extract_macro_definition(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+    ) -> Option<Symbol> {
+        // macro_definition 的 name 在第一个 identifier 子节点
+        let mut cursor = node.walk();
+        let name = node
+            .children(&mut cursor)
+            .find(|c| c.kind() == "identifier")
+            .and_then(|c| c.utf8_text(source_bytes).ok())?;
+
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        Some(build_symbol_full(
+            name,
+            SymbolKind::MacroDefinition,
+            &Visibility::Public,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            None,
+            None,
+            false,
+            false,
+            false,
+            None,
+        ))
+    }
+
+    /// 提取 module symbol（不含递归 body，由外层 walk_node 自动处理）
+    fn extract_module_symbol(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+        parent_id: Option<&str>,
+    ) -> Option<Symbol> {
+        let name_node = node.child_by_field_name("name")?;
+        let name = name_node.utf8_text(source_bytes).ok()?;
+
+        let visibility = extract_visibility(node, source_bytes);
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        Some(build_symbol_full(
+            name,
+            SymbolKind::Module,
+            &visibility,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            parent_id,
+            None,
+            false,
+            false,
+            false,
+            None,
+        ))
+    }
+
+    /// 提取 impl block symbol（不含递归 body，由外层 walk_node 自动处理）
+    fn extract_impl_block_symbol(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+    ) -> Option<Symbol> {
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        let (impl_target, trait_name) = parse_impl_header(node, source_bytes);
+
+        let impl_details = ImplBlockDetail {
+            impl_target: impl_target.clone(),
+            trait_name: trait_name.clone(),
+        };
+
+        Some(build_symbol_full(
+            &format!(
+                "_impl_{}{}",
+                impl_target,
+                trait_name
+                    .as_ref()
+                    .map(|t| format!("_for_{}", t))
+                    .unwrap_or_default()
+            ),
+            SymbolKind::ImplBlock,
+            &Visibility::Private,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            None,
+            None,
+            false,
+            false,
+            false,
+            Some(&impl_details),
+        ))
+    }
+
+    /// 解析 impl 头部：返回 (impl_target, trait_name)
+    fn parse_impl_header(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+    ) -> (String, Option<String>) {
+        let mut trait_name = None;
+        let mut impl_target = None;
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "type_identifier" => {
+                    let text = child
+                        .utf8_text(source_bytes)
+                        .unwrap_or("Unknown")
+                        .to_string();
+                    if impl_target.is_none() {
+                        // 第一个 type_identifier 可能是 trait 或 target
+                        // 如果后面有 "for" 关键字，这是 trait impl
+                        impl_target = Some(text);
+                    } else {
+                        // 第二个 type_identifier 是 trait impl 的 target
+                        trait_name = impl_target.take();
+                        impl_target = Some(text);
+                    }
+                }
+                "for" => {
+                    // "impl Trait for Type" — 之前读取的是 trait，之后的是 type
+                    if let Some(first) = impl_target.take() {
+                        trait_name = Some(first);
+                    }
+                }
+                "generic_type" | "scoped_type_identifier" | "where_clause" => {
+                    // 跳过 generic / scoped / where
+                }
+                _ => {}
+            }
+        }
+
+        let target = impl_target.unwrap_or_else(|| "Unknown".to_string());
+        (target, trait_name)
+    }
+
+    /// 提取 impl 块内的 function_item，判断是 Method 还是 AssociatedFunction
+    fn extract_impl_function(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+        impl_target: &str,
+        impl_id: &str,
+    ) -> Option<Symbol> {
+        let name_node = node.child_by_field_name("name")?;
+        let name = name_node.utf8_text(source_bytes).ok()?;
+
+        let visibility = extract_visibility(node, source_bytes);
+        let generic_params = extract_generic_params(node, source_bytes);
+        let (is_async, is_unsafe, is_const_fn) = extract_fn_modifiers(node, source_bytes);
+
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        // 判断 Method vs AssociatedFunction：检查首参数是否为 self receiver
+        let is_method = has_self_receiver(node);
+
+        let kind = if is_method {
+            SymbolKind::Method
+        } else {
+            SymbolKind::AssociatedFunction
+        };
+
+        let impl_details = ImplBlockDetail {
+            impl_target: impl_target.to_string(),
+            trait_name: None, // Method/AssociatedFunction 不重复存 trait_name
+        };
+
+        Some(build_symbol_full(
+            name,
+            kind,
+            &visibility,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            Some(impl_id),
+            generic_params.as_deref(),
+            is_async,
+            is_unsafe,
+            is_const_fn,
+            Some(&impl_details),
+        ))
+    }
+
+    /// 判断函数是否有 self receiver（Method vs AssociatedFunction）
+    fn has_self_receiver(node: &tree_sitter::Node) -> bool {
+        if let Some(params) = node.child_by_field_name("parameters") {
+            let mut cursor = params.walk();
+            for child in params.children(&mut cursor) {
+                let kind = child.kind();
+                if kind == "self_parameter" {
+                    return true;
+                }
+                // 第一个参数如果是 &self / &mut self / self，tree-sitter 标记为 self_parameter
+                if kind == "parameter" {
+                    // 检查参数内是否有 self
+                    let mut inner = child.walk();
+                    for sub in child.children(&mut inner) {
+                        if sub.kind() == "self_parameter" {
+                            return true;
+                        }
+                    }
+                    // 第一个 parameter 不是 self，后续也不可能是
+                    return false;
+                }
+            }
+        }
+        false
+    }
+
+    /// 从节点提取 visibility
+    fn extract_visibility(node: &tree_sitter::Node, source_bytes: &[u8]) -> Visibility {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "visibility_modifier" {
+                let text = child.utf8_text(source_bytes).unwrap_or("");
+                if text == "pub" {
+                    return Visibility::Public;
+                } else if text.starts_with("pub(crate)") {
+                    return Visibility::Crate;
+                } else if text.starts_with("pub(super)") {
+                    return Visibility::Super;
+                } else if text.starts_with("pub(in") {
+                    return Visibility::Restricted;
+                } else if text.starts_with("pub") {
+                    // pub(in path::to::module) 等更复杂形式
+                    return Visibility::Restricted;
+                }
+            }
+        }
+        Visibility::Private
+    }
+
+    /// 提取 generic params（如 <T>）
+    fn extract_generic_params(node: &tree_sitter::Node, source_bytes: &[u8]) -> Option<String> {
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            if child.kind() == "type_arguments" || child.kind() == "constrained_type_parameter" {
+                let text = child.utf8_text(source_bytes).ok()?;
+                return Some(text.to_string());
+            }
+        }
+        None
+    }
+
+    /// 提取 fn 修饰符：async / unsafe / const
+    fn extract_fn_modifiers(node: &tree_sitter::Node, source_bytes: &[u8]) -> (bool, bool, bool) {
+        let mut is_async = false;
+        let mut is_unsafe = false;
+        let mut is_const_fn = false;
+
+        let mut cursor = node.walk();
+        for child in node.children(&mut cursor) {
+            let text = child.utf8_text(source_bytes).unwrap_or("");
+            if text == "async" {
+                is_async = true;
+            } else if text == "unsafe" {
+                is_unsafe = true;
+            } else if text == "const" && child.kind() != "const_item" {
+                is_const_fn = true;
+            }
+        }
+
+        (is_async, is_unsafe, is_const_fn)
+    }
+
+    /// byte offset → 行号（1-indexed）
+    fn byte_to_line(source_bytes: &[u8], byte_offset: usize) -> u32 {
+        let mut line = 1u32;
+        for &b in &source_bytes[..byte_offset.min(source_bytes.len())] {
+            if b == b'\n' {
+                line += 1;
+            }
+        }
+        line
+    }
+
+    /// 构建 Symbol（完整版，含 parentId / implDetails）
+    fn build_symbol_full(
+        name: &str,
+        kind: SymbolKind,
+        visibility: &Visibility,
+        line_start: u32,
+        line_end: u32,
+        input: &ItemExtractionInput,
+        module_path: &str,
+        parent_id: Option<&str>,
+        generic_params: Option<&str>,
+        is_async: bool,
+        is_unsafe: bool,
+        is_const_fn: bool,
+        impl_details: Option<&ImplBlockDetail>,
+    ) -> Symbol {
+        let id = format!("{}::{}::{}", input.package_name, module_path, name);
+        let is_pub = matches!(visibility, Visibility::Public);
+
+        Symbol {
+            id,
+            name: name.to_string(),
+            symbol_kind: kind.as_str().to_string(),
+            source_path: input.source_path.clone(),
+            package_name: input.package_name.clone(),
+            target_name: input.target_name.clone(),
+            module_path: Some(module_path.to_string()),
+            visibility: visibility.as_str().to_string(),
+            parent_id: parent_id.map(|s| s.to_string()),
+            line_start,
+            line_end,
+            generic_params: generic_params.map(|s| s.to_string()),
+            is_async,
+            is_unsafe,
+            is_const_fn,
+            is_pub,
+            impl_details: impl_details.cloned(),
+        }
+    }
+
+    /// trait 内 unsupported associated items diagnostic
+    fn emit_unsupported_associated_items(
+        node: &tree_sitter::Node,
+        source_path: &str,
+        diagnostics: &mut Vec<SymbolDiagnostic>,
+    ) {
+        if let Some(body) = node.child_by_field_name("body") {
+            let mut cursor = body.walk();
+            for child in body.children(&mut cursor) {
+                let kind = child.kind();
+                if kind == "associated_type" || kind == "const_item" {
+                    diagnostics.push(SymbolDiagnostic {
+                        code: codes::UNSUPPORTED_ASSOCIATED_ITEM.to_string(),
+                        severity: "info".to_string(),
+                        message: format!(
+                            "trait 内 {} 不提取为独立 symbol",
+                            if kind == "associated_type" {
+                                "associated type"
+                            } else {
+                                "associated const"
+                            }
+                        ),
+                        source_path: source_path.to_string(),
+                        symbol_id: None,
+                        suggested_action: None,
+                    });
+                }
+            }
+        }
+    }
+}
+
+/// 公开同名 disambiguator 后处理（供 tree-sitter impl 调用）
+#[cfg(feature = "tree-sitter-extraction")]
+fn dedup_symbol_ids_pub(symbols: &mut Vec<Symbol>) {
+    dedup_symbol_ids(symbols);
+}
+
+/// 返回 tree-sitter 是否可用
+#[cfg(feature = "tree-sitter-extraction")]
+pub fn is_tree_sitter_available() -> bool {
+    tree_sitter_impl::try_init_parser().is_some()
+}
+
+/// 返回 tree-sitter 是否可用（feature 禁用时始终 false）
+#[cfg(not(feature = "tree-sitter-extraction"))]
+pub fn is_tree_sitter_available() -> bool {
+    false
+}
+
+/// 创建最佳可用 extractor（tree-sitter 优先，fallback 到 TextItemExtractor）
+pub fn create_best_extractor() -> Box<dyn ItemExtractor> {
+    if is_tree_sitter_available() {
+        #[cfg(feature = "tree-sitter-extraction")]
+        {
+            Box::new(tree_sitter_impl::TreeSitterItemExtractor)
+        }
+        #[cfg(not(feature = "tree-sitter-extraction"))]
+        {
+            Box::new(TextItemExtractor)
+        }
+    } else {
+        Box::new(TextItemExtractor)
     }
 }

@@ -6,7 +6,7 @@
 //! stdout 只输出 JSON，human-readable logs 输出到 stderr。
 
 use crate::diagnostic::{codes, Diagnostic};
-use crate::item::{ItemExtractionInput, TextItemExtractor};
+use crate::item::{create_best_extractor, ItemExtractionInput};
 use crate::manifest;
 use crate::model::*;
 use crate::root_resolution;
@@ -42,11 +42,11 @@ pub fn inspect_project_model_with_symbols(
     all_diagnostics.extend(rr_result.diagnostics);
     let diagnostics_count = all_diagnostics.len() as u32;
 
-    // item/symbol 提取：第二刀使用 TextItemExtractor
+    // item/symbol 提取：第三刀使用 best extractor（tree-sitter 优先，fallback 到 text）
     let (symbols, symbol_diagnostics, symbol_count) = if include_symbols {
-        let extractor = TextItemExtractor;
+        let extractor = create_best_extractor();
         let inputs = build_extraction_inputs(root, &source_result.source_ownership, &scan.packages);
-        let result = crate::item::extract_symbols_from_files(&extractor, &inputs);
+        let result = crate::item::extract_symbols_from_files(&*extractor, &inputs);
         let count = result.symbols.len() as u32;
         (result.symbols, result.diagnostics, count)
     } else {

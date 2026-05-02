@@ -75,4 +75,12 @@ pub mod codes {
     pub const FALLBACK_EXTRACTION: &str = "fallback-extraction";
     pub const IMPL_BLOCK_AMBIGUOUS_TARGET: &str = "impl-block-ambiguous-target";
     pub const ITEM_PARSE_ERROR: &str = "item-parse-error";
+
+    // Tree-sitter 提取相关 diagnostic codes
+    pub const TREE_SITTER_PARSE_ERROR: &str = "tree-sitter-parse-error";
+    pub const UNSUPPORTED_MACRO_EXPANSION: &str = "unsupported-macro-expansion";
+    pub const UNSUPPORTED_CFG_GATED_ITEM: &str = "unsupported-cfg-gated-item";
+    pub const UNSUPPORTED_ASSOCIATED_ITEM: &str = "unsupported-associated-item";
+    pub const FALLBACK_TO_TEXT_EXTRACTOR: &str = "fallback-to-text-extractor";
+    pub const ITEM_EXTRACTION_PARTIAL: &str = "item-extraction-partial";
 }

@@ -756,21 +756,17 @@ fn item_macro_definition_and_invocation_diagnostic() {
         Some("macro-definition")
     );
 
-    // 应有 macro invocation diagnostic
+    // 应有 macro invocation diagnostic（text-level 用 macro-invocation-unexpanded，tree-sitter 用 unsupported-macro-expansion）
     assert!(
-        diags
-            .iter()
-            .any(|d| d["code"].as_str() == Some("macro-invocation-unexpanded")),
-        "应有 macro-invocation-unexpanded diagnostic"
+        diags.iter().any(
+            |d| d["code"].as_str() == Some("macro-invocation-unexpanded")
+                || d["code"].as_str() == Some("unsupported-macro-expansion")
+        ),
+        "应有 macro invocation 相关 diagnostic"
     );
 
-    // 应有 fallback-extraction diagnostic
-    assert!(
-        diags
-            .iter()
-            .any(|d| d["code"].as_str() == Some("fallback-extraction")),
-        "应有 fallback-extraction diagnostic"
-    );
+    // 应有提取方式 diagnostic（text-level 用 fallback-extraction，tree-sitter 不发此 diagnostic）
+    // 不再强制要求 fallback-extraction
 }
 
 #[test]
@@ -792,4 +788,182 @@ fn item_symbol_has_id_and_fields() {
     assert!(hello_fn["sourcePath"].as_str().unwrap().contains("lib.rs"));
     assert_eq!(hello_fn["isPub"].as_bool(), Some(true));
     assert!(hello_fn["lineStart"].as_u64().unwrap() > 0);
+}
+
+// === Tree-sitter item extraction 场景测试 ===
+
+#[test]
+fn item_nested_modules_has_module_and_items() {
+    let parsed = inspect_items("item-nested-modules");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    // 应有 Module symbol
+    let kinds: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s["symbolKind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"module"), "应有 module symbol");
+    assert!(kinds.contains(&"function"), "应有 function");
+    assert!(kinds.contains(&"struct"), "应有 struct");
+
+    // config module 应存在
+    let config_mod = symbols.iter().find(|s| {
+        s["name"].as_str() == Some("config") && s["symbolKind"].as_str() == Some("module")
+    });
+    assert!(config_mod.is_some(), "应有 config module");
+}
+
+#[test]
+fn item_impl_methods_has_impl_and_methods() {
+    let parsed = inspect_items("item-impl-methods");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    let kinds: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s["symbolKind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"impl-block"), "应有 impl-block");
+    assert!(kinds.contains(&"method"), "应有 method");
+    assert!(
+        kinds.contains(&"associated-function"),
+        "应有 associated-function"
+    );
+
+    // new() 是 AssociatedFunction（无 self receiver）
+    let new_fn = symbols.iter().find(|s| s["name"].as_str() == Some("new"));
+    assert!(new_fn.is_some(), "应有 new");
+    assert_eq!(
+        new_fn.unwrap()["symbolKind"].as_str(),
+        Some("associated-function")
+    );
+
+    // greet() 是 Method（有 &self receiver）
+    let greet = symbols.iter().find(|s| s["name"].as_str() == Some("greet"));
+    assert!(greet.is_some(), "应有 greet");
+    assert_eq!(greet.unwrap()["symbolKind"].as_str(), Some("method"));
+
+    // ImplBlock 应有 implDetails
+    let impl_block = symbols
+        .iter()
+        .find(|s| s["symbolKind"].as_str() == Some("impl-block"));
+    assert!(impl_block.is_some(), "应有 impl-block");
+    let impl_details = impl_block.unwrap()["implDetails"].as_object();
+    assert!(impl_details.is_some(), "impl-block 应有 implDetails");
+    assert_eq!(impl_details.unwrap()["implTarget"].as_str(), Some("User"));
+}
+
+#[test]
+fn item_trait_impl_has_trait_impl_and_methods() {
+    let parsed = inspect_items("item-trait-impl");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    let kinds: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s["symbolKind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"trait"), "应有 trait");
+    assert!(kinds.contains(&"struct"), "应有 struct");
+    // 应有至少 2 个 impl-block（trait impl + inherent impl）
+    let impl_count = kinds.iter().filter(|&&k| k == "impl-block").count();
+    assert!(
+        impl_count >= 2,
+        "至少应有 2 个 impl-block，实际 {}",
+        impl_count
+    );
+
+    // trait impl 应有 traitName
+    let trait_impl = symbols.iter().find(|s| {
+        s["symbolKind"].as_str() == Some("impl-block")
+            && s["implDetails"]["traitName"].as_str().is_some()
+    });
+    assert!(trait_impl.is_some(), "应有 trait impl 带 traitName");
+}
+
+#[test]
+fn item_inline_module_has_nested_items() {
+    let parsed = inspect_items("item-inline-module");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    let kinds: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s["symbolKind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"module"), "应有 module");
+
+    // inline module 内的 item 应有正确的 modulePath
+    let add_fn = symbols.iter().find(|s| s["name"].as_str() == Some("add"));
+    assert!(add_fn.is_some(), "应有 add function");
+    // modulePath 应含 math
+    let module_path = add_fn.unwrap()["modulePath"].as_str().unwrap_or("");
+    assert!(
+        module_path.contains("math"),
+        "add 的 modulePath 应含 math，实际 {}",
+        module_path
+    );
+
+    // Calculator struct 应在 math module 内
+    let calc = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("Calculator"));
+    assert!(calc.is_some(), "应有 Calculator struct");
+}
+
+#[test]
+fn item_top_level_regression_matches_text_extractor() {
+    let parsed = inspect_items("item-top-level-regression");
+    let symbols = parsed["symbols"].as_array().unwrap();
+
+    // tree-sitter 应至少提取 8 种 top-level item（同 TextItemExtractor）
+    assert!(
+        symbols.len() >= 8,
+        "至少应有 8 个 symbol，实际 {}",
+        symbols.len()
+    );
+
+    let kinds: Vec<&str> = symbols
+        .iter()
+        .filter_map(|s| s["symbolKind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"function"), "应有 function");
+    assert!(kinds.contains(&"struct"), "应有 struct");
+    assert!(kinds.contains(&"enum"), "应有 enum");
+    assert!(kinds.contains(&"trait"), "应有 trait");
+    assert!(kinds.contains(&"type-alias"), "应有 type-alias");
+    assert!(kinds.contains(&"const"), "应有 const");
+    assert!(kinds.contains(&"static"), "应有 static");
+    assert!(kinds.contains(&"macro-definition"), "应有 macro-definition");
+
+    // symbolCount 应与 symbols 长度一致
+    let symbol_count = parsed["stats"]["symbolCount"].as_u64().unwrap();
+    assert_eq!(symbol_count, symbols.len() as u64);
+}
+
+#[test]
+fn item_parse_error_extracts_partial() {
+    let parsed = inspect_items("item-parse-error");
+    let symbols = parsed["symbols"].as_array().unwrap();
+    let diags = parsed["symbolDiagnostics"].as_array().unwrap();
+
+    // 即使有语法错误，也应提取到部分 items
+    assert!(
+        symbols.len() >= 1,
+        "应至少提取到 1 个 symbol，实际 {}",
+        symbols.len()
+    );
+
+    // 应有 parse error 或 partial diagnostic
+    assert!(
+        diags
+            .iter()
+            .any(|d| d["code"].as_str() == Some("tree-sitter-parse-error"))
+            || diags
+                .iter()
+                .any(|d| d["code"].as_str() == Some("item-extraction-partial")),
+        "应有 tree-sitter-parse-error 或 item-extraction-partial diagnostic"
+    );
+
+    // ValidStruct 和 valid_fn 应被提取
+    let names: Vec<&str> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+    assert!(names.contains(&"ValidStruct"), "应提取到 ValidStruct");
+    assert!(names.contains(&"valid_fn"), "应提取到 valid_fn");
 }
