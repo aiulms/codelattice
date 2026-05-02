@@ -6,6 +6,7 @@
 //! 第三刀实现 root resolution scanner：解析 crate:: 路径到 module source file。
 
 pub mod diagnostic;
+pub mod item;
 pub mod manifest;
 pub mod model;
 pub mod output;

@@ -89,7 +89,7 @@ fn inspect_current_dir_outputs_valid_json() {
 }
 
 #[test]
-fn inspect_json_has_14_top_level_fields() {
+fn inspect_json_has_all_top_level_fields() {
     let output = cli_bin()
         .arg("project-model")
         .arg("inspect")
@@ -119,6 +119,9 @@ fn inspect_json_has_14_top_level_fields() {
         "partial",
         "warnings",
         "stats",
+        // item/symbol 扩展字段
+        "symbols",
+        "symbolDiagnostics",
     ];
 
     for field in &required_fields {
@@ -415,6 +418,107 @@ fn so_stats_reflect_counts() {
     assert!(source_count > 0, "sourceFileCount 应 > 0");
     assert!(owned_count > 0, "ownedFileCount 应 > 0");
     assert_eq!(source_count, owned_count, "所有 .rs 都应有 package owner");
+}
+
+// === Item/Symbol Model 测试 ===
+
+#[test]
+fn inspect_has_symbols_and_symbol_diagnostics_fields() {
+    let output = cli_bin()
+        .arg("project-model")
+        .arg("inspect")
+        .arg("--root")
+        .arg(".")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    let obj = parsed.as_object().unwrap();
+
+    // 即使不加 --include symbols，也应有两个 additive 字段
+    assert!(obj.contains_key("symbols"), "应有 symbols 字段");
+    assert!(
+        obj.contains_key("symbolDiagnostics"),
+        "应有 symbolDiagnostics 字段"
+    );
+}
+
+#[test]
+fn inspect_without_include_symbols_has_empty_symbols() {
+    let output = cli_bin()
+        .arg("project-model")
+        .arg("inspect")
+        .arg("--root")
+        .arg(".")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let symbols = parsed["symbols"].as_array().unwrap();
+    assert_eq!(symbols.len(), 0, "不加 --include symbols 时 symbols 应为空");
+
+    let symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
+    assert_eq!(symbol_diagnostics.len(), 0, "symbolDiagnostics 应为空");
+}
+
+#[test]
+fn inspect_with_include_symbols_has_empty_but_present_symbols() {
+    let output = cli_bin()
+        .arg("project-model")
+        .arg("inspect")
+        .arg("--root")
+        .arg(".")
+        .arg("--format")
+        .arg("json")
+        .arg("--include")
+        .arg("symbols")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let symbols = parsed["symbols"].as_array().unwrap();
+    // 第一刀不做真实 extraction，symbols 为空
+    assert_eq!(
+        symbols.len(),
+        0,
+        "第一刀 NoopItemExtractor 不做真实 extraction"
+    );
+
+    let symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
+    assert_eq!(symbol_diagnostics.len(), 0);
+
+    // stats.symbolCount 应为 0
+    let symbol_count = parsed["stats"]["symbolCount"].as_u64().unwrap();
+    assert_eq!(symbol_count, 0);
+}
+
+#[test]
+fn inspect_stats_has_symbol_count_field() {
+    let output = cli_bin()
+        .arg("project-model")
+        .arg("inspect")
+        .arg("--root")
+        .arg(".")
+        .arg("--format")
+        .arg("json")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+
+    let stats = &parsed["stats"];
+    assert!(stats.as_object().unwrap().contains_key("symbolCount"));
+    assert_eq!(stats["symbolCount"].as_u64(), Some(0));
 }
 
 // === Root resolution 场景测试 ===

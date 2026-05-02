@@ -54,7 +54,7 @@ impl TargetKind {
     }
 }
 
-/// 顶层输出，覆盖 CLI/output contract 的 14 个字段
+/// 顶层输出，覆盖 CLI/output contract 的 14 个字段 + symbol 扩展
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ProjectModelOutput {
@@ -86,6 +86,10 @@ pub struct ProjectModelOutput {
     pub warnings: Vec<Warning>,
     /// 运行统计，runtime-only
     pub stats: Stats,
+    /// 提取的 item/symbol 列表，--include symbols 时填充
+    pub symbols: Vec<Symbol>,
+    /// item 提取相关 diagnostics，--include symbols 时填充
+    pub symbol_diagnostics: Vec<SymbolDiagnostic>,
 }
 
 /// 顶层 ProjectModel 统计
@@ -187,4 +191,136 @@ pub struct Stats {
     pub unowned_file_count: u32,
     pub resolution_success_count: u32,
     pub resolution_fail_count: u32,
+    /// item/symbol 提取计数，--include symbols 时填充
+    pub symbol_count: u32,
+}
+
+// ============================================================
+// Item/Symbol Model 数据模型
+// 第一刀：只定义数据结构和 parser seam trait，不做真实 extraction。
+// 避免在数据契约未稳定前引入 parser 依赖（tree-sitter）。
+// ============================================================
+
+/// item 种类，有限集合枚举
+#[derive(Debug, Clone, Serialize)]
+pub enum SymbolKind {
+    Module,
+    Function,
+    Struct,
+    Enum,
+    Trait,
+    ImplBlock,
+    Method,
+    AssociatedFunction,
+    TypeAlias,
+    Const,
+    Static,
+    MacroDefinition,
+}
+
+impl SymbolKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SymbolKind::Module => "module",
+            SymbolKind::Function => "function",
+            SymbolKind::Struct => "struct",
+            SymbolKind::Enum => "enum",
+            SymbolKind::Trait => "trait",
+            SymbolKind::ImplBlock => "impl-block",
+            SymbolKind::Method => "method",
+            SymbolKind::AssociatedFunction => "associated-function",
+            SymbolKind::TypeAlias => "type-alias",
+            SymbolKind::Const => "const",
+            SymbolKind::Static => "static",
+            SymbolKind::MacroDefinition => "macro-definition",
+        }
+    }
+}
+
+/// item 可见性，有限集合枚举
+#[derive(Debug, Clone, Serialize)]
+pub enum Visibility {
+    Public,
+    Crate,
+    Super,
+    Restricted,
+    Private,
+    Unknown,
+}
+
+impl Visibility {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Visibility::Public => "public",
+            Visibility::Crate => "pub-crate",
+            Visibility::Super => "pub-super",
+            Visibility::Restricted => "pub-restricted",
+            Visibility::Private => "private",
+            Visibility::Unknown => "unknown",
+        }
+    }
+}
+
+/// 提取的 item/symbol
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Symbol {
+    /// 稳定身份：{packageName}::{modulePath}::{name}[::{disambiguator}]
+    pub id: String,
+    /// item 标识符
+    pub name: String,
+    /// SymbolKind.as_str()
+    pub symbol_kind: String,
+    /// 相对 repo root 的 .rs 文件路径
+    pub source_path: String,
+    /// 所属 package
+    pub package_name: String,
+    /// 所属 target（ambiguous 时 null）
+    pub target_name: Option<String>,
+    /// crate 内 module 路径，如 "crate::models"
+    pub module_path: Option<String>,
+    /// 可见性
+    pub visibility: String,
+    /// 父 item id（如 impl 块的 method）
+    pub parent_id: Option<String>,
+    /// 起始行号（1-indexed）
+    pub line_start: u32,
+    /// 结束行号
+    pub line_end: u32,
+    /// generic 参数原样记录，如 "<T>"；不进入 id
+    pub generic_params: Option<String>,
+    /// fn / method 是否 async
+    pub is_async: bool,
+    /// fn / method 是否 unsafe
+    pub is_unsafe: bool,
+    /// fn 是否 const
+    pub is_const_fn: bool,
+    /// 便捷：visibility == "public"
+    pub is_pub: bool,
+    /// impl 块详情（仅 ImplBlock / Method / AssociatedFunction 有值）
+    pub impl_details: Option<ImplBlockDetail>,
+}
+
+/// impl 块扩展字段
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImplBlockDetail {
+    /// impl Target { ... } 中的 Target
+    pub impl_target: String,
+    /// impl Trait for Target 中的 Trait（trait impl 时有值）
+    pub trait_name: Option<String>,
+}
+
+/// item 提取相关 diagnostic
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SymbolDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    pub source_path: String,
+    /// 关联 symbol id（如有）
+    pub symbol_id: Option<String>,
+    /// 修复建议
+    pub suggested_action: Option<String>,
 }

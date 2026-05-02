@@ -11,8 +11,15 @@ use crate::model::*;
 use crate::root_resolution;
 use crate::source;
 
-/// 从 repo root 执行 manifest scan + source ownership scan + root resolution，生成完整 ProjectModelOutput
 pub fn inspect_project_model(root: &std::path::Path) -> ProjectModelOutput {
+    inspect_project_model_with_symbols(root, false)
+}
+
+/// 带 symbol 提取选项的 inspect
+pub fn inspect_project_model_with_symbols(
+    root: &std::path::Path,
+    include_symbols: bool,
+) -> ProjectModelOutput {
     let root_display = root.display().to_string();
     let scan = manifest::scan_manifests(root);
 
@@ -33,6 +40,15 @@ pub fn inspect_project_model(root: &std::path::Path) -> ProjectModelOutput {
     all_diagnostics.extend(source_result.diagnostics);
     all_diagnostics.extend(rr_result.diagnostics);
     let diagnostics_count = all_diagnostics.len() as u32;
+
+    // item/symbol 提取：第一刀使用 NoopItemExtractor，返回空
+    let (symbols, symbol_diagnostics, symbol_count) = if include_symbols {
+        // 第一刀不做真实 extraction，只返回空结构
+        // 后续第二刀在此处调用真实 extractor
+        (vec![], vec![], 0u32)
+    } else {
+        (vec![], vec![], 0u32)
+    };
 
     ProjectModelOutput {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -59,7 +75,10 @@ pub fn inspect_project_model(root: &std::path::Path) -> ProjectModelOutput {
             unowned_file_count: source_result.unowned_file_count,
             resolution_success_count: rr_result.resolution_success_count,
             resolution_fail_count: rr_result.resolution_fail_count,
+            symbol_count,
         },
+        symbols,
+        symbol_diagnostics,
     }
 }
 
@@ -107,6 +126,9 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
             unowned_file_count: 0,
             resolution_success_count: 0,
             resolution_fail_count: 0,
+            symbol_count: 0,
         },
+        symbols: vec![],
+        symbol_diagnostics: vec![],
     }
 }

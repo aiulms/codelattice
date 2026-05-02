@@ -37,6 +37,10 @@ enum ProjectModelCommands {
         /// 输出格式（MVP 仅支持 json）
         #[arg(long, default_value = "json")]
         format: String,
+        /// 额外包含的数据（可多次指定）
+        /// symbols: 提取 item/symbol 列表
+        #[arg(long, value_name = "INCLUDE")]
+        include: Vec<String>,
     },
 }
 
@@ -45,11 +49,18 @@ fn main() {
 
     match cli.command {
         Commands::ProjectModel { sub } => match sub {
-            ProjectModelCommands::Inspect { root, format } => {
+            ProjectModelCommands::Inspect {
+                root,
+                format,
+                include,
+            } => {
                 if format != "json" {
                     eprintln!("错误：当前仅支持 --format json");
                     std::process::exit(1);
                 }
+
+                // 解析 --include symbols flag
+                let include_symbols = include.iter().any(|s| s == "symbols");
 
                 let root_path = Path::new(&root);
                 if !root_path.exists() {
@@ -58,7 +69,10 @@ fn main() {
                 }
 
                 // 调用真实 manifest scanner
-                let output = gitnexus_project_model::output::inspect_project_model(root_path);
+                let output = gitnexus_project_model::output::inspect_project_model_with_symbols(
+                    root_path,
+                    include_symbols,
+                );
                 let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
                     eprintln!("错误：JSON 序列化失败: {e}");
                     std::process::exit(1);

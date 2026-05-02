@@ -66,4 +66,13 @@ pub mod codes {
     pub const CFG_GATED_MODULE_UNKNOWN: &str = "cfg-gated-module-unknown";
     pub const PATH_ATTRIBUTE_UNSUPPORTED: &str = "path-attribute-unsupported";
     pub const ROOT_RESOLUTION_SKIPPED: &str = "root-resolution-skipped";
+
+    // Item/Symbol 提取相关 diagnostic codes
+    pub const MACRO_INVOCATION_UNEXPANDED: &str = "macro-invocation-unexpanded";
+    pub const CFG_GATED_ITEM_UNKNOWN: &str = "cfg-gated-item-unknown";
+    pub const EXTERNAL_CRATE_ITEMS_SKIPPED: &str = "external-crate-items-skipped";
+    pub const PROC_MACRO_OUTPUT_SKIPPED: &str = "proc-macro-output-skipped";
+    pub const FALLBACK_EXTRACTION: &str = "fallback-extraction";
+    pub const IMPL_BLOCK_AMBIGUOUS_TARGET: &str = "impl-block-ambiguous-target";
+    pub const ITEM_PARSE_ERROR: &str = "item-parse-error";
 }
