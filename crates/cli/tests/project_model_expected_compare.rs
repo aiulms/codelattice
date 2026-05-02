@@ -154,10 +154,29 @@ fn map_ownership_reason_ctx(kebab: &str, ctx: &OwnershipContext) -> Option<&'sta
     }
 }
 
-fn map_root_reason(kebab: &str) -> Option<&'static str> {
+/// rootReason 映射上下文：同一个 Rust-core reason 在不同 fixture 场景下
+/// 对应不同的 GitNexus-RC golden contract 值。
+/// 同 ownershipReason 歧义模式：module-declaration-resolved / module-chain-resolved
+/// 在 standalone 场景 → LibTargetRoot，workspace member → WorkspaceMemberRoot，
+/// virtual workspace member → VirtualWorkspaceRoot。
+#[derive(Clone)]
+struct RootResolutionContext {
+    is_workspace_member: bool,
+    is_virtual_workspace_member: bool,
+}
+
+/// 带 fixture 上下文的 rootReason 映射。
+fn map_root_reason_ctx(kebab: &str, ctx: &RootResolutionContext) -> Option<&'static str> {
     match kebab {
-        "module-declaration-resolved" => Some("LibTargetRoot"),
-        "module-chain-resolved" => Some("LibTargetRoot"),
+        "module-declaration-resolved" | "module-chain-resolved" => {
+            if ctx.is_virtual_workspace_member {
+                Some("VirtualWorkspaceRoot")
+            } else if ctx.is_workspace_member {
+                Some("WorkspaceMemberRoot")
+            } else {
+                Some("LibTargetRoot")
+            }
+        }
         "lib-target-root" => Some("LibTargetRoot"),
         "bin-target-root" => Some("BinTargetRoot"),
         "workspace-member-target-root" => Some("WorkspaceMemberRoot"),
@@ -166,9 +185,7 @@ fn map_root_reason(kebab: &str) -> Option<&'static str> {
         "module-file-missing" => Some("ModuleFileMissing"),
         "crate-path-ambiguous" => Some("CratePathAmbiguous"),
         "root-resolution-skipped" => Some("RootResolutionSkipped"),
-        // crate-root-missing：package 无 Cargo.toml 对应的 crate root
         "crate-root-missing" => Some("CrateRootMissing"),
-        // crate-root-resolved：直接定位到 crate root（lib/bin target root）
         "crate-root-resolved" => Some("LibTargetRoot"),
         _ => None,
     }
@@ -275,19 +292,10 @@ const KNOWN_MISMATCHES: &[KnownMismatch] = &[
     // rootResolution：fixture 缺 root-queries.txt，具体 field 不确定，整层 skip
     // 已移除 4 条 rootResolution layer-level known mismatch：
     // P0 fixtures 已补齐 root-queries.txt，rootResolution 层可真实比较
-    // 残留 2 条 field-level rootReason mapping gap（同 ownershipReason 歧义模式）
-    KnownMismatch {
-        fixture: "rust-workspace-explicit-member",
-        layer: "rootResolution",
-        field: Some("backend/src/api/handlers.rs.rootReason"),
-        reason: "rootReason 映射歧义：module-chain-resolved 在 workspace 场景应为 WorkspaceMemberRoot（C2）",
-    },
-    KnownMismatch {
-        fixture: "rust-virtual-workspace-glob",
-        layer: "rootResolution",
-        field: Some("crates/api/src/handlers.rs.rootReason"),
-        reason: "rootReason 映射歧义：module-declaration-resolved 在 virtual workspace 场景应为 VirtualWorkspaceRoot（C2）",
-    },
+    // 已移除 2 条 rootReason mapping gap known mismatch：
+    // rootReason 引入 contextual mapping（同 ownershipReason 模式），
+    // module-declaration-resolved / module-chain-resolved 根据 package 上下文
+    // 映射为 WorkspaceMemberRoot / VirtualWorkspaceRoot / LibTargetRoot
     // virtual-workspace-glob：actual 有 extra sourcePath
     KnownMismatch {
         fixture: "rust-virtual-workspace-glob",
@@ -860,6 +868,42 @@ fn compare_root_resolution(
         .cloned()
         .unwrap_or_default();
 
+    // 从 actual output 构建 package→RootResolutionContext 映射
+    // 判定依据：isWorkspaceMember + discoveryReason（workspace-glob 为 virtual）
+    let empty_pkgs = vec![];
+    let pkg_rr_ctx: std::collections::HashMap<&str, RootResolutionContext> = actual["packages"]
+        .as_array()
+        .unwrap_or(&empty_pkgs)
+        .iter()
+        .filter_map(|p| {
+            let name = p["name"].as_str()?;
+            let is_ws = p["isWorkspaceMember"].as_bool().unwrap_or(false);
+            let disc = p["discoveryReason"].as_str().unwrap_or("");
+            let is_virtual = is_ws && disc == "workspace-glob";
+            Some((
+                name,
+                RootResolutionContext {
+                    is_workspace_member: is_ws && !is_virtual,
+                    is_virtual_workspace_member: is_virtual,
+                },
+            ))
+        })
+        .collect();
+
+    // 从 actual sourceOwnership 构建 sourcePath→package 映射，用于查找 context
+    let actual_so = actual["sourceOwnership"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let source_to_pkg: std::collections::HashMap<&str, &str> = actual_so
+        .iter()
+        .filter_map(|s| {
+            let sp = s["sourcePath"].as_str()?;
+            let pkg = s["package"].as_str()?;
+            Some((sp, pkg))
+        })
+        .collect();
+
     let actual_map: std::collections::HashMap<_, _> = actual_rr
         .iter()
         .filter_map(|a| a["sourcePath"].as_str().map(|s| (s, a)))
@@ -899,10 +943,18 @@ fn compare_root_resolution(
                     });
                 }
 
-                // rootReason：映射
+                // rootReason：带 package 上下文的映射
                 let actual_reason = a["rootReason"].as_str().unwrap_or("");
                 let expected_reason = e["rootReason"].as_str().unwrap_or("");
-                match map_root_reason(actual_reason) {
+                let ctx = source_to_pkg
+                    .get(source_path)
+                    .and_then(|pkg| pkg_rr_ctx.get(pkg))
+                    .cloned()
+                    .unwrap_or(RootResolutionContext {
+                        is_workspace_member: false,
+                        is_virtual_workspace_member: false,
+                    });
+                match map_root_reason_ctx(actual_reason, &ctx) {
                     Some(m) if m == expected_reason => {}
                     Some(m) => {
                         mismatches.push(Mismatch {
