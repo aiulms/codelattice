@@ -308,11 +308,8 @@ fn so_single_target_shared归属lib() {
         .unwrap();
     assert_eq!(common["package"].as_str(), Some("app"));
     // 单 target package，common.rs 归入 lib target
-    assert!(
-        common["target"].as_str().is_some(),
-        "单 target package 的共享模块应有 target"
-    );
-    assert_eq!(common["confidence"].as_f64(), Some(0.80));
+    // confidence 0.90：单 target 归属是确定性推理（同 ExactTarget 同档）
+    assert_eq!(common["confidence"].as_f64(), Some(0.90));
 }
 
 #[test]

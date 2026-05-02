@@ -362,12 +362,14 @@ fn find_target_for_file(
 
     if pkg_targets.len() == 1 {
         // 单 target package，归入唯一 target
+        // confidence 0.90：单 target 归属是确定性推理（不是启发式猜测），
+        // 与 ExactTarget（target root 文件）同档，因为不存在 target 歧义。
         let t = pkg_targets[0];
         let reason = format!("source-owned-by-{}-target-root", t.kind);
         return TargetMatchResult::SingleTarget {
             name: t.name.clone(),
             reason,
-            confidence: 0.80,
+            confidence: 0.90,
         };
     }
 

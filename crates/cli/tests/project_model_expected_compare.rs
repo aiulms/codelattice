@@ -264,31 +264,10 @@ const KNOWN_MISMATCHES: &[KnownMismatch] = &[
     // 已移除 (rust-cargo-root-subdirectory, shape) 和 (rust-cargo-root-subdirectory, diagnostics)：
     // C1 语义缺口已通过 expected.json golden drift 解决——subdirectory fixture root 无 Cargo.toml，
     // Rust-core 输出 cargo-toml-missing diagnostic 是合理行为，expected.json 已更新
-    // sourceOwnership confidence drift：具体到 sourcePath.confidence
-    KnownMismatch {
-        fixture: "rust-cargo-root-baseline",
-        layer: "sourceOwnership",
-        field: Some("src/models/mod.rs.confidence"),
-        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
-    },
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
-        layer: "sourceOwnership",
-        field: Some("backend/src/models/mod.rs.confidence"),
-        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
-    },
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
-        layer: "sourceOwnership",
-        field: Some("backend/src/api/mod.rs.confidence"),
-        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
-    },
-    KnownMismatch {
-        fixture: "rust-cargo-root-subdirectory",
-        layer: "sourceOwnership",
-        field: Some("backend/src/api/handlers.rs.confidence"),
-        reason: "confidence policy drift：expected=0.9 actual=0.8 diff=0.10（C4）",
-    },
+    // 已移除 4 条 sourceOwnership confidence drift known mismatch：
+    // Rust-core SingleTarget confidence 从 0.80 修正为 0.90（确定性推理，非启发式猜测），
+    // standalone package non-target-root 对齐 expected=0.9，
+    // workspace member non-target-root diff=0.05 在 harness tolerance 内
     // rootResolution：fixture 缺 root-queries.txt，具体 field 不确定，整层 skip
     // 已移除 4 条 rootResolution layer-level known mismatch：
     // P0 fixtures 已补齐 root-queries.txt，rootResolution 层可真实比较
