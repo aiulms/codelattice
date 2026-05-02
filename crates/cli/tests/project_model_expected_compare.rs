@@ -49,7 +49,9 @@ const P1_GUARD_FIXTURES: &[&str] = &[
     "rust-virtual-workspace-not-crate-root",
 ];
 
-/// 所有 fixture（P0 + P1-nested + P1-target + P1-guard）
+const P1_NESTED_UNLISTED_FIXTURES: &[&str] = &["rust-nested-package-unlisted"];
+
+/// 所有 fixture（P0 + P1-nested + P1-target + P1-guard + P1-nested-unlisted）
 const ALL_FIXTURES: &[&str] = &[
     "rust-cargo-root-baseline",
     "rust-cargo-root-subdirectory",
@@ -64,6 +66,7 @@ const ALL_FIXTURES: &[&str] = &[
     "rust-ambiguous-root-duplicate-member",
     "rust-cargo-root-missing",
     "rust-virtual-workspace-not-crate-root",
+    "rust-nested-package-unlisted",
 ];
 
 // === GitNexus-RC root 定位 ===
@@ -157,12 +160,14 @@ fn map_discovery_reason(kebab: &str) -> Option<&'static str> {
 struct OwnershipContext {
     is_workspace_member: bool,
     is_virtual_workspace_member: bool,
+    /// workspace member 子目录中未列入 members 的嵌套 package
+    is_nested_in_member: bool,
 }
 
 /// 带 fixture 上下文的 ownershipReason 映射。
 /// 核心歧义：Rust-core 对 workspace member 和 standalone package 的 source 都输出
 /// `source-owned-by-lib-target-root`，但 GitNexus-RC expected.json 区分
-/// ManifestDerived / WorkspaceMember / VirtualWorkspaceMember。
+/// ManifestDerived / WorkspaceMember / VirtualWorkspaceMember / NestedPackageRoot。
 fn map_ownership_reason_ctx(kebab: &str, ctx: &OwnershipContext) -> Option<&'static str> {
     match kebab {
         "source-owned-by-lib-target-root"
@@ -172,6 +177,8 @@ fn map_ownership_reason_ctx(kebab: &str, ctx: &OwnershipContext) -> Option<&'sta
                 Some("VirtualWorkspaceMember")
             } else if ctx.is_workspace_member {
                 Some("WorkspaceMember")
+            } else if ctx.is_nested_in_member {
+                Some("NestedPackageRoot")
             } else {
                 Some("ManifestDerived")
             }
@@ -731,7 +738,7 @@ fn compare_source_ownership(
         .unwrap_or_default();
 
     // 从 actual output 构建 package→OwnershipContext 映射
-    // 判定依据：isWorkspaceMember + discoveryReason（workspace-glob 为 virtual）
+    // 判定依据：isWorkspaceMember + discoveryReason（workspace-glob 为 virtual，nested-in-member 为 nested）
     let empty_pkgs = vec![];
     let pkg_ctx: std::collections::HashMap<&str, OwnershipContext> = actual["packages"]
         .as_array()
@@ -742,11 +749,13 @@ fn compare_source_ownership(
             let is_ws = p["isWorkspaceMember"].as_bool().unwrap_or(false);
             let disc = p["discoveryReason"].as_str().unwrap_or("");
             let is_virtual = is_ws && disc == "workspace-glob";
+            let is_nested = disc == "nested-in-member";
             Some((
                 name,
                 OwnershipContext {
                     is_workspace_member: is_ws && !is_virtual,
                     is_virtual_workspace_member: is_virtual,
+                    is_nested_in_member: is_nested,
                 },
             ))
         })
@@ -799,6 +808,7 @@ fn compare_source_ownership(
                     .unwrap_or(OwnershipContext {
                         is_workspace_member: false,
                         is_virtual_workspace_member: false,
+                        is_nested_in_member: false,
                     });
                 match map_ownership_reason_ctx(actual_reason, &ctx) {
                     Some(m) if m == expected_reason => {}

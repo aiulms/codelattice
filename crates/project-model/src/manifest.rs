@@ -72,6 +72,7 @@ pub fn scan_manifests(root: &Path) -> ScanResult {
             &mut diagnostics,
             &mut manifest_count,
             &mut seen_package_dirs,
+            DiscoveryReason::SubdirectoryScan,
         );
         return ScanResult {
             packages,
@@ -110,6 +111,11 @@ pub fn scan_manifests(root: &Path) -> ScanResult {
         let raw_members: Vec<String> = ws.members.clone().unwrap_or_default();
 
         let mut expanded_members: Vec<String> = Vec::new();
+
+        // 两步处理：先把所有 workspace member 注册为 package，
+        // 再对每个 member 做 nested subdirectory scan，
+        // 防止 scan_subdirectory_packages 抢先于 workspace member 声明发现同一 package
+        let mut member_dirs_for_nested_scan: Vec<PathBuf> = Vec::new();
 
         for member_pattern in &raw_members {
             if is_complex_glob(member_pattern) {
@@ -195,7 +201,23 @@ pub fn scan_manifests(root: &Path) -> ScanResult {
                     &mut diagnostics,
                     &mut seen_package_dirs,
                 );
+
+                member_dirs_for_nested_scan.push(member_dir.to_path_buf());
             }
+        }
+
+        // 所有 workspace member 注册完成后，再扫描子目录发现未列出的嵌套 package
+        for member_dir in &member_dirs_for_nested_scan {
+            scan_subdirectory_packages(
+                member_dir,
+                root,
+                &mut packages,
+                &mut targets,
+                &mut diagnostics,
+                &mut manifest_count,
+                &mut seen_package_dirs,
+                DiscoveryReason::NestedInMember,
+            );
         }
 
         workspaces.push(WorkspaceModel {
@@ -244,6 +266,7 @@ pub fn scan_manifests(root: &Path) -> ScanResult {
             &mut diagnostics,
             &mut manifest_count,
             &mut seen_package_dirs,
+            DiscoveryReason::SubdirectoryScan,
         );
     }
 
@@ -411,6 +434,7 @@ fn add_package_from_manifest(
 }
 
 /// 递归扫描子目录发现 package（支持嵌套 package 如 backend/tools/）
+/// default_discovery：新发现 package 的默认 discovery reason
 fn scan_subdirectory_packages(
     dir: &Path,
     base: &Path,
@@ -419,6 +443,7 @@ fn scan_subdirectory_packages(
     diagnostics: &mut Vec<Diagnostic>,
     manifest_count: &mut u32,
     seen: &mut HashSet<PathBuf>,
+    default_discovery: DiscoveryReason,
 ) {
     let skip_dirs: HashSet<&str> = HashSet::from(["node_modules", ".git", "target", "fixtures"]);
 
@@ -456,7 +481,7 @@ fn scan_subdirectory_packages(
                         &path,
                         base,
                         false,
-                        DiscoveryReason::SubdirectoryScan,
+                        default_discovery.clone(),
                         packages,
                         targets,
                         diagnostics,
@@ -471,6 +496,7 @@ fn scan_subdirectory_packages(
                         diagnostics,
                         manifest_count,
                         seen,
+                        default_discovery.clone(),
                     );
                 } else {
                     // 非 package 子目录也递归扫描
@@ -482,6 +508,7 @@ fn scan_subdirectory_packages(
                         diagnostics,
                         manifest_count,
                         seen,
+                        default_discovery.clone(),
                     );
                 }
             } else {
@@ -494,6 +521,7 @@ fn scan_subdirectory_packages(
                     diagnostics,
                     manifest_count,
                     seen,
+                    default_discovery.clone(),
                 );
             }
         }

@@ -12,6 +12,8 @@ pub enum DiscoveryReason {
     SubdirectoryScan,
     WorkspaceExplicit,
     WorkspaceGlob,
+    /// workspace member 子目录中未列入 members 的嵌套 package
+    NestedInMember,
 }
 
 impl DiscoveryReason {
@@ -21,6 +23,7 @@ impl DiscoveryReason {
             DiscoveryReason::SubdirectoryScan => "subdirectory-scan",
             DiscoveryReason::WorkspaceExplicit => "workspace-explicit",
             DiscoveryReason::WorkspaceGlob => "workspace-glob",
+            DiscoveryReason::NestedInMember => "nested-in-member",
         }
     }
 }
