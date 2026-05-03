@@ -11,11 +11,21 @@
       "alias": null,
       "isReExport": false,
       "visibility": "private",
-      "resolvedTo": null,
-      "confidence": 0.0,
-      "reason": "use-target-unresolved",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "use-self-super-out-of-line::crate::api::models::Response",
+        "resolvedSymbolKind": "struct",
+        "resolvedSymbolName": "Response",
+        "resolvedSymbolSourcePath": "src/api/models.rs"
+      },
+      "confidence": 0.8,
+      "reason": "use-symbol-super-resolved",
       "modulePath": "crate::api::handlers",
-      "expandedPath": "crate::api::models::Response"
+      "expandedPath": "crate::api::models::Response",
+      "resolutionLevel": "symbol"
     },
     {
       "sourcePath": "src/api/handlers.rs",
@@ -25,11 +35,21 @@
       "alias": "ApiResponse",
       "isReExport": false,
       "visibility": "private",
-      "resolvedTo": null,
-      "confidence": 0.0,
-      "reason": "use-target-unresolved",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "use-self-super-out-of-line::crate::api::models::Response",
+        "resolvedSymbolKind": "struct",
+        "resolvedSymbolName": "Response",
+        "resolvedSymbolSourcePath": "src/api/models.rs"
+      },
+      "confidence": 0.85,
+      "reason": "use-symbol-alias-resolved",
       "modulePath": "crate::api::handlers",
-      "expandedPath": "crate::api::models::Response"
+      "expandedPath": "crate::api::models::Response",
+      "resolutionLevel": "symbol"
     },
     {
       "sourcePath": "src/api/handlers.rs",
@@ -39,11 +59,21 @@
       "alias": null,
       "isReExport": false,
       "visibility": "private",
-      "resolvedTo": null,
-      "confidence": 0.0,
-      "reason": "use-target-unresolved",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "use-self-super-out-of-line::crate::root_fn",
+        "resolvedSymbolKind": "function",
+        "resolvedSymbolName": "root_fn",
+        "resolvedSymbolSourcePath": "src/lib.rs"
+      },
+      "confidence": 0.9,
+      "reason": "use-symbol-resolved",
       "modulePath": "crate::api::handlers",
-      "expandedPath": "crate::root_fn"
+      "expandedPath": "crate::root_fn",
+      "resolutionLevel": "symbol"
     }
   ],
   "expectedDiagnostics": ["use-path-unresolved", "use-path-unresolved", "use-path-unresolved"],

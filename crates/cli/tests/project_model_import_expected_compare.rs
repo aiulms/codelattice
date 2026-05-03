@@ -23,6 +23,7 @@ const IMPORT_FIXTURES: &[&str] = &[
     "use-self-super",
     "use-unsupported",
     "use-self-super-out-of-line",
+    "s6-ambiguous-symbol",
 ];
 
 fn workspace_root() -> PathBuf {
@@ -263,6 +264,53 @@ fn compare_import_fields(
                 expected: format!("{:?}", e_ep),
                 actual: format!("{:?}", a_ep),
             });
+        }
+    }
+
+    // resolutionLevel（exact string）
+    {
+        let e_rl = expected["resolutionLevel"].as_str().unwrap_or("");
+        let a_rl = actual["resolutionLevel"].as_str().unwrap_or("");
+        if e_rl != a_rl {
+            mismatches.push(ImportMismatch {
+                fixture: fixture.to_string(),
+                import_key: key.clone(),
+                field: "resolutionLevel".to_string(),
+                expected: e_rl.to_string(),
+                actual: a_rl.to_string(),
+            });
+        }
+    }
+
+    // resolvedTo symbol-level 字段（exact string, nullable）
+    {
+        let e_rt = &expected["resolvedTo"];
+        let a_rt = &actual["resolvedTo"];
+        for field in &[
+            "resolvedSymbolId",
+            "resolvedSymbolKind",
+            "resolvedSymbolName",
+            "resolvedSymbolSourcePath",
+        ] {
+            let e_val = if e_rt.is_object() {
+                e_rt[*field].as_str()
+            } else {
+                None
+            };
+            let a_val = if a_rt.is_object() {
+                a_rt[*field].as_str()
+            } else {
+                None
+            };
+            if e_val != a_val {
+                mismatches.push(ImportMismatch {
+                    fixture: fixture.to_string(),
+                    import_key: key.clone(),
+                    field: format!("resolvedTo.{}", field),
+                    expected: format!("{:?}", e_val),
+                    actual: format!("{:?}", a_val),
+                });
+            }
         }
     }
 

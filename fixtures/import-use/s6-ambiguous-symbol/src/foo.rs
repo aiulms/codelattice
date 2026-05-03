@@ -1,0 +1,5 @@
+pub struct Bar {
+    pub x: i32,
+}
+
+pub fn Bar() {}

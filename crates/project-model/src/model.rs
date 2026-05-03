@@ -377,6 +377,14 @@ pub enum ImportUseResolutionReason {
     UseParseError,
     UseResolutionSkipped,
     UseMacroImportUnsupported,
+    UseSymbolResolved,
+    UseSymbolAliasResolved,
+    UseSymbolReexportResolved,
+    UseSymbolSelfResolved,
+    UseSymbolSuperResolved,
+    UseSymbolUnresolved,
+    UseSymbolAmbiguous,
+    UseSymbolSkipped,
 }
 
 impl ImportUseResolutionReason {
@@ -397,6 +405,14 @@ impl ImportUseResolutionReason {
             ImportUseResolutionReason::UseParseError => "use-parse-error",
             ImportUseResolutionReason::UseResolutionSkipped => "use-resolution-skipped",
             ImportUseResolutionReason::UseMacroImportUnsupported => "use-macro-import-unsupported",
+            ImportUseResolutionReason::UseSymbolResolved => "use-symbol-resolved",
+            ImportUseResolutionReason::UseSymbolAliasResolved => "use-symbol-alias-resolved",
+            ImportUseResolutionReason::UseSymbolReexportResolved => "use-symbol-reexport-resolved",
+            ImportUseResolutionReason::UseSymbolSelfResolved => "use-symbol-self-resolved",
+            ImportUseResolutionReason::UseSymbolSuperResolved => "use-symbol-super-resolved",
+            ImportUseResolutionReason::UseSymbolUnresolved => "use-symbol-unresolved",
+            ImportUseResolutionReason::UseSymbolAmbiguous => "use-symbol-ambiguous",
+            ImportUseResolutionReason::UseSymbolSkipped => "use-symbol-skipped",
         }
     }
 }
@@ -409,6 +425,10 @@ pub struct ImportUseTarget {
     pub resolved_kind: Option<String>,
     pub target_module_path: Option<String>,
     pub target_file_path: Option<String>,
+    pub resolved_symbol_id: Option<String>,
+    pub resolved_symbol_kind: Option<String>,
+    pub resolved_symbol_name: Option<String>,
+    pub resolved_symbol_source_path: Option<String>,
 }
 
 /// import/use diagnostic
@@ -477,4 +497,6 @@ pub struct ImportUse {
     pub reason: String,
     /// 附带 diagnostics
     pub diagnostics: Vec<ImportUseDiagnostic>,
+    /// 解析层级：module | symbol | unresolved | skipped
+    pub resolution_level: String,
 }

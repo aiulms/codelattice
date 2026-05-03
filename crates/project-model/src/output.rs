@@ -61,8 +61,9 @@ pub fn inspect_project_model_with_options(
         &scan.targets,
     );
 
-    // item/symbol 提取：第三刀使用 best extractor（tree-sitter 优先，fallback 到 text）
-    let (symbols, symbol_diagnostics, symbol_count) = if include_symbols {
+    // item/symbol 提取：include_symbols 或 include_imports 时都需要
+    let need_symbols = include_symbols || include_imports;
+    let (symbols, symbol_diagnostics, symbol_count) = if need_symbols {
         let extractor = create_best_extractor();
         let inputs = build_extraction_inputs(
             root,
@@ -84,6 +85,7 @@ pub fn inspect_project_model_with_options(
             &source_result.source_ownership,
             &scan.targets,
             &module_path_map,
+            &symbols,
         );
         let count = result.import_count;
         (result.imports, result.diagnostics, count)
@@ -116,11 +118,15 @@ pub fn inspect_project_model_with_options(
             unowned_file_count: source_result.unowned_file_count,
             resolution_success_count: rr_result.resolution_success_count,
             resolution_fail_count: rr_result.resolution_fail_count,
-            symbol_count,
+            symbol_count: if include_symbols { symbol_count } else { 0 },
             import_count,
         },
-        symbols,
-        symbol_diagnostics,
+        symbols: if include_symbols { symbols } else { vec![] },
+        symbol_diagnostics: if include_symbols {
+            symbol_diagnostics
+        } else {
+            vec![]
+        },
         imports: import_list,
         import_diagnostics,
     }

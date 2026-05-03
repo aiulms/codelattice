@@ -1,0 +1,26 @@
+{
+  "fixtureName": "s6-ambiguous-symbol",
+  "scenario": "same-name struct and function in same module causes ambiguous symbol resolution",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "crate::foo::Bar",
+      "pathKind": "crate",
+      "targetName": "Bar",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved",
+      "modulePath": "crate",
+      "expandedPath": "crate::foo::Bar",
+      "resolutionLevel": "unresolved"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved", "use-symbol-ambiguous"],
+  "expectedAbsence": [],
+  "knownLimitations": ["same-name struct and function causes ambiguous symbol resolution; no fake target produced"],
+  "confidencePolicy": "0.0 for ambiguous symbols"
+}

@@ -15,7 +15,9 @@
 //! - modulePath 在当前 landed reality 中可能是 flat（如 "crate" 而非 "crate::config"），
 //!   影响 self::/super:: 解析精度。记录为 known limitation，不产 fake resolvedTo。
 //! - 不做 item-level symbol resolution，只解析到 module/file 层。
+//!   第二刀新增 SymbolIndex，叠加 symbol-level resolution。
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::model::*;
@@ -38,6 +40,7 @@ pub fn extract_and_resolve_imports(
     source_ownership: &[SourceOwnership],
     targets: &[TargetModel],
     module_path_map: &crate::module_path::ModulePathMap,
+    symbols: &[Symbol],
 ) -> ImportUseResult {
     let mut all_imports = Vec::new();
     let all_diagnostics = Vec::new();
@@ -88,6 +91,12 @@ pub fn extract_and_resolve_imports(
         }
 
         all_imports.extend(imports);
+    }
+
+    // symbol-level resolution：构建 SymbolIndex 并叠加到每条 ImportUse
+    let symbol_index = build_symbol_index(symbols);
+    for import in &mut all_imports {
+        resolve_import_symbol(import, &symbol_index);
     }
 
     // 按 source_path + line_start + id 排序确保输出稳定
@@ -219,6 +228,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
                 message: "glob import 不展开".to_string(),
                 target_name: Some("*".to_string()),
             }],
+            resolution_level: "unresolved".to_string(),
         }]);
     }
 
@@ -265,6 +275,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
                 .as_str()
                 .to_string(),
             diagnostics: vec![],
+            resolution_level: "unresolved".to_string(),
         }]);
     }
 
@@ -294,6 +305,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
             .as_str()
             .to_string(),
         diagnostics: vec![],
+        resolution_level: "unresolved".to_string(),
     }])
 }
 
@@ -382,6 +394,7 @@ fn expand_grouped_import(
                 .as_str()
                 .to_string(),
             diagnostics: vec![],
+            resolution_level: "unresolved".to_string(),
         });
     }
 
@@ -463,6 +476,10 @@ fn resolve_crate_path(import: &mut ImportUse, repo_root: &Path, crate_root_abs: 
                 resolved_kind: Some(resolved_kind.to_string()),
                 target_module_path: Some(target_module_path),
                 target_file_path: None,
+                resolved_symbol_id: None,
+                resolved_symbol_kind: None,
+                resolved_symbol_name: None,
+                resolved_symbol_source_path: None,
             });
             import.confidence = confidence;
             // 保持原始 reason（group-expanded / alias-resolved）或覆盖为 use-crate-resolved
@@ -565,6 +582,10 @@ fn resolve_self_path(import: &mut ImportUse, repo_root: &Path, crate_root_abs: &
                 resolved_kind: Some("module".to_string()),
                 target_module_path: Some(target_module_path),
                 target_file_path: None,
+                resolved_symbol_id: None,
+                resolved_symbol_kind: None,
+                resolved_symbol_name: None,
+                resolved_symbol_source_path: None,
             });
             import.confidence = 0.75;
             import.reason = ImportUseResolutionReason::UseSelfResolved
@@ -648,6 +669,10 @@ fn resolve_super_path(import: &mut ImportUse, repo_root: &Path, crate_root_abs: 
                 resolved_kind: Some("module".to_string()),
                 target_module_path: Some(target_module_path),
                 target_file_path: None,
+                resolved_symbol_id: None,
+                resolved_symbol_kind: None,
+                resolved_symbol_name: None,
+                resolved_symbol_source_path: None,
             });
             import.confidence = 0.75;
             import.reason = ImportUseResolutionReason::UseSuperResolved
@@ -816,6 +841,7 @@ fn process_use_argument(
                     .as_str()
                     .to_string(),
                 diagnostics: vec![],
+                resolution_level: "unresolved".to_string(),
             }]
         }
 
@@ -845,6 +871,7 @@ fn process_use_argument(
                     message: "glob import 不展开".to_string(),
                     target_name: Some("*".to_string()),
                 }],
+                resolution_level: "unresolved".to_string(),
             }]
         }
 
@@ -905,6 +932,7 @@ fn process_use_argument(
                     .as_str()
                     .to_string(),
                 diagnostics: vec![],
+                resolution_level: "unresolved".to_string(),
             }]
         }
 
@@ -957,6 +985,7 @@ fn process_use_argument(
                                         .as_str()
                                         .to_string(),
                                     diagnostics: vec![],
+                                    resolution_level: "unresolved".to_string(),
                                 });
                                 idx += 1;
                             }
@@ -1003,6 +1032,7 @@ fn process_use_argument(
                                         .as_str()
                                         .to_string(),
                                     diagnostics: vec![],
+                                    resolution_level: "unresolved".to_string(),
                                 });
                                 idx += 1;
                             }
@@ -1032,6 +1062,7 @@ fn process_use_argument(
                                         message: "glob import 不展开".to_string(),
                                         target_name: Some("*".to_string()),
                                     }],
+                                    resolution_level: "unresolved".to_string(),
                                 });
                                 idx += 1;
                             }
@@ -1057,4 +1088,200 @@ fn byte_to_line(source_bytes: &[u8], byte_offset: usize) -> u32 {
         }
     }
     line
+}
+
+// ============================================================
+// symbol-level resolution
+// ============================================================
+
+/// SymbolIndex 中的一条匹配
+struct SymbolMatch {
+    id: String,
+    symbol_kind: String,
+    name: String,
+    source_path: String,
+    module_path: String,
+}
+
+/// symbol 查找索引，key = (modulePath, name)
+struct SymbolIndex {
+    by_module_and_name: HashMap<(String, String), Vec<SymbolMatch>>,
+}
+
+/// 从 Symbol 列表构建 SymbolIndex
+///
+/// 过滤掉 Module / ImplBlock kind（不作为 import target）。
+/// key = (modulePath, name)，modulePath 为 None 时 fallback "crate"。
+fn build_symbol_index(symbols: &[Symbol]) -> SymbolIndex {
+    let mut index: HashMap<(String, String), Vec<SymbolMatch>> = HashMap::new();
+
+    for sym in symbols {
+        match sym.symbol_kind.as_str() {
+            "module" | "impl-block" => continue,
+            _ => {}
+        }
+
+        let mp = sym.module_path.as_deref().unwrap_or("crate").to_string();
+        let key = (mp.clone(), sym.name.clone());
+
+        index.entry(key).or_default().push(SymbolMatch {
+            id: sym.id.clone(),
+            symbol_kind: sym.symbol_kind.clone(),
+            name: sym.name.clone(),
+            source_path: sym.source_path.clone(),
+            module_path: mp,
+        });
+    }
+
+    SymbolIndex {
+        by_module_and_name: index,
+    }
+}
+
+impl SymbolIndex {
+    fn lookup(&self, module_path: &str, name: &str) -> &[SymbolMatch] {
+        self.by_module_and_name
+            .get(&(module_path.to_string(), name.to_string()))
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
+    }
+}
+
+/// 从 expandedPath 拆分最后一段作为 item name
+fn split_last_segment(expanded: &str) -> (String, String) {
+    match expanded.rfind("::") {
+        Some(pos) => (expanded[..pos].to_string(), expanded[pos + 2..].to_string()),
+        None => ("crate".to_string(), expanded.to_string()),
+    }
+}
+
+/// 对单条 ImportUse 执行 symbol-level resolution
+///
+/// 叠加在现有 module-level resolution 之上：
+/// - module-level resolved → 尝试 symbol lookup
+/// - module-level unresolved → 保持 unresolved
+/// - skipped → 保持 skipped
+fn resolve_import_symbol(import: &mut ImportUse, symbol_index: &SymbolIndex) {
+    // 初始化 resolution_level
+    import.resolution_level = if import.resolved_to.is_some() {
+        "module".to_string()
+    } else {
+        "unresolved".to_string()
+    };
+
+    // skipped: glob / external / unknown
+    let pk = import.path_kind.as_str();
+    if pk == "external" || pk == "unknown" || import.target_name == "*" {
+        import.resolution_level = "skipped".to_string();
+        return;
+    }
+
+    // 需要 expandedPath
+    let expanded = match &import.expanded_path {
+        Some(p) => p.clone(),
+        None => return,
+    };
+
+    let (prefix_mp, item_name) = split_last_segment(&expanded);
+
+    match symbol_index.lookup(&prefix_mp, &item_name) {
+        [] => {
+            // symbol 未找到，保持 module-level 或 unresolved
+            import.diagnostics.push(ImportUseDiagnostic {
+                code: "use-symbol-unresolved".to_string(),
+                severity: "warning".to_string(),
+                message: format!("symbol {} not found in module {}", item_name, prefix_mp),
+                target_name: Some(item_name),
+            });
+        }
+        [single] => {
+            // 唯一匹配 → symbol resolved
+            if import.resolved_to.is_none() {
+                import.resolved_to = Some(ImportUseTarget {
+                    resolved_path: None,
+                    resolved_kind: None,
+                    target_module_path: None,
+                    target_file_path: None,
+                    resolved_symbol_id: None,
+                    resolved_symbol_kind: None,
+                    resolved_symbol_name: None,
+                    resolved_symbol_source_path: None,
+                });
+            }
+            if let Some(ref mut target) = import.resolved_to {
+                target.resolved_symbol_id = Some(single.id.clone());
+                target.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                target.resolved_symbol_name = Some(single.name.clone());
+                target.resolved_symbol_source_path = Some(single.source_path.clone());
+            }
+            import.resolution_level = "symbol".to_string();
+            update_symbol_reason_and_confidence(import);
+        }
+        multiple => {
+            // 歧义 → unresolved，不产 fake target
+            import.resolution_level = if import.resolved_to.is_some() {
+                "module".to_string()
+            } else {
+                "unresolved".to_string()
+            };
+            let kinds: Vec<&str> = multiple.iter().map(|m| m.symbol_kind.as_str()).collect();
+            import.diagnostics.push(ImportUseDiagnostic {
+                code: "use-symbol-ambiguous".to_string(),
+                severity: "warning".to_string(),
+                message: format!(
+                    "multiple symbols match {}::{}: {}",
+                    prefix_mp,
+                    item_name,
+                    kinds.join(", ")
+                ),
+                target_name: Some(item_name),
+            });
+        }
+    }
+}
+
+/// symbol resolved 后更新 reason 和 confidence
+fn update_symbol_reason_and_confidence(import: &mut ImportUse) {
+    let pk = import.path_kind.as_str();
+    let is_reexport = import.is_re_export;
+    let is_alias = import.alias.is_some();
+
+    match pk {
+        "crate" if is_reexport => {
+            import.reason = ImportUseResolutionReason::UseSymbolReexportResolved
+                .as_str()
+                .to_string();
+            import.confidence = 0.85;
+        }
+        "crate" if is_alias => {
+            import.reason = ImportUseResolutionReason::UseSymbolAliasResolved
+                .as_str()
+                .to_string();
+            import.confidence = 0.85;
+        }
+        "crate" => {
+            import.reason = ImportUseResolutionReason::UseSymbolResolved
+                .as_str()
+                .to_string();
+            import.confidence = 0.90;
+        }
+        "self" => {
+            import.reason = ImportUseResolutionReason::UseSymbolSelfResolved
+                .as_str()
+                .to_string();
+            import.confidence = 0.80;
+        }
+        "super" => {
+            import.reason = ImportUseResolutionReason::UseSymbolSuperResolved
+                .as_str()
+                .to_string();
+            import.confidence = 0.80;
+        }
+        _ => {
+            import.reason = ImportUseResolutionReason::UseSymbolResolved
+                .as_str()
+                .to_string();
+            import.confidence = 0.85;
+        }
+    }
 }

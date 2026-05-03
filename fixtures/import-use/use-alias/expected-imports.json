@@ -11,11 +11,21 @@
       "alias": "RenamedBar",
       "isReExport": false,
       "visibility": "private",
-      "resolvedTo": null,
-      "confidence": 0.0,
-      "reason": "use-target-unresolved",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "use-alias::crate::foo::Bar",
+        "resolvedSymbolKind": "struct",
+        "resolvedSymbolName": "Bar",
+        "resolvedSymbolSourcePath": "src/foo.rs"
+      },
+      "confidence": 0.85,
+      "reason": "use-symbol-alias-resolved",
       "modulePath": "crate",
-      "expandedPath": "crate::foo::Bar"
+      "expandedPath": "crate::foo::Bar",
+      "resolutionLevel": "symbol"
     }
   ],
   "expectedDiagnostics": ["use-path-unresolved"],
