@@ -1,0 +1,55 @@
+{
+  "fixtureName": "item-duplicate-names",
+  "scenario": "同名函数 process 出现两次（Rust 不允许，但测试 extractor disambiguator）。验证第二个同名 symbol 使用 _L3 后缀的 id、两个 symbol 都被保留",
+  "inputRoot": "item-duplicate-names",
+  "expectedSymbols": [
+    {
+      "id": "item-dup::crate::process",
+      "name": "process",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-dup",
+      "targetName": "item_dup",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 1 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    },
+    {
+      "id": "item-dup::crate::process::_L3",
+      "name": "process",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-dup",
+      "targetName": "item_dup",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": null,
+      "span": { "lineStart": 3, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    }
+  ],
+  "expectedSymbolDiagnostics": [],
+  "expectedStats": {
+    "symbolCount": 2,
+    "diagnosticCount": 0,
+    "sourceFileCount": 1
+  },
+  "expectedAbsence": [],
+  "knownLimitations": [
+    {
+      "description": "item-duplicate-names fixture 的源码不是合法 Rust（同名 fn 不允许），仅测试 extractor 的 disambiguate 行为"
+    }
+  ],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}

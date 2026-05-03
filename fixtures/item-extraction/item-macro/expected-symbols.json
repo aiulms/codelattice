@@ -1,0 +1,71 @@
+{
+  "fixtureName": "item-macro",
+  "scenario": "macro_rules! 定义 + 普通函数 + 2 个 macro invocation（create_fn! + println!）。验证 macro-definition symbolKind、macro invocation 不产生 symbol、2 个 unsupported-macro-expansion diagnostics",
+  "inputRoot": "item-macro",
+  "expectedSymbols": [
+    {
+      "id": "item-macro::crate::create_fn",
+      "name": "create_fn",
+      "symbolKind": "macro-definition",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-macro",
+      "targetName": "item_macro",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-macro::crate::normal_fn",
+      "name": "normal_fn",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-macro",
+      "targetName": "item_macro",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": null,
+      "span": { "lineStart": 5, "lineEnd": 5 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    }
+  ],
+  "expectedSymbolDiagnostics": [
+    {
+      "code": "unsupported-macro-expansion",
+      "severity": "info",
+      "sourcePath": "src/lib.rs",
+      "symbolId": null
+    },
+    {
+      "code": "unsupported-macro-expansion",
+      "severity": "info",
+      "sourcePath": "src/lib.rs",
+      "symbolId": null
+    }
+  ],
+  "expectedStats": {
+    "symbolCount": 2,
+    "diagnosticCount": 2,
+    "sourceFileCount": 1
+  },
+  "expectedAbsence": [
+    {
+      "type": "noGeneratedFunction",
+      "reason": "create_fn!(generated_fn) 是 macro invocation，不应产生独立的 function symbol",
+      "kind": "function",
+      "name": "generated_fn"
+    }
+  ],
+  "knownLimitations": [],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}

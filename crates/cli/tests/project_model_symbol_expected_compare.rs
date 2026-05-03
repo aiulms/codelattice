@@ -26,6 +26,10 @@ const SYMBOL_FIXTURES: &[&str] = &[
     "item-inline-module",
     "item-top-level-regression",
     "item-parse-error",
+    "item-top-level",
+    "item-visibility",
+    "item-macro",
+    "item-duplicate-names",
 ];
 
 // === Fixture 目录定位 ===
