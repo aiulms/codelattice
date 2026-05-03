@@ -1,0 +1,108 @@
+{
+  "fixtureName": "root-package",
+  "scenario": "单 package + lib target + source file，验证 CONTAINS_PACKAGE / HAS_TARGET / OWNS_SOURCE 三条边",
+  "inputRoot": "manifest-scanner/root-package",
+  "command": "--include graph",
+  "schemaVersion": "0.1.0",
+  "expectedGraph": {
+    "nodes": [
+      {
+        "id": "file:src/lib.rs",
+        "label": "source-file",
+        "properties": {
+          "confidence": 0.8999999761581421,
+          "ownershipReason": "source-owned-by-lib-target-root",
+          "package": "app",
+          "sourcePath": "src/lib.rs",
+          "target": "app"
+        }
+      },
+      {
+        "id": "package:Cargo.toml",
+        "label": "package",
+        "properties": {
+          "discoveryReason": "root-manifest",
+          "featureNames": [],
+          "isWorkspaceMember": false,
+          "manifestPath": "Cargo.toml",
+          "name": "app",
+          "packageRoot": ".",
+          "targetCount": 1
+        }
+      },
+      {
+        "id": "repo:fixtures/manifest-scanner/root-package",
+        "label": "repository",
+        "properties": {
+          "repoRoot": "fixtures/manifest-scanner/root-package"
+        }
+      },
+      {
+        "id": "target:app::app::lib",
+        "label": "target",
+        "properties": {
+          "crateRootFile": "./src/lib.rs",
+          "kind": "lib",
+          "name": "app",
+          "packageName": "app",
+          "sourceRootDir": "./src"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "repo:fixtures/manifest-scanner/root-package",
+        "target": "package:Cargo.toml",
+        "type": "CONTAINS_PACKAGE"
+      },
+      {
+        "source": "package:Cargo.toml",
+        "target": "target:app::app::lib",
+        "type": "HAS_TARGET"
+      },
+      {
+        "source": "target:app::app::lib",
+        "target": "file:src/lib.rs",
+        "type": "OWNS_SOURCE"
+      }
+    ],
+    "diagnostics": []
+  },
+  "expectedStats": {
+    "nodeCount": 4,
+    "edgeCount": 3,
+    "diagnosticCount": 0,
+    "symbolCount": 0
+  },
+  "expectedPresence": [
+    { "type": "nodeExists", "id": "repo:fixtures/manifest-scanner/root-package" },
+    { "type": "nodeExists", "id": "package:Cargo.toml" },
+    { "type": "nodeExists", "id": "target:app::app::lib" },
+    { "type": "nodeExists", "id": "file:src/lib.rs" },
+    { "type": "edgeExists", "source": "repo:fixtures/manifest-scanner/root-package", "target": "package:Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
+    { "type": "edgeExists", "source": "package:Cargo.toml", "target": "target:app::app::lib", "edgeType": "HAS_TARGET" },
+    { "type": "edgeExists", "source": "target:app::app::lib", "target": "file:src/lib.rs", "edgeType": "OWNS_SOURCE" },
+    { "type": "nodeKindCount", "label": "repository", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "package", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "target", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "source-file", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "CONTAINS_PACKAGE", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "HAS_TARGET", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "OWNS_SOURCE", "min": 1, "max": 1 }
+  ],
+  "expectedAbsence": [
+    { "type": "noEdgeKind", "edgeType": "CONTAINS_WORKSPACE" },
+    { "type": "noCalls" },
+    { "type": "noUses" },
+    { "type": "noImports" },
+    { "type": "noImplements" },
+    { "type": "noDuplicateNodeId" },
+    { "type": "noDuplicateEdgeKey" }
+  ],
+  "knownLimitations": [],
+  "comparisonPolicy": {
+    "mode": "exact",
+    "excludeFields": ["generatedAt", "root"],
+    "knownSkip": []
+  }
+}

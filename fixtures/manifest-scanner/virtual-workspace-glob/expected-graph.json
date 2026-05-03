@@ -1,0 +1,187 @@
+{
+  "fixtureName": "virtual-workspace-glob",
+  "scenario": "virtual workspace + glob 成员（alpha, beta），验证 CONTAINS_WORKSPACE + CONTAINS_PACKAGE (workspace→package) 路径",
+  "inputRoot": "manifest-scanner/virtual-workspace-glob",
+  "command": "--include graph",
+  "schemaVersion": "0.1.0",
+  "expectedGraph": {
+    "nodes": [
+      {
+        "id": "file:crates/alpha/src/lib.rs",
+        "label": "source-file",
+        "properties": {
+          "confidence": 0.8999999761581421,
+          "ownershipReason": "source-owned-by-lib-target-root",
+          "package": "alpha",
+          "sourcePath": "crates/alpha/src/lib.rs",
+          "target": "alpha"
+        }
+      },
+      {
+        "id": "file:crates/beta/src/lib.rs",
+        "label": "source-file",
+        "properties": {
+          "confidence": 0.8999999761581421,
+          "ownershipReason": "source-owned-by-lib-target-root",
+          "package": "beta",
+          "sourcePath": "crates/beta/src/lib.rs",
+          "target": "beta"
+        }
+      },
+      {
+        "id": "package:crates/alpha/Cargo.toml",
+        "label": "package",
+        "properties": {
+          "discoveryReason": "workspace-glob",
+          "featureNames": [],
+          "isWorkspaceMember": true,
+          "manifestPath": "crates/alpha/Cargo.toml",
+          "name": "alpha",
+          "packageRoot": "crates/alpha",
+          "targetCount": 1
+        }
+      },
+      {
+        "id": "package:crates/beta/Cargo.toml",
+        "label": "package",
+        "properties": {
+          "discoveryReason": "workspace-glob",
+          "featureNames": [],
+          "isWorkspaceMember": true,
+          "manifestPath": "crates/beta/Cargo.toml",
+          "name": "beta",
+          "packageRoot": "crates/beta",
+          "targetCount": 1
+        }
+      },
+      {
+        "id": "repo:fixtures/manifest-scanner/virtual-workspace-glob",
+        "label": "repository",
+        "properties": {
+          "repoRoot": "fixtures/manifest-scanner/virtual-workspace-glob"
+        }
+      },
+      {
+        "id": "target:alpha::alpha::lib",
+        "label": "target",
+        "properties": {
+          "crateRootFile": "crates/alpha/src/lib.rs",
+          "kind": "lib",
+          "name": "alpha",
+          "packageName": "alpha",
+          "sourceRootDir": "crates/alpha/src"
+        }
+      },
+      {
+        "id": "target:beta::beta::lib",
+        "label": "target",
+        "properties": {
+          "crateRootFile": "crates/beta/src/lib.rs",
+          "kind": "lib",
+          "name": "beta",
+          "packageName": "beta",
+          "sourceRootDir": "crates/beta/src"
+        }
+      },
+      {
+        "id": "workspace:Cargo.toml",
+        "label": "workspace",
+        "properties": {
+          "expandedMembers": [
+            "crates/beta",
+            "crates/alpha"
+          ],
+          "manifestPath": "Cargo.toml",
+          "rawMembers": [
+            "crates/*"
+          ],
+          "workspaceRoot": "."
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "workspace:Cargo.toml",
+        "target": "package:crates/alpha/Cargo.toml",
+        "type": "CONTAINS_PACKAGE"
+      },
+      {
+        "source": "workspace:Cargo.toml",
+        "target": "package:crates/beta/Cargo.toml",
+        "type": "CONTAINS_PACKAGE"
+      },
+      {
+        "source": "repo:fixtures/manifest-scanner/virtual-workspace-glob",
+        "target": "workspace:Cargo.toml",
+        "type": "CONTAINS_WORKSPACE"
+      },
+      {
+        "source": "package:crates/alpha/Cargo.toml",
+        "target": "target:alpha::alpha::lib",
+        "type": "HAS_TARGET"
+      },
+      {
+        "source": "package:crates/beta/Cargo.toml",
+        "target": "target:beta::beta::lib",
+        "type": "HAS_TARGET"
+      },
+      {
+        "source": "target:alpha::alpha::lib",
+        "target": "file:crates/alpha/src/lib.rs",
+        "type": "OWNS_SOURCE"
+      },
+      {
+        "source": "target:beta::beta::lib",
+        "target": "file:crates/beta/src/lib.rs",
+        "type": "OWNS_SOURCE"
+      }
+    ],
+    "diagnostics": []
+  },
+  "expectedStats": {
+    "nodeCount": 8,
+    "edgeCount": 7,
+    "diagnosticCount": 0,
+    "symbolCount": 0
+  },
+  "expectedPresence": [
+    { "type": "nodeExists", "id": "repo:fixtures/manifest-scanner/virtual-workspace-glob" },
+    { "type": "nodeExists", "id": "workspace:Cargo.toml" },
+    { "type": "nodeExists", "id": "package:crates/alpha/Cargo.toml" },
+    { "type": "nodeExists", "id": "package:crates/beta/Cargo.toml" },
+    { "type": "nodeExists", "id": "target:alpha::alpha::lib" },
+    { "type": "nodeExists", "id": "target:beta::beta::lib" },
+    { "type": "nodeExists", "id": "file:crates/alpha/src/lib.rs" },
+    { "type": "nodeExists", "id": "file:crates/beta/src/lib.rs" },
+    { "type": "edgeExists", "source": "repo:fixtures/manifest-scanner/virtual-workspace-glob", "target": "workspace:Cargo.toml", "edgeType": "CONTAINS_WORKSPACE" },
+    { "type": "edgeExists", "source": "workspace:Cargo.toml", "target": "package:crates/alpha/Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
+    { "type": "edgeExists", "source": "workspace:Cargo.toml", "target": "package:crates/beta/Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
+    { "type": "edgeExists", "source": "package:crates/alpha/Cargo.toml", "target": "target:alpha::alpha::lib", "edgeType": "HAS_TARGET" },
+    { "type": "edgeExists", "source": "package:crates/beta/Cargo.toml", "target": "target:beta::beta::lib", "edgeType": "HAS_TARGET" },
+    { "type": "edgeExists", "source": "target:alpha::alpha::lib", "target": "file:crates/alpha/src/lib.rs", "edgeType": "OWNS_SOURCE" },
+    { "type": "edgeExists", "source": "target:beta::beta::lib", "target": "file:crates/beta/src/lib.rs", "edgeType": "OWNS_SOURCE" },
+    { "type": "nodeKindCount", "label": "repository", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "workspace", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "package", "min": 2, "max": 2 },
+    { "type": "nodeKindCount", "label": "target", "min": 2, "max": 2 },
+    { "type": "nodeKindCount", "label": "source-file", "min": 2, "max": 2 },
+    { "type": "edgeKindCount", "edgeType": "CONTAINS_WORKSPACE", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "CONTAINS_PACKAGE", "min": 2, "max": 2 },
+    { "type": "edgeKindCount", "edgeType": "HAS_TARGET", "min": 2, "max": 2 },
+    { "type": "edgeKindCount", "edgeType": "OWNS_SOURCE", "min": 2, "max": 2 }
+  ],
+  "expectedAbsence": [
+    { "type": "noCalls" },
+    { "type": "noUses" },
+    { "type": "noImports" },
+    { "type": "noImplements" },
+    { "type": "noDuplicateNodeId" },
+    { "type": "noDuplicateEdgeKey" }
+  ],
+  "knownLimitations": [],
+  "comparisonPolicy": {
+    "mode": "exact",
+    "excludeFields": ["generatedAt", "root"],
+    "knownSkip": []
+  }
+}
