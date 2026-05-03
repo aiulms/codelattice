@@ -59,8 +59,9 @@ fn main() {
                     std::process::exit(1);
                 }
 
-                // 解析 --include symbols flag
+                // 解析 --include symbols / graph flag
                 let include_symbols = include.iter().any(|s| s == "symbols");
+                let include_graph = include.iter().any(|s| s == "graph");
 
                 let root_path = Path::new(&root);
                 if !root_path.exists() {
@@ -69,17 +70,28 @@ fn main() {
                 }
 
                 // 调用真实 manifest scanner
-                let output = gitnexus_project_model::output::inspect_project_model_with_symbols(
+                let pm_output = gitnexus_project_model::output::inspect_project_model_with_options(
                     root_path,
                     include_symbols,
+                    include_graph,
                 );
-                let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
-                    eprintln!("错误：JSON 序列化失败: {e}");
-                    std::process::exit(1);
-                });
 
-                // stdout 只输出 JSON，human logs 去 stderr
-                println!("{json}");
+                // 输出：--include graph 时输出 GraphOutput，否则输出 ProjectModelOutput
+                if include_graph {
+                    let graph_output =
+                        gitnexus_project_model::output::emit_graph_output(&pm_output);
+                    let json = serde_json::to_string_pretty(&graph_output).unwrap_or_else(|e| {
+                        eprintln!("错误：Graph JSON 序列化失败: {e}");
+                        std::process::exit(1);
+                    });
+                    println!("{json}");
+                } else {
+                    let json = serde_json::to_string_pretty(&pm_output).unwrap_or_else(|e| {
+                        eprintln!("错误：JSON 序列化失败: {e}");
+                        std::process::exit(1);
+                    });
+                    println!("{json}");
+                }
             }
         },
     }

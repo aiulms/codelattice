@@ -6,6 +6,7 @@
 //! stdout 只输出 JSON，human-readable logs 输出到 stderr。
 
 use crate::diagnostic::{codes, Diagnostic};
+use crate::graph;
 use crate::item::{create_best_extractor, ItemExtractionInput};
 use crate::manifest;
 use crate::model::*;
@@ -13,13 +14,22 @@ use crate::root_resolution;
 use crate::source;
 
 pub fn inspect_project_model(root: &std::path::Path) -> ProjectModelOutput {
-    inspect_project_model_with_symbols(root, false)
+    inspect_project_model_with_options(root, false, false)
 }
 
 /// 带 symbol 提取选项的 inspect
 pub fn inspect_project_model_with_symbols(
     root: &std::path::Path,
     include_symbols: bool,
+) -> ProjectModelOutput {
+    inspect_project_model_with_options(root, include_symbols, false)
+}
+
+/// 带全部选项的 inspect（symbol + graph）
+pub fn inspect_project_model_with_options(
+    root: &std::path::Path,
+    include_symbols: bool,
+    _include_graph: bool,
 ) -> ProjectModelOutput {
     let root_display = root.display().to_string();
     let scan = manifest::scan_manifests(root);
@@ -174,4 +184,9 @@ fn build_extraction_inputs(
 
     let _ = packages;
     inputs
+}
+
+/// 从 ProjectModelOutput 生成 GraphOutput
+pub fn emit_graph_output(pm: &ProjectModelOutput) -> graph::GraphOutput {
+    graph::emit_graph(pm)
 }
