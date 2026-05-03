@@ -83,6 +83,7 @@ pub fn inspect_project_model_with_options(
             root,
             &source_result.source_ownership,
             &scan.targets,
+            &module_path_map,
         );
         let count = result.import_count;
         (result.imports, result.diagnostics, count)

@@ -29,10 +29,15 @@ pub struct ImportUseResult {
 }
 
 /// 从多个 .rs 文件提取并解析 use 声明
+///
+/// module_path_map 提供文件级 sourcePath → modulePath 映射，
+/// 让 ImportUse.modulePath 使用真实模块路径而非 flat "crate"。
+/// self:: / super:: 展开算法本身不变，输入改善后自动获得正确基准路径。
 pub fn extract_and_resolve_imports(
     repo_root: &Path,
     source_ownership: &[SourceOwnership],
     targets: &[TargetModel],
+    module_path_map: &crate::module_path::ModulePathMap,
 ) -> ImportUseResult {
     let mut all_imports = Vec::new();
     let all_diagnostics = Vec::new();
@@ -61,13 +66,21 @@ pub fn extract_and_resolve_imports(
         let crate_root_rel = &target.crate_root_file;
         let crate_root_abs = repo_root.join(crate_root_rel);
 
-        // modulePath 当前使用 "crate"（flat），已知限制
-        let module_path = Some("crate".to_string());
+        // 使用 ModulePathMap 查找文件级 modulePath，fallback 到 "crate"
+        let module_path = Some(module_path_map.get(&so.source_path).to_string());
 
         let _ = pkg_name;
 
         // 提取 use 声明
         let mut imports = extract_use_declarations(&source_text, &so.source_path, &module_path);
+
+        // 填充文件级 modulePath：extractor 产出的 ImportUse.modulePath 可能是 None，
+        // 这里统一用 ModulePathMap 查找结果覆盖
+        for import_use in &mut imports {
+            if import_use.module_path.is_none() {
+                import_use.module_path = module_path.clone();
+            }
+        }
 
         // 解析每条 use 声明
         for import_use in &mut imports {

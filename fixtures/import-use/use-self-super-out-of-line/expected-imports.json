@@ -1,0 +1,50 @@
+{
+  "fixtureName": "use-self-super-out-of-line",
+  "scenario": "out-of-line module file uses super:: to reference sibling module items; validates modulePath enrichment improves self/super expansion",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/api/handlers.rs",
+      "originalPath": "super::models::Response",
+      "pathKind": "super",
+      "targetName": "Response",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    },
+    {
+      "sourcePath": "src/api/handlers.rs",
+      "originalPath": "crate::api::models::Response",
+      "pathKind": "crate",
+      "targetName": "ApiResponse",
+      "alias": "ApiResponse",
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    },
+    {
+      "sourcePath": "src/api/handlers.rs",
+      "originalPath": "crate::root_fn",
+      "pathKind": "crate",
+      "targetName": "root_fn",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved", "use-path-unresolved", "use-path-unresolved"],
+  "expectedAbsence": [],
+  "knownLimitations": [
+    "item-level resolution not supported: Response and root_fn are items, not modules",
+    "super:: expands correctly (crate::api::models::Response) but item-level target unresolved"
+  ],
+  "confidencePolicy": "0.0 for unresolved item-level paths"
+}

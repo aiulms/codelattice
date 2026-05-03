@@ -22,6 +22,7 @@ const IMPORT_FIXTURES: &[&str] = &[
     "use-reexport",
     "use-self-super",
     "use-unsupported",
+    "use-self-super-out-of-line",
 ];
 
 fn workspace_root() -> PathBuf {
