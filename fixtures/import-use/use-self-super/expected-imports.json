@@ -1,6 +1,6 @@
 {
   "fixtureName": "use-self-super",
-  "scenario": "self:: and super:: imports — flat modulePath limitation affects resolution",
+  "scenario": "self:: and super:: imports inside inline module — inline scope tracking resolves super::",
   "inputRoot": ".",
   "expectedImports": [
     {
@@ -14,8 +14,8 @@
       "resolvedTo": null,
       "confidence": 0.0,
       "reason": "use-target-unresolved",
-      "modulePath": "crate",
-      "expandedPath": "crate::Item",
+      "modulePath": "crate::mods::inner",
+      "expandedPath": "crate::mods::inner::Item",
       "resolutionLevel": "unresolved"
     },
     {
@@ -26,16 +26,25 @@
       "alias": null,
       "isReExport": false,
       "visibility": "private",
-      "resolvedTo": null,
-      "confidence": 0.0,
-      "reason": "use-super-at-crate-root",
-      "modulePath": "crate",
-      "expandedPath": "super::Helper",
-      "resolutionLevel": "unresolved"
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "use-self-super::crate::mods::Helper",
+        "resolvedSymbolKind": "struct",
+        "resolvedSymbolName": "Helper",
+        "resolvedSymbolSourcePath": "src/lib.rs"
+      },
+      "confidence": 0.8,
+      "reason": "use-symbol-super-resolved",
+      "modulePath": "crate::mods::inner",
+      "expandedPath": "crate::mods::Helper",
+      "resolutionLevel": "symbol"
     }
   ],
-  "expectedDiagnostics": ["use-path-unresolved", "use-super-at-crate-root"],
+  "expectedDiagnostics": ["use-path-unresolved", "use-symbol-unresolved", "use-path-unresolved"],
   "expectedAbsence": [],
-  "knownLimitations": ["modulePath is flat ('crate') — self:: expands to crate:: and super:: appears at crate root"],
-  "confidencePolicy": "0.0 for self/super with flat modulePath"
+  "knownLimitations": [],
+  "confidencePolicy": "0.0 for self:: unresolved (Item not in inner scope); 0.80 for super:: symbol-resolved"
 }

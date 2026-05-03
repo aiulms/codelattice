@@ -716,7 +716,15 @@ fn extract_with_tree_sitter(
     let source_bytes = source_text.as_bytes();
 
     let mut imports = Vec::new();
-    collect_use_declarations(&root, source_bytes, source_path, &mut imports);
+    // 初始 modulePath 为文件级路径，inline module 递归时会覆盖
+    let file_module_path = _module_path.as_deref().unwrap_or("crate");
+    collect_use_declarations(
+        &root,
+        source_bytes,
+        source_path,
+        &mut imports,
+        file_module_path,
+    );
 
     Some(imports)
 }
@@ -727,16 +735,65 @@ fn collect_use_declarations(
     source_bytes: &[u8],
     source_path: &str,
     imports: &mut Vec<ImportUse>,
+    current_module_path: &str,
 ) {
+    // 提取 use 声明，并记录创建位置以便赋值 inline scope modulePath
     if node.kind() == "use_declaration" {
+        let before_len = imports.len();
         let decls = process_use_declaration(node, source_bytes, source_path);
         imports.extend(decls);
+        // 为本轮新增的 import 赋值当前 inline module scope 的 modulePath
+        // 后处理覆盖逻辑用 is_none() 检查，只有未赋值的才会被文件级覆盖
+        for import in imports.iter_mut().skip(before_len) {
+            if import.module_path.is_none() {
+                import.module_path = Some(current_module_path.to_string());
+            }
+        }
         return;
+    }
+
+    // inline module scope 追踪：遇到 mod name { body } 时更新 module path 并递归
+    if node.kind() == "mod_item" {
+        let mut cursor = node.walk();
+        let children: Vec<tree_sitter::Node> = node.children(&mut cursor).collect();
+
+        // 检查是否有 body（inline module），而非 out-of-line mod name;
+        let has_body = children.iter().any(|c| c.kind() == "declaration_list");
+        if has_body {
+            // 获取 module name
+            let mod_name = children
+                .iter()
+                .find(|c| c.kind() == "identifier")
+                .and_then(|c| c.utf8_text(source_bytes).ok())
+                .unwrap_or("");
+
+            if !mod_name.is_empty() {
+                let nested_path = format!("{}::{}", current_module_path, mod_name);
+                for child in &children {
+                    if child.kind() == "declaration_list" {
+                        collect_use_declarations(
+                            child,
+                            source_bytes,
+                            source_path,
+                            imports,
+                            &nested_path,
+                        );
+                    }
+                }
+                return;
+            }
+        }
     }
 
     let mut cursor = node.walk();
     for child in node.children(&mut cursor) {
-        collect_use_declarations(&child, source_bytes, source_path, imports);
+        collect_use_declarations(
+            &child,
+            source_bytes,
+            source_path,
+            imports,
+            current_module_path,
+        );
     }
 }
 
