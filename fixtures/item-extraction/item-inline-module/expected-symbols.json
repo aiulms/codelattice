@@ -1,0 +1,121 @@
+{
+  "fixtureName": "item-inline-module",
+  "scenario": "inline module（pub mod math { ... } 和 pub mod geometry { ... }），验证 inline module 递归提取、嵌套 modulePath、子 item 的 parentId 指向 Module",
+  "inputRoot": "item-inline-module",
+  "expectedSymbols": [
+    {
+      "id": "item-inline-module::crate::math",
+      "name": "math",
+      "symbolKind": "module",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-inline-module",
+      "targetName": "item_inline_module",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 7 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-inline-module::crate::math::add",
+      "name": "add",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-inline-module",
+      "targetName": "item_inline_module",
+      "modulePath": "crate::math",
+      "visibility": "public",
+      "parentId": "item-inline-module::crate::math",
+      "span": { "lineStart": 2, "lineEnd": 4 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-inline-module::crate::math::Calculator",
+      "name": "Calculator",
+      "symbolKind": "struct",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-inline-module",
+      "targetName": "item_inline_module",
+      "modulePath": "crate::math",
+      "visibility": "public",
+      "parentId": "item-inline-module::crate::math",
+      "span": { "lineStart": 6, "lineEnd": 6 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-inline-module::crate::geometry",
+      "name": "geometry",
+      "symbolKind": "module",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-inline-module",
+      "targetName": "item_inline_module",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 9, "lineEnd": 11 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-inline-module::crate::geometry::Point",
+      "name": "Point",
+      "symbolKind": "struct",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-inline-module",
+      "targetName": "item_inline_module",
+      "modulePath": "crate::geometry",
+      "visibility": "public",
+      "parentId": "item-inline-module::crate::geometry",
+      "span": { "lineStart": 10, "lineEnd": 10 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-inline-module::crate::top_level_fn",
+      "name": "top_level_fn",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-inline-module",
+      "targetName": "item_inline_module",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 13, "lineEnd": 13 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    }
+  ],
+  "expectedSymbolDiagnostics": [],
+  "expectedStats": {
+    "symbolCount": 6,
+    "diagnosticCount": 0,
+    "sourceFileCount": 1
+  },
+  "expectedAbsence": [
+    {
+      "type": "noCallGraphEdge",
+      "reason": "item extraction 不生成 CALLS edge",
+      "edgeType": "CALLS"
+    }
+  ],
+  "knownLimitations": [],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}

@@ -1,0 +1,150 @@
+{
+  "fixtureName": "item-trait-impl",
+  "scenario": "trait 定义 + trait impl（impl Display for Point）+ inherent impl（impl Point），验证 trait impl 的 implDetails.traitName 和 inherent impl 的 traitName=null",
+  "inputRoot": "item-trait-impl",
+  "expectedSymbols": [
+    {
+      "id": "item-trait-impl::crate::Display",
+      "name": "Display",
+      "symbolKind": "trait",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-trait-impl::crate::Point",
+      "name": "Point",
+      "symbolKind": "struct",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 5, "lineEnd": 8 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-trait-impl::crate::_impl_Point_for_Display",
+      "name": "_impl_Point_for_Display",
+      "symbolKind": "impl-block",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": null,
+      "span": { "lineStart": 10, "lineEnd": 14 },
+      "implDetails": { "implTarget": "Point", "traitName": "Display" },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    },
+    {
+      "id": "item-trait-impl::crate::fmt",
+      "name": "fmt",
+      "symbolKind": "method",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": "item-trait-impl::crate::_impl_Point_for_Display",
+      "span": { "lineStart": 11, "lineEnd": 13 },
+      "implDetails": { "implTarget": "Point", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    },
+    {
+      "id": "item-trait-impl::crate::_impl_Point",
+      "name": "_impl_Point",
+      "symbolKind": "impl-block",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": null,
+      "span": { "lineStart": 16, "lineEnd": 24 },
+      "implDetails": { "implTarget": "Point", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    },
+    {
+      "id": "item-trait-impl::crate::origin",
+      "name": "origin",
+      "symbolKind": "associated-function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-trait-impl::crate::_impl_Point",
+      "span": { "lineStart": 17, "lineEnd": 19 },
+      "implDetails": { "implTarget": "Point", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-trait-impl::crate::distance",
+      "name": "distance",
+      "symbolKind": "method",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-trait-impl",
+      "targetName": "item_trait_impl",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-trait-impl::crate::_impl_Point",
+      "span": { "lineStart": 21, "lineEnd": 23 },
+      "implDetails": { "implTarget": "Point", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    }
+  ],
+  "expectedSymbolDiagnostics": [
+    {
+      "code": "unsupported-macro-expansion",
+      "severity": "info",
+      "sourcePath": "src/lib.rs",
+      "symbolId": null
+    }
+  ],
+  "expectedStats": {
+    "symbolCount": 7,
+    "diagnosticCount": 1,
+    "sourceFileCount": 1
+  },
+  "expectedAbsence": [
+    {
+      "type": "noAssociatedTypeConst",
+      "reason": "trait Display 内只有方法签名，无 associated type 或 const，不应有 unsupported-associated-item diagnostic",
+      "code": "unsupported-associated-item"
+    }
+  ],
+  "knownLimitations": [
+    {
+      "type": "impl-block-name-reversed",
+      "scope": "_impl_Point_for_Display",
+      "description": "impl Display for Point 的 name 为 _impl_Point_for_Display（Target 在前，Trait 在后），而非 _impl_Display_for_Point。这是因为 parse_impl_header 在遇到 'for' 关键字时交换 trait/target，但 name 生成使用 {target}_for_{trait} 格式"
+    }
+  ],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}

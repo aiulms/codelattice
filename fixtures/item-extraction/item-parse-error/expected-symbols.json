@@ -1,0 +1,102 @@
+{
+  "fixtureName": "item-parse-error",
+  "scenario": "包含语法错误的 .rs 文件，验证 tree-sitter 部分提取（ValidStruct + valid_fn + broken_fn + GoodEnum），并发出 tree-sitter-parse-error + item-extraction-partial diagnostics",
+  "inputRoot": "item-parse-error",
+  "expectedSymbols": [
+    {
+      "id": "item-parse-error::crate::ValidStruct",
+      "name": "ValidStruct",
+      "symbolKind": "struct",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-parse-error",
+      "targetName": "item_parse_error",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 1 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-parse-error::crate::valid_fn",
+      "name": "valid_fn",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-parse-error",
+      "targetName": "item_parse_error",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 3, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-parse-error::crate::broken_fn",
+      "name": "broken_fn",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-parse-error",
+      "targetName": "item_parse_error",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 6, "lineEnd": 8 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-parse-error::crate::GoodEnum",
+      "name": "GoodEnum",
+      "symbolKind": "enum",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-parse-error",
+      "targetName": "item_parse_error",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 10, "lineEnd": 10 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    }
+  ],
+  "expectedSymbolDiagnostics": [
+    {
+      "code": "tree-sitter-parse-error",
+      "severity": "warning",
+      "sourcePath": "src/lib.rs",
+      "symbolId": null
+    },
+    {
+      "code": "item-extraction-partial",
+      "severity": "info",
+      "sourcePath": "src/lib.rs",
+      "symbolId": null
+    }
+  ],
+  "expectedStats": {
+    "symbolCount": 4,
+    "diagnosticCount": 2,
+    "sourceFileCount": 1
+  },
+  "expectedAbsence": [],
+  "knownLimitations": [
+    {
+      "type": "parse-error-partial-extraction",
+      "scope": "item-parse-error fixture",
+      "description": "tree-sitter 在有语法错误的文件中能部分提取有效 symbol（包括 broken_fn，因为 tree-sitter 仍识别了函数签名头部），提取结果取决于 tree-sitter error recovery 策略，不同 tree-sitter 版本可能不同"
+    }
+  ],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}

@@ -1,0 +1,105 @@
+{
+  "fixtureName": "item-nested-modules",
+  "scenario": "out-of-line 嵌套模块（pub mod config; 引用 config.rs），验证跨文件 symbol 提取和 modulePath",
+  "inputRoot": "item-nested-modules",
+  "expectedSymbols": [
+    {
+      "id": "item-nested-modules::crate::load",
+      "name": "load",
+      "symbolKind": "function",
+      "sourcePath": "src/config.rs",
+      "packageName": "item-nested-modules",
+      "targetName": "item_nested_modules",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 1 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-nested-modules::crate::Config",
+      "name": "Config",
+      "symbolKind": "struct",
+      "sourcePath": "src/config.rs",
+      "packageName": "item-nested-modules",
+      "targetName": "item_nested_modules",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 3, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-nested-modules::crate::config",
+      "name": "config",
+      "symbolKind": "module",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-nested-modules",
+      "targetName": "item_nested_modules",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 1 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-nested-modules::crate::app_main",
+      "name": "app_main",
+      "symbolKind": "function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-nested-modules",
+      "targetName": "item_nested_modules",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 3, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-nested-modules::crate::App",
+      "name": "App",
+      "symbolKind": "struct",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-nested-modules",
+      "targetName": "item_nested_modules",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 5, "lineEnd": 5 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    }
+  ],
+  "expectedSymbolDiagnostics": [],
+  "expectedStats": {
+    "symbolCount": 5,
+    "diagnosticCount": 0,
+    "sourceFileCount": 2
+  },
+  "expectedAbsence": [],
+  "knownLimitations": [
+    {
+      "type": "out-of-line-module-path-flat",
+      "scope": "config.rs 中的 symbol",
+      "description": "out-of-line module（pub mod config;）内 symbol 的 modulePath 仍为 crate 而非 crate::config，因为 build_extraction_inputs 对所有文件统一使用 modulePath=crate"
+    }
+  ],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}

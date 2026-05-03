@@ -1,0 +1,113 @@
+{
+  "fixtureName": "item-impl-methods",
+  "scenario": "impl 块包含 Method（greet 有 &self、internal 有 &mut self）和 AssociatedFunction（new 无 self receiver），验证 Method/AssociatedFunction 判断、parentId 指向 ImplBlock、implDetails 正确",
+  "inputRoot": "item-impl-methods",
+  "expectedSymbols": [
+    {
+      "id": "item-impl-methods::crate::User",
+      "name": "User",
+      "symbolKind": "struct",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-impl-methods",
+      "targetName": "item_impl_methods",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": null,
+      "span": { "lineStart": 1, "lineEnd": 3 },
+      "implDetails": null,
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-impl-methods::crate::_impl_User",
+      "name": "_impl_User",
+      "symbolKind": "impl-block",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-impl-methods",
+      "targetName": "item_impl_methods",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": null,
+      "span": { "lineStart": 5, "lineEnd": 15 },
+      "implDetails": { "implTarget": "User", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    },
+    {
+      "id": "item-impl-methods::crate::new",
+      "name": "new",
+      "symbolKind": "associated-function",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-impl-methods",
+      "targetName": "item_impl_methods",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-impl-methods::crate::_impl_User",
+      "span": { "lineStart": 6, "lineEnd": 8 },
+      "implDetails": { "implTarget": "User", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-impl-methods::crate::greet",
+      "name": "greet",
+      "symbolKind": "method",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-impl-methods",
+      "targetName": "item_impl_methods",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-impl-methods::crate::_impl_User",
+      "span": { "lineStart": 10, "lineEnd": 12 },
+      "implDetails": { "implTarget": "User", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-impl-methods::crate::internal",
+      "name": "internal",
+      "symbolKind": "method",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-impl-methods",
+      "targetName": "item_impl_methods",
+      "modulePath": "crate",
+      "visibility": "private",
+      "parentId": "item-impl-methods::crate::_impl_User",
+      "span": { "lineStart": 14, "lineEnd": 14 },
+      "implDetails": { "implTarget": "User", "traitName": null },
+      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "genericParams": null,
+      "isPub": false
+    }
+  ],
+  "expectedSymbolDiagnostics": [
+    {
+      "code": "unsupported-macro-expansion",
+      "severity": "info",
+      "sourcePath": "src/lib.rs",
+      "symbolId": null
+    }
+  ],
+  "expectedStats": {
+    "symbolCount": 5,
+    "diagnosticCount": 1,
+    "sourceFileCount": 1
+  },
+  "expectedAbsence": [
+    {
+      "type": "noMethodForFreeFunction",
+      "reason": "所有 function 都在 impl 块内，不应有自由 function symbol",
+      "kind": "function",
+      "name": "new"
+    }
+  ],
+  "knownLimitations": [],
+  "confidencePolicy": {
+    "tolerance": 0.05,
+    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+  }
+}
