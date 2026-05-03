@@ -13,7 +13,9 @@
       "visibility": "private",
       "resolvedTo": null,
       "confidence": 0.0,
-      "reason": "use-target-unresolved"
+      "reason": "use-target-unresolved",
+      "modulePath": "crate",
+      "expandedPath": null
     },
     {
       "sourcePath": "src/lib.rs",
@@ -25,7 +27,9 @@
       "visibility": "private",
       "resolvedTo": null,
       "confidence": 0.0,
-      "reason": "use-external-skipped"
+      "reason": "use-external-skipped",
+      "modulePath": "crate",
+      "expandedPath": "serde::Serialize"
     }
   ],
   "expectedDiagnostics": ["use-glob-unsupported", "use-path-unresolved", "use-external-skipped"],

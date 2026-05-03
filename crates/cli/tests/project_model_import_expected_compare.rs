@@ -236,6 +236,36 @@ fn compare_import_fields(
         }
     }
 
+    // modulePath（exact string, nullable）
+    {
+        let e_mp = expected["modulePath"].as_str();
+        let a_mp = actual["modulePath"].as_str();
+        if e_mp != a_mp {
+            mismatches.push(ImportMismatch {
+                fixture: fixture.to_string(),
+                import_key: key.clone(),
+                field: "modulePath".to_string(),
+                expected: format!("{:?}", e_mp),
+                actual: format!("{:?}", a_mp),
+            });
+        }
+    }
+
+    // expandedPath（exact string, nullable）
+    {
+        let e_ep = expected["expandedPath"].as_str();
+        let a_ep = actual["expandedPath"].as_str();
+        if e_ep != a_ep {
+            mismatches.push(ImportMismatch {
+                fixture: fixture.to_string(),
+                import_key: key.clone(),
+                field: "expandedPath".to_string(),
+                expected: format!("{:?}", e_ep),
+                actual: format!("{:?}", a_ep),
+            });
+        }
+    }
+
     mismatches
 }
 
