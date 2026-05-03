@@ -4,13 +4,13 @@
   "inputRoot": "item-nested-modules",
   "expectedSymbols": [
     {
-      "id": "item-nested-modules::crate::load",
+      "id": "item-nested-modules::crate::config::load",
       "name": "load",
       "symbolKind": "function",
       "sourcePath": "src/config.rs",
       "packageName": "item-nested-modules",
       "targetName": "item_nested_modules",
-      "modulePath": "crate",
+      "modulePath": "crate::config",
       "visibility": "public",
       "parentId": null,
       "span": { "lineStart": 1, "lineEnd": 1 },
@@ -20,13 +20,13 @@
       "isPub": true
     },
     {
-      "id": "item-nested-modules::crate::Config",
+      "id": "item-nested-modules::crate::config::Config",
       "name": "Config",
       "symbolKind": "struct",
       "sourcePath": "src/config.rs",
       "packageName": "item-nested-modules",
       "targetName": "item_nested_modules",
-      "modulePath": "crate",
+      "modulePath": "crate::config",
       "visibility": "public",
       "parentId": null,
       "span": { "lineStart": 3, "lineEnd": 3 },
@@ -91,13 +91,7 @@
     "sourceFileCount": 2
   },
   "expectedAbsence": [],
-  "knownLimitations": [
-    {
-      "type": "out-of-line-module-path-flat",
-      "scope": "config.rs 中的 symbol",
-      "description": "out-of-line module（pub mod config;）内 symbol 的 modulePath 仍为 crate 而非 crate::config，因为 build_extraction_inputs 对所有文件统一使用 modulePath=crate"
-    }
-  ],
+  "knownLimitations": [],
   "confidencePolicy": {
     "tolerance": 0.05,
     "description": "item extraction Symbol 无 confidence 字段，此字段预留"

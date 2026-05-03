@@ -54,10 +54,22 @@ pub fn inspect_project_model_with_options(
     all_diagnostics.extend(rr_result.diagnostics);
     let diagnostics_count = all_diagnostics.len() as u32;
 
+    // 构建 ModulePathMap：sourcePath → modulePath 映射
+    let module_path_map = crate::module_path::build_module_path_map(
+        root,
+        &source_result.source_ownership,
+        &scan.targets,
+    );
+
     // item/symbol 提取：第三刀使用 best extractor（tree-sitter 优先，fallback 到 text）
     let (symbols, symbol_diagnostics, symbol_count) = if include_symbols {
         let extractor = create_best_extractor();
-        let inputs = build_extraction_inputs(root, &source_result.source_ownership, &scan.packages);
+        let inputs = build_extraction_inputs(
+            root,
+            &source_result.source_ownership,
+            &scan.packages,
+            &module_path_map,
+        );
         let result = crate::item::extract_symbols_from_files(&*extractor, &inputs);
         let count = result.symbols.len() as u32;
         (result.symbols, result.diagnostics, count)
@@ -171,23 +183,24 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
 ///
 /// 只处理有 package owner 的 .rs 文件，跳过 outside-package 文件。
 /// 读取文件内容用于 text-level 扫描。
+/// 使用 ModulePathMap 为每个文件提供精确 modulePath。
 fn build_extraction_inputs(
     root: &std::path::Path,
     source_ownership: &[SourceOwnership],
     packages: &[PackageModel],
+    module_path_map: &crate::module_path::ModulePathMap,
 ) -> Vec<ItemExtractionInput> {
     let mut inputs = Vec::new();
 
     for so in source_ownership {
-        // 跳过无 package owner 的文件
         let pkg_name = match &so.package {
             Some(p) => p.clone(),
             None => continue,
         };
 
-        let module_path = Some("crate".to_string());
+        // 使用 ModulePathMap 查找精确 modulePath，fallback 到 "crate"
+        let module_path = Some(module_path_map.get(&so.source_path).to_string());
 
-        // 使用绝对路径读取文件内容
         let abs_path = root.join(&so.source_path);
         let source_text = match std::fs::read_to_string(&abs_path) {
             Ok(content) => content,

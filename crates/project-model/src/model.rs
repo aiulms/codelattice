@@ -421,6 +421,26 @@ pub struct ImportUseDiagnostic {
     pub target_name: Option<String>,
 }
 
+/// sourcePath → modulePath 映射条目
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModulePathEntry {
+    pub source_path: String,
+    pub module_path: String,
+    pub confidence: f32,
+    pub reason: String,
+}
+
+/// modulePath 计算诊断
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ModulePathDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    pub source_path: String,
+}
+
 /// 单条 import/use 提取结果
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

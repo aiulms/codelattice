@@ -420,8 +420,8 @@ pub fn resolve_module_chain(
 }
 
 /// mod 声明信息
-struct ModDeclaration {
-    name: String,
+pub struct ModDeclaration {
+    pub name: String,
 }
 
 /// text-level mod 声明扫描
@@ -429,7 +429,9 @@ struct ModDeclaration {
 /// 这是 module reachability 的最小 evidence，不是完整 Rust parser。
 /// 支持：mod name; / pub mod name;
 /// 跳过：inline mod name { / block comment 中的 mod / cfg-gated / path attribute / macro
-fn scan_mod_declarations(file: &Path) -> Vec<ModDeclaration> {
+///
+/// 公开供 module_path.rs 复用——ModulePathMap 构建需要扫描 crate root 的 mod 声明。
+pub fn scan_mod_declarations(file: &Path) -> Vec<ModDeclaration> {
     let content = match std::fs::read_to_string(file) {
         Ok(c) => c,
         Err(_) => return vec![],
@@ -480,7 +482,19 @@ fn scan_mod_declarations(file: &Path) -> Vec<ModDeclaration> {
 
         // 检查 mod 声明
         // 模式：[pub] mod <name> ;
-        if pos + 3 <= content_bytes.len() && &content[pos..pos + 3] == "mod" {
+        // 首先确认 pos 是 ASCII 边界（跳过多字节 UTF-8 字符内部）
+        if content_bytes[pos] >= 0x80 {
+            // 非 ASCII 字节，跳过直到下一个 ASCII 边界
+            // UTF-8 continuation bytes 是 10xxxxxx (0x80-0xBF)
+            // leading bytes 是 11xxxxxx (0xC0-0xFF)
+            pos += 1;
+            continue;
+        }
+        if pos + 3 <= content_bytes.len()
+            && content_bytes[pos] == b'm'
+            && content_bytes[pos + 1] == b'o'
+            && content_bytes[pos + 2] == b'd'
+        {
             // 确认 mod 前面是行首或空白或 pub
             let before_ok = if pos == 0 {
                 true

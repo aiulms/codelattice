@@ -11,6 +11,7 @@ pub mod imports;
 pub mod item;
 pub mod manifest;
 pub mod model;
+pub mod module_path;
 pub mod output;
 pub mod root_resolution;
 pub mod source;
