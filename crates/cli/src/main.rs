@@ -63,6 +63,7 @@ fn main() {
                 let include_symbols = include.iter().any(|s| s == "symbols");
                 let include_graph = include.iter().any(|s| s == "graph");
                 let include_imports = include.iter().any(|s| s == "imports");
+                let include_calls = include.iter().any(|s| s == "calls");
 
                 let root_path = Path::new(&root);
                 if !root_path.exists() {
@@ -76,6 +77,7 @@ fn main() {
                     include_symbols,
                     include_graph,
                     include_imports,
+                    include_calls,
                 );
 
                 // 输出：--include graph 时输出 GraphOutput，否则输出 ProjectModelOutput

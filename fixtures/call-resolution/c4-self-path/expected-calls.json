@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/inner.rs::call::6::inner_helper",
+    "callerSymbolId": "c4-self-path::crate::inner::call_self",
+    "callerName": "call_self",
+    "sourcePath": "src/inner.rs",
+    "modulePath": "crate::inner",
+    "span": {
+      "lineStart": 6,
+      "lineEnd": 6,
+      "byteStart": 69,
+      "byteEnd": 89
+    },
+    "rawText": "self::inner_helper()",
+    "calleePath": "self::inner_helper",
+    "calleeName": "inner_helper",
+    "callKind": "self-path",
+    "resolvedSymbolId": "c4-self-path::crate::inner::inner_helper",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.8,
+    "reason": "call-self-path-resolved",
+    "diagnostics": []
+  }
+]

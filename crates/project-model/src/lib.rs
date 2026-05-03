@@ -5,6 +5,7 @@
 //! 第二刀实现 source ownership scanner：判定 .rs 文件归属的 package/target。
 //! 第三刀实现 root resolution scanner：解析 crate:: 路径到 module source file。
 
+pub mod calls;
 pub mod diagnostic;
 pub mod graph;
 pub mod imports;

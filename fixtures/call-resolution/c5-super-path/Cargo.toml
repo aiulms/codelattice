@@ -1,0 +1,4 @@
+[package]
+name = "c5-super-path"
+version = "0.1.0"
+edition = "2021"

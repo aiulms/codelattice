@@ -1,0 +1,46 @@
+[
+  {
+    "id": "src/lib.rs::call::7::to_string",
+    "callerSymbolId": "c6-associated-fn::crate::new",
+    "callerName": "new",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 7,
+      "lineEnd": 7,
+      "byteStart": 119,
+      "byteEnd": 135
+    },
+    "rawText": "name.to_string()",
+    "calleePath": "name.to_string",
+    "calleeName": "to_string",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::12::new",
+    "callerSymbolId": "c6-associated-fn::crate::build",
+    "callerName": "build",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 12,
+      "lineEnd": 12,
+      "byteStart": 178,
+      "byteEnd": 197
+    },
+    "rawText": "Config::new(\"test\")",
+    "calleePath": "Config::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c6-associated-fn::crate::new",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  }
+]

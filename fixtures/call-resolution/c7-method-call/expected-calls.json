@@ -1,0 +1,46 @@
+[
+  {
+    "id": "src/lib.rs::call::16::new",
+    "callerSymbolId": "c7-method-call::crate::use_counter",
+    "callerName": "use_counter",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 16,
+      "lineEnd": 16,
+      "byteStart": 225,
+      "byteEnd": 239
+    },
+    "rawText": "Counter::new()",
+    "calleePath": "Counter::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c7-method-call::crate::new",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::17::increment",
+    "callerSymbolId": "c7-method-call::crate::use_counter",
+    "callerName": "use_counter",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 17,
+      "lineEnd": 17,
+      "byteStart": 245,
+      "byteEnd": 258
+    },
+    "rawText": "c.increment()",
+    "calleePath": "c.increment",
+    "calleeName": "increment",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "",
+    "diagnostics": []
+  }
+]

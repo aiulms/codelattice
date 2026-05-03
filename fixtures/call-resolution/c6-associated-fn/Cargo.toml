@@ -1,0 +1,4 @@
+[package]
+name = "c6-associated-fn"
+version = "0.1.0"
+edition = "2021"

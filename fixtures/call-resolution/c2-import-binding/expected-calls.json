@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/lib.rs::call::6::compute",
+    "callerSymbolId": "c2-import-binding::crate::process",
+    "callerName": "process",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 6,
+      "lineEnd": 6,
+      "byteStart": 84,
+      "byteEnd": 93
+    },
+    "rawText": "compute()",
+    "calleePath": "compute",
+    "calleeName": "compute",
+    "callKind": "free-function",
+    "resolvedSymbolId": "c2-import-binding::crate::helper::compute",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.85,
+    "reason": "call-import-resolved",
+    "diagnostics": []
+  }
+]

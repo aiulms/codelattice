@@ -1,0 +1,46 @@
+[
+  {
+    "id": "src/lib.rs::call::6::helper",
+    "callerSymbolId": "c1-same-module::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 6,
+      "lineEnd": 6,
+      "byteStart": 66,
+      "byteEnd": 74
+    },
+    "rawText": "helper()",
+    "calleePath": "helper",
+    "calleeName": "helper",
+    "callKind": "free-function",
+    "resolvedSymbolId": "c1-same-module::crate::helper",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.9,
+    "reason": "call-same-module-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::7::helper",
+    "callerSymbolId": "c1-same-module::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 7,
+      "lineEnd": 7,
+      "byteStart": 88,
+      "byteEnd": 96
+    },
+    "rawText": "helper()",
+    "calleePath": "helper",
+    "calleeName": "helper",
+    "callKind": "free-function",
+    "resolvedSymbolId": "c1-same-module::crate::helper",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.9,
+    "reason": "call-same-module-resolved",
+    "diagnostics": []
+  }
+]

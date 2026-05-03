@@ -5,6 +5,7 @@
 //! 第三刀：root resolution scanner 解析 crate:: 路径，填充 rootResolution + stats。
 //! stdout 只输出 JSON，human-readable logs 输出到 stderr。
 
+use crate::calls;
 use crate::diagnostic::{codes, Diagnostic};
 use crate::graph;
 use crate::imports;
@@ -15,7 +16,7 @@ use crate::root_resolution;
 use crate::source;
 
 pub fn inspect_project_model(root: &std::path::Path) -> ProjectModelOutput {
-    inspect_project_model_with_options(root, false, false, false)
+    inspect_project_model_with_options(root, false, false, false, false)
 }
 
 /// 带 symbol 提取选项的 inspect
@@ -23,15 +24,16 @@ pub fn inspect_project_model_with_symbols(
     root: &std::path::Path,
     include_symbols: bool,
 ) -> ProjectModelOutput {
-    inspect_project_model_with_options(root, include_symbols, false, false)
+    inspect_project_model_with_options(root, include_symbols, false, false, false)
 }
 
-/// 带全部选项的 inspect（symbol + graph + imports）
+/// 带全部选项的 inspect（symbol + graph + imports + calls）
 pub fn inspect_project_model_with_options(
     root: &std::path::Path,
     include_symbols: bool,
     _include_graph: bool,
     include_imports: bool,
+    include_calls: bool,
 ) -> ProjectModelOutput {
     let root_display = root.display().to_string();
     let scan = manifest::scan_manifests(root);
@@ -61,8 +63,8 @@ pub fn inspect_project_model_with_options(
         &scan.targets,
     );
 
-    // item/symbol 提取：include_symbols 或 include_imports 时都需要
-    let need_symbols = include_symbols || include_imports;
+    // item/symbol 提取：include_symbols / include_imports / include_calls 时都需要
+    let need_symbols = include_symbols || include_imports || include_calls;
     let (symbols, symbol_diagnostics, symbol_count) = if need_symbols {
         let extractor = create_best_extractor();
         let inputs = build_extraction_inputs(
@@ -78,8 +80,9 @@ pub fn inspect_project_model_with_options(
         (vec![], vec![], 0u32)
     };
 
-    // import/use 提取：第四刀（--include imports 时启用）
-    let (import_list, import_diagnostics, import_count) = if include_imports {
+    // import/use 提取：第四刀（--include imports 或 --include calls 时启用）
+    let need_imports = include_imports || include_calls;
+    let (import_list, import_diagnostics, import_count) = if need_imports {
         let result = imports::extract_and_resolve_imports(
             root,
             &source_result.source_ownership,
@@ -89,6 +92,22 @@ pub fn inspect_project_model_with_options(
         );
         let count = result.import_count;
         (result.imports, result.diagnostics, count)
+    } else {
+        (vec![], vec![], 0u32)
+    };
+
+    // call site 提取：第五刀（--include calls 时启用）
+    let (call_list, call_diags, call_count) = if include_calls {
+        let result = calls::extract_and_resolve_calls(
+            root,
+            &source_result.source_ownership,
+            &scan.targets,
+            &module_path_map,
+            &symbols,
+            &import_list,
+        );
+        let count = result.calls.len() as u32;
+        (result.calls, result.diagnostics, count)
     } else {
         (vec![], vec![], 0u32)
     };
@@ -120,6 +139,7 @@ pub fn inspect_project_model_with_options(
             resolution_fail_count: rr_result.resolution_fail_count,
             symbol_count: if include_symbols { symbol_count } else { 0 },
             import_count,
+            call_count,
         },
         symbols: if include_symbols { symbols } else { vec![] },
         symbol_diagnostics: if include_symbols {
@@ -127,8 +147,14 @@ pub fn inspect_project_model_with_options(
         } else {
             vec![]
         },
-        imports: import_list,
-        import_diagnostics,
+        imports: if include_imports { import_list } else { vec![] },
+        import_diagnostics: if include_imports {
+            import_diagnostics
+        } else {
+            vec![]
+        },
+        calls: call_list,
+        call_diagnostics: call_diags,
     }
 }
 
@@ -178,11 +204,14 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
             resolution_fail_count: 0,
             symbol_count: 0,
             import_count: 0,
+            call_count: 0,
         },
         symbols: vec![],
         symbol_diagnostics: vec![],
         imports: vec![],
         import_diagnostics: vec![],
+        calls: vec![],
+        call_diagnostics: vec![],
     }
 }
 

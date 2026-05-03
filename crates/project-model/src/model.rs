@@ -94,6 +94,10 @@ pub struct ProjectModelOutput {
     pub imports: Vec<ImportUse>,
     /// import/use 提取相关 diagnostics，--include imports 时填充
     pub import_diagnostics: Vec<ImportUseDiagnostic>,
+    /// 提取的 call site 列表，--include calls 时填充
+    pub calls: Vec<CallSite>,
+    /// call 提取相关 diagnostics，--include calls 时填充
+    pub call_diagnostics: Vec<CallDiagnostic>,
 }
 
 /// 顶层 ProjectModel 统计
@@ -199,6 +203,8 @@ pub struct Stats {
     pub symbol_count: u32,
     /// import/use 提取计数，--include imports 时填充
     pub import_count: u32,
+    /// call site 提取计数，--include calls 时填充
+    pub call_count: u32,
 }
 
 // ============================================================
@@ -499,4 +505,124 @@ pub struct ImportUse {
     pub diagnostics: Vec<ImportUseDiagnostic>,
     /// 解析层级：module | symbol | unresolved | skipped
     pub resolution_level: String,
+}
+
+// ============================================================
+// CALLS Intermediate Output 数据模型
+// 第一刀：Intermediate output，不直接进入 graph emitter。
+// 只解析明确可静态解析的调用形式。
+// ============================================================
+
+/// 调用类型，有限集合枚举
+#[derive(Debug, Clone, Serialize)]
+pub enum CallKind {
+    FreeFunction,
+    QualifiedPath,
+    SelfPath,
+    SuperPath,
+    AssociatedFunction,
+    MethodCall,
+    Unknown,
+}
+
+impl CallKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CallKind::FreeFunction => "free-function",
+            CallKind::QualifiedPath => "qualified-path",
+            CallKind::SelfPath => "self-path",
+            CallKind::SuperPath => "super-path",
+            CallKind::AssociatedFunction => "associated-function",
+            CallKind::MethodCall => "method-call",
+            CallKind::Unknown => "unknown",
+        }
+    }
+}
+
+/// call site 位置
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSpan {
+    pub line_start: u32,
+    pub line_end: u32,
+    pub byte_start: usize,
+    pub byte_end: usize,
+}
+
+/// call 解析原因，有限集合枚举
+#[derive(Debug, Clone, Serialize)]
+pub enum CallResolutionReason {
+    CallSameModuleResolved,
+    CallImportResolved,
+    CallCratePathResolved,
+    CallSelfPathResolved,
+    CallSuperPathResolved,
+    CallAssociatedFnResolved,
+    CallTargetUnresolved,
+    CallTargetAmbiguous,
+    CallMethodDispatchUnsupported,
+}
+
+impl CallResolutionReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CallResolutionReason::CallSameModuleResolved => "call-same-module-resolved",
+            CallResolutionReason::CallImportResolved => "call-import-resolved",
+            CallResolutionReason::CallCratePathResolved => "call-crate-path-resolved",
+            CallResolutionReason::CallSelfPathResolved => "call-self-path-resolved",
+            CallResolutionReason::CallSuperPathResolved => "call-super-path-resolved",
+            CallResolutionReason::CallAssociatedFnResolved => "call-associated-fn-resolved",
+            CallResolutionReason::CallTargetUnresolved => "call-target-unresolved",
+            CallResolutionReason::CallTargetAmbiguous => "call-target-ambiguous",
+            CallResolutionReason::CallMethodDispatchUnsupported => {
+                "call-method-dispatch-unsupported"
+            }
+        }
+    }
+}
+
+/// call diagnostic
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    pub target_name: Option<String>,
+}
+
+/// 单条 call site 提取结果
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallSite {
+    /// 稳定身份：{sourcePath}::call::{lineStart}::{calleeName}
+    pub id: String,
+    /// enclosing function/method symbol id
+    pub caller_symbol_id: Option<String>,
+    /// enclosing function/method name
+    pub caller_name: Option<String>,
+    /// .rs 文件相对路径
+    pub source_path: String,
+    /// 当前文件的 modulePath
+    pub module_path: Option<String>,
+    /// call site 位置
+    pub span: CallSpan,
+    /// 调用原文
+    pub raw_text: String,
+    /// callee 路径原文
+    pub callee_path: String,
+    /// callee 标识符
+    pub callee_name: String,
+    /// CallKind.as_str()
+    pub call_kind: String,
+    /// 命中的 symbol id（null = 未解析或 diagnostic only）
+    pub resolved_symbol_id: Option<String>,
+    /// 命中的 symbol kind
+    pub resolved_symbol_kind: Option<String>,
+    /// 解析置信度
+    pub confidence: f32,
+    /// 解析原因 code
+    pub reason: String,
+    /// 附带 diagnostics
+    pub diagnostics: Vec<CallDiagnostic>,
 }

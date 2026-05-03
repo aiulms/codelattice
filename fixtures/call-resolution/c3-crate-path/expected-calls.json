@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/lib.rs::call::4::add",
+    "callerSymbolId": "c3-crate-path::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 4,
+      "lineEnd": 4,
+      "byteStart": 46,
+      "byteEnd": 68
+    },
+    "rawText": "crate::math::add(1, 2)",
+    "calleePath": "crate::math::add",
+    "calleeName": "add",
+    "callKind": "qualified-path",
+    "resolvedSymbolId": "c3-crate-path::crate::math::add",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.9,
+    "reason": "call-crate-path-resolved",
+    "diagnostics": []
+  }
+]

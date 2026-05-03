@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/inner.rs::call::2::parent_fn",
+    "callerSymbolId": "c5-super-path::crate::inner::call_super",
+    "callerName": "call_super",
+    "sourcePath": "src/inner.rs",
+    "modulePath": "crate::inner",
+    "span": {
+      "lineStart": 2,
+      "lineEnd": 2,
+      "byteStart": 34,
+      "byteEnd": 52
+    },
+    "rawText": "super::parent_fn()",
+    "calleePath": "super::parent_fn",
+    "calleeName": "parent_fn",
+    "callKind": "super-path",
+    "resolvedSymbolId": "c5-super-path::crate::parent_fn",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.8,
+    "reason": "call-super-path-resolved",
+    "diagnostics": []
+  }
+]
