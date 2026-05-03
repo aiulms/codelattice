@@ -272,7 +272,7 @@ pub fn scan_root_resolution(
 }
 
 /// module 解析结果
-enum ModuleResolveResult {
+pub enum ModuleResolveResult {
     Resolved {
         resolved_path: String,
         reason: String,
@@ -295,7 +295,7 @@ enum ModuleResolveResult {
 }
 
 /// 解析 crate:: 路径为 module segments
-fn parse_crate_path(query: &str) -> Vec<&str> {
+pub fn parse_crate_path(query: &str) -> Vec<&str> {
     // crate::a::b::c → ["a", "b", "c"]
     // crate:: → []（crate root 自身）
     // 过滤空字符串："".split("::") = [""] 而非 []，需显式排除
@@ -315,7 +315,10 @@ fn parse_crate_path(query: &str) -> Vec<&str> {
 ///
 /// 从 crate root 开始，逐个 segment 查找 mod 声明和对应文件。
 /// 任一级失败则返回失败原因。
-fn resolve_module_chain(
+///
+/// 公开供 imports.rs 复用——import/use resolution 的 crate:: 路径解析
+/// 与 rootResolution 使用相同的 module chain 解析逻辑。
+pub fn resolve_module_chain(
     repo_root: &Path,
     crate_root_abs: &Path,
     segments: &[&str],
@@ -540,7 +543,7 @@ fn try_parse_mod_decl(s: &str) -> Option<ModDeclaration> {
 }
 
 /// 计算 path 相对于 base 的 POSIX 相对路径
-fn path_relative_to(path: &Path, base: &Path) -> String {
+pub fn path_relative_to(path: &Path, base: &Path) -> String {
     match path.strip_prefix(base) {
         Ok(rel) => {
             let s = rel.to_string_lossy().to_string();

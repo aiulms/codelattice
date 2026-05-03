@@ -1,0 +1,35 @@
+{
+  "fixtureName": "use-self-super",
+  "scenario": "self:: and super:: imports — flat modulePath limitation affects resolution",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "self::Item",
+      "pathKind": "self",
+      "targetName": "Item",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    },
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "super::Helper",
+      "pathKind": "super",
+      "targetName": "Helper",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-super-at-crate-root"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved", "use-super-at-crate-root"],
+  "expectedAbsence": [],
+  "knownLimitations": ["modulePath is flat ('crate') — self:: expands to crate:: and super:: appears at crate root"],
+  "confidencePolicy": "0.0 for self/super with flat modulePath"
+}

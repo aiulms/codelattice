@@ -1,0 +1,23 @@
+{
+  "fixtureName": "use-reexport",
+  "scenario": "pub use re-export — isReExport=true, visibility=public",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "crate::foo::Bar",
+      "pathKind": "crate",
+      "targetName": "Bar",
+      "alias": null,
+      "isReExport": true,
+      "visibility": "public",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved"],
+  "expectedAbsence": [],
+  "knownLimitations": ["item-level resolution not supported; Bar is a struct"],
+  "confidencePolicy": "0.0 for unresolved paths"
+}

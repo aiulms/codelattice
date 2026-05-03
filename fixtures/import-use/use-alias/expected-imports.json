@@ -1,0 +1,23 @@
+{
+  "fixtureName": "use-alias",
+  "scenario": "use with as alias — targetName = RenamedBar, alias preserved",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "crate::foo::Bar",
+      "pathKind": "crate",
+      "targetName": "RenamedBar",
+      "alias": "RenamedBar",
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved"],
+  "expectedAbsence": [],
+  "knownLimitations": ["item-level resolution not supported; Bar is a struct"],
+  "confidencePolicy": "0.0 for unresolved paths"
+}

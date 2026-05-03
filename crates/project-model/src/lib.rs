@@ -7,6 +7,7 @@
 
 pub mod diagnostic;
 pub mod graph;
+pub mod imports;
 pub mod item;
 pub mod manifest;
 pub mod model;

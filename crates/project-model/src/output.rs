@@ -7,6 +7,7 @@
 
 use crate::diagnostic::{codes, Diagnostic};
 use crate::graph;
+use crate::imports;
 use crate::item::{create_best_extractor, ItemExtractionInput};
 use crate::manifest;
 use crate::model::*;
@@ -14,7 +15,7 @@ use crate::root_resolution;
 use crate::source;
 
 pub fn inspect_project_model(root: &std::path::Path) -> ProjectModelOutput {
-    inspect_project_model_with_options(root, false, false)
+    inspect_project_model_with_options(root, false, false, false)
 }
 
 /// 带 symbol 提取选项的 inspect
@@ -22,14 +23,15 @@ pub fn inspect_project_model_with_symbols(
     root: &std::path::Path,
     include_symbols: bool,
 ) -> ProjectModelOutput {
-    inspect_project_model_with_options(root, include_symbols, false)
+    inspect_project_model_with_options(root, include_symbols, false, false)
 }
 
-/// 带全部选项的 inspect（symbol + graph）
+/// 带全部选项的 inspect（symbol + graph + imports）
 pub fn inspect_project_model_with_options(
     root: &std::path::Path,
     include_symbols: bool,
     _include_graph: bool,
+    include_imports: bool,
 ) -> ProjectModelOutput {
     let root_display = root.display().to_string();
     let scan = manifest::scan_manifests(root);
@@ -63,6 +65,19 @@ pub fn inspect_project_model_with_options(
         (vec![], vec![], 0u32)
     };
 
+    // import/use 提取：第四刀（--include imports 时启用）
+    let (import_list, import_diagnostics, import_count) = if include_imports {
+        let result = imports::extract_and_resolve_imports(
+            root,
+            &source_result.source_ownership,
+            &scan.targets,
+        );
+        let count = result.import_count;
+        (result.imports, result.diagnostics, count)
+    } else {
+        (vec![], vec![], 0u32)
+    };
+
     ProjectModelOutput {
         version: env!("CARGO_PKG_VERSION").to_string(),
         command: "project-model inspect".to_string(),
@@ -89,9 +104,12 @@ pub fn inspect_project_model_with_options(
             resolution_success_count: rr_result.resolution_success_count,
             resolution_fail_count: rr_result.resolution_fail_count,
             symbol_count,
+            import_count,
         },
         symbols,
         symbol_diagnostics,
+        imports: import_list,
+        import_diagnostics,
     }
 }
 
@@ -140,9 +158,12 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
             resolution_success_count: 0,
             resolution_fail_count: 0,
             symbol_count: 0,
+            import_count: 0,
         },
         symbols: vec![],
         symbol_diagnostics: vec![],
+        imports: vec![],
+        import_diagnostics: vec![],
     }
 }
 

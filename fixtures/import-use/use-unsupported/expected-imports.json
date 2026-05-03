@@ -1,0 +1,35 @@
+{
+  "fixtureName": "use-unsupported",
+  "scenario": "glob (*) and external crate imports — both unresolved with appropriate diagnostics",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "crate::foo::*",
+      "pathKind": "unknown",
+      "targetName": "*",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-target-unresolved"
+    },
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "serde::Serialize",
+      "pathKind": "external",
+      "targetName": "Serialize",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": null,
+      "confidence": 0.0,
+      "reason": "use-external-skipped"
+    }
+  ],
+  "expectedDiagnostics": ["use-glob-unsupported", "use-path-unresolved", "use-external-skipped"],
+  "expectedAbsence": ["noResolvedImport"],
+  "knownLimitations": ["glob not expanded (D6 stop-line)", "external crate not resolved (D5 stop-line)"],
+  "confidencePolicy": "0.0 for all unsupported import types"
+}

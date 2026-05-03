@@ -90,6 +90,10 @@ pub struct ProjectModelOutput {
     pub symbols: Vec<Symbol>,
     /// item 提取相关 diagnostics，--include symbols 时填充
     pub symbol_diagnostics: Vec<SymbolDiagnostic>,
+    /// 提取的 import/use 列表，--include imports 时填充
+    pub imports: Vec<ImportUse>,
+    /// import/use 提取相关 diagnostics，--include imports 时填充
+    pub import_diagnostics: Vec<ImportUseDiagnostic>,
 }
 
 /// 顶层 ProjectModel 统计
@@ -193,6 +197,8 @@ pub struct Stats {
     pub resolution_fail_count: u32,
     /// item/symbol 提取计数，--include symbols 时填充
     pub symbol_count: u32,
+    /// import/use 提取计数，--include imports 时填充
+    pub import_count: u32,
 }
 
 // ============================================================
@@ -323,4 +329,132 @@ pub struct SymbolDiagnostic {
     pub symbol_id: Option<String>,
     /// 修复建议
     pub suggested_action: Option<String>,
+}
+
+// ============================================================
+// Import/Use Resolution 数据模型
+// 第一刀：Intermediate output，不直接进入 graph emitter。
+// 只解析到 module/file 层，不做 item-level symbol resolution。
+// ============================================================
+
+/// use 声明路径类型
+#[derive(Debug, Clone, Serialize)]
+pub enum ImportUseKind {
+    Crate,
+    SelfPath,
+    Super,
+    External,
+    Unknown,
+}
+
+impl ImportUseKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ImportUseKind::Crate => "crate",
+            ImportUseKind::SelfPath => "self",
+            ImportUseKind::Super => "super",
+            ImportUseKind::External => "external",
+            ImportUseKind::Unknown => "unknown",
+        }
+    }
+}
+
+/// import/use 解析原因
+#[derive(Debug, Clone, Serialize)]
+pub enum ImportUseResolutionReason {
+    UseCrateResolved,
+    UseSelfResolved,
+    UseSuperResolved,
+    UseGroupExpanded,
+    UseAliasResolved,
+    UseReexportResolved,
+    UseExternalSkipped,
+    UseGlobUnsupported,
+    UseTargetUnresolved,
+    UseTargetAmbiguous,
+    UseSuperAtCrateRoot,
+    UseCfgGatedUnknown,
+    UseParseError,
+    UseResolutionSkipped,
+    UseMacroImportUnsupported,
+}
+
+impl ImportUseResolutionReason {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ImportUseResolutionReason::UseCrateResolved => "use-crate-resolved",
+            ImportUseResolutionReason::UseSelfResolved => "use-self-resolved",
+            ImportUseResolutionReason::UseSuperResolved => "use-super-resolved",
+            ImportUseResolutionReason::UseGroupExpanded => "use-group-expanded",
+            ImportUseResolutionReason::UseAliasResolved => "use-alias-resolved",
+            ImportUseResolutionReason::UseReexportResolved => "use-reexport-resolved",
+            ImportUseResolutionReason::UseExternalSkipped => "use-external-skipped",
+            ImportUseResolutionReason::UseGlobUnsupported => "use-glob-unsupported",
+            ImportUseResolutionReason::UseTargetUnresolved => "use-target-unresolved",
+            ImportUseResolutionReason::UseTargetAmbiguous => "use-target-ambiguous",
+            ImportUseResolutionReason::UseSuperAtCrateRoot => "use-super-at-crate-root",
+            ImportUseResolutionReason::UseCfgGatedUnknown => "use-cfg-gated-unknown",
+            ImportUseResolutionReason::UseParseError => "use-parse-error",
+            ImportUseResolutionReason::UseResolutionSkipped => "use-resolution-skipped",
+            ImportUseResolutionReason::UseMacroImportUnsupported => "use-macro-import-unsupported",
+        }
+    }
+}
+
+/// import/use 解析目标
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportUseTarget {
+    pub resolved_path: Option<String>,
+    pub resolved_kind: Option<String>,
+    pub target_module_path: Option<String>,
+    pub target_file_path: Option<String>,
+}
+
+/// import/use diagnostic
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportUseDiagnostic {
+    pub code: String,
+    pub severity: String,
+    pub message: String,
+    pub target_name: Option<String>,
+}
+
+/// 单条 import/use 提取结果
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportUse {
+    /// 稳定身份：{sourcePath}::use::{lineStart}::{targetIndex}
+    pub id: String,
+    /// .rs 文件相对路径
+    pub source_path: String,
+    /// 当前文件的 module path（如 crate::foo）
+    pub module_path: Option<String>,
+    /// use 声明原文
+    pub raw_text: String,
+    pub line_start: u32,
+    pub line_end: u32,
+    /// 可见性（public / private / pub-crate 等）
+    pub visibility: String,
+    /// 路径类型（crate / self / super / external / unknown）
+    pub path_kind: String,
+    /// 原始路径（如 crate::foo::Bar）
+    pub original_path: String,
+    /// 展开后路径（grouped import 展开后可能不同）
+    pub expanded_path: Option<String>,
+    /// as 后的别名
+    pub alias: Option<String>,
+    /// 是否 pub use（re-export）
+    pub is_re_export: bool,
+    /// 实际引入的名称（alias 优先，否则路径末段）
+    pub target_name: String,
+    /// 解析结果（null = 解析失败或 skipped）
+    pub resolved_to: Option<ImportUseTarget>,
+    /// 解析置信度
+    pub confidence: f32,
+    /// 解析原因 code
+    pub reason: String,
+    /// 附带 diagnostics
+    pub diagnostics: Vec<ImportUseDiagnostic>,
 }
