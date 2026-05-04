@@ -1,0 +1,205 @@
+{
+  "fixtureName": "c1-same-module",
+  "scenario": "same-module call resolution (main_fn → helper)，验证 CALLS edge 产出 + callEdgeCount stats",
+  "inputRoot": "call-resolution/c1-same-module",
+  "command": "--include graph --include calls --include symbols",
+  "schemaVersion": "0.2.0",
+  "expectedGraph": {
+    "nodes": [
+      {
+        "id": "diag:unsupported-macro-expansion::src/lib.rs::0",
+        "label": "diagnostic",
+        "properties": {
+          "code": "unsupported-macro-expansion",
+          "message": "宏调用不展开",
+          "path": "src/lib.rs",
+          "severity": "info",
+          "suggestedAction": null,
+          "symbolId": null
+        }
+      },
+      {
+        "id": "file:src/lib.rs",
+        "label": "source-file",
+        "properties": {
+          "confidence": 0.8999999761581421,
+          "ownershipReason": "source-owned-by-lib-target-root",
+          "package": "c1-same-module",
+          "sourcePath": "src/lib.rs",
+          "target": "c1_same_module"
+        }
+      },
+      {
+        "id": "package:Cargo.toml",
+        "label": "package",
+        "properties": {
+          "discoveryReason": "root-manifest",
+          "featureNames": [],
+          "isWorkspaceMember": false,
+          "manifestPath": "Cargo.toml",
+          "name": "c1-same-module",
+          "packageRoot": ".",
+          "targetCount": 1
+        }
+      },
+      {
+        "id": "repo:fixtures/call-resolution/c1-same-module",
+        "label": "repository",
+        "properties": {
+          "repoRoot": "fixtures/call-resolution/c1-same-module"
+        }
+      },
+      {
+        "id": "symbol:c1-same-module::crate::helper",
+        "label": "symbol",
+        "properties": {
+          "genericParams": null,
+          "implDetails": null,
+          "isAsync": false,
+          "isConstFn": false,
+          "isPub": true,
+          "isUnsafe": false,
+          "lineEnd": 3,
+          "lineStart": 1,
+          "modulePath": "crate",
+          "name": "helper",
+          "packageName": "c1-same-module",
+          "sourcePath": "src/lib.rs",
+          "symbolKind": "function",
+          "targetName": "c1_same_module",
+          "visibility": "public"
+        }
+      },
+      {
+        "id": "symbol:c1-same-module::crate::main_fn",
+        "label": "symbol",
+        "properties": {
+          "genericParams": null,
+          "implDetails": null,
+          "isAsync": false,
+          "isConstFn": false,
+          "isPub": true,
+          "isUnsafe": false,
+          "lineEnd": 9,
+          "lineStart": 5,
+          "modulePath": "crate",
+          "name": "main_fn",
+          "packageName": "c1-same-module",
+          "sourcePath": "src/lib.rs",
+          "symbolKind": "function",
+          "targetName": "c1_same_module",
+          "visibility": "public"
+        }
+      },
+      {
+        "id": "target:c1-same-module::c1_same_module::lib",
+        "label": "target",
+        "properties": {
+          "crateRootFile": "./src/lib.rs",
+          "kind": "lib",
+          "name": "c1_same_module",
+          "packageName": "c1-same-module",
+          "sourceRootDir": "./src"
+        }
+      }
+    ],
+    "edges": [
+      {
+        "source": "symbol:c1-same-module::crate::main_fn",
+        "target": "symbol:c1-same-module::crate::helper",
+        "type": "CALLS",
+        "properties": {
+          "callKind": "free-function",
+          "calleePath": "helper",
+          "callerName": "main_fn",
+          "confidence": 0.8999999761581421,
+          "reason": "call-same-module-resolved"
+        }
+      },
+      {
+        "source": "repo:fixtures/call-resolution/c1-same-module",
+        "target": "package:Cargo.toml",
+        "type": "CONTAINS_PACKAGE"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:c1-same-module::crate::helper",
+        "type": "DEFINES"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:c1-same-module::crate::main_fn",
+        "type": "DEFINES"
+      },
+      {
+        "source": "package:Cargo.toml",
+        "target": "target:c1-same-module::c1_same_module::lib",
+        "type": "HAS_TARGET"
+      },
+      {
+        "source": "target:c1-same-module::c1_same_module::lib",
+        "target": "file:src/lib.rs",
+        "type": "OWNS_SOURCE"
+      }
+    ],
+    "diagnostics": [
+      {
+        "id": "diag:unsupported-macro-expansion::src/lib.rs::0",
+        "label": "diagnostic",
+        "properties": {
+          "code": "unsupported-macro-expansion",
+          "message": "宏调用不展开",
+          "path": "src/lib.rs",
+          "severity": "info",
+          "suggestedAction": null,
+          "symbolId": null
+        }
+      }
+    ]
+  },
+  "expectedStats": {
+    "nodeCount": 7,
+    "edgeCount": 6,
+    "diagnosticCount": 1,
+    "symbolCount": 2,
+    "callEdgeCount": 1
+  },
+  "expectedPresence": [
+    { "type": "nodeExists", "id": "repo:fixtures/call-resolution/c1-same-module" },
+    { "type": "nodeExists", "id": "package:Cargo.toml" },
+    { "type": "nodeExists", "id": "target:c1-same-module::c1_same_module::lib" },
+    { "type": "nodeExists", "id": "file:src/lib.rs" },
+    { "type": "nodeExists", "id": "symbol:c1-same-module::crate::main_fn" },
+    { "type": "nodeExists", "id": "symbol:c1-same-module::crate::helper" },
+    { "type": "edgeExists", "source": "symbol:c1-same-module::crate::main_fn", "target": "symbol:c1-same-module::crate::helper", "edgeType": "CALLS" },
+    { "type": "edgeExists", "source": "repo:fixtures/call-resolution/c1-same-module", "target": "package:Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
+    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:c1-same-module::crate::helper", "edgeType": "DEFINES" },
+    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:c1-same-module::crate::main_fn", "edgeType": "DEFINES" },
+    { "type": "edgeExists", "source": "package:Cargo.toml", "target": "target:c1-same-module::c1_same_module::lib", "edgeType": "HAS_TARGET" },
+    { "type": "edgeExists", "source": "target:c1-same-module::c1_same_module::lib", "target": "file:src/lib.rs", "edgeType": "OWNS_SOURCE" },
+    { "type": "nodeKindCount", "label": "repository", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "package", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "target", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "source-file", "min": 1, "max": 1 },
+    { "type": "nodeKindCount", "label": "symbol", "min": 2, "max": 2 },
+    { "type": "edgeKindCount", "edgeType": "CALLS", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "CONTAINS_PACKAGE", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "DEFINES", "min": 2, "max": 2 },
+    { "type": "edgeKindCount", "edgeType": "HAS_TARGET", "min": 1, "max": 1 },
+    { "type": "edgeKindCount", "edgeType": "OWNS_SOURCE", "min": 1, "max": 1 }
+  ],
+  "expectedAbsence": [
+    { "type": "noImports" },
+    { "type": "noImplements" },
+    { "type": "noDuplicateNodeId" },
+    { "type": "noDuplicateEdgeKey" }
+  ],
+  "knownLimitations": [
+    "calls output 含 2 个 call site（main_fn→helper 调用两次），但 CALLS edge dedup 按 (type/source/target) 只产出 1 条 edge"
+  ],
+  "comparisonPolicy": {
+    "mode": "exact",
+    "excludeFields": ["generatedAt", "root"],
+    "knownSkip": []
+  }
+}

@@ -38,6 +38,18 @@ const GRAPH_FIXTURES: &[GraphFixture] = &[
         input_root: "item-extraction/item-impl-methods",
         command: &["--include", "graph", "--include", "symbols"],
     },
+    GraphFixture {
+        name: "c1-same-module",
+        input_root: "call-resolution/c1-same-module",
+        command: &[
+            "--include",
+            "graph",
+            "--include",
+            "calls",
+            "--include",
+            "symbols",
+        ],
+    },
 ];
 
 // === 目录定位 ===

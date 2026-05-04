@@ -252,6 +252,120 @@ fn test_graph_item_impl_methods_deterministic() {
 }
 
 // ============================================================
+// ============================================================
+// v0.2 CALLS edge 验证
+// ============================================================
+
+/// 运行 graph inspect 并支持 custom args（如 --include calls）
+fn run_graph_with_args(fixture_rel: &str, args: &[&str]) -> Value {
+    let root = rust_core_root().join(fixture_rel);
+    let mut cmd = cli();
+    cmd.arg("project-model")
+        .arg("inspect")
+        .arg("--root")
+        .arg(&root);
+    for arg in args {
+        cmd.arg(arg);
+    }
+    let output = cmd.output().expect("failed to run CLI");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    serde_json::from_str(&stdout).expect("Graph output is not valid JSON")
+}
+
+#[test]
+fn test_graph_c1_same_module_produces_calls_edges() {
+    let graph = run_graph_with_args(
+        "fixtures/call-resolution/c1-same-module",
+        &[
+            "--include",
+            "graph",
+            "--include",
+            "calls",
+            "--include",
+            "symbols",
+        ],
+    );
+    assert_common_graph_invariants(&graph);
+
+    // 至少 1 条 CALLS edge
+    let calls_edges: Vec<_> = graph["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["type"] == "CALLS")
+        .collect();
+    assert!(!calls_edges.is_empty(), "expected at least 1 CALLS edge");
+
+    // CALLS edge 属性完整
+    let calls_edge = &calls_edges[0];
+    assert_eq!(
+        calls_edge["source"],
+        "symbol:c1-same-module::crate::main_fn"
+    );
+    assert_eq!(calls_edge["target"], "symbol:c1-same-module::crate::helper");
+    assert_eq!(calls_edge["properties"]["callKind"], "free-function");
+    assert_eq!(
+        calls_edge["properties"]["reason"],
+        "call-same-module-resolved"
+    );
+
+    // stats.callEdgeCount > 0
+    let call_edge_count = graph["stats"]["callEdgeCount"].as_u64().unwrap();
+    assert!(
+        call_edge_count > 0,
+        "expected callEdgeCount > 0, got {call_edge_count}"
+    );
+
+    // 至少 2 个 Symbol node（caller + callee）
+    let symbol_count = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["label"] == "symbol")
+        .count();
+    assert!(
+        symbol_count >= 2,
+        "expected at least 2 Symbol nodes, got {symbol_count}"
+    );
+}
+
+#[test]
+fn test_graph_c10_external_crate_produces_no_calls_edges() {
+    let graph = run_graph_with_args(
+        "fixtures/call-resolution/c10-external-crate",
+        &[
+            "--include",
+            "graph",
+            "--include",
+            "calls",
+            "--include",
+            "symbols",
+        ],
+    );
+    assert_common_graph_invariants(&graph);
+
+    // 0 CALLS edges（external crate calls 不解析）
+    let calls_edges: Vec<_> = graph["edges"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["type"] == "CALLS")
+        .collect();
+    assert!(
+        calls_edges.is_empty(),
+        "expected 0 CALLS edges for external-crate calls, got {}",
+        calls_edges.len()
+    );
+
+    // callEdgeCount == 0
+    let call_edge_count = graph["stats"]["callEdgeCount"].as_u64().unwrap();
+    assert_eq!(
+        call_edge_count, 0,
+        "expected callEdgeCount 0 for external-crate fixture"
+    );
+}
+
+// ============================================================
 // Regression: --include graph 不影响不加 flag 的输出
 // ============================================================
 
