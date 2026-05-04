@@ -1,154 +1,158 @@
-# GitNexus Rust-core 复刻 staging workspace
+# GitNexus Rust-core
 
-> **创建时间：** 2026-05-01
-> **类型：** Rust-core 复刻 staging workspace + 最小 Rust 工程骨架
-> **状态：** Cargo workspace bootstrap 已落地，ProjectModel 仍为 stub
+> **Remote:** https://gitcode.com/aiulms/gitnexus-rust-core
+> **Branch:** `master`
+> **Created:** 2026-05-01
+> **Last updated:** 2026-05-04
 
 ---
 
-## 目的
+## Purpose
 
-本 workspace（`gitnexus-rust-core`）是 **GitNexus Rust-core 复刻项目的实现契约 / staging workspace**，现在也包含最小可运行的 Rust 工程骨架。它不是 GitNexus-RC 的子目录。
+GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不是 GitNexus-RC（TypeScript 主仓库）的替代发布版，而是独立的 Rust 工具链，提供 Cargo 项目扫描、符号提取、import 解析、call graph 中间输出和图发射能力。
 
 **与 GitNexus-RC 的关系：**
-- GitNexus-RC（`/Users/jiangxuanyang/Desktop/GitNexus-RC`）是 **研究来源与历史账本**。
-- `gitnexus-rust-core` 是 **实现契约 workspace**。
-- 所有语言支持事实、fixture 语料库和架构决策都源自 GitNexus-RC。
+- GitNexus-RC 是治理来源、架构决策记录和 TypeScript adapter 主仓库
+- Rust-core 是 Rust 实现主体，产出可被 GitNexus-RC experimental adapter 消费的 JSON artifacts
+- 所有语言支持决策、fixture 设计、confidence/reason 策略源自 GitNexus-RC `docs/language-support/`
 
 ---
 
-## 当前范围
+## Current Capabilities
 
-**在范围内：**
-- Rust-core ProjectModel 模块设计与数据模型
-- Graph schema v0 规格
-- LanguageAdapter trait 设计
-- Confidence/reason 策略
-- Golden fixture 语料库（14 个 ProjectModel fixtures）
-- 从 GitNexus-RC 的迁移映射
+| Layer | Capability | Status | Fixtures |
+|-------|-----------|--------|----------|
+| 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
+| 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
+| 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 8 import fixtures |
+| 4. CALLS Intermediate | Call site extraction + 5 resolved call forms | ✅ Implemented | 7 call fixtures |
+| 5. Graph Emitter v0 | ProjectModel → JSON graph (0 CALLS edges) | ✅ Implemented | 3 graph fixtures |
 
-**在范围外（MVP stop-line）：**
-- UI / Web
-- MCP server
-- rust-analyzer 集成
-- 宏展开
-- 完整 cfg 求值器
-- `cargo metadata` 执行
-- 商业分发
+### CALLS Resolved Call Forms
 
----
-
-## 为什么用 Rust
-
-Rust-core 推荐原因：
-1. CPU/IO 混合型任务（文件扫描、解析、索引）受益于 Rust 的并发模型和所有权系统
-2. Tree-sitter 语法、Cargo 工具链、嵌入式存储有成熟的 Rust 绑定
-3. 单二进制分发、可嵌入 library crate
-4. 内存安全性和显式错误类型适合表达 parser failure / partial graph / low-confidence fallback
-5. Rust enum/trait 适合 LanguageAdapter contract、graph node kind、edge reason、confidence tier
+| Call Form | Example | Confidence |
+|-----------|---------|-----------|
+| Same-module free function | `helper()` | 0.90 |
+| Import-resolved binding | `use crate::math::add; add()` | 0.85 |
+| crate:: qualified path | `crate::math::add()` | 0.90 |
+| self:: path | `self::inner_helper()` | 0.80 |
+| super:: path | `super::parent_fn()` | 0.80 |
+| Associated function | `Config::new()` | 0.75 |
+| Method call | `c.increment()` | 0.0 (diagnostic only) |
 
 ---
 
-## 当前资产
-
-| 资产 | 来源 | 状态 |
-|------|------|------|
-| 14 个 ProjectModel fixtures | GitNexus-RC | Golden truth |
-| expected.json schema | GitNexus-RC | 已冻结 |
-| Confidence/reason 策略 | GitNexus-RC | 已冻结 |
-| No-edge 策略 | GitNexus-RC | 已冻结 |
-| ProjectModel 模块设计 | GitNexus-RC | 已冻结 |
-| Cargo workspace 骨架 | 本 workspace | 已落地 |
-| CLI stub | 本 workspace | 可输出 contract-compliant JSON |
-
----
-
-## 命令权威
-
-此 workspace **默认未被 GitNexus 索引**。
-
-查 GitNexus 时，使用 MCP tools 或 Tool CLI 绝对路径：
+## CLI Usage
 
 ```bash
-# MCP tools（首选）
-gitnexus_detect_changes(), gitnexus_impact(), gitnexus_context()
+# Full project model inspection
+cargo run -p gitnexus-rust-core-cli -- project-model inspect \
+  --root /path/to/rust/project \
+  --format json
 
-# Tool CLI（MCP 不可用时）
-node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js <command>
+# Include specific outputs
+cargo run -p gitnexus-rust-core-cli -- project-model inspect \
+  --root /path/to/rust/project \
+  --format json \
+  --include symbols \
+  --include imports \
+  --include calls \
+  --include graph
+
+# Graph output only
+cargo run -p gitnexus-rust-core-cli -- project-model inspect \
+  --root /path/to/rust/project \
+  --format json \
+  --include graph
 ```
 
-**禁止使用 `npx gitnexus`** 做生产分析。`npx` 解析到旧版 npm 发布的 `gitnexus@1.6.1`，缺少 detect-changes、Cangjie 支持和多 repo 功能。
+`--include calls` automatically triggers `--include symbols` and `--include imports` internally.
 
 ---
 
-## 目录结构
+## Verification
+
+```bash
+cargo fmt --check    # Formatting check
+cargo test           # 81 tests (6 call + 10 PM + 7 graph + 4 symbol + 5 import + 45 unit + 4 harness)
+```
+
+---
+
+## Directory Structure
 
 ```
 gitnexus-rust-core/
-  Cargo.toml                         # Cargo workspace
-  README.md                          # 本文件
+  Cargo.toml                              # Cargo workspace root
   crates/
-    project-model/                   # ProjectModel 输出类型和 stub 生成器
-    cli/                             # gitnexus-rust-core CLI
-  docs/
-    architecture/
-      project-model.md               # ProjectModel 职责摘要
-      graph-schema-v0.md            # （skeleton）Node/Edge schema 草案
-      language-adapter-contract.md  # （skeleton）LanguageAdapter trait 草案
-      confidence-reason-policy.md    # （skeleton）Confidence 分层草案
-      output-contract.md             # （skeleton）JSON/NDJSON 输出规格
-    fixtures/
-      fixture-index.md              # 14 个 fixtures 索引
-      expected-json-schema.md       # （skeleton）expected.json schema
-    decisions/
-      no-edge-policy.md             # No-edge 优先于 false edge
-      known-limitations.md           # （skeleton）当前已知局限
-      command-authority.md          # 此 workspace 命令权威
-    migration/
-      from-gitnexus-rc.md          # 从 GitNexus-RC 迁移什么
-      source-map.md                 # （skeleton）Source truth 映射
+    project-model/                         # Core analysis library
+      src/
+        lib.rs                             # Library root
+        model.rs                           # Data models (Symbol, ImportUse, CallSite, etc.)
+        item.rs                            # Symbol extraction (tree-sitter + text)
+        imports.rs                         # Import resolution
+        calls.rs                           # CALLS intermediate output
+        graph.rs                           # Graph emitter v0
+        module_path.rs                     # ModulePathMap
+        manifest.rs                        # Cargo.toml scanner
+        root_resolution.rs                 # Root resolution
+        source_ownership.rs                # Source ownership
+        output.rs                          # CLI output formatting
+      tests/
+        project_model_expected_compare.rs  # PM comparison harness
+        project_model_symbol_expected_compare.rs  # Symbol comparison
+        project_model_import_expected_compare.rs   # Import comparison
+        project_model_call_expected_compare.rs     # Call comparison
+        project_model_graph_expected_compare.rs    # Graph comparison
+    cli/
+      src/main.rs                          # CLI entry point
+      tests/
+        project_model_inspect.rs           # Integration tests
   fixtures/
-    rust-project-model/
-      README.md                     # Fixture 语料库状态
+    manifest-scanner/                      # 6 fixtures
+    root-resolution/                       # 9 fixtures
+    source-ownership/                      # 8 fixtures
+    item-extraction/                       # 10 fixtures (with expected-symbols.json)
+    import-use/                            # 8 fixtures (with expected-imports.json)
+    call-resolution/                       # 7 fixtures (with expected-calls.json)
+  docs/
+    architecture/                          # Architecture docs
+    decisions/                             # Decision records
+    fixtures/                              # Fixture index
+    migration/                             # Migration from GitNexus-RC
 ```
 
 ---
 
-## 第一目标：ProjectModel
+## Stop-lines (MVP)
 
-第一个实现目标是 **Rust-core ProjectModel 模块**。
+以下内容是 Rust-core MVP 的明确 stop-line：
 
-当前已实现：
-
-- `project-model inspect --root <path> --format json`
-- 输出 CLI/output contract 要求的 14 个顶层字段
-- `diagnostics` 显式包含 `project-model-scan-not-implemented`
-- 暂不执行 Cargo manifest scan，避免把 stub 误读为真实 project facts
-
-运行示例：
-
-```bash
-cargo run -p gitnexus-rust-core-cli -- project-model inspect --root . --format json
-```
-
-来源：
-- [Rust-core rebuild preflight](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-04-28-rust-core-rebuild-preflight.md)
-- [ProjectModel consolidation handoff](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-05-01-rust-project-model-consolidation-handoff-review.md)
-- [ProjectModel 模块设计](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-05-01-rust-core-project-model-module-design.md)
-- [Golden fixture 规格](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-05-01-rust-core-project-model-golden-fixture-spec.md)
-- [Output comparison harness 设计](https://github.com/JXY001312/GitNexus-RC/blob/main/docs/language-support/plans/2026-05-01-rust-core-project-model-output-comparison-harness-design.md)
-
-Golden truth：GitNexus-RC 中 14 个 `expected.json` 文件，位于 `gitnexus/test/fixtures/lang-resolution/rust-*/expected.json`。
+- **No production replacement** — Rust-core 不是 GitNexus-RC TypeScript adapter 的替代
+- **No graph CALLS edge** — Graph emitter v0 不产 CALLS edge，需 schema v0.2
+- **No method dispatch** — `obj.method()` 只产 diagnostic（需 type inference）
+- **No type inference / trait solving** — 不推断变量类型，不做 trait bound satisfaction
+- **No external crate resolution** — `serde_json::to_string()` 等外部 crate 调用不解析
+- **No macro expansion** — `foo!()` 不展开
+- **No full cfg evaluator** — cfg-gated `mod` 只标记 `unknown`
+- **No `cargo metadata` execution** — 只用 manifest-derived project model
+- **No proc-macro / build.rs** — 不执行
+- **No UI / MCP server / commercial distribution**
 
 ---
 
-## 下一步
+## Remote
 
-1. **Rust-core ProjectModel manifest scan implementation** — 读取 Cargo.toml，先对齐 baseline/subdirectory fixtures。
-2. **Rust-core workspace source-map enrichment** — 细化迁移 source-map 的字段级映射。
+| Property | Value |
+|----------|-------|
+| Remote name | `gitcode` |
+| URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
+| Branch | `master` |
+| HEAD | `1dd969b` |
+| Total commits | 33 |
 
 ---
 
-## 许可证
+## License
 
-本项目遵循 GitNexus PolyForm Noncommercial 许可证。参见 [GitNexus-RC LICENSE](https://github.com/JXY001312/GitNexus-RC/blob/main/LICENSE)。
+本项目遵循 GitNexus PolyForm Noncommercial 许可证。参见 GitNexus-RC LICENSE。
