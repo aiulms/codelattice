@@ -1,7 +1,7 @@
-//! Graph Schema v0 输出模块
+//! Graph Schema v0.2 输出模块
 //!
-//! 把 ProjectModelOutput 映射成 graph-schema-v0.md 定义的 JSON one-shot graph。
-//! 8 种 node types / 8 种 edge types，确定性输出。
+//! 把 ProjectModelOutput 映射成 JSON one-shot graph。
+//! 8 种 node types / 9 种 edge types（v0.2 新增 CALLS），确定性输出。
 //!
 //! 映射策略：1:1，每个 Rust-core struct → 恰好一个 node type，不 merge 不 split。
 
@@ -43,7 +43,7 @@ impl NodeKind {
     }
 }
 
-/// 8 种 edge types
+/// 9 种 edge types（v0.2: 新增 Calls）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum EdgeKind {
@@ -55,6 +55,8 @@ pub enum EdgeKind {
     Defines,
     HasParent,
     Annotates,
+    /// v0.2: CallSite → resolved callee symbol
+    Calls,
 }
 
 impl EdgeKind {
@@ -68,6 +70,8 @@ impl EdgeKind {
             EdgeKind::Defines => "DEFINES",
             EdgeKind::HasParent => "HAS_PARENT",
             EdgeKind::Annotates => "ANNOTATES",
+            // v0.2: CALLS edge — caller function → callee function
+            EdgeKind::Calls => "CALLS",
         }
     }
 }
@@ -101,6 +105,8 @@ pub struct GraphStats {
     pub edge_count: u32,
     pub diagnostic_count: u32,
     pub symbol_count: u32,
+    /// v0.2: CALLS edge 总数
+    pub call_edge_count: u32,
 }
 
 /// Graph 输出顶层
@@ -485,6 +491,33 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
         }
     }
 
+    // ---- CALLS edges（v0.2）----
+    // 只有 resolved_symbol_id 和 caller_symbol_id 都非空时才产 CALLS edge。
+    // external-crate / unknown / diagnostic-only calls 不产 edge。
+    // 去重按 (source, target, edge_type) triple，insert_edge 保证先到者胜出。
+    for call in &output.calls {
+        if let (Some(ref caller_id), Some(ref resolved_id)) =
+            (&call.caller_symbol_id, &call.resolved_symbol_id)
+        {
+            let source_id = format!("symbol:{}", caller_id);
+            let target_id = format!("symbol:{}", resolved_id);
+            insert_edge(
+                &mut edges,
+                &mut edge_list,
+                EdgeKind::Calls.as_str(),
+                &source_id,
+                &target_id,
+                serde_json::json!({
+                    "confidence": call.confidence,
+                    "reason": call.reason,
+                    "callKind": call.call_kind,
+                    "callerName": call.caller_name,
+                    "calleePath": call.callee_path,
+                }),
+            );
+        }
+    }
+
     // ---- 排序输出（确定性保证）----
     let sorted_nodes: Vec<GraphNode> = nodes.into_values().collect();
     let sorted_edges: Vec<GraphEdge> = edges
@@ -511,9 +544,14 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
     let diag_count = diagnostic_nodes.len() as u32;
     let node_count = sorted_nodes.len() as u32;
     let edge_count = sorted_edges.len() as u32;
+    // v0.2: 统计 CALLS edge 数量
+    let call_edge_count = sorted_edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeKind::Calls.as_str())
+        .count() as u32;
 
     GraphOutput {
-        schema_version: "0.1.0".to_string(),
+        schema_version: "0.2.0".to_string(),
         generated_at: output.generated_at.clone(),
         root: serde_json::json!({
             "repoRoot": output.repo_root,
@@ -526,6 +564,7 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
             edge_count,
             diagnostic_count: diag_count,
             symbol_count,
+            call_edge_count,
         },
     }
 }

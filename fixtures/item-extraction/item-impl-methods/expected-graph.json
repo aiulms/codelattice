@@ -3,7 +3,7 @@
   "scenario": "struct + impl 块 + method + associated-function + Symbol nodes + DEFINES / HAS_PARENT 边 + diagnostic + ANNOTATES，验证 graph emitter 对 symbol 层的完整输出",
   "inputRoot": "item-extraction/item-impl-methods",
   "command": "--include graph --include symbols",
-  "schemaVersion": "0.1.0",
+  "schemaVersion": "0.2.0",
   "expectedGraph": {
     "nodes": [
       {
@@ -254,7 +254,8 @@
     "nodeCount": 10,
     "edgeCount": 11,
     "diagnosticCount": 1,
-    "symbolCount": 5
+    "symbolCount": 5,
+    "callEdgeCount": 0
   },
   "expectedPresence": [
     { "type": "nodeExists", "id": "repo:fixtures/item-extraction/item-impl-methods" },

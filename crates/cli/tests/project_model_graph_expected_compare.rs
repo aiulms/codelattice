@@ -510,7 +510,13 @@ fn compare_stats(
     actual_stats: &serde_json::Value,
 ) -> Vec<GraphMismatch> {
     let mut mismatches = Vec::new();
-    for field in &["nodeCount", "edgeCount", "diagnosticCount", "symbolCount"] {
+    for field in &[
+        "nodeCount",
+        "edgeCount",
+        "diagnosticCount",
+        "symbolCount",
+        "callEdgeCount",
+    ] {
         let e = expected_stats[*field].as_u64();
         let a = actual_stats[*field].as_u64();
         if e != a {

@@ -3,7 +3,7 @@
   "scenario": "virtual workspace + glob 成员（alpha, beta），验证 CONTAINS_WORKSPACE + CONTAINS_PACKAGE (workspace→package) 路径",
   "inputRoot": "manifest-scanner/virtual-workspace-glob",
   "command": "--include graph",
-  "schemaVersion": "0.1.0",
+  "schemaVersion": "0.2.0",
   "expectedGraph": {
     "nodes": [
       {
@@ -142,7 +142,8 @@
     "nodeCount": 8,
     "edgeCount": 7,
     "diagnosticCount": 0,
-    "symbolCount": 0
+    "symbolCount": 0,
+    "callEdgeCount": 0
   },
   "expectedPresence": [
     { "type": "nodeExists", "id": "repo:fixtures/manifest-scanner/virtual-workspace-glob" },

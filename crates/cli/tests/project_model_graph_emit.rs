@@ -44,8 +44,8 @@ fn run_graph(fixture_rel: &str, include_symbols: bool) -> Value {
 
 /// 共享断言：每个 fixture 都必须通过
 fn assert_common_graph_invariants(graph: &Value) {
-    // 1. schemaVersion == "0.1.0"
-    assert_eq!(graph["schemaVersion"], "0.1.0");
+    // 1. schemaVersion == "0.2.0"
+    assert_eq!(graph["schemaVersion"], "0.2.0");
 
     // 2. generatedAt 非空
     let gen = graph["generatedAt"].as_str().unwrap();
@@ -82,8 +82,8 @@ fn assert_common_graph_invariants(graph: &Value) {
         "missing CONTAINS_PACKAGE or HAS_TARGET edge"
     );
 
-    // 7. 不存在 CALLS / USES / IMPORTS / IMPLEMENTS edges
-    let forbidden = ["CALLS", "USES", "IMPORTS", "IMPLEMENTS"];
+    // 7. 不存在 USES / IMPORTS / IMPLEMENTS edges（CALLS 需要 --include calls，这些 fixture 不触发）
+    let forbidden = ["USES", "IMPORTS", "IMPLEMENTS"];
     for edge in graph["edges"].as_array().unwrap() {
         let etype = edge["type"].as_str().unwrap();
         assert!(
