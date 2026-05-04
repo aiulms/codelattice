@@ -139,7 +139,7 @@
 - No dangling graph edge（schema v0.2 CALLS edge source/target 必须存在）
 - No full method dispatch（blind name heuristic only）
 - No type inference / trait solving
-- No external crate API symbol resolution（classification only）
+- No external crate API symbol resolution（Phase 1: std/core/alloc direct path resolution, confidence 0.80; Phase 2: sysroot symbol index TBD）
 - No macro expansion
 - No full cfg evaluator
 - No `cargo metadata` execution
