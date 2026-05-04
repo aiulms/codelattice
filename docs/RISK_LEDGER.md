@@ -11,6 +11,69 @@
 
 ## 零、Active Bug Gate
 
+### 0.2 Large source file quality watch
+
+状态：**ACTIVE quality watch**
+
+当前观察（2026-05-04）：
+
+- `crates/project-model/src/calls.rs` 已增长到约 2053 行。
+- 旧风险记录仍写 `calls.rs ~1400 行`，说明大文件增长速度已经超过文档同步。
+- 文件内同时包含 tree-sitter extraction、text fallback、CalleeIndex、ImportBindingTable、stdlib/external crate tables、method heuristics、diagnostics 和多条 resolution strategy。
+
+风险级别：**MEDIUM**（短期测试可覆盖，长期维护和 review 成本快速上升）
+
+防守规则：
+
+1. 后续新增 CALLS strategy 前，必须先评估是否拆到 helper / table / strategy module。
+2. 如果暂不拆分，closure review 必须记录当前行数、为什么暂不拆、以及新增策略的测试证据。
+3. 拆分只能做行为等价移动；禁止借拆分混入语义变化。
+4. 大文件维护风险不阻塞当前 stats bug 修复，但阻止继续无界追加新方向。
+
+---
+
+### 0.1 External crate call stats hardcoded-zero bug
+
+状态：**ACTIVE，下一轮必须优先修复**
+
+复现：
+
+```bash
+cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
+  --root fixtures/call-resolution/c10-external-crate \
+  --include calls
+```
+
+当前观察（2026-05-04，after Rust-core `509ff9a`）：
+
+- `calls` 中已有 external crate calls：
+  - `std::vec::Vec::new` → `callKind="external-crate"`、`knownCrate="std"`、`reason="call-external-crate-path-resolved"`
+  - `std::collections::HashMap::<&str, i32>::new` → `knownCrate="std"`
+  - `std::path::PathBuf::new` → `knownCrate="std"`
+- 但 `stats.callExternalCrateTotal == 0`
+- 且 `stats.callExternalCrateClassified == 0`
+
+风险级别：**MEDIUM**（不会破坏 call resolution，但会误导真实项目 metric / closure review / graph readiness 判断）
+
+根因候选：
+
+- `output.rs` 中 `Stats { call_external_crate_total: 0, call_external_crate_classified: 0 }` 仍硬编码。
+- expected-calls harness 当前没有校验这两个 stats 字段。
+
+修复门槛：
+
+1. `stats.callExternalCrateTotal` 必须从 `call_list` 计算，至少覆盖 `callKind == "external-crate"`。
+2. `stats.callExternalCrateClassified` 必须从 `call_list` 计算，至少覆盖 `knownCrate.is_some()` 的 external crate calls。
+3. `c10-external-crate` 的 expected/harness 或 CLI test 必须验证这两个 stats 为非零且与 actual calls 一致。
+4. `cargo fmt --check` + `cargo test` 全绿。
+
+防守规则：
+
+- 不继续扩大 receiver/method Phase2 或新的 resolution 方向，直到该 stats contract 修复。
+- 不删除 stats 字段，不用 closure 文档解释掉该问题。
+
+---
+
 ### 0. Graph schema v0.2 dangling CALLS edge
 
 状态：**已修复（Rust-core `f1502a6`）**
@@ -51,7 +114,7 @@
 
 状态：**已知限制**
 
-- calls.rs ~1400 行，超过预估 ~500 行
+- calls.rs 已增长到约 2053 行，超过预估 ~500 行
 - 5 个独立 resolution strategy 各自完整实现
 - 后续可抽取共享 helper 降低冗余
 

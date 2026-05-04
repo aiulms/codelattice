@@ -45,8 +45,8 @@ For multi-step work：
 
 - **No production replacement** — Rust-core 不是 GitNexus-RC TypeScript adapter 的替代
 - **Graph CALLS edge must not be dangling** — schema v0.2 可产 CALLS edge，但 source/target 必须指向已存在 node
-- **Method dispatch remains low-confidence heuristic only** — 允许 blind method-name resolution；禁止 receiver type inference / trait solving
-- **External crate is classification only** — 允许 dependency-name classification；禁止 external crate API symbol resolution
+- **Method dispatch remains low-confidence heuristic only** — 允许 blind method-name / explicit receiver-type annotation heuristic；禁止 full receiver type inference / trait solving
+- **External crate support remains bounded** — 允许 std/core/alloc direct path 和 imported stdlib/prelude type 的有限解析；禁止任意 external crate API symbol resolution / sysroot index
 - **No type inference / trait solving** — 不推断变量类型，不做 trait bound satisfaction
 - **No macro expansion** — `foo!()` 不展开
 - **No full cfg evaluator** — cfg-gated `mod` 只标记 `unknown`
@@ -60,50 +60,65 @@ For multi-step work：
 
 ### Graph schema v0.2 CALLS dangling-edge bug
 
-状态：**ACTIVE，下一轮必须优先修复，不要继续扩展新方向。**
+状态：**已修复（Rust-core `f1502a6`，复核 OK）**
 
-最新复核（2026-05-04，after Rust-core `7cb67de`）：
+复核（2026-05-04，after Rust-core `8739f7a`）：
 
-- `c1-same-module expected-graph.json` 已新增，但只是把 dangling CALLS edge 纳入 golden；**bug 仍存在**。
-- smoke 结果仍是 `CALLS=1`、`symbolNodes=0`、`danglingCalls=1`。
-- 不允许把“新增 expected-graph golden”或“CALLS edge 数量验证”作为修复完成标准。
-- 必须新增 endpoint integrity assertion：每条 graph edge 的 `source` / `target` 都必须存在于 `nodes[].id`。
+- `--include calls --include graph` on `c1-same-module`: `symbolNodes=2`、`CALLS=1`、`danglingEdges=0`
+- 新增 endpoint integrity test 已通过。
+- 若该 smoke 再次失败，必须重新打开本 gate。
+
+### External crate call stats hardcoded-zero bug
+
+状态：**ACTIVE，下一轮必须优先修复；不要继续扩大 receiver/method 新方向直到该 stats contract 修复。**
 
 复现：
 
 ```bash
 cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
-  --root fixtures/call-resolution/c1-same-module \
-  --include calls \
-  --include graph
+  --root fixtures/call-resolution/c10-external-crate \
+  --include calls
 ```
 
 当前问题：
 
-- 输出 `schemaVersion=0.2.0`
-- 输出含 `CALLS` edge，例如 `symbol:c1-same-module::crate::main_fn -> symbol:c1-same-module::crate::helper`
-- 但 `nodes` 中没有对应 `symbol:*` node，形成 dangling edge
-
-根因候选：
-
-- `--include calls` 内部会提取 symbols 用于解析 calls
-- 但 `include_symbols=false` 时 `ProjectModelOutput.symbols` 被置空
-- graph emitter 仍根据 `output.calls` 产 `CALLS` edge，于是 edge 引用不存在的 symbol node
+- `calls` 中已有 external crate calls，例如：
+  - `std::vec::Vec::new` → `callKind="external-crate"`、`knownCrate="std"`、`reason="call-external-crate-path-resolved"`
+  - `std::collections::HashMap::<&str, i32>::new` → `knownCrate="std"`
+  - `std::path::PathBuf::new` → `knownCrate="std"`
+- 但 `stats.callExternalCrateTotal == 0` 且 `stats.callExternalCrateClassified == 0`
+- 根因候选：`output.rs` 中 `Stats { call_external_crate_total: 0, call_external_crate_classified: 0 }` 仍硬编码。
 
 修复要求：
 
-1. 修复 dangling edge；不要用文档化代替修复。
-2. 推荐策略：当 `include_graph && include_calls` 时，graph 输入必须保留/获得 symbol nodes；或者 graph emitter 必须在 source/target symbol node 存在时才产 CALLS edge。优先选择 contract 更一致、可测试的方案。
-3. 新增或更新 graph test：`--include calls --include graph` 对 `c1-same-module` 必须产 `CALLS` edge，且 source/target node 都存在。
-4. 新增通用 graph endpoint integrity test：所有 graph fixtures / smoke 中每条 edge 的 source/target node 都存在。
+1. 不要删除 stats 字段或用 closure 文档解释掉该问题。
+2. `stats.callExternalCrateTotal` 必须从 `call_list` 计算，至少覆盖 `callKind == "external-crate"`。
+3. `stats.callExternalCrateClassified` 必须从 `call_list` 计算，至少覆盖 `knownCrate.is_some()` 的 external crate calls。
+4. 新增或更新 call comparison / CLI test：`c10-external-crate` 的 stats 必须为非零，并和 actual calls 一致。
 5. `cargo fmt --check` + `cargo test` 必须全绿。
-6. 修复后写 closure review，并同步更新 Rust-core / GitNexus-RC tracker。
+
+### Large source file quality watch
+
+状态：**ACTIVE quality watch；不是 stop-line，但继续扩大 CALLS 方向前必须显式处理。**
+
+当前观察（2026-05-04）：
+
+- `crates/project-model/src/calls.rs` 已增长到约 2053 行，且仍在继续承载新 resolution strategy。
+- `docs/RISK_LEDGER.md` 中旧记录仍写 `calls.rs ~1400 行`，已过期。
+- 这不是单纯行数问题，而是 extractor / resolver / stdlib tables / text fallback / diagnostics / fixture policy 混在同一文件中，后续维护者难以判断改动边界。
+
+质量要求：
+
+1. 继续新增 CALLS strategy 前，必须先判断能否抽出小型 helper / table / strategy section；不能无界追加到 `calls.rs`。
+2. 如果暂不拆分，closure review 必须说明为什么暂不拆，并记录当前行数与新增复杂度。
+3. 新增逻辑必须带 fixture/harness 或 CLI smoke；不能只靠真实项目统计证明。
+4. 不允许通过大范围重排来掩盖语义变更；拆分应保持行为等价并先跑全量测试。
 
 ## Verification
 
 ```bash
 cargo fmt --check    # Formatting check
-cargo test           # All tests (currently 81 tests)
+cargo test           # All tests
 ```
 
 ## Comment Policy
