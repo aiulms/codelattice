@@ -16,3 +16,4 @@ pub mod module_path;
 pub mod output;
 pub mod root_resolution;
 pub mod source;
+pub mod stdlib_index;

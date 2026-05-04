@@ -23,6 +23,7 @@ use std::path::Path;
 
 use crate::model::*;
 use crate::root_resolution::{self, ModuleResolveResult};
+use crate::stdlib_index;
 
 /// call site 提取结果
 pub struct CallExtractionResult {
@@ -876,8 +877,14 @@ fn resolve_call_site(
             if let Some(ref krate) = call.known_crate {
                 if krate == "std" || krate == "core" || krate == "alloc" {
                     let clean_path = strip_generics(&call.callee_path);
+                    // Phase 2: 查 stdlib symbol index，命中则升级 confidence 0.80→0.85
+                    let confidence = if stdlib_index::is_known_stdlib_symbol(&clean_path) {
+                        0.85
+                    } else {
+                        0.80
+                    };
                     call.resolved_symbol_id = Some(clean_path);
-                    call.confidence = 0.80;
+                    call.confidence = confidence;
                     call.reason = CallResolutionReason::CallExternalCratePathResolved
                         .as_str()
                         .to_string();

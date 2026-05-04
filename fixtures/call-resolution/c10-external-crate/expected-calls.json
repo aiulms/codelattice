@@ -18,7 +18,7 @@
     "callKind": "external-crate",
     "resolvedSymbolId": "std::vec::Vec::new",
     "resolvedSymbolKind": null,
-    "confidence": 0.8,
+    "confidence": 0.85,
     "reason": "call-external-crate-path-resolved",
     "diagnostics": []
   },
@@ -41,7 +41,7 @@
     "callKind": "external-crate",
     "resolvedSymbolId": "std::collections::HashMap::new",
     "resolvedSymbolKind": null,
-    "confidence": 0.8,
+    "confidence": 0.85,
     "reason": "call-external-crate-path-resolved",
     "diagnostics": []
   },
@@ -64,7 +64,7 @@
     "callKind": "external-crate",
     "resolvedSymbolId": "std::path::PathBuf::new",
     "resolvedSymbolKind": null,
-    "confidence": 0.8,
+    "confidence": 0.85,
     "reason": "call-external-crate-path-resolved",
     "diagnostics": []
   },
