@@ -1,21 +1,21 @@
 [
   {
-    "id": "src/lib.rs::call::7::helper",
-    "callerSymbolId": "sf1-unique-helper::crate::main_fn",
-    "callerName": "main_fn",
+    "id": "src/lib.rs::call::6::helper",
+    "callerSymbolId": "sf6-inline-module-flat::crate::inner::call_it",
+    "callerName": "call_it",
     "sourcePath": "src/lib.rs",
     "modulePath": "crate",
     "span": {
-      "lineStart": 7,
-      "lineEnd": 7,
-      "byteStart": 255,
-      "byteEnd": 263
+      "lineStart": 6,
+      "lineEnd": 6,
+      "byteStart": 278,
+      "byteEnd": 286
     },
     "rawText": "helper()",
     "calleePath": "helper",
     "calleeName": "helper",
     "callKind": "free-function",
-    "resolvedSymbolId": "sf1-unique-helper::crate::a::helper",
+    "resolvedSymbolId": "sf6-inline-module-flat::crate::inner::helper",
     "resolvedSymbolKind": "function",
     "confidence": 0.7,
     "reason": "call-same-file-unique-name",

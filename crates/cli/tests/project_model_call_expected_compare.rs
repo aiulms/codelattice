@@ -22,6 +22,8 @@ const CALL_FIXTURES: &[&str] = &[
     "sf3-method-ignored",
     "sf4-exact-priority",
     "sf5-cross-module-unique",
+    // compile-valid fixture: inline module same-module call with flat modulePath
+    "sf6-inline-module-flat",
 ];
 
 fn workspace_root() -> PathBuf {

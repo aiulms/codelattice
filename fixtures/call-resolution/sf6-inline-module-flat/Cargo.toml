@@ -1,0 +1,4 @@
+[package]
+name = "sf6-inline-module-flat"
+version = "0.1.0"
+edition = "2021"

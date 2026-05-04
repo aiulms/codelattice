@@ -1,15 +1,15 @@
 [
   {
-    "id": "src/lib.rs::call::8::process",
+    "id": "src/lib.rs::call::10::process",
     "callerSymbolId": "sf2-duplicate-name::crate::main_fn",
     "callerName": "main_fn",
     "sourcePath": "src/lib.rs",
     "modulePath": "crate",
     "span": {
-      "lineStart": 8,
-      "lineEnd": 8,
-      "byteStart": 114,
-      "byteEnd": 123
+      "lineStart": 10,
+      "lineEnd": 10,
+      "byteStart": 284,
+      "byteEnd": 293
     },
     "rawText": "process()",
     "calleePath": "process",
