@@ -34,43 +34,16 @@
 
 ### 0.1 External crate call stats hardcoded-zero bug
 
-状态：**ACTIVE，下一轮必须优先修复**
+状态：**已修复（Rust-core `dda27b3`）**
 
-复现：
+修复（2026-05-04）：
 
-```bash
-cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
-  --root fixtures/call-resolution/c10-external-crate \
-  --include calls
-```
+- 根因：`output.rs` 中 stats 字段硬编码为 0。
+- 修复：从 `call_list` 实时计算。
+- 新增 test `external_crate_stats_are_computed`。
+- 85/85 tests pass，c10: `callExternalCrateTotal=3`、`callExternalCrateClassified=3`。
 
-当前观察（2026-05-04，after Rust-core `509ff9a`）：
-
-- `calls` 中已有 external crate calls：
-  - `std::vec::Vec::new` → `callKind="external-crate"`、`knownCrate="std"`、`reason="call-external-crate-path-resolved"`
-  - `std::collections::HashMap::<&str, i32>::new` → `knownCrate="std"`
-  - `std::path::PathBuf::new` → `knownCrate="std"`
-- 但 `stats.callExternalCrateTotal == 0`
-- 且 `stats.callExternalCrateClassified == 0`
-
-风险级别：**MEDIUM**（不会破坏 call resolution，但会误导真实项目 metric / closure review / graph readiness 判断）
-
-根因候选：
-
-- `output.rs` 中 `Stats { call_external_crate_total: 0, call_external_crate_classified: 0 }` 仍硬编码。
-- expected-calls harness 当前没有校验这两个 stats 字段。
-
-修复门槛：
-
-1. `stats.callExternalCrateTotal` 必须从 `call_list` 计算，至少覆盖 `callKind == "external-crate"`。
-2. `stats.callExternalCrateClassified` 必须从 `call_list` 计算，至少覆盖 `knownCrate.is_some()` 的 external crate calls。
-3. `c10-external-crate` 的 expected/harness 或 CLI test 必须验证这两个 stats 为非零且与 actual calls 一致。
-4. `cargo fmt --check` + `cargo test` 全绿。
-
-防守规则：
-
-- 不继续扩大 receiver/method Phase2 或新的 resolution 方向，直到该 stats contract 修复。
-- 不删除 stats 字段，不用 closure 文档解释掉该问题。
+风险级别：~~MEDIUM~~ → **已消除**
 
 ---
 

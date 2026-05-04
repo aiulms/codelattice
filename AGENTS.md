@@ -70,32 +70,22 @@ For multi-step work：
 
 ### External crate call stats hardcoded-zero bug
 
-状态：**ACTIVE，下一轮必须优先修复；不要继续扩大 receiver/method 新方向直到该 stats contract 修复。**
+状态：**已修复（Rust-core `dda27b3`，复核 OK）**
 
-复现：
+修复（2026-05-04）：
 
-```bash
-cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
-  --root fixtures/call-resolution/c10-external-crate \
-  --include calls
-```
+- 根因：`output.rs` 中 `call_external_crate_total` 和 `call_external_crate_classified` 硬编码为 0。
+- 修复：从 `call_list` 计算：`call_external_crate_total` = `call_kind == "external-crate"`，`call_external_crate_classified` = `known_crate.is_some()`。
+- 新增 test `external_crate_stats_are_computed`：验证 c10 fixture stats 非零且与 actual calls 一致。
 
-当前问题：
+验证：
+- `cargo fmt --check` clean
+- `cargo test` 85/85 pass（含新增 stats test）
+- c10: `callExternalCrateTotal=3`、`callExternalCrateClassified=3`
 
-- `calls` 中已有 external crate calls，例如：
-  - `std::vec::Vec::new` → `callKind="external-crate"`、`knownCrate="std"`、`reason="call-external-crate-path-resolved"`
-  - `std::collections::HashMap::<&str, i32>::new` → `knownCrate="std"`
-  - `std::path::PathBuf::new` → `knownCrate="std"`
-- 但 `stats.callExternalCrateTotal == 0` 且 `stats.callExternalCrateClassified == 0`
-- 根因候选：`output.rs` 中 `Stats { call_external_crate_total: 0, call_external_crate_classified: 0 }` 仍硬编码。
-
-修复要求：
-
-1. 不要删除 stats 字段或用 closure 文档解释掉该问题。
-2. `stats.callExternalCrateTotal` 必须从 `call_list` 计算，至少覆盖 `callKind == "external-crate"`。
-3. `stats.callExternalCrateClassified` 必须从 `call_list` 计算，至少覆盖 `knownCrate.is_some()` 的 external crate calls。
-4. 新增或更新 call comparison / CLI test：`c10-external-crate` 的 stats 必须为非零，并和 actual calls 一致。
-5. `cargo fmt --check` + `cargo test` 必须全绿。
+防守规则：
+- 不再接受 stats 字段硬编码默认值；新增 stats 必须从 output 数据源计算。
+- 若 stats 再次退回零，必须重新打开本 gate。
 
 ### Large source file quality watch
 
