@@ -120,6 +120,14 @@ pub fn inspect_project_model_with_options(
         (vec![], vec![], 0u32)
     };
 
+    // 从 call_list 计算 external crate stats（不再硬编码为 0）
+    let call_external_crate_total = call_list
+        .iter()
+        .filter(|c| c.call_kind == "external-crate")
+        .count() as u32;
+    let call_external_crate_classified =
+        call_list.iter().filter(|c| c.known_crate.is_some()).count() as u32;
+
     ProjectModelOutput {
         version: env!("CARGO_PKG_VERSION").to_string(),
         command: "project-model inspect".to_string(),
@@ -148,8 +156,8 @@ pub fn inspect_project_model_with_options(
             symbol_count: if include_symbols { symbol_count } else { 0 },
             import_count,
             call_count,
-            call_external_crate_total: 0,
-            call_external_crate_classified: 0,
+            call_external_crate_total,
+            call_external_crate_classified,
         },
         symbols: if include_symbols { symbols } else { vec![] },
         symbol_diagnostics: if include_symbols {

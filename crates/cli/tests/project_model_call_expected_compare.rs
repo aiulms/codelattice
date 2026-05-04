@@ -481,3 +481,58 @@ fn calls_auto_triggers_symbols_and_imports() {
         "symbols 应为空数组（无 --include symbols）"
     );
 }
+
+/// 验证 external crate call stats 非硬编码为 0
+/// c10-external-crate fixture 有 8 个 calls，其中 3 个 callKind="external-crate" + knownCrate="std"
+#[test]
+fn external_crate_stats_are_computed() {
+    let raw = inspect_calls("c10-external-crate");
+
+    let call_external_crate_total = raw["stats"]["callExternalCrateTotal"].as_u64();
+    let call_external_crate_classified = raw["stats"]["callExternalCrateClassified"].as_u64();
+
+    assert!(
+        call_external_crate_total.is_some(),
+        "stats.callExternalCrateTotal 应存在"
+    );
+    assert!(
+        call_external_crate_classified.is_some(),
+        "stats.callExternalCrateClassified 应存在"
+    );
+
+    let total = call_external_crate_total.unwrap();
+    let classified = call_external_crate_classified.unwrap();
+
+    assert!(
+        total > 0,
+        "callExternalCrateTotal 应 > 0（c10 有 3 个 external-crate calls），实际: {}",
+        total
+    );
+    assert!(
+        classified > 0,
+        "callExternalCrateClassified 应 > 0（c10 有 3 个 knownCrate 非空 calls），实际: {}",
+        classified
+    );
+
+    // 验证与 actual calls 一致性
+    let calls = raw["calls"].as_array().unwrap();
+    let actual_external = calls
+        .iter()
+        .filter(|c| c["callKind"].as_str() == Some("external-crate"))
+        .count();
+    let actual_classified = calls
+        .iter()
+        .filter(|c| c["knownCrate"].as_str().is_some())
+        .count();
+
+    assert_eq!(
+        total, actual_external as u64,
+        "callExternalCrateTotal ({}) 应与 callKind=external-crate 的 calls 数 ({}) 一致",
+        total, actual_external
+    );
+    assert_eq!(
+        classified, actual_classified as u64,
+        "callExternalCrateClassified ({}) 应与 knownCrate 非空 calls 数 ({}) 一致",
+        classified, actual_classified
+    );
+}
