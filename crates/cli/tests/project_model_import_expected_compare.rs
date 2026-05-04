@@ -24,6 +24,10 @@ const IMPORT_FIXTURES: &[&str] = &[
     "use-unsupported",
     "use-self-super-out-of-line",
     "s6-ambiguous-symbol",
+    "inline-mod-crate-import",
+    "inline-mod-nested",
+    "inline-mod-mixed-file",
+    "inline-mod-cross-symbol",
 ];
 
 fn workspace_root() -> PathBuf {

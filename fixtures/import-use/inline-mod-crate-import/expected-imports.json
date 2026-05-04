@@ -1,0 +1,35 @@
+{
+  "fixtureName": "inline-mod-crate-import",
+  "scenario": "crate:: absolute path import inside inline module — inline scope does not affect absolute path resolution",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "crate::Foo",
+      "pathKind": "crate",
+      "targetName": "Foo",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "inline-mod-crate-import::crate::Foo",
+        "resolvedSymbolKind": "struct",
+        "resolvedSymbolName": "Foo",
+        "resolvedSymbolSourcePath": "src/lib.rs"
+      },
+      "confidence": 0.9,
+      "reason": "use-symbol-resolved",
+      "modulePath": "crate::inner",
+      "expandedPath": "crate::Foo",
+      "resolutionLevel": "symbol"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved"],
+  "expectedAbsence": [],
+  "knownLimitations": ["static-analysis-only: Foo is not visible at crate level from inside mod inner"],
+  "confidencePolicy": "0.90 for crate:: symbol-resolved"
+}

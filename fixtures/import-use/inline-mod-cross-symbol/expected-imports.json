@@ -1,0 +1,35 @@
+{
+  "fixtureName": "inline-mod-cross-symbol",
+  "scenario": "cross inline module symbol resolution — crate:: import from one inline module resolves to symbol in another inline module",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "crate::beta::compute",
+      "pathKind": "crate",
+      "targetName": "compute",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "inline-mod-cross-symbol::crate::beta::compute",
+        "resolvedSymbolKind": "function",
+        "resolvedSymbolName": "compute",
+        "resolvedSymbolSourcePath": "src/lib.rs"
+      },
+      "confidence": 0.9,
+      "reason": "use-symbol-resolved",
+      "modulePath": "crate::alpha",
+      "expandedPath": "crate::beta::compute",
+      "resolutionLevel": "symbol"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved"],
+  "expectedAbsence": [],
+  "knownLimitations": ["static-analysis-only: cross-module symbol resolution with visibility limitations"],
+  "confidencePolicy": "0.90 for crate:: symbol-resolved across inline modules"
+}

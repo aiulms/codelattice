@@ -1,0 +1,35 @@
+{
+  "fixtureName": "inline-mod-mixed-file",
+  "scenario": "multi-layer inline module with super:: import across sibling modules — verifies super:: chain in inline module hierarchy",
+  "inputRoot": ".",
+  "expectedImports": [
+    {
+      "sourcePath": "src/lib.rs",
+      "originalPath": "super::models::Response",
+      "pathKind": "super",
+      "targetName": "Response",
+      "alias": null,
+      "isReExport": false,
+      "visibility": "private",
+      "resolvedTo": {
+        "resolvedPath": null,
+        "resolvedKind": null,
+        "targetModulePath": null,
+        "targetFilePath": null,
+        "resolvedSymbolId": "inline-mod-mixed-file::crate::api::models::Response",
+        "resolvedSymbolKind": "struct",
+        "resolvedSymbolName": "Response",
+        "resolvedSymbolSourcePath": "src/lib.rs"
+      },
+      "confidence": 0.8,
+      "reason": "use-symbol-super-resolved",
+      "modulePath": "crate::api::handlers",
+      "expandedPath": "crate::api::models::Response",
+      "resolutionLevel": "symbol"
+    }
+  ],
+  "expectedDiagnostics": ["use-path-unresolved"],
+  "expectedAbsence": [],
+  "knownLimitations": ["static-analysis-only: inline module hierarchy simulating file-based module structure"],
+  "confidencePolicy": "0.80 for super:: symbol-resolved across sibling inline modules"
+}
