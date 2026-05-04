@@ -803,6 +803,16 @@ fn resolve_call_site(
                         .to_string();
                 }
                 [] => {
+                    // Phase 1 extended: check if method name is a known-unique stdlib trait method
+                    // e.g., to_string() → std::string::ToString::to_string
+                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
+                        call.resolved_symbol_id = Some(trait_path.to_string());
+                        call.confidence = 0.55;
+                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
+                            .as_str()
+                            .to_string();
+                        return;
+                    }
                     call.reason = CallResolutionReason::CallTargetUnresolved
                         .as_str()
                         .to_string();
@@ -1631,6 +1641,16 @@ fn resolve_call_site_text(
                         .to_string();
                 }
                 [] => {
+                    // Phase 1 extended: check if method name is a known-unique stdlib trait method
+                    // e.g., to_string() → std::string::ToString::to_string
+                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
+                        call.resolved_symbol_id = Some(trait_path.to_string());
+                        call.confidence = 0.55;
+                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
+                            .as_str()
+                            .to_string();
+                        return;
+                    }
                     call.reason = CallResolutionReason::CallTargetUnresolved
                         .as_str()
                         .to_string();
@@ -1693,6 +1713,18 @@ fn lookup_prelude_type_path(type_name: &str) -> Option<&'static str> {
         "Box" => Some("std::boxed::Box"),
         "Option" => Some("std::option::Option"),
         "Result" => Some("std::result::Result"),
+        _ => None,
+    }
+}
+
+/// Map stdlib trait method names to their canonical trait method paths.
+/// Only includes method names that are UNIQUE within stdlib — i.e., only one
+/// trait defines this method in the standard library.
+/// Confidence 0.55: trait path is correct, but concrete receiver type is unknown.
+fn lookup_stdlib_trait_method(method_name: &str) -> Option<&'static str> {
+    match method_name {
+        "to_string" => Some("std::string::ToString::to_string"),
+        "clone" => Some("std::clone::Clone::clone"),
         _ => None,
     }
 }

@@ -113,5 +113,71 @@
     "confidence": 0.8,
     "reason": "call-external-crate-path-resolved",
     "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::33::to_string",
+    "callerSymbolId": "c10-external-crate::crate::method_to_string",
+    "callerName": "method_to_string",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 33,
+      "lineEnd": 33,
+      "byteStart": 973,
+      "byteEnd": 987
+    },
+    "rawText": "42.to_string()",
+    "calleePath": "42.to_string",
+    "calleeName": "to_string",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::string::ToString::to_string",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::38::from",
+    "callerSymbolId": "c10-external-crate::crate::method_clone",
+    "callerName": "method_clone",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 38,
+      "lineEnd": 38,
+      "byteStart": 1098,
+      "byteEnd": 1119
+    },
+    "rawText": "String::from(\"hello\")",
+    "calleePath": "String::from",
+    "calleeName": "from",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "std::string::String::from",
+    "resolvedSymbolKind": null,
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::39::clone",
+    "callerSymbolId": "c10-external-crate::crate::method_clone",
+    "callerName": "method_clone",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 39,
+      "lineEnd": 39,
+      "byteStart": 1133,
+      "byteEnd": 1142
+    },
+    "rawText": "x.clone()",
+    "calleePath": "x.clone",
+    "calleeName": "clone",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::clone::Clone::clone",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
   }
 ]

@@ -15,10 +15,10 @@
     "calleePath": "name.to_string",
     "calleeName": "to_string",
     "callKind": "method-call",
-    "resolvedSymbolId": null,
+    "resolvedSymbolId": "std::string::ToString::to_string",
     "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-target-unresolved",
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
     "diagnostics": []
   },
   {

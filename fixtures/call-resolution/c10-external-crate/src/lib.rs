@@ -27,3 +27,14 @@ pub fn hashmap_via_import() {
 pub fn vec_via_prelude() {
     let _v: Vec<i32> = Vec::new();
 }
+
+// stdlib trait method resolution: to_string() → std::string::ToString::to_string
+pub fn method_to_string() {
+    let s = 42.to_string();
+}
+
+// stdlib trait method resolution: clone() → std::clone::Clone::clone
+pub fn method_clone() {
+    let x = String::from("hello");
+    let y = x.clone();
+}

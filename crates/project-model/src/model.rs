@@ -583,6 +583,9 @@ pub enum CallResolutionReason {
     /// callee_path → resolved_symbol_id，不验证 symbol 存在性（rustc 编译提供隐含保证）
     /// confidence 0.80：高于 classified(0.60)，低于 same-module(0.90) / import(0.85)
     CallExternalCratePathResolved,
+    /// stdlib trait method resolved by known-unique trait method name（to_string/clone）
+    /// confidence 0.55：trait 存在且方法名在 std 中唯一，但 receiver type 未知
+    CallStdlibTraitMethodResolved,
 }
 
 impl CallResolutionReason {
@@ -616,6 +619,11 @@ impl CallResolutionReason {
             // confidence 0.80：编译保证路径正确，无 symbol 级验证
             CallResolutionReason::CallExternalCratePathResolved => {
                 "call-external-crate-path-resolved"
+            }
+            // stdlib trait method resolved by known-unique trait method name
+            // confidence 0.55：no receiver type verification
+            CallResolutionReason::CallStdlibTraitMethodResolved => {
+                "call-stdlib-trait-method-resolved"
             }
         }
     }
