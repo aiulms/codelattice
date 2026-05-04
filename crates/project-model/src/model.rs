@@ -563,6 +563,9 @@ pub enum CallResolutionReason {
     CallTargetUnresolved,
     CallTargetAmbiguous,
     CallMethodDispatchUnsupported,
+    /// blind method name resolution：唯一 method name in crate，不验证 receiver type
+    /// confidence 0.65，低于所有现有 resolution path
+    CallMethodNameResolved,
     CallEnumConstructor,
 }
 
@@ -585,6 +588,9 @@ impl CallResolutionReason {
             CallResolutionReason::CallMethodDispatchUnsupported => {
                 "call-method-dispatch-unsupported"
             }
+            // blind method name resolution：唯一 method name in crate，不验证 receiver type
+            // confidence 0.65，低于 same-module(0.90) / import(0.85) / bare-path(0.85) / heuristic(0.70)
+            CallResolutionReason::CallMethodNameResolved => "call-method-name-resolved",
             // Rust enum variant constructor（Some/Ok/Err）不是函数调用，直接标记
             CallResolutionReason::CallEnumConstructor => "call-enum-constructor",
         }

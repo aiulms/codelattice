@@ -28,6 +28,9 @@ const CALL_FIXTURES: &[&str] = &[
     "call-enum-filter",
     // bare module path resolution fixture (module::func is crate-relative)
     "call-module-path",
+    // blind method name resolution fixtures
+    "c8-method-resolution",
+    "c9-method-ambiguous",
 ];
 
 fn workspace_root() -> PathBuf {

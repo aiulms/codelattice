@@ -15,10 +15,10 @@
     "calleePath": "c.get_value",
     "calleeName": "get_value",
     "callKind": "method-call",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "",
+    "resolvedSymbolId": "sf3-method-ignored::crate::get_value",
+    "resolvedSymbolKind": "method",
+    "confidence": 0.65,
+    "reason": "call-method-name-resolved",
     "diagnostics": []
   }
 ]

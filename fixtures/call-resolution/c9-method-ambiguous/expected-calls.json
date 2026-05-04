@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/lib.rs::call::13::reset",
+    "callerSymbolId": "c9-method-ambiguous::crate::use_both",
+    "callerName": "use_both",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 13,
+      "lineEnd": 13,
+      "byteStart": 145,
+      "byteEnd": 154
+    },
+    "rawText": "a.reset()",
+    "calleePath": "a.reset",
+    "calleeName": "reset",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-ambiguous",
+    "diagnostics": []
+  }
+]

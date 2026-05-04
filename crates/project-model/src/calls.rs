@@ -163,6 +163,17 @@ impl CalleeIndex {
         None
     }
 
+    /// 按 name-only 查找所有 method symbol（不验证 receiver type）
+    /// blind method name resolution：唯一匹配时解析，confidence 0.65
+    /// 不要求 receiver type 匹配 — 这是 type-inference stop-line 的 heuristic bridge
+    fn lookup_method_by_name(&self, name: &str) -> Vec<&CalleeMatch> {
+        self.by_module_and_name
+            .values()
+            .flatten()
+            .filter(|m| m.symbol_kind == "method" && m.name == name)
+            .collect()
+    }
+
     /// 同文件 fallback 查找：按 source_path + name + symbol_kind 过滤
     /// 只在 same-module 和 import-binding 都失败后调用（fallback，线性扫描但单文件 <100 symbols）
     /// 限制 symbol_kind == kind 以避免匹配 Method / Trait 等非函数 symbol
@@ -717,7 +728,32 @@ fn resolve_call_site(
         "self-path" => resolve_self_path(call, crate_root_abs, repo_root, symbol_index),
         "super-path" => resolve_super_path(call, crate_root_abs, repo_root, symbol_index),
         "associated-function" => resolve_associated_function(call, symbol_index, import_bindings),
-        "method-call" => {}
+        "method-call" => {
+            // blind method name resolution：查找 crate 内所有同名 method symbol
+            // 不验证 receiver type（type inference stop-line），唯一匹配时才解析
+            // confidence 0.65：低于所有现有 resolution path，因为 receiver type 未验证
+            let methods = symbol_index.lookup_method_by_name(&call.callee_name);
+            match methods.as_slice() {
+                [single] => {
+                    call.resolved_symbol_id = Some(single.id.clone());
+                    call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                    call.confidence = 0.65;
+                    call.reason = CallResolutionReason::CallMethodNameResolved
+                        .as_str()
+                        .to_string();
+                }
+                [] => {
+                    call.reason = CallResolutionReason::CallTargetUnresolved
+                        .as_str()
+                        .to_string();
+                }
+                _multiple => {
+                    call.reason = CallResolutionReason::CallTargetAmbiguous
+                        .as_str()
+                        .to_string();
+                }
+            }
+        }
         _ => {
             if call.reason.is_empty() {
                 call.reason = CallResolutionReason::CallTargetUnresolved
@@ -1446,15 +1482,30 @@ fn resolve_call_site_text(
         "free-function" => resolve_free_function(call, symbol_index, import_bindings),
         "associated-function" => resolve_associated_function(call, symbol_index, import_bindings),
         "method-call" => {
-            call.reason = CallResolutionReason::CallMethodDispatchUnsupported
-                .as_str()
-                .to_string();
-            call.diagnostics.push(CallDiagnostic {
-                code: "call-method-dispatch-unsupported".to_string(),
-                severity: "info".to_string(),
-                message: "method call 需要 type inference，当前不支持".to_string(),
-                target_name: None,
-            });
+            // blind method name resolution：查找 crate 内所有同名 method symbol
+            // 不验证 receiver type（type inference stop-line），唯一匹配时才解析
+            // confidence 0.65：低于所有现有 resolution path
+            let methods = symbol_index.lookup_method_by_name(&call.callee_name);
+            match methods.as_slice() {
+                [single] => {
+                    call.resolved_symbol_id = Some(single.id.clone());
+                    call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                    call.confidence = 0.65;
+                    call.reason = CallResolutionReason::CallMethodNameResolved
+                        .as_str()
+                        .to_string();
+                }
+                [] => {
+                    call.reason = CallResolutionReason::CallTargetUnresolved
+                        .as_str()
+                        .to_string();
+                }
+                _multiple => {
+                    call.reason = CallResolutionReason::CallTargetAmbiguous
+                        .as_str()
+                        .to_string();
+                }
+            }
         }
         _ => {
             call.reason = CallResolutionReason::CallTargetUnresolved

@@ -1,0 +1,68 @@
+[
+  {
+    "id": "src/lib.rs::call::20::new",
+    "callerSymbolId": "c8-method-resolution::crate::use_counter",
+    "callerName": "use_counter",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 20,
+      "lineEnd": 20,
+      "byteStart": 284,
+      "byteEnd": 298
+    },
+    "rawText": "Counter::new()",
+    "calleePath": "Counter::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c8-method-resolution::crate::new",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::21::increment",
+    "callerSymbolId": "c8-method-resolution::crate::use_counter",
+    "callerName": "use_counter",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 21,
+      "lineEnd": 21,
+      "byteStart": 304,
+      "byteEnd": 317
+    },
+    "rawText": "c.increment()",
+    "calleePath": "c.increment",
+    "calleeName": "increment",
+    "callKind": "method-call",
+    "resolvedSymbolId": "c8-method-resolution::crate::increment",
+    "resolvedSymbolKind": "method",
+    "confidence": 0.65,
+    "reason": "call-method-name-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::22::value",
+    "callerSymbolId": "c8-method-resolution::crate::use_counter",
+    "callerName": "use_counter",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 22,
+      "lineEnd": 22,
+      "byteStart": 332,
+      "byteEnd": 341
+    },
+    "rawText": "c.value()",
+    "calleePath": "c.value",
+    "calleeName": "value",
+    "callKind": "method-call",
+    "resolvedSymbolId": "c8-method-resolution::crate::value",
+    "resolvedSymbolKind": "method",
+    "confidence": 0.65,
+    "reason": "call-method-name-resolved",
+    "diagnostics": []
+  }
+]

@@ -178,7 +178,7 @@
     "resolvedSymbolId": null,
     "resolvedSymbolKind": null,
     "confidence": 0.0,
-    "reason": "",
+    "reason": "call-target-unresolved",
     "diagnostics": []
   }
 ]

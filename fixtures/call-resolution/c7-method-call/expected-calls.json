@@ -37,10 +37,10 @@
     "calleePath": "c.increment",
     "calleeName": "increment",
     "callKind": "method-call",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "",
+    "resolvedSymbolId": "c7-method-call::crate::increment",
+    "resolvedSymbolKind": "method",
+    "confidence": 0.65,
+    "reason": "call-method-name-resolved",
     "diagnostics": []
   }
 ]
