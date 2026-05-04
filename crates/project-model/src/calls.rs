@@ -897,6 +897,29 @@ fn resolve_qualified_path(
     }
 
     let segments = root_resolution::parse_crate_path(&prefix);
+
+    // Bare module name fallback：Rust 中 module::func() 是 crate-relative
+    // parse_crate_path 仅处理 crate:: 前缀，bare name 返回空 segments
+    // 此 fallback 在 segments 为空且 prefix 非空时触发，尝试 crate::{prefix} 查找
+    if segments.is_empty() && !prefix.is_empty() {
+        let target_mp = format!("crate::{}", prefix);
+        let matches = symbol_index.lookup(&target_mp, &name);
+        match matches {
+            [single] => {
+                call.resolved_symbol_id = Some(single.id.clone());
+                call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                call.confidence = 0.85;
+                call.reason = CallResolutionReason::CallModulePathResolved
+                    .as_str()
+                    .to_string();
+                return;
+            }
+            _ => {
+                // 未找到唯一匹配，fall through 到现有 file-based resolution
+            }
+        }
+    }
+
     let result = root_resolution::resolve_module_chain(repo_root, crate_root_abs, &segments);
 
     match result {

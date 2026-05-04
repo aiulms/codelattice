@@ -559,6 +559,7 @@ pub enum CallResolutionReason {
     CallSelfPathResolved,
     CallSuperPathResolved,
     CallAssociatedFnResolved,
+    CallModulePathResolved,
     CallTargetUnresolved,
     CallTargetAmbiguous,
     CallMethodDispatchUnsupported,
@@ -576,6 +577,9 @@ impl CallResolutionReason {
             CallResolutionReason::CallSelfPathResolved => "call-self-path-resolved",
             CallResolutionReason::CallSuperPathResolved => "call-super-path-resolved",
             CallResolutionReason::CallAssociatedFnResolved => "call-associated-fn-resolved",
+            // bare module path (如 root_resolution::func) — Rust 语义中是 crate-relative
+            // confidence 0.85：低于 explicit crate:: (0.90)，高于 heuristic (0.70)
+            CallResolutionReason::CallModulePathResolved => "call-module-path-resolved",
             CallResolutionReason::CallTargetUnresolved => "call-target-unresolved",
             CallResolutionReason::CallTargetAmbiguous => "call-target-ambiguous",
             CallResolutionReason::CallMethodDispatchUnsupported => {

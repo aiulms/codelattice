@@ -1,0 +1,46 @@
+[
+  {
+    "id": "src/lib.rs::call::14::add",
+    "callerSymbolId": "call-module-path::crate::compute",
+    "callerName": "compute",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 14,
+      "lineEnd": 14,
+      "byteStart": 208,
+      "byteEnd": 223
+    },
+    "rawText": "math::add(1, 2)",
+    "calleePath": "math::add",
+    "calleeName": "add",
+    "callKind": "qualified-path",
+    "resolvedSymbolId": "call-module-path::crate::math::add",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.85,
+    "reason": "call-module-path-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::18::greet",
+    "callerSymbolId": "call-module-path::crate::hello",
+    "callerName": "hello",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 18,
+      "lineEnd": 18,
+      "byteStart": 258,
+      "byteEnd": 278
+    },
+    "rawText": "text::greet(\"world\")",
+    "calleePath": "text::greet",
+    "calleeName": "greet",
+    "callKind": "qualified-path",
+    "resolvedSymbolId": "call-module-path::crate::text::greet",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.85,
+    "reason": "call-module-path-resolved",
+    "diagnostics": []
+  }
+]

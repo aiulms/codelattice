@@ -26,6 +26,8 @@ const CALL_FIXTURES: &[&str] = &[
     "sf6-inline-module-flat",
     // enum constructor filter fixture
     "call-enum-filter",
+    // bare module path resolution fixture (module::func is crate-relative)
+    "call-module-path",
 ];
 
 fn workspace_root() -> PathBuf {
