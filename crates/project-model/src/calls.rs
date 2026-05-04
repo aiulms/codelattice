@@ -1,23 +1,24 @@
 //! Call Site 提取与解析 — tree-sitter extractor + resolver
 //!
 //! 第五刀 intermediate output，不直接进入 graph emitter。
-//! 从 .rs 文件中提取 call_expression 节点，分类为 7 种 CallKind，
+//! 从 .rs 文件中提取 call_expression 节点，分类为 8 种 CallKind，
 //! 并使用 SymbolIndex + ImportBindingTable 进行 callee 解析。
 //!
 //! 核心策略：
 //! - tree-sitter 优先提取 call_expression 节点
 //! - 分类：free-function / qualified-path / self-path / super-path /
-//!   associated-function / method-call / unknown
+//!   associated-function / method-call / external-crate / unknown
 //! - 解析策略：same-module → import-binding → crate-path → self/super → associated-fn
-//! - method-call 不产 CALLS edge，只产 diagnostic（需 type inference）
+//! - method-call：blind method name resolution（confidence 0.65）
+//! - external-crate：crate name classification only，不解析 crate 内 symbol（confidence 0.60）
 //! - caller context 从 Symbol span overlap 推断（最小 enclosing function）
 //!
 //! 已知限制：
-//! - 不做 type inference，method dispatch 无法解析（stop-line）
+//! - 不做 type inference，method dispatch 无法验证 receiver type（stop-line）
+//! - 不索引 external crate API symbol（stop-line）
 //! - 不处理 closure / function pointer / macro expansion（stop-line）
-//! - 不处理外部 crate 调用（stop-line）
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::model::*;
@@ -34,6 +35,7 @@ pub fn extract_and_resolve_calls(
     repo_root: &Path,
     source_ownership: &[SourceOwnership],
     targets: &[TargetModel],
+    packages: &[PackageModel],
     module_path_map: &crate::module_path::ModulePathMap,
     symbols: &[Symbol],
     imports: &[ImportUse],
@@ -41,6 +43,12 @@ pub fn extract_and_resolve_calls(
     let symbol_index = build_callee_index(symbols);
     let import_bindings = build_import_binding_table(imports);
     let caller_index = build_caller_index(symbols);
+
+    // 构建已知外部 crate 名称集合（来自所有 package 的 [dependencies]）
+    let dependency_names: HashSet<String> = packages
+        .iter()
+        .flat_map(|p| p.dependency_names.iter().cloned())
+        .collect();
 
     let mut all_calls = Vec::new();
     let all_diagnostics = Vec::new();
@@ -78,6 +86,7 @@ pub fn extract_and_resolve_calls(
             &symbol_index,
             &import_bindings,
             &caller_index,
+            &dependency_names,
         );
 
         all_calls.extend(calls);
@@ -315,6 +324,7 @@ fn extract_calls_from_file(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
+    dependency_names: &HashSet<String>,
 ) -> Vec<CallSite> {
     #[cfg(feature = "tree-sitter-extraction")]
     {
@@ -327,6 +337,7 @@ fn extract_calls_from_file(
             symbol_index,
             import_bindings,
             caller_index,
+            dependency_names,
         ) {
             return calls;
         }
@@ -339,6 +350,7 @@ fn extract_calls_from_file(
         symbol_index,
         import_bindings,
         caller_index,
+        dependency_names,
     )
 }
 
@@ -352,6 +364,7 @@ fn extract_calls_tree_sitter(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
+    dependency_names: &HashSet<String>,
 ) -> Option<Vec<CallSite>> {
     let mut parser = tree_sitter::Parser::new();
     let language = tree_sitter_rust::LANGUAGE;
@@ -372,6 +385,7 @@ fn extract_calls_tree_sitter(
         symbol_index,
         import_bindings,
         caller_index,
+        dependency_names,
         &mut calls,
     );
 
@@ -389,6 +403,7 @@ fn collect_call_expressions<'a>(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
+    dependency_names: &HashSet<String>,
     calls: &mut Vec<CallSite>,
 ) {
     if node.kind() == "call_expression" {
@@ -402,6 +417,7 @@ fn collect_call_expressions<'a>(
             symbol_index,
             import_bindings,
             caller_index,
+            dependency_names,
         ) {
             calls.push(call_site);
         }
@@ -422,6 +438,7 @@ fn collect_call_expressions<'a>(
                     symbol_index,
                     import_bindings,
                     caller_index,
+                    dependency_names,
                     calls,
                 );
             }
@@ -456,6 +473,7 @@ fn collect_call_expressions<'a>(
                     symbol_index,
                     import_bindings,
                     caller_index,
+                    dependency_names,
                     calls,
                 );
             }
@@ -475,6 +493,7 @@ fn collect_call_expressions<'a>(
             symbol_index,
             import_bindings,
             caller_index,
+            dependency_names,
             calls,
         );
     }
@@ -491,6 +510,7 @@ fn process_call_expression(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
+    dependency_names: &HashSet<String>,
 ) -> Option<CallSite> {
     let line_start = byte_to_line(source_bytes, node.start_byte());
     let line_end = byte_to_line(source_bytes, node.end_byte());
@@ -518,8 +538,8 @@ fn process_call_expression(
         *func_node
     };
 
-    let (callee_path, callee_name, call_kind) =
-        classify_callee(&func_node, source_bytes, module_path);
+    let (callee_path, callee_name, call_kind, known_crate) =
+        classify_callee(&func_node, source_bytes, module_path, dependency_names);
 
     // Rust enum variant constructor 过滤：Some/Ok/Err/None 不是函数调用
     // tree-sitter 把 Some(x) 解析为 call_expression，但 Rust 语义中这些是 enum variant constructors
@@ -539,6 +559,7 @@ fn process_call_expression(
                 byte_end: node.end_byte(),
             },
             raw_text,
+            known_crate: None,
             callee_path: callee_path.clone(),
             callee_name: callee_name.clone(),
             call_kind: call_kind.as_str().to_string(),
@@ -575,6 +596,7 @@ fn process_call_expression(
             byte_end: node.end_byte(),
         },
         raw_text,
+        known_crate,
         callee_path: callee_path.clone(),
         callee_name: callee_name.clone(),
         call_kind: call_kind.as_str().to_string(),
@@ -632,6 +654,7 @@ fn process_method_call_expression(
             byte_end: node.end_byte(),
         },
         raw_text,
+        known_crate: None,
         callee_path: method_name.clone(),
         callee_name: method_name,
         call_kind: CallKind::MethodCall.as_str().to_string(),
@@ -655,11 +678,12 @@ fn classify_callee(
     func_node: &tree_sitter::Node,
     source_bytes: &[u8],
     _module_path: &str,
-) -> (String, String, CallKind) {
+    dependency_names: &HashSet<String>,
+) -> (String, String, CallKind, Option<String>) {
     match func_node.kind() {
         "identifier" => {
             let name = func_node.utf8_text(source_bytes).unwrap_or("").to_string();
-            (name.clone(), name, CallKind::FreeFunction)
+            (name.clone(), name, CallKind::FreeFunction, None)
         }
         "scoped_identifier" => {
             let path_text = func_node.utf8_text(source_bytes).unwrap_or("").to_string();
@@ -670,12 +694,24 @@ fn classify_callee(
                 let first = segments[0];
                 let second_last = segments[segments.len() - 2];
 
+                // external crate 检测：第一个 segment 是已知 dependency name
+                // 必须在 AssociatedFunction 检测之前，否则 std::vec::Vec::new() 会因 Vec 大写被误判为 AssociatedFunction
+                // std / core / alloc 是隐式依赖（不在 Cargo.toml [dependencies] 中），已在 manifest.rs 硬编码补充
+                if dependency_names.contains(first) {
+                    return (
+                        path_text.clone(),
+                        name,
+                        CallKind::ExternalCrate,
+                        Some(first.to_string()),
+                    );
+                }
+
                 if first == "crate" {
-                    (path_text.clone(), name, CallKind::QualifiedPath)
+                    (path_text.clone(), name, CallKind::QualifiedPath, None)
                 } else if first == "self" {
-                    (path_text.clone(), name, CallKind::SelfPath)
+                    (path_text.clone(), name, CallKind::SelfPath, None)
                 } else if first == "super" {
-                    (path_text.clone(), name, CallKind::SuperPath)
+                    (path_text.clone(), name, CallKind::SuperPath, None)
                 } else if second_last
                     .chars()
                     .next()
@@ -683,7 +719,7 @@ fn classify_callee(
                     .unwrap_or(false)
                     && segments.len() >= 3
                 {
-                    (path_text.clone(), name, CallKind::AssociatedFunction)
+                    (path_text.clone(), name, CallKind::AssociatedFunction, None)
                 } else if first
                     .chars()
                     .next()
@@ -691,22 +727,22 @@ fn classify_callee(
                     .unwrap_or(false)
                     && segments.len() == 2
                 {
-                    (path_text.clone(), name, CallKind::AssociatedFunction)
+                    (path_text.clone(), name, CallKind::AssociatedFunction, None)
                 } else {
-                    (path_text.clone(), name, CallKind::QualifiedPath)
+                    (path_text.clone(), name, CallKind::QualifiedPath, None)
                 }
             } else {
-                (path_text.clone(), name, CallKind::Unknown)
+                (path_text.clone(), name, CallKind::Unknown, None)
             }
         }
         "field_expression" => {
             let text = func_node.utf8_text(source_bytes).unwrap_or("").to_string();
             let name = text.split('.').last().unwrap_or("").to_string();
-            (text, name, CallKind::MethodCall)
+            (text, name, CallKind::MethodCall, None)
         }
         _ => {
             let text = func_node.utf8_text(source_bytes).unwrap_or("").to_string();
-            (text.clone(), text, CallKind::Unknown)
+            (text.clone(), text, CallKind::Unknown, None)
         }
     }
 }
@@ -753,6 +789,15 @@ fn resolve_call_site(
                         .to_string();
                 }
             }
+        }
+        "external-crate" => {
+            // external crate call：只分类 crate name，不解析 crate 内 symbol
+            // confidence 0.60：crate name known (from [dependencies] 或隐式 std/core/alloc)，
+            // 但 crate 内 symbol 未索引，低于 method-name-resolved (0.65)
+            call.confidence = 0.60;
+            call.reason = CallResolutionReason::CallExternalCrateClassified
+                .as_str()
+                .to_string();
         }
         _ => {
             if call.reason.is_empty() {
@@ -1314,6 +1359,7 @@ fn extract_calls_text_fallback(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
+    dependency_names: &HashSet<String>,
 ) -> Vec<CallSite> {
     let mut calls = Vec::new();
     let mut in_block_comment = false;
@@ -1346,6 +1392,7 @@ fn extract_calls_text_fallback(
             symbol_index,
             import_bindings,
             caller_index,
+            dependency_names,
         ) {
             calls.push(call_site);
         }
@@ -1362,6 +1409,7 @@ fn parse_text_call(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
+    dependency_names: &HashSet<String>,
 ) -> Option<CallSite> {
     if trimmed.starts_with('#') || trimmed.starts_with("use ") || trimmed.starts_with("pub use ") {
         return None;
@@ -1370,7 +1418,8 @@ fn parse_text_call(
     // 查找最外层函数调用
     let paren_pos = find_outermost_call(trimmed)?;
     let callee_part = trimmed[..paren_pos].trim_end();
-    let (callee_path, callee_name, call_kind) = classify_text_callee(callee_part, module_path);
+    let (callee_path, callee_name, call_kind, known_crate) =
+        classify_text_callee(callee_part, module_path, dependency_names);
 
     let caller_info = caller_index.find_enclosing(source_path, line_num);
 
@@ -1387,6 +1436,7 @@ fn parse_text_call(
             byte_end: trimmed.len(),
         },
         raw_text: trimmed.to_string(),
+        known_crate,
         callee_path: callee_path.clone(),
         callee_name: callee_name.clone(),
         call_kind: call_kind.as_str().to_string(),
@@ -1421,12 +1471,21 @@ fn find_outermost_call(text: &str) -> Option<usize> {
     None
 }
 
-fn classify_text_callee(callee_part: &str, _module_path: &str) -> (String, String, CallKind) {
+fn classify_text_callee(
+    callee_part: &str,
+    _module_path: &str,
+    dependency_names: &HashSet<String>,
+) -> (String, String, CallKind, Option<String>) {
     // 去除 trailing dot expression（method call）
     if let Some(dot_pos) = callee_part.rfind('.') {
         let method_name = callee_part[dot_pos + 1..].to_string();
         if !method_name.is_empty() && !method_name.starts_with('|') {
-            return (callee_part.to_string(), method_name, CallKind::MethodCall);
+            return (
+                callee_part.to_string(),
+                method_name,
+                CallKind::MethodCall,
+                None,
+            );
         }
     }
 
@@ -1435,6 +1494,18 @@ fn classify_text_callee(callee_part: &str, _module_path: &str) -> (String, Strin
         let name = segments.last().unwrap_or(&"").to_string();
 
         let first = segments.first().copied().unwrap_or("");
+
+        // external crate 检测：第一个 segment 是已知 dependency name
+        // 与 tree-sitter classify_callee 对应
+        if dependency_names.contains(first) {
+            return (
+                callee_part.to_string(),
+                name,
+                CallKind::ExternalCrate,
+                Some(first.to_string()),
+            );
+        }
+
         if first == "crate" || first == "self" || first == "super" {
             // classified by prefix
         } else if segments.len() >= 2 {
@@ -1463,12 +1534,13 @@ fn classify_text_callee(callee_part: &str, _module_path: &str) -> (String, Strin
             CallKind::Unknown
         };
 
-        (callee_part.to_string(), name, call_kind)
+        (callee_part.to_string(), name, call_kind, None)
     } else {
         (
             callee_part.to_string(),
             callee_part.to_string(),
             CallKind::FreeFunction,
+            None,
         )
     }
 }
@@ -1506,6 +1578,14 @@ fn resolve_call_site_text(
                         .to_string();
                 }
             }
+        }
+        "external-crate" => {
+            // external crate call：只分类 crate name，不解析 crate 内 symbol
+            // confidence 0.60：crate name known，但 crate 内 symbol 未索引
+            call.confidence = 0.60;
+            call.reason = CallResolutionReason::CallExternalCrateClassified
+                .as_str()
+                .to_string();
         }
         _ => {
             call.reason = CallResolutionReason::CallTargetUnresolved

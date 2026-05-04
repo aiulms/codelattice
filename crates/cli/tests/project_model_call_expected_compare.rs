@@ -31,6 +31,8 @@ const CALL_FIXTURES: &[&str] = &[
     // blind method name resolution fixtures
     "c8-method-resolution",
     "c9-method-ambiguous",
+    // external crate call classification fixture
+    "c10-external-crate",
 ];
 
 fn workspace_root() -> PathBuf {
@@ -163,6 +165,7 @@ fn compare_call_fields(
         "callerName",
         "resolvedSymbolId",
         "resolvedSymbolKind",
+        "knownCrate",
     ] {
         let e = expected[*field].as_str();
         let a = actual[*field].as_str();

@@ -16,6 +16,14 @@ struct CargoToml {
     package: Option<CargoPackage>,
     workspace: Option<CargoWorkspace>,
     features: Option<toml::value::Table>,
+    /// [dependencies] 表，只提取 key（crate name），不解析 version/feature
+    dependencies: Option<toml::value::Table>,
+    /// [dev-dependencies]
+    #[serde(rename = "dev-dependencies")]
+    dev_dependencies: Option<toml::value::Table>,
+    /// [build-dependencies]
+    #[serde(rename = "build-dependencies")]
+    build_dependencies: Option<toml::value::Table>,
 }
 
 #[derive(Debug, serde::Deserialize, Default)]
@@ -422,12 +430,37 @@ fn add_package_from_manifest(
         .map(|f| f.keys().cloned().collect())
         .unwrap_or_default();
 
+    // dependency names：提取 [dependencies] / [dev-dependencies] / [build-dependencies] 的 key
+    // 只做 crate name 提取，不解析 version/feature/path/git
+    // std / core / alloc 是隐式依赖（不在 Cargo.toml 中），硬编码补充
+    const IMPLICIT_DEPS: &[&str] = &["std", "core", "alloc"];
+    let mut dep_names: Vec<String> = Vec::new();
+    for table in [
+        &cargo_toml.dependencies,
+        &cargo_toml.dev_dependencies,
+        &cargo_toml.build_dependencies,
+    ] {
+        if let Some(t) = table {
+            for key in t.keys() {
+                if !dep_names.contains(key) {
+                    dep_names.push(key.clone());
+                }
+            }
+        }
+    }
+    for implicit in IMPLICIT_DEPS {
+        if !dep_names.contains(&implicit.to_string()) {
+            dep_names.push(implicit.to_string());
+        }
+    }
+
     packages.push(PackageModel {
         name,
         manifest_path: manifest_rel,
         package_root: package_root_rel,
         target_count,
         feature_names,
+        dependency_names: dep_names,
         is_workspace_member,
         discovery_reason: discovery_reason.as_str().to_string(),
     });

@@ -1,0 +1,71 @@
+[
+  {
+    "id": "src/lib.rs::call::7::new",
+    "callerSymbolId": "c10-external-crate::crate::external_vec",
+    "callerName": "external_vec",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 7,
+      "lineEnd": 7,
+      "byteStart": 258,
+      "byteEnd": 278
+    },
+    "rawText": "std::vec::Vec::new()",
+    "knownCrate": "std",
+    "calleePath": "std::vec::Vec::new",
+    "calleeName": "new",
+    "callKind": "external-crate",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.6,
+    "reason": "call-external-crate-classified",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::11::new",
+    "callerSymbolId": "c10-external-crate::crate::external_hashmap",
+    "callerName": "external_hashmap",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 11,
+      "lineEnd": 11,
+      "byteStart": 326,
+      "byteEnd": 371
+    },
+    "rawText": "std::collections::HashMap::<&str, i32>::new()",
+    "knownCrate": "std",
+    "calleePath": "std::collections::HashMap::<&str, i32>::new",
+    "calleeName": "new",
+    "callKind": "external-crate",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.6,
+    "reason": "call-external-crate-classified",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::15::new",
+    "callerSymbolId": "c10-external-crate::crate::external_path",
+    "callerName": "external_path",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 15,
+      "lineEnd": 15,
+      "byteStart": 414,
+      "byteEnd": 439
+    },
+    "rawText": "std::path::PathBuf::new()",
+    "knownCrate": "std",
+    "calleePath": "std::path::PathBuf::new",
+    "calleeName": "new",
+    "callKind": "external-crate",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.6,
+    "reason": "call-external-crate-classified",
+    "diagnostics": []
+  }
+]

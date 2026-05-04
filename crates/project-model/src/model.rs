@@ -121,6 +121,8 @@ pub struct PackageModel {
     pub package_root: String,
     pub target_count: u32,
     pub feature_names: Vec<String>,
+    /// 依赖 crate 名称（不含 version/feature），含隐式依赖 std/core/alloc
+    pub dependency_names: Vec<String>,
     pub is_workspace_member: bool,
     /// 有限集合枚举，不是自然语言
     pub discovery_reason: String,
@@ -205,6 +207,10 @@ pub struct Stats {
     pub import_count: u32,
     /// call site 提取计数，--include calls 时填充
     pub call_count: u32,
+    /// external crate call 总数
+    pub call_external_crate_total: u32,
+    /// external crate call 中已分类（known_crate 非空）
+    pub call_external_crate_classified: u32,
 }
 
 // ============================================================
@@ -522,6 +528,8 @@ pub enum CallKind {
     SuperPath,
     AssociatedFunction,
     MethodCall,
+    /// external crate 调用（如 std::vec::Vec::new），不解析 crate 内 symbol
+    ExternalCrate,
     Unknown,
 }
 
@@ -534,6 +542,7 @@ impl CallKind {
             CallKind::SuperPath => "super-path",
             CallKind::AssociatedFunction => "associated-function",
             CallKind::MethodCall => "method-call",
+            CallKind::ExternalCrate => "external-crate",
             CallKind::Unknown => "unknown",
         }
     }
@@ -567,6 +576,9 @@ pub enum CallResolutionReason {
     /// confidence 0.65，低于所有现有 resolution path
     CallMethodNameResolved,
     CallEnumConstructor,
+    /// external crate call classified to known crate name（不解析 crate 内 symbol）
+    /// confidence 0.60：crate name known from [dependencies]，低于 method-name-resolved(0.65)
+    CallExternalCrateClassified,
 }
 
 impl CallResolutionReason {
@@ -593,6 +605,9 @@ impl CallResolutionReason {
             CallResolutionReason::CallMethodNameResolved => "call-method-name-resolved",
             // Rust enum variant constructor（Some/Ok/Err）不是函数调用，直接标记
             CallResolutionReason::CallEnumConstructor => "call-enum-constructor",
+            // external crate call classified to known crate name
+            // confidence 0.60：crate name known，symbol within crate 未解析
+            CallResolutionReason::CallExternalCrateClassified => "call-external-crate-classified",
         }
     }
 }
@@ -625,6 +640,9 @@ pub struct CallSite {
     pub span: CallSpan,
     /// 调用原文
     pub raw_text: String,
+    /// external crate 调用时填充 known crate name（null = intra-crate）
+    pub known_crate: Option<String>,
+    /// callee 路径原文
     /// callee 路径原文
     pub callee_path: String,
     /// callee 标识符
