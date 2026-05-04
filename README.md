@@ -25,7 +25,7 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
 | 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
 | 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 12 import fixtures |
-| 4. CALLS Intermediate | Call site extraction + 5 resolved call forms + same-file heuristic + enum constructor filter | ✅ Implemented | 14 call fixtures |
+| 4. CALLS Intermediate | Call site extraction + 5 resolved call forms + same-file heuristic + enum constructor filter + bare module path resolution | ✅ Implemented | 15 call fixtures |
 | 5. Graph Emitter v0 | ProjectModel → JSON graph (0 CALLS edges) | ✅ Implemented | 3 graph fixtures |
 
 ### CALLS Resolved Call Forms
@@ -39,6 +39,7 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | super:: path | `super::parent_fn()` | 0.80 |
 | Associated function | `Config::new()` | 0.75 |
 | Same-file unique-name | `helper()` (heuristic) | 0.70 |
+| Bare module path | `math::add()` | 0.85 |
 | Method call | `c.increment()` | 0.0 (diagnostic only) |
 
 ---
@@ -115,7 +116,7 @@ gitnexus-rust-core/
     source-ownership/                      # 8 fixtures
     item-extraction/                       # 10 fixtures (with expected-symbols.json)
     import-use/                            # 12 fixtures (with expected-imports.json)
-    call-resolution/                       # 14 fixtures (C1-C7 + SF1-SF6 + call-enum-filter, with expected-calls.json)
+    call-resolution/                       # 15 fixtures (C1-C7 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
   docs/
     architecture/                          # Architecture docs
     decisions/                             # Decision records
@@ -149,8 +150,8 @@ gitnexus-rust-core/
 | Remote name | `gitcode` |
 | URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
 | Branch | `master` |
-| HEAD | `5855ffa` |
-| Total commits | 41 |
+| HEAD | `41e0884` |
+| Total commits | 42 |
 
 ---
 
