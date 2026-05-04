@@ -75,12 +75,13 @@
 
 ### 1. CALLS 仍是 intermediate output
 
-状态：**已知限制**
+状态：**已知限制（已大幅缓解）**
 
-- Graph emitter v0.2 已产 CALLS edge，但 endpoint integrity 必须优先修复（见 Active Bug Gate）
-- 整体 resolution rate 仅 6.4%（4 项目 133,885 calls 统计）
-- Method call 占 62%，是绝对主导的 call form（当前仅 blind name heuristic，不做 receiver type inference）
-- External crate 调用占 27%，当前仅 dependency-name classification，不解析 external crate API symbol
+- Graph emitter v0.3 已产 CALLS edge（schema v0.2 集成，v0.3 扩展 DESIGNATION/ACCESSES）
+- Resolution rate: 54.0%（1189/2203 on gitnexus-rust-core，2026-05-04 v4 consolidation）
+- 核心驱动：stdlib trait method (685, 57.6%) + external crate path (79) + receiver type (77) + same-module (263)
+- Method call 占 69.5%（742 unresolved，stop-line：no full type inference）
+- External crate 已支持 Phase 1 direct path resolution（std/core/alloc，confidence 0.80→0.85）+ sysroot index
 
 防守规则：method dispatch 仅允许 low-confidence blind name heuristic；external crate 仅允许 dependency-name classification；不做 receiver type inference / trait solving / external crate API symbol resolution。
 
