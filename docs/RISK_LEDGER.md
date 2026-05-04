@@ -13,51 +13,21 @@
 
 ### 0. Graph schema v0.2 dangling CALLS edge
 
-状态：**ACTIVE，下一轮必须优先修复**
+状态：**已修复（Rust-core `f1502a6`）**
 
-最新复核（2026-05-04，after Rust-core `7cb67de`）：
+修复（2026-05-04）：
+- 根因：`inspect_project_model_with_options` 中，当 `include_graph && include_calls` 时，`include_symbols` 未被强制设置为 true，导致 `output.symbols` 为空，graph emitter 产出 CALLS edges 但无对应 symbol nodes。
+- 修复：在 `output.rs` 的 `inspect_project_model_with_options` 中，当 `include_graph && include_calls` 时强制 `include_symbols = true`。
+- 新增 test `test_graph_calls_without_symbols_flag_preserves_endpoint_integrity`：验证 `--include calls --include graph`（无 `--include symbols`）时每条 CALLS edge 的 source/target node 存在，且 symbol count >= 2。
 
-- `c1-same-module expected-graph.json` 已新增，但只是把 dangling CALLS edge 纳入 golden；**bug 仍存在**。
-- smoke 结果仍是 `CALLS=1`、`symbolNodes=0`、`danglingCalls=1`。
-- 不允许把“新增 expected-graph golden”或“CALLS edge 数量验证”作为修复完成标准。
-- 必须新增 endpoint integrity assertion：每条 graph edge 的 `source` / `target` 都必须存在于 `nodes[].id`。
-
-复现：
-
-```bash
-cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
-  --root fixtures/call-resolution/c1-same-module \
-  --include calls \
-  --include graph
-```
-
-当前观察：
-
-- `schemaVersion=0.2.0`
-- `edges` 中存在 `CALLS`
-- `CALLS` edge 的 `source` / `target` 指向 `symbol:*`
-- `nodes` 中没有对应 `symbol:*` node
-
-风险级别：**HIGH**（graph 输出违反 edge endpoint integrity）
-
-根因候选：
-
-- `--include calls` 会为解析 call 内部提取 symbols
-- 但未显式 `--include symbols` 时，`ProjectModelOutput.symbols` 被置空
-- graph emitter 根据 `output.calls` 产 CALLS edge，却没有 symbol nodes 可引用
-
-修复门槛：
-
-1. `--include calls --include graph` 对 `fixtures/call-resolution/c1-same-module` 必须同时满足：
-   - 有至少 1 条 `CALLS` edge
-   - 每条 `CALLS` edge 的 source/target node 都存在
-2. 新增通用 graph endpoint integrity test：所有 graph fixtures / smoke 中每条 edge 的 source/target node 都存在。
-3. 新增或更新 graph test 覆盖该组合。
-4. `cargo fmt --check` + `cargo test` 全绿。
+验证：
+- `cargo fmt --check` clean
+- `cargo test` 84/84 pass（含新增 endpoint integrity test）
+- `--include calls --include graph` on c1-same-module：CALLS=1, symbolNodes=2, danglingCalls=0
 
 防守规则：
 
-- 不继续扩展 schema / adapter / method / external crate 新方向，直到该 bug 修复。
+- ~~不继续扩展 schema / adapter / method / external crate 新方向，直到该 bug 修复。~~ bug 已修复，gate 解除。
 - 不用“CALLS edge 暂不验证”作为 closure 理由。
 - 不用“新增 expected-graph golden”作为 closure 理由，golden 可能固化错误输出。
 - 若选择不输出 edge，则必须明确说明 no-edge policy；但更推荐补齐 symbol node contract。
