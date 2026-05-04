@@ -24,6 +24,8 @@ const CALL_FIXTURES: &[&str] = &[
     "sf5-cross-module-unique",
     // compile-valid fixture: inline module same-module call with flat modulePath
     "sf6-inline-module-flat",
+    // enum constructor filter fixture
+    "call-enum-filter",
 ];
 
 fn workspace_root() -> PathBuf {

@@ -510,6 +510,45 @@ fn process_call_expression(
     let (callee_path, callee_name, call_kind) =
         classify_callee(&func_node, source_bytes, module_path);
 
+    // Rust enum variant constructor 过滤：Some/Ok/Err/None 不是函数调用
+    // tree-sitter 把 Some(x) 解析为 call_expression，但 Rust 语义中这些是 enum variant constructors
+    const RUST_ENUM_CONSTRUCTORS: &[&str] = &["Some", "Ok", "Err", "None"];
+    if RUST_ENUM_CONSTRUCTORS.contains(&callee_name.as_str()) {
+        let caller_info = caller_index.find_enclosing(source_path, line_start);
+        return Some(CallSite {
+            id: format!("{}::call::{}::{}", source_path, line_start, callee_name),
+            caller_symbol_id: caller_info.map(|c| c.id.clone()),
+            caller_name: caller_info.map(|c| c.name.clone()),
+            source_path: source_path.to_string(),
+            module_path: Some(module_path.to_string()),
+            span: CallSpan {
+                line_start,
+                line_end,
+                byte_start: node.start_byte(),
+                byte_end: node.end_byte(),
+            },
+            raw_text,
+            callee_path: callee_path.clone(),
+            callee_name: callee_name.clone(),
+            call_kind: call_kind.as_str().to_string(),
+            resolved_symbol_id: None,
+            resolved_symbol_kind: None,
+            confidence: 0.0,
+            reason: CallResolutionReason::CallEnumConstructor
+                .as_str()
+                .to_string(),
+            diagnostics: vec![CallDiagnostic {
+                code: "call-enum-constructor-filtered".to_string(),
+                severity: "info".to_string(),
+                message: format!(
+                    "{} 是 Rust enum variant constructor，不是函数调用",
+                    callee_name
+                ),
+                target_name: Some(callee_name.clone()),
+            }],
+        });
+    }
+
     let caller_info = caller_index.find_enclosing(source_path, line_start);
 
     let mut call_site = CallSite {

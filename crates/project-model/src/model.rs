@@ -562,6 +562,7 @@ pub enum CallResolutionReason {
     CallTargetUnresolved,
     CallTargetAmbiguous,
     CallMethodDispatchUnsupported,
+    CallEnumConstructor,
 }
 
 impl CallResolutionReason {
@@ -580,6 +581,8 @@ impl CallResolutionReason {
             CallResolutionReason::CallMethodDispatchUnsupported => {
                 "call-method-dispatch-unsupported"
             }
+            // Rust enum variant constructor（Some/Ok/Err）不是函数调用，直接标记
+            CallResolutionReason::CallEnumConstructor => "call-enum-constructor",
         }
     }
 }

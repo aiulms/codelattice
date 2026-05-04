@@ -1,0 +1,184 @@
+[
+  {
+    "id": "src/lib.rs::call::7::Some",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 7,
+      "lineEnd": 7,
+      "byteStart": 145,
+      "byteEnd": 153
+    },
+    "rawText": "Some(42)",
+    "calleePath": "Some",
+    "calleeName": "Some",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-enum-constructor",
+    "diagnostics": [
+      {
+        "code": "call-enum-constructor-filtered",
+        "severity": "info",
+        "message": "Some 是 Rust enum variant constructor，不是函数调用",
+        "targetName": "Some"
+      }
+    ]
+  },
+  {
+    "id": "src/lib.rs::call::8::Ok",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 8,
+      "lineEnd": 8,
+      "byteStart": 167,
+      "byteEnd": 179
+    },
+    "rawText": "Ok(helper())",
+    "calleePath": "Ok",
+    "calleeName": "Ok",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-enum-constructor",
+    "diagnostics": [
+      {
+        "code": "call-enum-constructor-filtered",
+        "severity": "info",
+        "message": "Ok 是 Rust enum variant constructor，不是函数调用",
+        "targetName": "Ok"
+      }
+    ]
+  },
+  {
+    "id": "src/lib.rs::call::8::helper",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 8,
+      "lineEnd": 8,
+      "byteStart": 170,
+      "byteEnd": 178
+    },
+    "rawText": "helper()",
+    "calleePath": "helper",
+    "calleeName": "helper",
+    "callKind": "free-function",
+    "resolvedSymbolId": "call-enum-filter::crate::helper",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.9,
+    "reason": "call-same-module-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::9::Err",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 9,
+      "lineEnd": 9,
+      "byteStart": 193,
+      "byteEnd": 205
+    },
+    "rawText": "Err(\"error\")",
+    "calleePath": "Err",
+    "calleeName": "Err",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-enum-constructor",
+    "diagnostics": [
+      {
+        "code": "call-enum-constructor-filtered",
+        "severity": "info",
+        "message": "Err 是 Rust enum variant constructor，不是函数调用",
+        "targetName": "Err"
+      }
+    ]
+  },
+  {
+    "id": "src/lib.rs::call::10::helper",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 10,
+      "lineEnd": 10,
+      "byteStart": 211,
+      "byteEnd": 219
+    },
+    "rawText": "helper()",
+    "calleePath": "helper",
+    "calleeName": "helper",
+    "callKind": "free-function",
+    "resolvedSymbolId": "call-enum-filter::crate::helper",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.9,
+    "reason": "call-same-module-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::11::Ok",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 11,
+      "lineEnd": 11,
+      "byteStart": 225,
+      "byteEnd": 239
+    },
+    "rawText": "Ok(x.unwrap())",
+    "calleePath": "Ok",
+    "calleeName": "Ok",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-enum-constructor",
+    "diagnostics": [
+      {
+        "code": "call-enum-constructor-filtered",
+        "severity": "info",
+        "message": "Ok 是 Rust enum variant constructor，不是函数调用",
+        "targetName": "Ok"
+      }
+    ]
+  },
+  {
+    "id": "src/lib.rs::call::11::unwrap",
+    "callerSymbolId": "call-enum-filter::crate::test_fn",
+    "callerName": "test_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 11,
+      "lineEnd": 11,
+      "byteStart": 228,
+      "byteEnd": 238
+    },
+    "rawText": "x.unwrap()",
+    "calleePath": "x.unwrap",
+    "calleeName": "unwrap",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "",
+    "diagnostics": []
+  }
+]
