@@ -1,0 +1,338 @@
+[
+  {
+    "id": "src/lib.rs::call::9::new",
+    "callerSymbolId": "c11-receiver-type::crate::vec_methods",
+    "callerName": "vec_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 9,
+      "lineEnd": 9,
+      "byteStart": 379,
+      "byteEnd": 389
+    },
+    "rawText": "Vec::new()",
+    "knownCrate": null,
+    "calleePath": "Vec::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "std::vec::Vec::new",
+    "resolvedSymbolKind": null,
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::10::push",
+    "callerSymbolId": "c11-receiver-type::crate::vec_methods",
+    "callerName": "vec_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 10,
+      "lineEnd": 10,
+      "byteStart": 395,
+      "byteEnd": 404
+    },
+    "rawText": "v.push(1)",
+    "knownCrate": null,
+    "calleePath": "v.push",
+    "calleeName": "push",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::vec::Vec::push",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::11::len",
+    "callerSymbolId": "c11-receiver-type::crate::vec_methods",
+    "callerName": "vec_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 11,
+      "lineEnd": 11,
+      "byteStart": 421,
+      "byteEnd": 428
+    },
+    "rawText": "v.len()",
+    "knownCrate": null,
+    "calleePath": "v.len",
+    "calleeName": "len",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::vec::Vec::len",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::17::starts_with",
+    "callerSymbolId": "c11-receiver-type::crate::str_methods",
+    "callerName": "str_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 17,
+      "lineEnd": 17,
+      "byteStart": 538,
+      "byteEnd": 557
+    },
+    "rawText": "s.starts_with(\"he\")",
+    "knownCrate": null,
+    "calleePath": "s.starts_with",
+    "calleeName": "starts_with",
+    "callKind": "method-call",
+    "resolvedSymbolId": "str::starts_with",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::18::trim_start",
+    "callerSymbolId": "c11-receiver-type::crate::str_methods",
+    "callerName": "str_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 18,
+      "lineEnd": 18,
+      "byteStart": 563,
+      "byteEnd": 577
+    },
+    "rawText": "s.trim_start()",
+    "knownCrate": null,
+    "calleePath": "s.trim_start",
+    "calleeName": "trim_start",
+    "callKind": "method-call",
+    "resolvedSymbolId": "str::trim_start",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::23::Some",
+    "callerSymbolId": "c11-receiver-type::crate::option_methods",
+    "callerName": "option_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 23,
+      "lineEnd": 23,
+      "byteStart": 673,
+      "byteEnd": 681
+    },
+    "rawText": "Some(42)",
+    "knownCrate": null,
+    "calleePath": "Some",
+    "calleeName": "Some",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-enum-constructor",
+    "diagnostics": [
+      {
+        "code": "call-enum-constructor-filtered",
+        "severity": "info",
+        "message": "Some \u662f Rust enum variant constructor\uff0c\u4e0d\u662f\u51fd\u6570\u8c03\u7528",
+        "targetName": "Some"
+      }
+    ]
+  },
+  {
+    "id": "src/lib.rs::call::24::unwrap_or",
+    "callerSymbolId": "c11-receiver-type::crate::option_methods",
+    "callerName": "option_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 24,
+      "lineEnd": 24,
+      "byteStart": 687,
+      "byteEnd": 701
+    },
+    "rawText": "o.unwrap_or(0)",
+    "knownCrate": null,
+    "calleePath": "o.unwrap_or",
+    "calleeName": "unwrap_or",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::option::Option::unwrap_or",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::29::Ok",
+    "callerSymbolId": "c11-receiver-type::crate::result_methods",
+    "callerName": "result_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 29,
+      "lineEnd": 29,
+      "byteStart": 807,
+      "byteEnd": 813
+    },
+    "rawText": "Ok(42)",
+    "knownCrate": null,
+    "calleePath": "Ok",
+    "calleeName": "Ok",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-enum-constructor",
+    "diagnostics": [
+      {
+        "code": "call-enum-constructor-filtered",
+        "severity": "info",
+        "message": "Ok \u662f Rust enum variant constructor\uff0c\u4e0d\u662f\u51fd\u6570\u8c03\u7528",
+        "targetName": "Ok"
+      }
+    ]
+  },
+  {
+    "id": "src/lib.rs::call::30::is_ok",
+    "callerSymbolId": "c11-receiver-type::crate::result_methods",
+    "callerName": "result_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 30,
+      "lineEnd": 30,
+      "byteStart": 819,
+      "byteEnd": 828
+    },
+    "rawText": "r.is_ok()",
+    "knownCrate": null,
+    "calleePath": "r.is_ok",
+    "calleeName": "is_ok",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::result::Result::is_ok",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::31::is_err",
+    "callerSymbolId": "c11-receiver-type::crate::result_methods",
+    "callerName": "result_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 31,
+      "lineEnd": 31,
+      "byteStart": 834,
+      "byteEnd": 844
+    },
+    "rawText": "r.is_err()",
+    "knownCrate": null,
+    "calleePath": "r.is_err",
+    "calleeName": "is_err",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::result::Result::is_err",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::36::from",
+    "callerSymbolId": "c11-receiver-type::crate::string_methods",
+    "callerName": "string_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 36,
+      "lineEnd": 36,
+      "byteStart": 929,
+      "byteEnd": 950
+    },
+    "rawText": "String::from(\"hello\")",
+    "knownCrate": null,
+    "calleePath": "String::from",
+    "calleeName": "from",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "std::string::String::from",
+    "resolvedSymbolKind": null,
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::37::len",
+    "callerSymbolId": "c11-receiver-type::crate::string_methods",
+    "callerName": "string_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 37,
+      "lineEnd": 37,
+      "byteStart": 956,
+      "byteEnd": 963
+    },
+    "rawText": "s.len()",
+    "knownCrate": null,
+    "calleePath": "s.len",
+    "calleeName": "len",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::string::String::len",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::43::push",
+    "callerSymbolId": "c11-receiver-type::crate::no_type_annotation",
+    "callerName": "no_type_annotation",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 43,
+      "lineEnd": 43,
+      "byteStart": 1080,
+      "byteEnd": 1089
+    },
+    "rawText": "v.push(4)",
+    "knownCrate": null,
+    "calleePath": "v.push",
+    "calleeName": "push",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-unresolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::48::len",
+    "callerSymbolId": "c11-receiver-type::crate::param_method",
+    "callerName": "param_method",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 48,
+      "lineEnd": 48,
+      "byteStart": 1232,
+      "byteEnd": 1242
+    },
+    "rawText": "name.len()",
+    "knownCrate": null,
+    "calleePath": "name.len",
+    "calleeName": "len",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-unresolved",
+    "diagnostics": []
+  }
+]

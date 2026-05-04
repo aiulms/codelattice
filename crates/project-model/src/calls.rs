@@ -477,6 +477,10 @@ fn collect_call_expressions<'a>(
             source_path,
             module_path,
             caller_index,
+            crate_root_abs,
+            repo_root,
+            symbol_index,
+            import_bindings,
         ) {
             calls.push(call_site);
         }
@@ -631,12 +635,15 @@ fn process_call_expression(
         diagnostics: vec![],
     };
 
+    let source_text = std::str::from_utf8(source_bytes).unwrap_or("");
+
     resolve_call_site(
         &mut call_site,
         crate_root_abs,
         repo_root,
         symbol_index,
         import_bindings,
+        source_text,
     );
 
     Some(call_site)
@@ -649,6 +656,10 @@ fn process_method_call_expression(
     source_path: &str,
     module_path: &str,
     caller_index: &CallerIndex,
+    crate_root_abs: &Path,
+    repo_root: &Path,
+    symbol_index: &CalleeIndex,
+    import_bindings: &ImportBindingTable,
 ) -> Option<CallSite> {
     let line_start = byte_to_line(source_bytes, node.start_byte());
     let line_end = byte_to_line(source_bytes, node.end_byte());
@@ -665,7 +676,9 @@ fn process_method_call_expression(
 
     let caller_info = caller_index.find_enclosing(source_path, line_start);
 
-    Some(CallSite {
+    let source_text = std::str::from_utf8(source_bytes).unwrap_or("");
+
+    let mut call_site = CallSite {
         id: format!("{}::call::{}::{}", source_path, line_start, method_name),
         caller_symbol_id: caller_info.map(|c| c.id.clone()),
         caller_name: caller_info.map(|c| c.name.clone()),
@@ -685,16 +698,20 @@ fn process_method_call_expression(
         resolved_symbol_id: None,
         resolved_symbol_kind: None,
         confidence: 0.0,
-        reason: CallResolutionReason::CallMethodDispatchUnsupported
-            .as_str()
-            .to_string(),
-        diagnostics: vec![CallDiagnostic {
-            code: "call-method-dispatch-unsupported".to_string(),
-            severity: "info".to_string(),
-            message: "method call 需要 type inference，当前不支持".to_string(),
-            target_name: None,
-        }],
-    })
+        reason: String::new(),
+        diagnostics: vec![],
+    };
+
+    resolve_call_site(
+        &mut call_site,
+        crate_root_abs,
+        repo_root,
+        symbol_index,
+        import_bindings,
+        source_text,
+    );
+
+    Some(call_site)
 }
 
 #[cfg(feature = "tree-sitter-extraction")]
@@ -781,6 +798,7 @@ fn resolve_call_site(
     repo_root: &Path,
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
+    source_text: &str,
 ) {
     match call.call_kind.as_str() {
         "free-function" => resolve_free_function(call, symbol_index, import_bindings),
@@ -812,6 +830,32 @@ fn resolve_call_site(
                             .as_str()
                             .to_string();
                         return;
+                    }
+                    // Phase 2: receiver-type-aware resolution
+                    // 从 raw_text 提取 receiver variable name（e.g., "x.push(1)" → "x"）
+                    // 扫描 same-function let 绑定类型注解，查 STDLIB_TYPE_METHODS 表
+                    if let Some(dot_pos) = call.raw_text.find('.') {
+                        let receiver = &call.raw_text[..dot_pos];
+                        // 只处理简单 identifier receiver（不是 literal 或 path）
+                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                            if let Some(base_type) = scan_variable_type_annotation(
+                                source_text,
+                                call.span.byte_start,
+                                receiver,
+                            ) {
+                                if let Some(resolved_path) =
+                                    lookup_receiver_type_method(&base_type, &call.callee_name)
+                                {
+                                    call.resolved_symbol_id = Some(resolved_path);
+                                    call.confidence = 0.65;
+                                    call.reason =
+                                        CallResolutionReason::CallReceiverTypeMethodResolved
+                                            .as_str()
+                                            .to_string();
+                                    return;
+                                }
+                            }
+                        }
                     }
                     call.reason = CallResolutionReason::CallTargetUnresolved
                         .as_str()
@@ -1466,6 +1510,7 @@ fn extract_calls_text_fallback(
             import_bindings,
             caller_index,
             dependency_names,
+            source_text,
         ) {
             calls.push(call_site);
         }
@@ -1483,6 +1528,7 @@ fn parse_text_call(
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
     dependency_names: &HashSet<String>,
+    source_text: &str,
 ) -> Option<CallSite> {
     if trimmed.starts_with('#') || trimmed.starts_with("use ") || trimmed.starts_with("pub use ") {
         return None;
@@ -1520,7 +1566,7 @@ fn parse_text_call(
         diagnostics: vec![],
     };
 
-    resolve_call_site_text(&mut call_site, symbol_index, import_bindings);
+    resolve_call_site_text(&mut call_site, symbol_index, import_bindings, source_text);
 
     Some(call_site)
 }
@@ -1622,6 +1668,7 @@ fn resolve_call_site_text(
     call: &mut CallSite,
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
+    source_text: &str,
 ) {
     match call.call_kind.as_str() {
         "free-function" => resolve_free_function(call, symbol_index, import_bindings),
@@ -1650,6 +1697,32 @@ fn resolve_call_site_text(
                             .as_str()
                             .to_string();
                         return;
+                    }
+                    // Phase 2: receiver-type-aware resolution
+                    // 从 raw_text 提取 receiver variable name（e.g., "x.push(1)" → "x"）
+                    // 扫描 same-function let 绑定类型注解，查 STDLIB_TYPE_METHODS 表
+                    if let Some(dot_pos) = call.raw_text.find('.') {
+                        let receiver = &call.raw_text[..dot_pos];
+                        // 只处理简单 identifier receiver（不是 literal 或 path）
+                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                            if let Some(base_type) = scan_variable_type_annotation(
+                                source_text,
+                                call.span.byte_start,
+                                receiver,
+                            ) {
+                                if let Some(resolved_path) =
+                                    lookup_receiver_type_method(&base_type, &call.callee_name)
+                                {
+                                    call.resolved_symbol_id = Some(resolved_path);
+                                    call.confidence = 0.65;
+                                    call.reason =
+                                        CallResolutionReason::CallReceiverTypeMethodResolved
+                                            .as_str()
+                                            .to_string();
+                                    return;
+                                }
+                            }
+                        }
                     }
                     call.reason = CallResolutionReason::CallTargetUnresolved
                         .as_str()
@@ -1725,8 +1798,211 @@ fn lookup_stdlib_trait_method(method_name: &str) -> Option<&'static str> {
     match method_name {
         "to_string" => Some("std::string::ToString::to_string"),
         "clone" => Some("std::clone::Clone::clone"),
+        // collect() 在 std 中唯一定义在 Iterator trait 上
+        "collect" => Some("std::iter::Iterator::collect"),
         _ => None,
     }
+}
+
+// ============================================================
+// Phase 2: receiver-type-aware method resolution
+// ============================================================
+
+/// 已知 stdlib 类型的 method 映射表。
+/// 每个 entry 包含：type path prefix、类型注解匹配 pattern、已知 methods 列表。
+/// confidence 0.65：receiver type 从显式 let 绑定类型注解确定，method 集合从 stdlib docs 推导。
+struct StdlibTypeMethodEntry {
+    /// resolved path 中使用的 type path prefix（e.g., "std::vec::Vec"）
+    type_path: &'static str,
+    /// 类型注解匹配模式（e.g., ["Vec<", "Vec "]，匹配 "Vec<i32>" 和 "Vec "）
+    patterns: &'static [&'static str],
+    /// (method_name, method_path_suffix) — resolved_symbol_id = type_path + "::" + method_path_suffix
+    methods: &'static [(&'static str, &'static str)],
+}
+
+/// 已知 stdlib type → methods 映射表
+/// 仅包含最常见的 stdlib 类型和最高频的 method names
+static STDLIB_TYPE_METHODS: &[StdlibTypeMethodEntry] = &[
+    // Vec<T> — 最常见容器类型
+    StdlibTypeMethodEntry {
+        type_path: "std::vec::Vec",
+        patterns: &["Vec"],
+        methods: &[
+            ("push", "push"),
+            ("len", "len"),
+            ("is_empty", "is_empty"),
+            ("pop", "pop"),
+            ("contains", "contains"),
+            ("get", "get"),
+            ("last", "last"),
+            ("first", "first"),
+            ("remove", "remove"),
+            ("clear", "clear"),
+            ("insert", "insert"),
+        ],
+    },
+    // String — 字符串类型
+    StdlibTypeMethodEntry {
+        type_path: "std::string::String",
+        patterns: &["String"],
+        methods: &[
+            ("len", "len"),
+            ("is_empty", "is_empty"),
+            ("push_str", "push_str"),
+            ("push", "push"),
+            ("remove", "remove"),
+            ("contains", "contains"),
+            ("replace", "replace"),
+            ("as_str", "as_str"),
+            ("trim", "trim"),
+        ],
+    },
+    // str — 字符串切片（primitive type, 无 std:: prefix）
+    StdlibTypeMethodEntry {
+        type_path: "str",
+        patterns: &["&str", "&'static str", "str "],
+        methods: &[
+            ("starts_with", "starts_with"),
+            ("ends_with", "ends_with"),
+            ("contains", "contains"),
+            ("find", "find"),
+            ("replace", "replace"),
+            ("trim", "trim"),
+            ("trim_start", "trim_start"),
+            ("trim_end", "trim_end"),
+            ("split", "split"),
+            ("len", "len"),
+            ("is_empty", "is_empty"),
+        ],
+    },
+    // Option<T>
+    StdlibTypeMethodEntry {
+        type_path: "std::option::Option",
+        patterns: &["Option"],
+        methods: &[
+            ("unwrap", "unwrap"),
+            ("unwrap_or", "unwrap_or"),
+            ("is_some", "is_some"),
+            ("is_none", "is_none"),
+            ("map", "map"),
+            ("and_then", "and_then"),
+        ],
+    },
+    // Result<T,E>
+    StdlibTypeMethodEntry {
+        type_path: "std::result::Result",
+        patterns: &["Result"],
+        methods: &[
+            ("unwrap", "unwrap"),
+            ("unwrap_or", "unwrap_or"),
+            ("is_ok", "is_ok"),
+            ("is_err", "is_err"),
+            ("map", "map"),
+            ("map_err", "map_err"),
+        ],
+    },
+    // HashMap<K,V>
+    StdlibTypeMethodEntry {
+        type_path: "std::collections::HashMap",
+        patterns: &["HashMap"],
+        methods: &[
+            ("len", "len"),
+            ("is_empty", "is_empty"),
+            ("contains_key", "contains_key"),
+            ("get", "get"),
+            ("insert", "insert"),
+            ("remove", "remove"),
+            ("clear", "clear"),
+        ],
+    },
+];
+
+/// 从 let 绑定中扫描变量类型注解。
+/// 在 call site 之前查找 `let var_name: Type = ...` 或 `let mut var_name: Type = ...`
+/// 提取 Type 的 base name（去掉 &/mut/泛型参数）。
+fn scan_variable_type_annotation(
+    source_text: &str,
+    call_byte_start: usize,
+    var_name: &str,
+) -> Option<String> {
+    let prefix = &source_text[..call_byte_start];
+
+    // 寻找最近的 `fn` 关键字（确保不跨越函数边界）
+    // 简单启发式：从 call site 往回找最近的 "fn "，作为函数体起点
+    let fn_pos = prefix.rfind("fn ")?;
+    let func_scope = &prefix[fn_pos..];
+
+    // 在函数 scope 内寻找 `let var_name: Type =` 或 `let mut var_name: Type =`
+    let patterns = [
+        format!("let {}: ", var_name),
+        format!("let mut {}: ", var_name),
+    ];
+
+    for pattern in &patterns {
+        if let Some(pos) = func_scope.rfind(pattern.as_str()) {
+            // 提取 type annotation：从 pattern 结束位置到 `=` 或 `;`
+            let type_start = pos + pattern.len();
+            let rest = &func_scope[type_start..];
+            let type_end = rest
+                .find(|c: char| c == '=' || c == ';')
+                .unwrap_or(rest.len());
+            let type_str = rest[..type_end].trim();
+
+            if type_str.is_empty() {
+                continue;
+            }
+
+            // 去掉引用前缀（&, &mut, &'a）
+            let type_str = type_str
+                .trim_start_matches("&'")
+                .trim_start_matches("&mut ")
+                .trim_start_matches("&");
+            // 去掉 lifetime 参数后的剩余: "&'a " 形式已处理，
+            // 但 "&'a Type" 需要额外处理
+            let type_str = type_str.trim();
+
+            // 提取 base type name（去掉泛型参数 <...>）
+            let base_type = if let Some(generic_pos) = type_str.find('<') {
+                &type_str[..generic_pos]
+            } else {
+                type_str
+            };
+
+            // 去掉可能的 whitespace 前缀
+            let base_type = base_type.trim();
+
+            if base_type.is_empty() {
+                continue;
+            }
+
+            return Some(base_type.to_string());
+        }
+    }
+
+    None
+}
+
+/// 根据 receiver type 和 method name 查找 stdlib method 路径
+fn lookup_receiver_type_method(base_type: &str, method_name: &str) -> Option<String> {
+    for entry in STDLIB_TYPE_METHODS {
+        // 检查 base_type 是否匹配该类型的 pattern
+        let matches = entry
+            .patterns
+            .iter()
+            .any(|p| base_type.starts_with(p) || base_type == p.trim());
+
+        if !matches {
+            continue;
+        }
+
+        // 查找 method
+        for (meth, suffix) in entry.methods {
+            if *meth == method_name {
+                return Some(format!("{}::{}", entry.type_path, suffix));
+            }
+        }
+    }
+    None
 }
 
 /// Strip generic parameters from a path for use as resolved_symbol_id.

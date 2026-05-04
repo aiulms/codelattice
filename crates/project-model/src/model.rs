@@ -586,6 +586,10 @@ pub enum CallResolutionReason {
     /// stdlib trait method resolved by known-unique trait method name（to_string/clone）
     /// confidence 0.55：trait 存在且方法名在 std 中唯一，但 receiver type 未知
     CallStdlibTraitMethodResolved,
+    /// receiver-type-aware method resolution：通过 same-function let 绑定类型注解确定 receiver type
+    /// 然后查 STDLIB_TYPE_METHODS 表解析 method
+    /// confidence 0.65：receiver type 从显式类型注解确定，高于 trait-only 0.55
+    CallReceiverTypeMethodResolved,
 }
 
 impl CallResolutionReason {
@@ -624,6 +628,11 @@ impl CallResolutionReason {
             // confidence 0.55：no receiver type verification
             CallResolutionReason::CallStdlibTraitMethodResolved => {
                 "call-stdlib-trait-method-resolved"
+            }
+            // receiver-type-aware method resolution：same-function let 绑定类型注解
+            // confidence 0.65：receiver type from explicit annotation, 高于 trait-only
+            CallResolutionReason::CallReceiverTypeMethodResolved => {
+                "call-receiver-type-method-resolved"
             }
         }
     }

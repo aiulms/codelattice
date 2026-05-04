@@ -33,6 +33,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c9-method-ambiguous",
     // external crate call classification fixture
     "c10-external-crate",
+    // receiver-type-aware method resolution fixture (Phase 2)
+    "c11-receiver-type",
 ];
 
 fn workspace_root() -> PathBuf {
