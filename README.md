@@ -25,7 +25,7 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
 | 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
 | 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 12 import fixtures |
-| 4. CALLS Intermediate | Call site extraction + 5 resolved call forms + same-file heuristic | ✅ Implemented | 13 call fixtures |
+| 4. CALLS Intermediate | Call site extraction + 5 resolved call forms + same-file heuristic + enum constructor filter | ✅ Implemented | 14 call fixtures |
 | 5. Graph Emitter v0 | ProjectModel → JSON graph (0 CALLS edges) | ✅ Implemented | 3 graph fixtures |
 
 ### CALLS Resolved Call Forms
@@ -115,7 +115,7 @@ gitnexus-rust-core/
     source-ownership/                      # 8 fixtures
     item-extraction/                       # 10 fixtures (with expected-symbols.json)
     import-use/                            # 12 fixtures (with expected-imports.json)
-    call-resolution/                       # 13 fixtures (C1-C7 + SF1-SF6, with expected-calls.json)
+    call-resolution/                       # 14 fixtures (C1-C7 + SF1-SF6 + call-enum-filter, with expected-calls.json)
   docs/
     architecture/                          # Architecture docs
     decisions/                             # Decision records
@@ -149,8 +149,8 @@ gitnexus-rust-core/
 | Remote name | `gitcode` |
 | URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
 | Branch | `master` |
-| HEAD | `d943ce4` |
-| Total commits | 39 |
+| HEAD | `5855ffa` |
+| Total commits | 41 |
 
 ---
 
