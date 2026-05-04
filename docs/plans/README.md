@@ -23,9 +23,12 @@
 
 ## 当前推荐下一篇计划
 
-**CALLS large-file maintenance preflight**
+**（当前没有进行中的 execution card）**
 
-- 背景：`crates/project-model/src/calls.rs` 已超过 2000 行，继续承载 extractor / resolver / stdlib tables / text fallback / diagnostics / fixture policy / 多条 resolution strategy。
-- 目标：先评估 behavior-preserving 拆分 / helper / table module / strategy module；如果暂不拆，必须记录理由和下一次触发条件。
-- 边界：不混入 CALLS 语义变更；不改 graph schema / adapter / Cargo.toml；拆分必须保持行为等价并跑全量验证。
-- 验证建议：`cargo fmt --check`、`cargo test`、call fixture comparison、graph fixture comparison、`--include calls --include graph` endpoint integrity smoke。
+CALLS large-file maintenance preflight 已完成并进入 implementation：
+- stdlib_tables.rs 已提取（calls.rs 2161→1858，-14.0%），89/89 tests pass，零 golden drift。
+- Text fallback / CalleeIndex 提取留待第二刀。
+
+下一步优先级：
+1. GitNexus-RC tracker / plans README / RISK_LEDGER 同步
+2. 选择下一轮 opening（按 tracker 优先级：active bug gate → next opening → quality watch）

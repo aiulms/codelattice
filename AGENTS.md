@@ -93,9 +93,10 @@ For multi-step work：
 
 当前观察（2026-05-04）：
 
-- `crates/project-model/src/calls.rs` 已增长到约 2053 行，且仍在继续承载新 resolution strategy。
-- `docs/RISK_LEDGER.md` 中旧记录仍写 `calls.rs ~1400 行`，已过期。
-- 这不是单纯行数问题，而是 extractor / resolver / stdlib tables / text fallback / diagnostics / fixture policy 混在同一文件中，后续维护者难以判断改动边界。
+- `crates/project-model/src/calls.rs` 已从 2161 行拆分至 1858 行（2026-05-04 stdlib_tables 提取，-14.0%）。
+- 已提取 `stdlib_tables.rs`（311 行）：prelude type / trait method / type method 映射表 + 辅助函数。
+- Text fallback（~337 行）和 CalleeIndex/ImportBindingTable/CallerIndex（~233 行）暂留 calls.rs，待下一刀。
+- 继续新增 CALLS 策略前，需再次评估是否进一步拆分。
 
 质量要求：
 

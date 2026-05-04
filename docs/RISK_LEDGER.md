@@ -17,9 +17,10 @@
 
 当前观察（2026-05-04）：
 
-- `crates/project-model/src/calls.rs` 已增长到约 2053 行。
-- 旧风险记录仍写 `calls.rs ~1400 行`，说明大文件增长速度已经超过文档同步。
-- 文件内同时包含 tree-sitter extraction、text fallback、CalleeIndex、ImportBindingTable、stdlib/external crate tables、method heuristics、diagnostics 和多条 resolution strategy。
+- `crates/project-model/src/calls.rs` 已从 2161 行拆分至 1858 行（2026-05-04 stdlib_tables 提取，-14.0%）。
+- 新增 `stdlib_tables.rs`（311 行）：std lib tables + helpers 已独立为模块。
+- 仍留 calls.rs：text fallback（~337 行）、CalleeIndex/ImportBindingTable/CallerIndex（~233 行）、resolution strategies。
+- 下一次触发：calls.rs 再次超过 2000 行，或新增第 8 条 resolution strategy。
 
 风险级别：**MEDIUM**（短期测试可覆盖，长期维护和 review 成本快速上升）
 
