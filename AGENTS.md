@@ -1,4 +1,4 @@
-<!-- version: 1.0.0 -->
+<!-- version: 1.1.0 -->
 <!-- Last updated: 2026-05-04 -->
 
 Last reviewed: 2026-05-04
@@ -44,10 +44,10 @@ For multi-step work：
 以下内容是 Rust-core MVP 的明确 stop-line：
 
 - **No production replacement** — Rust-core 不是 GitNexus-RC TypeScript adapter 的替代
-- **No graph CALLS edge** — Graph emitter v0 不产 CALLS edge，需 schema v0.2
-- **No method dispatch** — `obj.method()` 只产 diagnostic（需 type inference）
+- **Graph CALLS edge must not be dangling** — schema v0.2 可产 CALLS edge，但 source/target 必须指向已存在 node
+- **Method dispatch remains low-confidence heuristic only** — 允许 blind method-name resolution；禁止 receiver type inference / trait solving
+- **External crate is classification only** — 允许 dependency-name classification；禁止 external crate API symbol resolution
 - **No type inference / trait solving** — 不推断变量类型，不做 trait bound satisfaction
-- **No external crate resolution** — `serde_json::to_string()` 等外部 crate 调用不解析
 - **No macro expansion** — `foo!()` 不展开
 - **No full cfg evaluator** — cfg-gated `mod` 只标记 `unknown`
 - **No `cargo metadata` execution** — 只用 manifest-derived project model
@@ -55,6 +55,41 @@ For multi-step work：
 - **No UI / MCP server / commercial distribution**
 - **No live repo modification** — 不改 open-nwe / cangjie / warp / openfang 源码
 - **No GitNexus-RC runtime/schema modification** — 不改 GitNexus-RC adapter / graph schema / package
+
+## Active Bug Gate
+
+### Graph schema v0.2 CALLS dangling-edge bug
+
+状态：**ACTIVE，下一轮必须优先修复，不要继续扩展新方向。**
+
+复现：
+
+```bash
+cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
+  --root fixtures/call-resolution/c1-same-module \
+  --include calls \
+  --include graph
+```
+
+当前问题：
+
+- 输出 `schemaVersion=0.2.0`
+- 输出含 `CALLS` edge，例如 `symbol:c1-same-module::crate::main_fn -> symbol:c1-same-module::crate::helper`
+- 但 `nodes` 中没有对应 `symbol:*` node，形成 dangling edge
+
+根因候选：
+
+- `--include calls` 内部会提取 symbols 用于解析 calls
+- 但 `include_symbols=false` 时 `ProjectModelOutput.symbols` 被置空
+- graph emitter 仍根据 `output.calls` 产 `CALLS` edge，于是 edge 引用不存在的 symbol node
+
+修复要求：
+
+1. 修复 dangling edge；不要用文档化代替修复。
+2. 推荐策略：当 `include_graph && include_calls` 时，graph 输入必须保留/获得 symbol nodes；或者 graph emitter 必须在 source/target symbol node 存在时才产 CALLS edge。优先选择 contract 更一致、可测试的方案。
+3. 新增或更新 graph test：`--include calls --include graph` 对 `c1-same-module` 必须产 `CALLS` edge，且 source/target node 都存在。
+4. `cargo fmt --check` + `cargo test` 必须全绿。
+5. 修复后写 closure review，并同步更新 Rust-core / GitNexus-RC tracker。
 
 ## Verification
 
@@ -81,4 +116,5 @@ cargo test           # All tests (currently 81 tests)
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-05-04 | 1.1.0 | Added active bug gate for graph schema v0.2 dangling CALLS edges; refreshed CALLS/method/external stop-lines to match landed reality. |
 | 2026-05-04 | 1.0.0 | Initial AGENTS.md for Rust-core minimum governance. |

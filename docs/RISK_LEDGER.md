@@ -9,18 +9,64 @@
 
 ---
 
+## 零、Active Bug Gate
+
+### 0. Graph schema v0.2 dangling CALLS edge
+
+状态：**ACTIVE，下一轮必须优先修复**
+
+复现：
+
+```bash
+cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
+  --root fixtures/call-resolution/c1-same-module \
+  --include calls \
+  --include graph
+```
+
+当前观察：
+
+- `schemaVersion=0.2.0`
+- `edges` 中存在 `CALLS`
+- `CALLS` edge 的 `source` / `target` 指向 `symbol:*`
+- `nodes` 中没有对应 `symbol:*` node
+
+风险级别：**HIGH**（graph 输出违反 edge endpoint integrity）
+
+根因候选：
+
+- `--include calls` 会为解析 call 内部提取 symbols
+- 但未显式 `--include symbols` 时，`ProjectModelOutput.symbols` 被置空
+- graph emitter 根据 `output.calls` 产 CALLS edge，却没有 symbol nodes 可引用
+
+修复门槛：
+
+1. `--include calls --include graph` 对 `fixtures/call-resolution/c1-same-module` 必须同时满足：
+   - 有至少 1 条 `CALLS` edge
+   - 每条 `CALLS` edge 的 source/target node 都存在
+2. 新增或更新 graph test 覆盖该组合。
+3. `cargo fmt --check` + `cargo test` 全绿。
+
+防守规则：
+
+- 不继续扩展 schema / adapter / method / external crate 新方向，直到该 bug 修复。
+- 不用“CALLS edge 暂不验证”作为 closure 理由。
+- 若选择不输出 edge，则必须明确说明 no-edge policy；但更推荐补齐 symbol node contract。
+
+---
+
 ## 一、CALLS 相关风险
 
 ### 1. CALLS 仍是 intermediate output
 
 状态：**已知限制**
 
-- Graph emitter v0 不产 CALLS edge，需 schema v0.2 才能集成
+- Graph emitter v0.2 已产 CALLS edge，但 endpoint integrity 必须优先修复（见 Active Bug Gate）
 - 整体 resolution rate 仅 6.4%（4 项目 133,885 calls 统计）
-- Method call 占 62%，是绝对主导的 call form（当前 diagnostic only）
-- External crate 调用占 27%，完全不可解析
+- Method call 占 62%，是绝对主导的 call form（当前仅 blind name heuristic，不做 receiver type inference）
+- External crate 调用占 27%，当前仅 dependency-name classification，不解析 external crate API symbol
 
-防守规则：不做 method dispatch / type inference / trait solving / external crate resolution
+防守规则：method dispatch 仅允许 low-confidence blind name heuristic；external crate 仅允许 dependency-name classification；不做 receiver type inference / trait solving / external crate API symbol resolution。
 
 ### 2. calls.rs 维护负担
 
@@ -111,10 +157,10 @@
 
 以下内容是 Rust-core MVP 的明确 stop-line：
 
-- No graph CALLS edge（需 schema v0.2）
-- No method dispatch（需 type inference）
+- No dangling graph edge（schema v0.2 CALLS edge source/target 必须存在）
+- No full method dispatch（blind name heuristic only）
 - No type inference / trait solving
-- No external crate resolution
+- No external crate API symbol resolution（classification only）
 - No macro expansion
 - No full cfg evaluator
 - No `cargo metadata` execution
