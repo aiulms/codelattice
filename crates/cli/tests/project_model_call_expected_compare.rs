@@ -16,6 +16,12 @@ const CALL_FIXTURES: &[&str] = &[
     "c5-super-path",
     "c6-associated-fn",
     "c7-method-call",
+    // same-file unique-name heuristic fixtures
+    "sf1-unique-helper",
+    "sf2-duplicate-name",
+    "sf3-method-ignored",
+    "sf4-exact-priority",
+    "sf5-cross-module-unique",
 ];
 
 fn workspace_root() -> PathBuf {

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/lib.rs::call::5::compute",
+    "callerSymbolId": "sf5-cross-module-unique::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 5,
+      "lineEnd": 5,
+      "byteStart": 74,
+      "byteEnd": 83
+    },
+    "rawText": "compute()",
+    "calleePath": "compute",
+    "calleeName": "compute",
+    "callKind": "free-function",
+    "resolvedSymbolId": "sf5-cross-module-unique::crate::inner::compute",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.7,
+    "reason": "call-same-file-unique-name",
+    "diagnostics": []
+  }
+]

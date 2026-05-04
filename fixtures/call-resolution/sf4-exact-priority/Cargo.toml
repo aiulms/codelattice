@@ -1,0 +1,4 @@
+[package]
+name = "sf4-exact-priority"
+version = "0.1.0"
+edition = "2021"

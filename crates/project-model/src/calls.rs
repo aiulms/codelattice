@@ -162,6 +162,22 @@ impl CalleeIndex {
         }
         None
     }
+
+    /// 同文件 fallback 查找：按 source_path + name + symbol_kind 过滤
+    /// 只在 same-module 和 import-binding 都失败后调用（fallback，线性扫描但单文件 <100 symbols）
+    /// 限制 symbol_kind == kind 以避免匹配 Method / Trait 等非函数 symbol
+    fn lookup_by_source_file(
+        &self,
+        source_path: &str,
+        name: &str,
+        kind: &str,
+    ) -> Vec<&CalleeMatch> {
+        self.by_module_and_name
+            .values()
+            .flatten()
+            .filter(|m| m.source_path == source_path && m.name == name && m.symbol_kind == kind)
+            .collect()
+    }
 }
 
 // ============================================================
@@ -765,7 +781,44 @@ fn resolve_free_function(
         _ => {}
     }
 
-    // 3. unresolved
+    // 3. same-file unique-name fallback
+    // heuristic 只在 same-module 和 import-binding 都失败后触发
+    // 查找同 source file 内唯一同名 Function symbol（限制 symbol_kind == "function"）
+    // 不触发于 method-call / associated-function / qualified-path 等 call form
+    let same_file_functions =
+        symbol_index.lookup_by_source_file(&call.source_path, &call.callee_name, "function");
+    match same_file_functions.as_slice() {
+        [single] => {
+            call.resolved_symbol_id = Some(single.id.clone());
+            call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+            call.confidence = 0.70;
+            call.reason = CallResolutionReason::CallSameFileUniqueName
+                .as_str()
+                .to_string();
+            return;
+        }
+        multiple if !multiple.is_empty() => {
+            // 同文件内多个同名 Function — ambiguous，不产 fake target（no-edge 策略）
+            call.reason = CallResolutionReason::CallTargetAmbiguous
+                .as_str()
+                .to_string();
+            call.diagnostics.push(CallDiagnostic {
+                code: "call-same-file-ambiguous".to_string(),
+                severity: "warning".to_string(),
+                message: format!(
+                    "多个同名函数 {} 在 {} 中，无法唯一匹配",
+                    call.callee_name, call.source_path
+                ),
+                target_name: Some(call.callee_name.clone()),
+            });
+            return;
+        }
+        _ => {
+            // 0 matches — 落入 unresolved
+        }
+    }
+
+    // 4. unresolved（原 step 3）
     call.reason = CallResolutionReason::CallTargetUnresolved
         .as_str()
         .to_string();

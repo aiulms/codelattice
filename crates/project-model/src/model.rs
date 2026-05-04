@@ -554,6 +554,7 @@ pub struct CallSpan {
 pub enum CallResolutionReason {
     CallSameModuleResolved,
     CallImportResolved,
+    CallSameFileUniqueName,
     CallCratePathResolved,
     CallSelfPathResolved,
     CallSuperPathResolved,
@@ -568,6 +569,8 @@ impl CallResolutionReason {
         match self {
             CallResolutionReason::CallSameModuleResolved => "call-same-module-resolved",
             CallResolutionReason::CallImportResolved => "call-import-resolved",
+            // same-file unique-name heuristic fallback：confidence 0.70，低于 same-module(0.90) 和 import(0.85)
+            CallResolutionReason::CallSameFileUniqueName => "call-same-file-unique-name",
             CallResolutionReason::CallCratePathResolved => "call-crate-path-resolved",
             CallResolutionReason::CallSelfPathResolved => "call-self-path-resolved",
             CallResolutionReason::CallSuperPathResolved => "call-super-path-resolved",

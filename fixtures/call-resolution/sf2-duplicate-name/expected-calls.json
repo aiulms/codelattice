@@ -1,0 +1,31 @@
+[
+  {
+    "id": "src/lib.rs::call::8::process",
+    "callerSymbolId": "sf2-duplicate-name::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 8,
+      "lineEnd": 8,
+      "byteStart": 114,
+      "byteEnd": 123
+    },
+    "rawText": "process()",
+    "calleePath": "process",
+    "calleeName": "process",
+    "callKind": "free-function",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-ambiguous",
+    "diagnostics": [
+      {
+        "code": "call-same-file-ambiguous",
+        "severity": "warning",
+        "message": "多个同名函数 process 在 src/lib.rs 中，无法唯一匹配",
+        "targetName": "process"
+      }
+    ]
+  }
+]

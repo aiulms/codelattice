@@ -1,0 +1,4 @@
+[package]
+name = "sf5-cross-module-unique"
+version = "0.1.0"
+edition = "2021"

@@ -1,0 +1,24 @@
+[
+  {
+    "id": "src/lib.rs::call::7::get_value",
+    "callerSymbolId": "sf3-method-ignored::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 7,
+      "lineEnd": 7,
+      "byteStart": 151,
+      "byteEnd": 164
+    },
+    "rawText": "c.get_value()",
+    "calleePath": "c.get_value",
+    "calleeName": "get_value",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "",
+    "diagnostics": []
+  }
+]
