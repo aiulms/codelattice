@@ -62,6 +62,13 @@ For multi-step work：
 
 状态：**ACTIVE，下一轮必须优先修复，不要继续扩展新方向。**
 
+最新复核（2026-05-04，after Rust-core `7cb67de`）：
+
+- `c1-same-module expected-graph.json` 已新增，但只是把 dangling CALLS edge 纳入 golden；**bug 仍存在**。
+- smoke 结果仍是 `CALLS=1`、`symbolNodes=0`、`danglingCalls=1`。
+- 不允许把“新增 expected-graph golden”或“CALLS edge 数量验证”作为修复完成标准。
+- 必须新增 endpoint integrity assertion：每条 graph edge 的 `source` / `target` 都必须存在于 `nodes[].id`。
+
 复现：
 
 ```bash
@@ -88,8 +95,9 @@ cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
 1. 修复 dangling edge；不要用文档化代替修复。
 2. 推荐策略：当 `include_graph && include_calls` 时，graph 输入必须保留/获得 symbol nodes；或者 graph emitter 必须在 source/target symbol node 存在时才产 CALLS edge。优先选择 contract 更一致、可测试的方案。
 3. 新增或更新 graph test：`--include calls --include graph` 对 `c1-same-module` 必须产 `CALLS` edge，且 source/target node 都存在。
-4. `cargo fmt --check` + `cargo test` 必须全绿。
-5. 修复后写 closure review，并同步更新 Rust-core / GitNexus-RC tracker。
+4. 新增通用 graph endpoint integrity test：所有 graph fixtures / smoke 中每条 edge 的 source/target node 都存在。
+5. `cargo fmt --check` + `cargo test` 必须全绿。
+6. 修复后写 closure review，并同步更新 Rust-core / GitNexus-RC tracker。
 
 ## Verification
 

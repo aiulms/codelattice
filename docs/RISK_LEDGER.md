@@ -15,6 +15,13 @@
 
 状态：**ACTIVE，下一轮必须优先修复**
 
+最新复核（2026-05-04，after Rust-core `7cb67de`）：
+
+- `c1-same-module expected-graph.json` 已新增，但只是把 dangling CALLS edge 纳入 golden；**bug 仍存在**。
+- smoke 结果仍是 `CALLS=1`、`symbolNodes=0`、`danglingCalls=1`。
+- 不允许把“新增 expected-graph golden”或“CALLS edge 数量验证”作为修复完成标准。
+- 必须新增 endpoint integrity assertion：每条 graph edge 的 `source` / `target` 都必须存在于 `nodes[].id`。
+
 复现：
 
 ```bash
@@ -44,13 +51,15 @@ cargo run -q -p gitnexus-rust-core-cli -- project-model inspect \
 1. `--include calls --include graph` 对 `fixtures/call-resolution/c1-same-module` 必须同时满足：
    - 有至少 1 条 `CALLS` edge
    - 每条 `CALLS` edge 的 source/target node 都存在
-2. 新增或更新 graph test 覆盖该组合。
-3. `cargo fmt --check` + `cargo test` 全绿。
+2. 新增通用 graph endpoint integrity test：所有 graph fixtures / smoke 中每条 edge 的 source/target node 都存在。
+3. 新增或更新 graph test 覆盖该组合。
+4. `cargo fmt --check` + `cargo test` 全绿。
 
 防守规则：
 
 - 不继续扩展 schema / adapter / method / external crate 新方向，直到该 bug 修复。
 - 不用“CALLS edge 暂不验证”作为 closure 理由。
+- 不用“新增 expected-graph golden”作为 closure 理由，golden 可能固化错误输出。
 - 若选择不输出 edge，则必须明确说明 no-edge policy；但更推荐补齐 symbol node contract。
 
 ---
