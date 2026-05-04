@@ -330,7 +330,7 @@ fn test_graph_c1_same_module_produces_calls_edges() {
 }
 
 #[test]
-fn test_graph_c10_external_crate_produces_no_calls_edges() {
+fn test_graph_c10_external_crate_produces_calls_edges_for_stdlib() {
     let graph = run_graph_with_args(
         "fixtures/call-resolution/c10-external-crate",
         &[
@@ -344,7 +344,8 @@ fn test_graph_c10_external_crate_produces_no_calls_edges() {
     );
     assert_common_graph_invariants(&graph);
 
-    // 0 CALLS edges（external crate calls 不解析）
+    // v0.2 + Phase 1 direct path resolution: stdlib calls (Vec/HashMap/PathBuf) 被解析
+    // → CALLS edges 存在，但 third-party crate calls（如果有）不产 edge
     let calls_edges: Vec<_> = graph["edges"]
         .as_array()
         .unwrap()
@@ -352,16 +353,15 @@ fn test_graph_c10_external_crate_produces_no_calls_edges() {
         .filter(|e| e["type"] == "CALLS")
         .collect();
     assert!(
-        calls_edges.is_empty(),
-        "expected 0 CALLS edges for external-crate calls, got {}",
-        calls_edges.len()
+        !calls_edges.is_empty(),
+        "expected CALLS edges for stdlib calls, got 0"
     );
 
-    // callEdgeCount == 0
+    // callEdgeCount > 0
     let call_edge_count = graph["stats"]["callEdgeCount"].as_u64().unwrap();
-    assert_eq!(
-        call_edge_count, 0,
-        "expected callEdgeCount 0 for external-crate fixture"
+    assert!(
+        call_edge_count > 0,
+        "expected callEdgeCount > 0 for resolved stdlib calls"
     );
 }
 

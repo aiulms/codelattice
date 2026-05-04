@@ -791,7 +791,22 @@ fn resolve_call_site(
             }
         }
         "external-crate" => {
-            // external crate call：只分类 crate name，不解析 crate 内 symbol
+            // Phase 1: direct path resolution for std/core/alloc
+            // 代码已通过 rustc 编译 → 路径正确（compiler implied guarantee）
+            // 不验证 symbol 存在性，直接构造 resolved_symbol_id
+            // confidence 0.80：高于 classified(0.60)，低于 same-module(0.90) / import(0.85)
+            if let Some(ref krate) = call.known_crate {
+                if krate == "std" || krate == "core" || krate == "alloc" {
+                    let clean_path = strip_generics(&call.callee_path);
+                    call.resolved_symbol_id = Some(clean_path);
+                    call.confidence = 0.80;
+                    call.reason = CallResolutionReason::CallExternalCratePathResolved
+                        .as_str()
+                        .to_string();
+                    return;
+                }
+            }
+            // third-party crate：只分类 crate name，不解析 crate 内 symbol
             // confidence 0.60：crate name known (from [dependencies] 或隐式 std/core/alloc)，
             // 但 crate 内 symbol 未索引，低于 method-name-resolved (0.65)
             call.confidence = 0.60;
@@ -1580,7 +1595,22 @@ fn resolve_call_site_text(
             }
         }
         "external-crate" => {
-            // external crate call：只分类 crate name，不解析 crate 内 symbol
+            // Phase 1: direct path resolution for std/core/alloc
+            // 代码已通过 rustc 编译 → 路径正确（compiler implied guarantee）
+            // 不验证 symbol 存在性，直接构造 resolved_symbol_id
+            // confidence 0.80：高于 classified(0.60)，低于 same-module(0.90) / import(0.85)
+            if let Some(ref krate) = call.known_crate {
+                if krate == "std" || krate == "core" || krate == "alloc" {
+                    let clean_path = strip_generics(&call.callee_path);
+                    call.resolved_symbol_id = Some(clean_path);
+                    call.confidence = 0.80;
+                    call.reason = CallResolutionReason::CallExternalCratePathResolved
+                        .as_str()
+                        .to_string();
+                    return;
+                }
+            }
+            // third-party crate：只分类 crate name，不解析 crate 内 symbol
             // confidence 0.60：crate name known，但 crate 内 symbol 未索引
             call.confidence = 0.60;
             call.reason = CallResolutionReason::CallExternalCrateClassified
@@ -1604,6 +1634,36 @@ fn split_last_segment(path: &str) -> (String, String) {
         Some(pos) => (path[..pos].to_string(), path[pos + 2..].to_string()),
         None => (String::new(), path.to_string()),
     }
+}
+
+/// Strip generic parameters from a path for use as resolved_symbol_id.
+/// "std::collections::HashMap::<&str, i32>::new" → "std::collections::HashMap::new"
+/// Splits by "::", removes segments that are entirely generic args (start with `<`),
+/// and strips generic suffix from segments like "HashMap<K,V>".
+fn strip_generics(path: &str) -> String {
+    path.split("::")
+        .filter_map(|seg| {
+            if seg.is_empty() {
+                return None;
+            }
+            // Entire segment is a generic arg: "::<&str, i32>" → segment is "<&str, i32>"
+            if seg.starts_with('<') {
+                return None;
+            }
+            // Strip generic suffix: "HashMap<K,V>" → "HashMap"
+            if let Some(pos) = seg.find('<') {
+                let cleaned = &seg[..pos];
+                if cleaned.is_empty() {
+                    None
+                } else {
+                    Some(cleaned.to_string())
+                }
+            } else {
+                Some(seg.to_string())
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("::")
 }
 
 #[cfg(feature = "tree-sitter-extraction")]

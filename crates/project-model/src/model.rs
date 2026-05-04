@@ -579,6 +579,10 @@ pub enum CallResolutionReason {
     /// external crate call classified to known crate name（不解析 crate 内 symbol）
     /// confidence 0.60：crate name known from [dependencies]，低于 method-name-resolved(0.65)
     CallExternalCrateClassified,
+    /// external crate call resolved by direct path construction（std/core/alloc only）
+    /// callee_path → resolved_symbol_id，不验证 symbol 存在性（rustc 编译提供隐含保证）
+    /// confidence 0.80：高于 classified(0.60)，低于 same-module(0.90) / import(0.85)
+    CallExternalCratePathResolved,
 }
 
 impl CallResolutionReason {
@@ -608,6 +612,11 @@ impl CallResolutionReason {
             // external crate call classified to known crate name
             // confidence 0.60：crate name known，symbol within crate 未解析
             CallResolutionReason::CallExternalCrateClassified => "call-external-crate-classified",
+            // external crate call resolved by direct path construction（std/core/alloc only）
+            // confidence 0.80：编译保证路径正确，无 symbol 级验证
+            CallResolutionReason::CallExternalCratePathResolved => {
+                "call-external-crate-path-resolved"
+            }
         }
     }
 }

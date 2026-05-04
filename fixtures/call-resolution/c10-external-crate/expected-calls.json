@@ -16,10 +16,10 @@
     "calleePath": "std::vec::Vec::new",
     "calleeName": "new",
     "callKind": "external-crate",
-    "resolvedSymbolId": null,
+    "resolvedSymbolId": "std::vec::Vec::new",
     "resolvedSymbolKind": null,
-    "confidence": 0.6,
-    "reason": "call-external-crate-classified",
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
     "diagnostics": []
   },
   {
@@ -39,10 +39,10 @@
     "calleePath": "std::collections::HashMap::<&str, i32>::new",
     "calleeName": "new",
     "callKind": "external-crate",
-    "resolvedSymbolId": null,
+    "resolvedSymbolId": "std::collections::HashMap::new",
     "resolvedSymbolKind": null,
-    "confidence": 0.6,
-    "reason": "call-external-crate-classified",
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
     "diagnostics": []
   },
   {
@@ -62,10 +62,10 @@
     "calleePath": "std::path::PathBuf::new",
     "calleeName": "new",
     "callKind": "external-crate",
-    "resolvedSymbolId": null,
+    "resolvedSymbolId": "std::path::PathBuf::new",
     "resolvedSymbolKind": null,
-    "confidence": 0.6,
-    "reason": "call-external-crate-classified",
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
     "diagnostics": []
   }
 ]
