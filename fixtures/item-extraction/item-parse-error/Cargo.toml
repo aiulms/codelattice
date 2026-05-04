@@ -3,3 +3,5 @@ name = "item-parse-error"
 version = "0.1.0"
 edition = "2021"
 
+
+# intentionally-non-compilable: designed to test static analysis on invalid/error code
