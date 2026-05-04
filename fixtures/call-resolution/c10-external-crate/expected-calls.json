@@ -1,15 +1,15 @@
 [
   {
-    "id": "src/lib.rs::call::7::new",
+    "id": "src/lib.rs::call::10::new",
     "callerSymbolId": "c10-external-crate::crate::external_vec",
     "callerName": "external_vec",
     "sourcePath": "src/lib.rs",
     "modulePath": "crate",
     "span": {
-      "lineStart": 7,
-      "lineEnd": 7,
-      "byteStart": 258,
-      "byteEnd": 278
+      "lineStart": 10,
+      "lineEnd": 10,
+      "byteStart": 451,
+      "byteEnd": 471
     },
     "rawText": "std::vec::Vec::new()",
     "knownCrate": "std",
@@ -23,16 +23,16 @@
     "diagnostics": []
   },
   {
-    "id": "src/lib.rs::call::11::new",
+    "id": "src/lib.rs::call::14::new",
     "callerSymbolId": "c10-external-crate::crate::external_hashmap",
     "callerName": "external_hashmap",
     "sourcePath": "src/lib.rs",
     "modulePath": "crate",
     "span": {
-      "lineStart": 11,
-      "lineEnd": 11,
-      "byteStart": 326,
-      "byteEnd": 371
+      "lineStart": 14,
+      "lineEnd": 14,
+      "byteStart": 519,
+      "byteEnd": 564
     },
     "rawText": "std::collections::HashMap::<&str, i32>::new()",
     "knownCrate": "std",
@@ -46,16 +46,16 @@
     "diagnostics": []
   },
   {
-    "id": "src/lib.rs::call::15::new",
+    "id": "src/lib.rs::call::18::new",
     "callerSymbolId": "c10-external-crate::crate::external_path",
     "callerName": "external_path",
     "sourcePath": "src/lib.rs",
     "modulePath": "crate",
     "span": {
-      "lineStart": 15,
-      "lineEnd": 15,
-      "byteStart": 414,
-      "byteEnd": 439
+      "lineStart": 18,
+      "lineEnd": 18,
+      "byteStart": 607,
+      "byteEnd": 632
     },
     "rawText": "std::path::PathBuf::new()",
     "knownCrate": "std",
@@ -63,6 +63,52 @@
     "calleeName": "new",
     "callKind": "external-crate",
     "resolvedSymbolId": "std::path::PathBuf::new",
+    "resolvedSymbolKind": null,
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::23::new",
+    "callerSymbolId": "c10-external-crate::crate::hashmap_via_import",
+    "callerName": "hashmap_via_import",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 23,
+      "lineEnd": 23,
+      "byteStart": 763,
+      "byteEnd": 777
+    },
+    "rawText": "HashMap::new()",
+    "knownCrate": null,
+    "calleePath": "HashMap::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "std::collections::HashMap::new",
+    "resolvedSymbolKind": null,
+    "confidence": 0.8,
+    "reason": "call-external-crate-path-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::28::new",
+    "callerSymbolId": "c10-external-crate::crate::vec_via_prelude",
+    "callerName": "vec_via_prelude",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 28,
+      "lineEnd": 28,
+      "byteStart": 904,
+      "byteEnd": 914
+    },
+    "rawText": "Vec::new()",
+    "knownCrate": null,
+    "calleePath": "Vec::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "std::vec::Vec::new",
     "resolvedSymbolKind": null,
     "confidence": 0.8,
     "reason": "call-external-crate-path-resolved",

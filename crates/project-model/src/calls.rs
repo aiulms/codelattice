@@ -209,6 +209,11 @@ struct ImportBinding {
     target_name: String,
     resolved_symbol_id: Option<String>,
     resolved_symbol_kind: Option<String>,
+    /// External crate original path (e.g., std::collections::HashMap)
+    /// Used for resolving associated-function calls on imported external types
+    original_path: Option<String>,
+    /// Import path kind: "crate", "self", "super", "external", "unknown"
+    path_kind: String,
     #[allow(dead_code)]
     source_path: String,
 }
@@ -234,6 +239,8 @@ fn build_import_binding_table(imports: &[ImportUse]) -> ImportBindingTable {
                 .resolved_to
                 .as_ref()
                 .and_then(|t| t.resolved_symbol_kind.clone()),
+            original_path: Some(imp.original_path.clone()),
+            path_kind: imp.path_kind.clone(),
             source_path: imp.source_path.clone(),
         };
 
@@ -249,6 +256,23 @@ impl ImportBindingTable {
             .get(&(module_path.to_string(), name.to_string()))
             .map(|v| v.as_slice())
             .unwrap_or(&[])
+    }
+
+    /// Look up an external crate type binding by name in the given module.
+    /// Returns the original_path (e.g., "std::collections::HashMap") if the
+    /// name was imported from an external crate.
+    fn lookup_external_type(&self, module_path: &str, name: &str) -> Option<&str> {
+        self.bindings
+            .get(&(module_path.to_string(), name.to_string()))
+            .and_then(|bindings| {
+                bindings.iter().find_map(|b| {
+                    if b.path_kind == "external" {
+                        b.original_path.as_deref()
+                    } else {
+                        None
+                    }
+                })
+            })
     }
 }
 
@@ -1318,6 +1342,30 @@ fn resolve_associated_function(
             }
         }
         None => {
+            // Phase 1 extended: type not found locally — check if imported from external crate
+            // or is a known prelude/stdlib type
+            if let Some(external_path) =
+                import_bindings.lookup_external_type(module_path, &type_name)
+            {
+                let clean_path = strip_generics(&format!("{}::{}", external_path, method_name));
+                call.resolved_symbol_id = Some(clean_path);
+                call.confidence = 0.80;
+                call.reason = CallResolutionReason::CallExternalCratePathResolved
+                    .as_str()
+                    .to_string();
+                return;
+            }
+            // Also check prelude types (Vec, String, Box, Option, Result) —
+            // these are implicitly available without explicit `use` imports
+            if let Some(prelude_path) = lookup_prelude_type_path(&type_name) {
+                let clean_path = strip_generics(&format!("{}::{}", prelude_path, method_name));
+                call.resolved_symbol_id = Some(clean_path);
+                call.confidence = 0.80;
+                call.reason = CallResolutionReason::CallExternalCratePathResolved
+                    .as_str()
+                    .to_string();
+                return;
+            }
             call.reason = CallResolutionReason::CallTargetUnresolved
                 .as_str()
                 .to_string();
@@ -1633,6 +1681,19 @@ fn split_last_segment(path: &str) -> (String, String) {
     match path.rfind("::") {
         Some(pos) => (path[..pos].to_string(), path[pos + 2..].to_string()),
         None => (String::new(), path.to_string()),
+    }
+}
+
+/// Map common Rust prelude/stdlib type names to their canonical paths.
+/// These types are implicitly available without explicit `use` imports.
+fn lookup_prelude_type_path(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        "Vec" => Some("std::vec::Vec"),
+        "String" => Some("std::string::String"),
+        "Box" => Some("std::boxed::Box"),
+        "Option" => Some("std::option::Option"),
+        "Result" => Some("std::result::Result"),
+        _ => None,
     }
 }
 
