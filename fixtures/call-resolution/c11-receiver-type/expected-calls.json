@@ -329,10 +329,10 @@
     "calleePath": "name.len",
     "calleeName": "len",
     "callKind": "method-call",
-    "resolvedSymbolId": null,
+    "resolvedSymbolId": "str::len",
     "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-target-unresolved",
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
     "diagnostics": []
   }
 ]

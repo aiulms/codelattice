@@ -1979,6 +1979,41 @@ fn scan_variable_type_annotation(
         }
     }
 
+    // Phase 2b: 扫描函数参数类型注解
+    // 在函数签名中查找 `fn name(param: Type, ...)` 匹配 receiver name
+    if let Some(paren_open) = func_scope.find('(') {
+        if let Some(paren_close) = func_scope[paren_open..].find(')') {
+            let paren_close = paren_open + paren_close;
+            let params = &func_scope[paren_open + 1..paren_close];
+            for param_part in params.split(',') {
+                let param_part = param_part.trim();
+                if let Some(colon_pos) = param_part.find(':') {
+                    let param_name = param_part[..colon_pos].trim();
+                    // 去掉 `mut` 前缀（`mut self` 等）
+                    let param_name = param_name.trim_start_matches("mut ");
+                    if param_name == var_name {
+                        let param_type = param_part[colon_pos + 1..].trim();
+                        // 去掉引用前缀（&, &mut, &'a）
+                        let param_type = param_type
+                            .trim_start_matches("&'")
+                            .trim_start_matches("&mut ")
+                            .trim_start_matches("&")
+                            .trim();
+                        let base_type = if let Some(generic_pos) = param_type.find('<') {
+                            &param_type[..generic_pos]
+                        } else {
+                            param_type
+                        };
+                        let base_type = base_type.trim();
+                        if !base_type.is_empty() {
+                            return Some(base_type.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 
