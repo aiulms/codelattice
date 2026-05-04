@@ -317,6 +317,10 @@ pub struct Symbol {
     pub is_pub: bool,
     /// impl 块详情（仅 ImplBlock / Method / AssociatedFunction 有值）
     pub impl_details: Option<ImplBlockDetail>,
+    /// v0.3: 类型注解列表（仅 Function / Method / AssociatedFunction 有值）
+    /// 从 function_item 的 return_type / parameters 字段提取
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub type_annotations: Vec<TypeAnnotation>,
 }
 
 /// impl 块扩展字段
@@ -327,6 +331,21 @@ pub struct ImplBlockDetail {
     pub impl_target: String,
     /// impl Trait for Target 中的 Trait（trait impl 时有值）
     pub trait_name: Option<String>,
+}
+
+/// v0.3: 类型注解（从 function signature 提取）
+///
+/// 只提取显式类型注解（return type / param type），不做类型推断。
+/// 用于 graph emitter 生成 ACCESSES edge。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TypeAnnotation {
+    /// 解析后的类型名，如 "Vec"（去掉路径前缀和 generic args）
+    pub type_name: String,
+    /// AST 中的原始文本，如 "std::vec::Vec<u8>"
+    pub raw_text: String,
+    /// 注解位置："return-type" | "param-type"
+    pub annotation_kind: String,
 }
 
 /// item 提取相关 diagnostic

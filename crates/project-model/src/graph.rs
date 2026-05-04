@@ -1,7 +1,7 @@
-//! Graph Schema v0.2 输出模块
+//! Graph Schema v0.3 输出模块
 //!
 //! 把 ProjectModelOutput 映射成 JSON one-shot graph。
-//! 8 种 node types / 9 种 edge types（v0.2 新增 CALLS），确定性输出。
+//! 8 种 node types / 11 种 edge types（v0.3 新增 DESIGNATION / ACCESSES），确定性输出。
 //!
 //! 映射策略：1:1，每个 Rust-core struct → 恰好一个 node type，不 merge 不 split。
 
@@ -43,7 +43,7 @@ impl NodeKind {
     }
 }
 
-/// 9 种 edge types（v0.2: 新增 Calls）
+/// 11 种 edge types（v0.3: 新增 Designation / Accesses）
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum EdgeKind {
@@ -57,6 +57,10 @@ pub enum EdgeKind {
     Annotates,
     /// v0.2: CallSite → resolved callee symbol
     Calls,
+    /// v0.3: ImplBlock → impl target type symbol（声明此 impl 块为此类型而写）
+    Designation,
+    /// v0.3: Function → referenced type symbol（函数签名引用类型）
+    Accesses,
 }
 
 impl EdgeKind {
@@ -72,6 +76,9 @@ impl EdgeKind {
             EdgeKind::Annotates => "ANNOTATES",
             // v0.2: CALLS edge — caller function → callee function
             EdgeKind::Calls => "CALLS",
+            // v0.3: 类型关系边
+            EdgeKind::Designation => "DESIGNATION",
+            EdgeKind::Accesses => "ACCESSES",
         }
     }
 }
@@ -107,6 +114,10 @@ pub struct GraphStats {
     pub symbol_count: u32,
     /// v0.2: CALLS edge 总数
     pub call_edge_count: u32,
+    /// v0.3: DESIGNATION edge 总数
+    pub designation_edge_count: u32,
+    /// v0.3: ACCESSES edge 总数
+    pub accesses_edge_count: u32,
 }
 
 /// Graph 输出顶层
@@ -518,6 +529,77 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
         }
     }
 
+    // ---- DESIGNATION edges（v0.3）----
+    // ImplBlock → impl_target type symbol。
+    // 只有 impl_details.impl_target 能解析到同 crate 已知 Struct/Enum/Trait 时才产 edge。
+    // trait impl 的 trait 侧不产 DESIGNATION edge（trait 可能来自外部 crate，不做跨 crate 类型解析）。
+    for sym in &output.symbols {
+        if sym.symbol_kind == SymbolKind::ImplBlock.as_str() {
+            if let Some(ref details) = sym.impl_details {
+                let target_name = &details.impl_target;
+                // 在同 crate symbol 中查找同名 Struct / Enum / Trait
+                let target_symbol = output.symbols.iter().find(|s| {
+                    s.name == *target_name
+                        && matches!(s.symbol_kind.as_str(), "struct" | "enum" | "trait")
+                });
+                if let Some(target) = target_symbol {
+                    let source_id = format!("symbol:{}", sym.id);
+                    let target_id = format!("symbol:{}", target.id);
+                    insert_edge(
+                        &mut edges,
+                        &mut edge_list,
+                        EdgeKind::Designation.as_str(),
+                        &source_id,
+                        &target_id,
+                        serde_json::json!({
+                            "confidence": 0.95,
+                            "reason": "impl-block-target-designation",
+                            "implTarget": target_name,
+                        }),
+                    );
+                }
+            }
+        }
+    }
+
+    // ---- ACCESSES edges（v0.3）----
+    // Function → return type / param type symbol。
+    // 只当类型能解析到同 crate 已知 type symbol 时才产 edge。
+    // stdlib 类型（如 String、Vec）在本阶段不产 edge——因为不会创建外部 symbol node，
+    // 避免 dangling edge。后续在 schema v0.4 可能通过 ghost node 或外部索引支持。
+    // 不做类型推断，只有显式类型注解才产 edge。
+    // no-match → no-edge（不产 false positive edges）。
+    for sym in &output.symbols {
+        for type_ann in &sym.type_annotations {
+            // 在同 crate symbol 中查找同名 type（Struct / Enum / Trait / TypeAlias）
+            let target_symbol = output.symbols.iter().find(|s| {
+                s.name == type_ann.type_name
+                    && matches!(
+                        s.symbol_kind.as_str(),
+                        "struct" | "enum" | "trait" | "type-alias"
+                    )
+            });
+
+            if let Some(target) = target_symbol {
+                let source_id = format!("symbol:{}", sym.id);
+                let target_id = format!("symbol:{}", target.id);
+                insert_edge(
+                    &mut edges,
+                    &mut edge_list,
+                    EdgeKind::Accesses.as_str(),
+                    &source_id,
+                    &target_id,
+                    serde_json::json!({
+                        "confidence": 0.85,
+                        "reason": format!("function-{}-access", type_ann.annotation_kind),
+                        "typeName": type_ann.type_name,
+                        "rawText": type_ann.raw_text,
+                    }),
+                );
+            }
+        }
+    }
+
     // ---- 排序输出（确定性保证）----
     let sorted_nodes: Vec<GraphNode> = nodes.into_values().collect();
     let sorted_edges: Vec<GraphEdge> = edges
@@ -549,9 +631,18 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
         .iter()
         .filter(|e| e.edge_type == EdgeKind::Calls.as_str())
         .count() as u32;
+    // v0.3: 统计 DESIGNATION / ACCESSES edge 数量
+    let designation_edge_count = sorted_edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeKind::Designation.as_str())
+        .count() as u32;
+    let accesses_edge_count = sorted_edges
+        .iter()
+        .filter(|e| e.edge_type == EdgeKind::Accesses.as_str())
+        .count() as u32;
 
     GraphOutput {
-        schema_version: "0.2.0".to_string(),
+        schema_version: "0.3.0".to_string(),
         generated_at: output.generated_at.clone(),
         root: serde_json::json!({
             "repoRoot": output.repo_root,
@@ -565,6 +656,8 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
             diagnostic_count: diag_count,
             symbol_count,
             call_edge_count,
+            designation_edge_count,
+            accesses_edge_count,
         },
     }
 }

@@ -44,8 +44,8 @@ fn run_graph(fixture_rel: &str, include_symbols: bool) -> Value {
 
 /// 共享断言：每个 fixture 都必须通过
 fn assert_common_graph_invariants(graph: &Value) {
-    // 1. schemaVersion == "0.2.0"
-    assert_eq!(graph["schemaVersion"], "0.2.0");
+    // 1. schemaVersion == "0.3.0"
+    assert_eq!(graph["schemaVersion"], "0.3.0");
 
     // 2. generatedAt 非空
     let gen = graph["generatedAt"].as_str().unwrap();

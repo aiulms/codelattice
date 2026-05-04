@@ -584,6 +584,7 @@ fn build_symbol(
         is_const_fn,
         is_pub,
         impl_details: None,
+        type_annotations: vec![],
     }
 }
 
@@ -667,7 +668,9 @@ fn dedup_symbol_ids(symbols: &mut Vec<Symbol>) {
 mod tree_sitter_impl {
     use crate::diagnostic::codes;
     use crate::item::{ItemExtractionInput, ItemExtractionOutput, ItemExtractor};
-    use crate::model::{ImplBlockDetail, Symbol, SymbolDiagnostic, SymbolKind, Visibility};
+    use crate::model::{
+        ImplBlockDetail, Symbol, SymbolDiagnostic, SymbolKind, TypeAnnotation, Visibility,
+    };
 
     /// tree-sitter 提取器：基于 CST 提取 12 种 SymbolKind
     pub struct TreeSitterItemExtractor;
@@ -1033,6 +1036,9 @@ mod tree_sitter_impl {
         let line_start = byte_to_line(source_bytes, node.start_byte());
         let line_end = byte_to_line(source_bytes, node.end_byte());
 
+        // v0.3: 提取函数签名的类型注解（return type / param types）
+        let type_annotations = extract_type_annotations(node, source_bytes);
+
         Some(build_symbol_full(
             name,
             SymbolKind::Function,
@@ -1047,6 +1053,7 @@ mod tree_sitter_impl {
             is_unsafe,
             is_const_fn,
             None, // function 无 implDetails
+            type_annotations,
         ))
     }
 
@@ -1083,6 +1090,7 @@ mod tree_sitter_impl {
             false,
             false,
             None,
+            vec![],
         ))
     }
 
@@ -1117,6 +1125,7 @@ mod tree_sitter_impl {
             false,
             false,
             None,
+            vec![],
         ))
     }
 
@@ -1149,6 +1158,7 @@ mod tree_sitter_impl {
             false,
             false,
             None,
+            vec![],
         ))
     }
 
@@ -1190,6 +1200,7 @@ mod tree_sitter_impl {
             false,
             false,
             Some(&impl_details),
+            vec![],
         ))
     }
 
@@ -1255,6 +1266,9 @@ mod tree_sitter_impl {
         let line_start = byte_to_line(source_bytes, node.start_byte());
         let line_end = byte_to_line(source_bytes, node.end_byte());
 
+        // v0.3: 提取 impl 内函数签名的类型注解
+        let type_annotations = extract_type_annotations(node, source_bytes);
+
         // 判断 Method vs AssociatedFunction：检查首参数是否为 self receiver
         let is_method = has_self_receiver(node);
 
@@ -1283,6 +1297,7 @@ mod tree_sitter_impl {
             is_unsafe,
             is_const_fn,
             Some(&impl_details),
+            type_annotations,
         ))
     }
 
@@ -1368,6 +1383,86 @@ mod tree_sitter_impl {
         (is_async, is_unsafe, is_const_fn)
     }
 
+    /// v0.3: 从 function_item 提取类型注解（return type / param types）
+    ///
+    /// 只提取显式类型注解，不做类型推断。解析出的类型名经过
+    /// strip_generics + strip_reference + take_last_segment 处理。
+    ///
+    /// 不上函数体（不 walk block / let_declaration），只处理函数签名级别。
+    fn extract_type_annotations(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+    ) -> Vec<TypeAnnotation> {
+        let mut annotations = Vec::new();
+
+        // 提取 return type: `fn foo() -> ReturnType`
+        if let Some(ret_node) = node.child_by_field_name("return_type") {
+            let raw_text = ret_node.utf8_text(source_bytes).unwrap_or("").to_string();
+            if let Some(type_name) = resolve_type_name(&raw_text) {
+                annotations.push(TypeAnnotation {
+                    type_name,
+                    raw_text,
+                    annotation_kind: "return-type".to_string(),
+                });
+            }
+        }
+
+        // 提取 param types: `fn foo(x: ParamType, y: AnotherType)`
+        if let Some(params_node) = node.child_by_field_name("parameters") {
+            let mut cursor = params_node.walk();
+            for child in params_node.children(&mut cursor) {
+                if child.kind() == "parameter" {
+                    // parameter 中找 type 子节点
+                    if let Some(type_node) = child.child_by_field_name("type") {
+                        let raw_text = type_node.utf8_text(source_bytes).unwrap_or("").to_string();
+                        if let Some(type_name) = resolve_type_name(&raw_text) {
+                            annotations.push(TypeAnnotation {
+                                type_name,
+                                raw_text,
+                                annotation_kind: "param-type".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        annotations
+    }
+
+    /// 从类型注解文本中解析类型名。
+    ///
+    /// 处理顺序：
+    /// 1. 去掉 reference: `&str` → `str`, `&mut Path` → `Path`
+    /// 2. 去掉 generic args: `HashMap<K, V>` → `HashMap`
+    /// 3. 取最后 path 段: `std::vec::Vec` → `Vec`
+    ///
+    /// 返回 None 当类型为 Rust primitive（如 `str`、`u8`），不产 ACCESSES edge。
+    fn resolve_type_name(raw_text: &str) -> Option<String> {
+        // 去掉 reference / mutable reference
+        let s = raw_text.trim_start_matches('&');
+        let s = s.trim_start_matches("mut ");
+        let s = s.trim();
+        // 去掉 generic args: 找到第一个 < 并截断
+        let s = if let Some(lt_pos) = s.find('<') {
+            &s[..lt_pos]
+        } else {
+            s
+        };
+        // 取最后 segment: "std::vec::Vec" → "Vec"
+        let name = s.rsplit("::").next().unwrap_or(s);
+        // 过滤 Rust primitive types（不产生 edge）
+        let primitives = [
+            "bool", "char", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32", "u64",
+            "u128", "usize", "f32", "f64", "str", "Self",
+        ];
+        if primitives.contains(&name) || name.is_empty() {
+            None
+        } else {
+            Some(name.to_string())
+        }
+    }
+
     /// byte offset → 行号（1-indexed）
     fn byte_to_line(source_bytes: &[u8], byte_offset: usize) -> u32 {
         let mut line = 1u32;
@@ -1394,6 +1489,7 @@ mod tree_sitter_impl {
         is_unsafe: bool,
         is_const_fn: bool,
         impl_details: Option<&ImplBlockDetail>,
+        type_annotations: Vec<TypeAnnotation>,
     ) -> Symbol {
         let id = format!("{}::{}::{}", input.package_name, module_path, name);
         let is_pub = matches!(visibility, Visibility::Public);
@@ -1416,6 +1512,7 @@ mod tree_sitter_impl {
             is_const_fn,
             is_pub,
             impl_details: impl_details.cloned(),
+            type_annotations,
         }
     }
 

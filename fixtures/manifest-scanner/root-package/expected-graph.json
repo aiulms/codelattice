@@ -1,9 +1,9 @@
 {
   "fixtureName": "root-package",
-  "scenario": "单 package + lib target + source file，验证 CONTAINS_PACKAGE / HAS_TARGET / OWNS_SOURCE 三条边",
+  "scenario": "\u5355 package + lib target + source file\uff0c\u9a8c\u8bc1 CONTAINS_PACKAGE / HAS_TARGET / OWNS_SOURCE \u4e09\u6761\u8fb9",
   "inputRoot": "manifest-scanner/root-package",
   "command": "--include graph",
-  "schemaVersion": "0.2.0",
+  "schemaVersion": "0.3.0",
   "expectedGraph": {
     "nodes": [
       {
@@ -73,37 +73,119 @@
     "edgeCount": 3,
     "diagnosticCount": 0,
     "symbolCount": 0,
-    "callEdgeCount": 0
+    "callEdgeCount": 0,
+    "designationEdgeCount": 0,
+    "accessesEdgeCount": 0
   },
   "expectedPresence": [
-    { "type": "nodeExists", "id": "repo:fixtures/manifest-scanner/root-package" },
-    { "type": "nodeExists", "id": "package:Cargo.toml" },
-    { "type": "nodeExists", "id": "target:app::app::lib" },
-    { "type": "nodeExists", "id": "file:src/lib.rs" },
-    { "type": "edgeExists", "source": "repo:fixtures/manifest-scanner/root-package", "target": "package:Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
-    { "type": "edgeExists", "source": "package:Cargo.toml", "target": "target:app::app::lib", "edgeType": "HAS_TARGET" },
-    { "type": "edgeExists", "source": "target:app::app::lib", "target": "file:src/lib.rs", "edgeType": "OWNS_SOURCE" },
-    { "type": "nodeKindCount", "label": "repository", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "package", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "target", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "source-file", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "CONTAINS_PACKAGE", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "HAS_TARGET", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "OWNS_SOURCE", "min": 1, "max": 1 }
+    {
+      "type": "nodeExists",
+      "id": "repo:fixtures/manifest-scanner/root-package"
+    },
+    {
+      "type": "nodeExists",
+      "id": "package:Cargo.toml"
+    },
+    {
+      "type": "nodeExists",
+      "id": "target:app::app::lib"
+    },
+    {
+      "type": "nodeExists",
+      "id": "file:src/lib.rs"
+    },
+    {
+      "type": "edgeExists",
+      "source": "repo:fixtures/manifest-scanner/root-package",
+      "target": "package:Cargo.toml",
+      "edgeType": "CONTAINS_PACKAGE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "package:Cargo.toml",
+      "target": "target:app::app::lib",
+      "edgeType": "HAS_TARGET"
+    },
+    {
+      "type": "edgeExists",
+      "source": "target:app::app::lib",
+      "target": "file:src/lib.rs",
+      "edgeType": "OWNS_SOURCE"
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "repository",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "package",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "target",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "source-file",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "CONTAINS_PACKAGE",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "HAS_TARGET",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "OWNS_SOURCE",
+      "min": 1,
+      "max": 1
+    }
   ],
   "expectedAbsence": [
-    { "type": "noEdgeKind", "edgeType": "CONTAINS_WORKSPACE" },
-    { "type": "noCalls" },
-    { "type": "noUses" },
-    { "type": "noImports" },
-    { "type": "noImplements" },
-    { "type": "noDuplicateNodeId" },
-    { "type": "noDuplicateEdgeKey" }
+    {
+      "type": "noEdgeKind",
+      "edgeType": "CONTAINS_WORKSPACE"
+    },
+    {
+      "type": "noCalls"
+    },
+    {
+      "type": "noUses"
+    },
+    {
+      "type": "noImports"
+    },
+    {
+      "type": "noImplements"
+    },
+    {
+      "type": "noDuplicateNodeId"
+    },
+    {
+      "type": "noDuplicateEdgeKey"
+    }
   ],
   "knownLimitations": [],
   "comparisonPolicy": {
     "mode": "exact",
-    "excludeFields": ["generatedAt", "root"],
+    "excludeFields": [
+      "generatedAt",
+      "root"
+    ],
     "knownSkip": []
   }
 }

@@ -3,7 +3,7 @@
   "scenario": "struct + impl 块 + method + associated-function + Symbol nodes + DEFINES / HAS_PARENT 边 + diagnostic + ANNOTATES，验证 graph emitter 对 symbol 层的完整输出",
   "inputRoot": "item-extraction/item-impl-methods",
   "command": "--include graph --include symbols",
-  "schemaVersion": "0.2.0",
+  "schemaVersion": "0.3.0",
   "expectedGraph": {
     "nodes": [
       {
@@ -233,6 +233,16 @@
         "source": "target:item-impl-methods::item_impl_methods::lib",
         "target": "file:src/lib.rs",
         "type": "OWNS_SOURCE"
+      },
+      {
+        "source": "symbol:item-impl-methods::crate::_impl_User",
+        "target": "symbol:item-impl-methods::crate::User",
+        "type": "DESIGNATION",
+        "properties": {
+          "confidence": 0.95,
+          "reason": "impl-block-target-designation",
+          "implTarget": "User"
+        }
       }
     ],
     "diagnostics": [
@@ -252,59 +262,235 @@
   },
   "expectedStats": {
     "nodeCount": 10,
-    "edgeCount": 11,
+    "edgeCount": 12,
     "diagnosticCount": 1,
     "symbolCount": 5,
-    "callEdgeCount": 0
+    "callEdgeCount": 0,
+    "designationEdgeCount": 1,
+    "accessesEdgeCount": 0
   },
   "expectedPresence": [
-    { "type": "nodeExists", "id": "repo:fixtures/item-extraction/item-impl-methods" },
-    { "type": "nodeExists", "id": "package:Cargo.toml" },
-    { "type": "nodeExists", "id": "target:item-impl-methods::item_impl_methods::lib" },
-    { "type": "nodeExists", "id": "file:src/lib.rs" },
-    { "type": "nodeExists", "id": "symbol:item-impl-methods::crate::User" },
-    { "type": "nodeExists", "id": "symbol:item-impl-methods::crate::_impl_User" },
-    { "type": "nodeExists", "id": "symbol:item-impl-methods::crate::new" },
-    { "type": "nodeExists", "id": "symbol:item-impl-methods::crate::greet" },
-    { "type": "nodeExists", "id": "symbol:item-impl-methods::crate::internal" },
-    { "type": "nodeExists", "id": "diag:unsupported-macro-expansion::src/lib.rs::0" },
-    { "type": "edgeExists", "source": "repo:fixtures/item-extraction/item-impl-methods", "target": "package:Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
-    { "type": "edgeExists", "source": "package:Cargo.toml", "target": "target:item-impl-methods::item_impl_methods::lib", "edgeType": "HAS_TARGET" },
-    { "type": "edgeExists", "source": "target:item-impl-methods::item_impl_methods::lib", "target": "file:src/lib.rs", "edgeType": "OWNS_SOURCE" },
-    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:item-impl-methods::crate::User", "edgeType": "DEFINES" },
-    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:item-impl-methods::crate::_impl_User", "edgeType": "DEFINES" },
-    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:item-impl-methods::crate::new", "edgeType": "DEFINES" },
-    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:item-impl-methods::crate::greet", "edgeType": "DEFINES" },
-    { "type": "edgeExists", "source": "file:src/lib.rs", "target": "symbol:item-impl-methods::crate::internal", "edgeType": "DEFINES" },
-    { "type": "edgeExists", "source": "symbol:item-impl-methods::crate::new", "target": "symbol:item-impl-methods::crate::_impl_User", "edgeType": "HAS_PARENT" },
-    { "type": "edgeExists", "source": "symbol:item-impl-methods::crate::greet", "target": "symbol:item-impl-methods::crate::_impl_User", "edgeType": "HAS_PARENT" },
-    { "type": "edgeExists", "source": "symbol:item-impl-methods::crate::internal", "target": "symbol:item-impl-methods::crate::_impl_User", "edgeType": "HAS_PARENT" },
-    { "type": "diagnosticExists", "code": "unsupported-macro-expansion", "path": "src/lib.rs" },
-    { "type": "nodeKindCount", "label": "repository", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "package", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "target", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "source-file", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "symbol", "min": 5, "max": 5 },
-    { "type": "nodeKindCount", "label": "diagnostic", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "CONTAINS_PACKAGE", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "HAS_TARGET", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "OWNS_SOURCE", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "DEFINES", "min": 5, "max": 5 },
-    { "type": "edgeKindCount", "edgeType": "HAS_PARENT", "min": 3, "max": 3 }
+    {
+      "type": "nodeExists",
+      "id": "repo:fixtures/item-extraction/item-impl-methods"
+    },
+    {
+      "type": "nodeExists",
+      "id": "package:Cargo.toml"
+    },
+    {
+      "type": "nodeExists",
+      "id": "target:item-impl-methods::item_impl_methods::lib"
+    },
+    {
+      "type": "nodeExists",
+      "id": "file:src/lib.rs"
+    },
+    {
+      "type": "nodeExists",
+      "id": "symbol:item-impl-methods::crate::User"
+    },
+    {
+      "type": "nodeExists",
+      "id": "symbol:item-impl-methods::crate::_impl_User"
+    },
+    {
+      "type": "nodeExists",
+      "id": "symbol:item-impl-methods::crate::new"
+    },
+    {
+      "type": "nodeExists",
+      "id": "symbol:item-impl-methods::crate::greet"
+    },
+    {
+      "type": "nodeExists",
+      "id": "symbol:item-impl-methods::crate::internal"
+    },
+    {
+      "type": "nodeExists",
+      "id": "diag:unsupported-macro-expansion::src/lib.rs::0"
+    },
+    {
+      "type": "edgeExists",
+      "source": "repo:fixtures/item-extraction/item-impl-methods",
+      "target": "package:Cargo.toml",
+      "edgeType": "CONTAINS_PACKAGE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "package:Cargo.toml",
+      "target": "target:item-impl-methods::item_impl_methods::lib",
+      "edgeType": "HAS_TARGET"
+    },
+    {
+      "type": "edgeExists",
+      "source": "target:item-impl-methods::item_impl_methods::lib",
+      "target": "file:src/lib.rs",
+      "edgeType": "OWNS_SOURCE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "file:src/lib.rs",
+      "target": "symbol:item-impl-methods::crate::User",
+      "edgeType": "DEFINES"
+    },
+    {
+      "type": "edgeExists",
+      "source": "file:src/lib.rs",
+      "target": "symbol:item-impl-methods::crate::_impl_User",
+      "edgeType": "DEFINES"
+    },
+    {
+      "type": "edgeExists",
+      "source": "file:src/lib.rs",
+      "target": "symbol:item-impl-methods::crate::new",
+      "edgeType": "DEFINES"
+    },
+    {
+      "type": "edgeExists",
+      "source": "file:src/lib.rs",
+      "target": "symbol:item-impl-methods::crate::greet",
+      "edgeType": "DEFINES"
+    },
+    {
+      "type": "edgeExists",
+      "source": "file:src/lib.rs",
+      "target": "symbol:item-impl-methods::crate::internal",
+      "edgeType": "DEFINES"
+    },
+    {
+      "type": "edgeExists",
+      "source": "symbol:item-impl-methods::crate::new",
+      "target": "symbol:item-impl-methods::crate::_impl_User",
+      "edgeType": "HAS_PARENT"
+    },
+    {
+      "type": "edgeExists",
+      "source": "symbol:item-impl-methods::crate::greet",
+      "target": "symbol:item-impl-methods::crate::_impl_User",
+      "edgeType": "HAS_PARENT"
+    },
+    {
+      "type": "edgeExists",
+      "source": "symbol:item-impl-methods::crate::internal",
+      "target": "symbol:item-impl-methods::crate::_impl_User",
+      "edgeType": "HAS_PARENT"
+    },
+    {
+      "type": "diagnosticExists",
+      "code": "unsupported-macro-expansion",
+      "path": "src/lib.rs"
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "repository",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "package",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "target",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "source-file",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "symbol",
+      "min": 5,
+      "max": 5
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "diagnostic",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "CONTAINS_PACKAGE",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "HAS_TARGET",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "OWNS_SOURCE",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "DEFINES",
+      "min": 5,
+      "max": 5
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "HAS_PARENT",
+      "min": 3,
+      "max": 3
+    },
+    {
+      "type": "edgeExists",
+      "source": "symbol:item-impl-methods::crate::_impl_User",
+      "target": "symbol:item-impl-methods::crate::User",
+      "edgeType": "DESIGNATION"
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "DESIGNATION",
+      "min": 1,
+      "max": 1
+    }
   ],
   "expectedAbsence": [
-    { "type": "noEdgeKind", "edgeType": "CONTAINS_WORKSPACE" },
-    { "type": "noCalls" },
-    { "type": "noUses" },
-    { "type": "noImports" },
-    { "type": "noImplements" },
-    { "type": "noDuplicateNodeId" },
-    { "type": "noDuplicateEdgeKey" }
+    {
+      "type": "noEdgeKind",
+      "edgeType": "CONTAINS_WORKSPACE"
+    },
+    {
+      "type": "noCalls"
+    },
+    {
+      "type": "noUses"
+    },
+    {
+      "type": "noImports"
+    },
+    {
+      "type": "noImplements"
+    },
+    {
+      "type": "noDuplicateNodeId"
+    },
+    {
+      "type": "noDuplicateEdgeKey"
+    }
   ],
   "knownLimitations": [],
   "comparisonPolicy": {
     "mode": "exact",
-    "excludeFields": ["generatedAt", "root"],
+    "excludeFields": [
+      "generatedAt",
+      "root"
+    ],
     "knownSkip": []
   }
 }

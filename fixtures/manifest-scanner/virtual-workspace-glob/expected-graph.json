@@ -1,9 +1,9 @@
 {
   "fixtureName": "virtual-workspace-glob",
-  "scenario": "virtual workspace + glob 成员（alpha, beta），验证 CONTAINS_WORKSPACE + CONTAINS_PACKAGE (workspace→package) 路径",
+  "scenario": "virtual workspace + glob \u6210\u5458\uff08alpha, beta\uff09\uff0c\u9a8c\u8bc1 CONTAINS_WORKSPACE + CONTAINS_PACKAGE (workspace\u2192package) \u8def\u5f84",
   "inputRoot": "manifest-scanner/virtual-workspace-glob",
   "command": "--include graph",
-  "schemaVersion": "0.2.0",
+  "schemaVersion": "0.3.0",
   "expectedGraph": {
     "nodes": [
       {
@@ -143,46 +143,167 @@
     "edgeCount": 7,
     "diagnosticCount": 0,
     "symbolCount": 0,
-    "callEdgeCount": 0
+    "callEdgeCount": 0,
+    "designationEdgeCount": 0,
+    "accessesEdgeCount": 0
   },
   "expectedPresence": [
-    { "type": "nodeExists", "id": "repo:fixtures/manifest-scanner/virtual-workspace-glob" },
-    { "type": "nodeExists", "id": "workspace:Cargo.toml" },
-    { "type": "nodeExists", "id": "package:crates/alpha/Cargo.toml" },
-    { "type": "nodeExists", "id": "package:crates/beta/Cargo.toml" },
-    { "type": "nodeExists", "id": "target:alpha::alpha::lib" },
-    { "type": "nodeExists", "id": "target:beta::beta::lib" },
-    { "type": "nodeExists", "id": "file:crates/alpha/src/lib.rs" },
-    { "type": "nodeExists", "id": "file:crates/beta/src/lib.rs" },
-    { "type": "edgeExists", "source": "repo:fixtures/manifest-scanner/virtual-workspace-glob", "target": "workspace:Cargo.toml", "edgeType": "CONTAINS_WORKSPACE" },
-    { "type": "edgeExists", "source": "workspace:Cargo.toml", "target": "package:crates/alpha/Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
-    { "type": "edgeExists", "source": "workspace:Cargo.toml", "target": "package:crates/beta/Cargo.toml", "edgeType": "CONTAINS_PACKAGE" },
-    { "type": "edgeExists", "source": "package:crates/alpha/Cargo.toml", "target": "target:alpha::alpha::lib", "edgeType": "HAS_TARGET" },
-    { "type": "edgeExists", "source": "package:crates/beta/Cargo.toml", "target": "target:beta::beta::lib", "edgeType": "HAS_TARGET" },
-    { "type": "edgeExists", "source": "target:alpha::alpha::lib", "target": "file:crates/alpha/src/lib.rs", "edgeType": "OWNS_SOURCE" },
-    { "type": "edgeExists", "source": "target:beta::beta::lib", "target": "file:crates/beta/src/lib.rs", "edgeType": "OWNS_SOURCE" },
-    { "type": "nodeKindCount", "label": "repository", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "workspace", "min": 1, "max": 1 },
-    { "type": "nodeKindCount", "label": "package", "min": 2, "max": 2 },
-    { "type": "nodeKindCount", "label": "target", "min": 2, "max": 2 },
-    { "type": "nodeKindCount", "label": "source-file", "min": 2, "max": 2 },
-    { "type": "edgeKindCount", "edgeType": "CONTAINS_WORKSPACE", "min": 1, "max": 1 },
-    { "type": "edgeKindCount", "edgeType": "CONTAINS_PACKAGE", "min": 2, "max": 2 },
-    { "type": "edgeKindCount", "edgeType": "HAS_TARGET", "min": 2, "max": 2 },
-    { "type": "edgeKindCount", "edgeType": "OWNS_SOURCE", "min": 2, "max": 2 }
+    {
+      "type": "nodeExists",
+      "id": "repo:fixtures/manifest-scanner/virtual-workspace-glob"
+    },
+    {
+      "type": "nodeExists",
+      "id": "workspace:Cargo.toml"
+    },
+    {
+      "type": "nodeExists",
+      "id": "package:crates/alpha/Cargo.toml"
+    },
+    {
+      "type": "nodeExists",
+      "id": "package:crates/beta/Cargo.toml"
+    },
+    {
+      "type": "nodeExists",
+      "id": "target:alpha::alpha::lib"
+    },
+    {
+      "type": "nodeExists",
+      "id": "target:beta::beta::lib"
+    },
+    {
+      "type": "nodeExists",
+      "id": "file:crates/alpha/src/lib.rs"
+    },
+    {
+      "type": "nodeExists",
+      "id": "file:crates/beta/src/lib.rs"
+    },
+    {
+      "type": "edgeExists",
+      "source": "repo:fixtures/manifest-scanner/virtual-workspace-glob",
+      "target": "workspace:Cargo.toml",
+      "edgeType": "CONTAINS_WORKSPACE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "workspace:Cargo.toml",
+      "target": "package:crates/alpha/Cargo.toml",
+      "edgeType": "CONTAINS_PACKAGE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "workspace:Cargo.toml",
+      "target": "package:crates/beta/Cargo.toml",
+      "edgeType": "CONTAINS_PACKAGE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "package:crates/alpha/Cargo.toml",
+      "target": "target:alpha::alpha::lib",
+      "edgeType": "HAS_TARGET"
+    },
+    {
+      "type": "edgeExists",
+      "source": "package:crates/beta/Cargo.toml",
+      "target": "target:beta::beta::lib",
+      "edgeType": "HAS_TARGET"
+    },
+    {
+      "type": "edgeExists",
+      "source": "target:alpha::alpha::lib",
+      "target": "file:crates/alpha/src/lib.rs",
+      "edgeType": "OWNS_SOURCE"
+    },
+    {
+      "type": "edgeExists",
+      "source": "target:beta::beta::lib",
+      "target": "file:crates/beta/src/lib.rs",
+      "edgeType": "OWNS_SOURCE"
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "repository",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "workspace",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "package",
+      "min": 2,
+      "max": 2
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "target",
+      "min": 2,
+      "max": 2
+    },
+    {
+      "type": "nodeKindCount",
+      "label": "source-file",
+      "min": 2,
+      "max": 2
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "CONTAINS_WORKSPACE",
+      "min": 1,
+      "max": 1
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "CONTAINS_PACKAGE",
+      "min": 2,
+      "max": 2
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "HAS_TARGET",
+      "min": 2,
+      "max": 2
+    },
+    {
+      "type": "edgeKindCount",
+      "edgeType": "OWNS_SOURCE",
+      "min": 2,
+      "max": 2
+    }
   ],
   "expectedAbsence": [
-    { "type": "noCalls" },
-    { "type": "noUses" },
-    { "type": "noImports" },
-    { "type": "noImplements" },
-    { "type": "noDuplicateNodeId" },
-    { "type": "noDuplicateEdgeKey" }
+    {
+      "type": "noCalls"
+    },
+    {
+      "type": "noUses"
+    },
+    {
+      "type": "noImports"
+    },
+    {
+      "type": "noImplements"
+    },
+    {
+      "type": "noDuplicateNodeId"
+    },
+    {
+      "type": "noDuplicateEdgeKey"
+    }
   ],
   "knownLimitations": [],
   "comparisonPolicy": {
     "mode": "exact",
-    "excludeFields": ["generatedAt", "root"],
+    "excludeFields": [
+      "generatedAt",
+      "root"
+    ],
     "knownSkip": []
   }
 }
