@@ -437,6 +437,7 @@ fn check_absences(
 
 // === 全量 comparison ===
 
+#[allow(dead_code)] // fixture 用于 debug 输出
 struct SymbolComparisonResult {
     fixture: String,
     mismatches: Vec<SymbolMismatch>,

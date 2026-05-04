@@ -31,17 +31,20 @@ const P0_FIXTURES: &[&str] = &[
     "rust-virtual-workspace-glob",
 ];
 
+#[allow(dead_code)] // P1 fixtures 暂未用于全量 comparison，保留供后续扩展
 const P1_FIXTURES: &[&str] = &[
     "rust-nested-package-explicit-member",
     "rust-nested-package-glob-member",
 ];
 
+#[allow(dead_code)]
 const P1_TARGET_FIXTURES: &[&str] = &[
     "rust-target-lib-and-main",
     "rust-target-bin-worker",
     "rust-target-shared-module-ambiguous",
 ];
 
+#[allow(dead_code)]
 const P1_GUARD_FIXTURES: &[&str] = &[
     "rust-ambiguous-root-nested-package",
     "rust-ambiguous-root-duplicate-member",
@@ -49,6 +52,7 @@ const P1_GUARD_FIXTURES: &[&str] = &[
     "rust-virtual-workspace-not-crate-root",
 ];
 
+#[allow(dead_code)]
 const P1_NESTED_UNLISTED_FIXTURES: &[&str] = &["rust-nested-package-unlisted"];
 
 /// 所有 fixture（P0 + P1-nested + P1-target + P1-guard + P1-nested-unlisted）
@@ -270,6 +274,7 @@ fn map_target_kind(kebab: &str) -> Option<&'static str> {
 // === Comparison 类型 ===
 
 #[derive(Debug)]
+#[allow(dead_code)] // UnsupportedMismatch / FixtureMismatch 保留供后续 comparison 扩展
 enum MismatchType {
     ContractMismatch,
     SemanticMismatch,
@@ -1118,6 +1123,7 @@ fn compare_absence(
 
 // === 全量 comparison ===
 
+#[allow(dead_code)] // fixture 用于 debug 输出
 struct ComparisonResult {
     fixture: String,
     mismatches: Vec<Mismatch>,

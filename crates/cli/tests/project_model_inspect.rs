@@ -464,8 +464,8 @@ fn inspect_without_include_symbols_has_empty_symbols() {
     let symbols = parsed["symbols"].as_array().unwrap();
     assert_eq!(symbols.len(), 0, "不加 --include symbols 时 symbols 应为空");
 
-    let symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
-    assert_eq!(symbol_diagnostics.len(), 0, "symbolDiagnostics 应为空");
+    let _symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
+    assert_eq!(_symbol_diagnostics.len(), 0, "symbolDiagnostics 应为空");
 }
 
 #[test]
@@ -489,7 +489,7 @@ fn inspect_with_include_symbols_has_empty_but_present_symbols() {
     // 第二刀使用 TextItemExtractor，symbols 可能有内容
     // 不再断言为空
 
-    let symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
+    let _symbol_diagnostics = parsed["symbolDiagnostics"].as_array().unwrap();
 
     // stats.symbolCount 应与 symbols 长度一致
     let symbol_count = parsed["stats"]["symbolCount"].as_u64().unwrap();

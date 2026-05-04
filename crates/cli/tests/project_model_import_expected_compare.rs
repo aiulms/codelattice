@@ -317,6 +317,7 @@ fn compare_import_fields(
     mismatches
 }
 
+#[allow(dead_code)] // fixture 用于 debug 输出
 struct ImportComparisonResult {
     fixture: String,
     mismatches: Vec<ImportMismatch>,

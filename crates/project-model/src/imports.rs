@@ -1152,6 +1152,7 @@ fn byte_to_line(source_bytes: &[u8], byte_offset: usize) -> u32 {
 // ============================================================
 
 /// SymbolIndex 中的一条匹配
+#[allow(dead_code)] // 字段用于 debug 格式化和 future symbol-level 消费
 struct SymbolMatch {
     id: String,
     symbol_kind: String,

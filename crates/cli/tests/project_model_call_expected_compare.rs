@@ -248,6 +248,7 @@ fn compare_call_fields(
     mismatches
 }
 
+#[allow(dead_code)] // fixture 用于 debug 输出
 struct CallComparisonResult {
     fixture: String,
     mismatches: Vec<CallMismatch>,
