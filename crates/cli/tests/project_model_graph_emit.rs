@@ -366,6 +366,59 @@ fn test_graph_c10_external_crate_produces_no_calls_edges() {
 }
 
 // ============================================================
+// v0.2 Bug 0 fix: dangling CALLS edge（RISK_LEDGER §0）
+// ============================================================
+
+/// 验证 --include calls --include graph（无 --include symbols）时，
+/// CALLS edge 的 source/target symbol node 存在。
+/// 修复前：CALLS edges 指向不存在的 symbol node（dangling edge）。
+/// 修复后：graph + calls 自动强制包含 symbols（edge endpoint integrity）。
+#[test]
+fn test_graph_calls_without_symbols_flag_preserves_endpoint_integrity() {
+    let graph = run_graph_with_args(
+        "fixtures/call-resolution/c1-same-module",
+        &["--include", "graph", "--include", "calls"],
+    );
+    assert_common_graph_invariants(&graph);
+
+    // 收集所有 node ID
+    let node_ids: std::collections::HashSet<String> = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["id"].as_str().unwrap().to_string())
+        .collect();
+
+    // 每条 CALLS edge 的 source/target 必须存在于 nodes 中
+    for edge in graph["edges"].as_array().unwrap() {
+        if edge["type"] == "CALLS" {
+            let source = edge["source"].as_str().unwrap();
+            let target = edge["target"].as_str().unwrap();
+            assert!(
+                node_ids.contains(source),
+                "CALLS edge source node missing: {source}"
+            );
+            assert!(
+                node_ids.contains(target),
+                "CALLS edge target node missing: {target}"
+            );
+        }
+    }
+
+    // Symbol nodes 必须存在（至少 caller + callee）
+    let symbol_count = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["label"] == "symbol")
+        .count();
+    assert!(
+        symbol_count >= 2,
+        "expected at least 2 Symbol nodes (caller + callee) when --include calls --include graph, got {symbol_count}"
+    );
+}
+
+// ============================================================
 // Regression: --include graph 不影响不加 flag 的输出
 // ============================================================
 

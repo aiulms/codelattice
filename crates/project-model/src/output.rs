@@ -28,13 +28,20 @@ pub fn inspect_project_model_with_symbols(
 }
 
 /// 带全部选项的 inspect（symbol + graph + imports + calls）
+///
+/// v0.2 contract: 当 include_graph && include_calls 时，自动将 include_symbols 视为 true，
+/// 以确保 CALLS edge 的 source/target symbol node 存在（graph edge endpoint integrity）。
 pub fn inspect_project_model_with_options(
     root: &std::path::Path,
-    include_symbols: bool,
-    _include_graph: bool,
+    mut include_symbols: bool,
+    include_graph: bool,
     include_imports: bool,
     include_calls: bool,
 ) -> ProjectModelOutput {
+    // v0.2: graph + calls 组合时，强制包含 symbol nodes 以保证 graph edge endpoint integrity
+    if include_graph && include_calls {
+        include_symbols = true;
+    }
     let root_display = root.display().to_string();
     let scan = manifest::scan_manifests(root);
 
