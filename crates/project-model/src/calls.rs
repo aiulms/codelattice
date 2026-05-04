@@ -863,6 +863,42 @@ fn resolve_call_site(
                         .to_string();
                 }
                 _multiple => {
+                    // Phase 2c: 多个 crate 内同名 method 时也尝试 stdlib trait fallback。
+                    // 常见 method（clone/len/push/to_string 等）在 crate 内有多个 impl，
+                    // 但 method name 对应 known-unique stdlib trait 时仍可安全解析。
+                    // 不验证 receiver type，confidence 0.55 保持。
+                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
+                        call.resolved_symbol_id = Some(trait_path.to_string());
+                        call.confidence = 0.55;
+                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
+                            .as_str()
+                            .to_string();
+                        return;
+                    }
+                    // Phase 2c: receiver type scan（与 [] 分支对称），
+                    // 从 raw_text 提取 receiver variable name，扫描类型注解查 STDLIB_TYPE_METHODS 表
+                    if let Some(dot_pos) = call.raw_text.find('.') {
+                        let receiver = &call.raw_text[..dot_pos];
+                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                            if let Some(base_type) = scan_variable_type_annotation(
+                                source_text,
+                                call.span.byte_start,
+                                receiver,
+                            ) {
+                                if let Some(resolved_path) =
+                                    lookup_receiver_type_method(&base_type, &call.callee_name)
+                                {
+                                    call.resolved_symbol_id = Some(resolved_path);
+                                    call.confidence = 0.65;
+                                    call.reason =
+                                        CallResolutionReason::CallReceiverTypeMethodResolved
+                                            .as_str()
+                                            .to_string();
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     call.reason = CallResolutionReason::CallTargetAmbiguous
                         .as_str()
                         .to_string();
@@ -1736,6 +1772,42 @@ fn resolve_call_site_text(
                         .to_string();
                 }
                 _multiple => {
+                    // Phase 2c: 多个 crate 内同名 method 时也尝试 stdlib trait fallback。
+                    // 常见 method（clone/len/push/to_string 等）在 crate 内有多个 impl，
+                    // 但 method name 对应 known-unique stdlib trait 时仍可安全解析。
+                    // 不验证 receiver type，confidence 0.55 保持。
+                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
+                        call.resolved_symbol_id = Some(trait_path.to_string());
+                        call.confidence = 0.55;
+                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
+                            .as_str()
+                            .to_string();
+                        return;
+                    }
+                    // Phase 2c: receiver type scan（与 [] 分支对称），
+                    // 从 raw_text 提取 receiver variable name，扫描类型注解查 STDLIB_TYPE_METHODS 表
+                    if let Some(dot_pos) = call.raw_text.find('.') {
+                        let receiver = &call.raw_text[..dot_pos];
+                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                            if let Some(base_type) = scan_variable_type_annotation(
+                                source_text,
+                                call.span.byte_start,
+                                receiver,
+                            ) {
+                                if let Some(resolved_path) =
+                                    lookup_receiver_type_method(&base_type, &call.callee_name)
+                                {
+                                    call.resolved_symbol_id = Some(resolved_path);
+                                    call.confidence = 0.65;
+                                    call.reason =
+                                        CallResolutionReason::CallReceiverTypeMethodResolved
+                                            .as_str()
+                                            .to_string();
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     call.reason = CallResolutionReason::CallTargetAmbiguous
                         .as_str()
                         .to_string();
