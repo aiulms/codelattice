@@ -26,7 +26,7 @@ use crate::diagnostics::types::{CangjieDiagnostic, DiagnosticSeverity};
 /// 3. PATH fallback (direct lookup)
 ///
 /// Returns `None` if the tool is not found or not executable.
-fn resolve_cangjie_tool(tool_name: &str, sub_dir: &str) -> Option<PathBuf> {
+pub fn resolve_cangjie_tool(tool_name: &str, sub_dir: &str) -> Option<PathBuf> {
     // Check CANGJIE_HOME and CANGJIE_SDK_HOME
     for env_var in &["CANGJIE_HOME", "CANGJIE_SDK_HOME"] {
         if let Ok(home) = std::env::var(env_var) {
@@ -71,7 +71,7 @@ pub fn is_cangjie_sdk_available() -> bool {
 ///
 /// On macOS, Cangjie SDK tools link against @rpath libraries and need
 /// DYLD_LIBRARY_PATH pointing at the SDK lib directories.
-fn build_cangjie_spawn_env() -> HashMap<String, String> {
+pub fn build_cangjie_spawn_env() -> HashMap<String, String> {
     let mut env: HashMap<String, String> = std::env::vars().collect();
 
     let home = std::env::var("CANGJIE_HOME").or_else(|_| std::env::var("CANGJIE_SDK_HOME"));

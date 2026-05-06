@@ -3,6 +3,7 @@ pub mod extractors;
 pub mod graph;
 pub mod manifest;
 pub mod project;
+pub mod subprocess;
 
 // Re-export key types for convenience
 pub use diagnostics::{CangjieDiagnostic, DiagnosticSeverity};

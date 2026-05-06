@@ -13,6 +13,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::project::CangjieProject;
+use crate::subprocess::cjpm_tree::resolve_tree_dependency_dir;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,8 @@ pub enum ResolutionKind {
     PathDependency,
     /// Resolved via a cjpm.lock [[requires]] entry with a local source path.
     LockEntry,
+    /// Resolved via cjpm tree transitive dependency (compiler-resolved).
+    TreeDependency,
     /// External package (std / core prefix) — skipped.
     External,
 }
@@ -358,6 +361,26 @@ fn candidate_package_dirs(package_name: &str, project: &CangjieProject) -> Vec<S
         }
     }
 
+    // cjpm tree transitive dependency fallback: search workspace subtrees
+    // for matching cjpm.toml [package].name
+    // Port of TS `cangjie.ts:279-283`
+    if !project.packages.is_empty() {
+        let ws_roots: Vec<PathBuf> = project
+            .packages
+            .iter()
+            .map(|p| {
+                if p.module_dir.is_empty() {
+                    project.root.clone()
+                } else {
+                    project.root.join(&p.module_dir)
+                }
+            })
+            .collect();
+        if let Some(tree_dir) = resolve_tree_dependency_dir(package_name, &ws_roots) {
+            add(tree_dir.to_string_lossy().replace('\\', "/"));
+        }
+    }
+
     // Simple fallback: package name as path
     add(package_name.replace('.', "/"));
 
@@ -405,6 +428,34 @@ fn has_files_in_dir(dir: &str, project: &CangjieProject) -> bool {
     })
 }
 
+/// Check whether a resolved candidate directory matches a tree dependency
+/// (i.e. found via cjpm tree transitive dependency resolution, not via
+/// workspace member or path-based dependency).
+///
+/// Uses `resolve_tree_dependency_dir` cache — cheap to call again.
+fn is_tree_dependency_match(package_name: &str, project: &CangjieProject, dir: &str) -> bool {
+    if project.packages.is_empty() {
+        return false;
+    }
+    let ws_roots: Vec<PathBuf> = project
+        .packages
+        .iter()
+        .map(|p| {
+            if p.module_dir.is_empty() {
+                project.root.clone()
+            } else {
+                project.root.join(&p.module_dir)
+            }
+        })
+        .collect();
+    if let Some(tree_dir) = resolve_tree_dependency_dir(package_name, &ws_roots) {
+        let tree_dir_str = tree_dir.to_string_lossy().replace('\\', "/");
+        let abs_dir = project.root.join(dir).to_string_lossy().replace('\\', "/");
+        return abs_dir.starts_with(&tree_dir_str) || tree_dir_str.starts_with(&abs_dir);
+    }
+    false
+}
+
 /// Resolve a package name to a local directory using project metadata.
 fn resolve_package_by_name(package_name: &str, project: &CangjieProject) -> Option<ResolvedImport> {
     if is_external_package(package_name) {
@@ -417,7 +468,7 @@ fn resolve_package_by_name(package_name: &str, project: &CangjieProject) -> Opti
 
     for dir in candidate_package_dirs(package_name, project) {
         if has_files_in_dir(&dir, project) {
-            // Determine resolution kind
+            // Determine resolution kind by priority
             let kind = if project.packages.iter().any(|p| p.name == package_name) {
                 ResolutionKind::WorkspaceMember
             } else if project
@@ -427,6 +478,8 @@ fn resolve_package_by_name(package_name: &str, project: &CangjieProject) -> Opti
                 .any(|d| d.name == package_name && d.path.is_some())
             {
                 ResolutionKind::PathDependency
+            } else if is_tree_dependency_match(package_name, project, &dir) {
+                ResolutionKind::TreeDependency
             } else {
                 ResolutionKind::LockEntry
             };
