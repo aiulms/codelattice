@@ -1,0 +1,6 @@
+[package]
+name = "reference-function-call-basic"
+version = "0.1.0"
+src-dir = "src"
+
+[dependencies]

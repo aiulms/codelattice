@@ -532,6 +532,64 @@ pub fn extract_cangjie_references(
         result
     }
 
+    /// Check if a postfixExpression node has a callSuffix (i.e., is a function call).
+    fn has_call_suffix(node: tree_sitter::Node) -> bool {
+        let children = named_children(node);
+        children.last().map_or(false, |c| c.kind() == "callSuffix")
+    }
+
+    /// Extract the callee name from a postfixExpression that has a callSuffix.
+    ///
+    /// Handles two call forms:
+    /// - Simple call: `func(args)` or `Type(args)` → last named child before callSuffix
+    /// - Qualified call: `pkg.func(args)` → last fieldAccess segment
+    ///
+    /// Returns `None` for method calls (`obj.method(args)`) which require type inference.
+    fn extract_callee_name(node: tree_sitter::Node, source: &str) -> Option<String> {
+        let children = named_children(node);
+        if children.is_empty() {
+            return None;
+        }
+
+        // Case 1: Simple call — func(args) or Type(args)
+        //   postfixExpression → [atomicVariable, callSuffix]
+        if children[0].kind() == "atomicVariable" {
+            let var = find_named_child_by_kind(children[0], "varBindingPattern");
+            return var.and_then(|v| v.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+        }
+
+        // Case 2: Qualified call or method call
+        //   postfixExpression → [postfixExpression(...), callSuffix]
+        if children[0].kind() == "postfixExpression" {
+            let inner_children = named_children(children[0]);
+
+            // Method call detection: inner postfixExpression ends with fieldAccess
+            // and does NOT itself have callSuffix → obj.method(), skip
+            if let Some(last) = inner_children.last() {
+                if last.kind() == "fieldAccess"
+                    && (inner_children.len() < 2
+                        || inner_children[inner_children.len() - 2].kind() != "callSuffix")
+                {
+                    // obj.method() — method call, requires type inference
+                    return None;
+                }
+            }
+
+            // Qualified call: pkg.func(args) → extract func from fieldAccess
+            let field = find_last_named_child_by_kind(children[0], "fieldAccess");
+            if let Some(fa) = field {
+                let av = find_named_child_by_kind(fa, "atomicVariable");
+                if let Some(av_node) = av {
+                    let vb = find_named_child_by_kind(av_node, "varBindingPattern");
+                    return vb
+                        .and_then(|v| v.utf8_text(source.as_bytes()).ok().map(|s| s.to_string()));
+                }
+            }
+        }
+
+        None
+    }
+
     // Push a reference if the target resolves uniquely.
     // Resolution order: same-file index → import binding table (cross-file).
     fn push_reference(
@@ -758,6 +816,35 @@ pub fn extract_cangjie_references(
                     }
                 }
             }
+        }
+
+        // ── Function call: postfixExpression with callSuffix ──
+        // 简单函数调用 func(args) / Type(args) / pkg.func(args) → USES edge。
+        // 不处理 method call（obj.method(args)）— 需要 receiver type inference（stop-line）。
+        if kind == "postfixExpression" && has_call_suffix(node) {
+            if let Some(callee_name) = extract_callee_name(node, source) {
+                // 过滤 builtin type 的构造函数调用（如 Array(10)）
+                if !is_builtin_type(&callee_name) {
+                    let source_id = build_source_id(func_stack.last(), file_path);
+                    push_reference(
+                        references,
+                        ReferenceKind::Uses,
+                        source_id,
+                        &callee_name,
+                        vec![
+                            CangjieSymbolKind::Function,
+                            CangjieSymbolKind::Class, // 构造函数调用如 Point(1,2)
+                            CangjieSymbolKind::Struct, // struct 字面量调用
+                        ],
+                        file_path,
+                        index,
+                        import_bindings,
+                        0.80, // 同文件函数调用：confidence 0.80
+                        "cangjie-function-call",
+                    );
+                }
+            }
+            // 不 return — 继续递归 walk children（callee 表达式内可能有嵌套调用如 foo(bar())）
         }
 
         // ── Type annotation: variableDeclaration ──

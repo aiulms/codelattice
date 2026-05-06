@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 12 完成：cross-file reference extraction via import bindings，108 tests pass with feature）
+最后更新：2026-05-06（Phase 2 Slice 13 完成：function call reference extraction，233 tests pass with feature）
 
 ## 用途
 
@@ -190,8 +190,25 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice12-cross-file-reference-execution-card.md`
 - Closure Review：`docs/plans/2026-05-06-cangjie-phase2-slice12-cross-file-reference-closure-review.md`
 
+**Phase 2 Slice 13 — function call reference extraction ✅ 完成（2026-05-06）：**
+- 关闭 function call gap：`postfixExpression` 含 `callSuffix` 的节点现在产生 USES edges
+- 新增 `has_call_suffix()` + `extract_callee_name()` helpers：处理 simple call / constructor call / qualified call
+- Method call 检测并跳过（`obj.method()` → 返回 None，需 receiver type inference）
+- Builtin type 过滤（`Array(10)` 等构造函数调用不产生 USES edge）
+- 嵌套调用支持（handler 不 return early，递归 walk 处理 `foo(bar())`）
+- 复用现有 `push_reference()` pipeline：same-file（SameFileIndex, confidence 0.80）→ cross-file（ImportBindingTable, confidence 0.85）
+- 新增 2 个 fixtures：`reference-function-call-basic/` + `reference-function-call-cross-file/`
+- 10 integration tests，233/233 pass（with feature），0 fail，零新增依赖
+- MVP 支持：simple function call / constructor call / qualified call / cross-file via explicit import
+- 不支持：method call / wildcard import call / alias renamed import call / external dependency call
+- Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice13-function-call-reference-preflight.md`
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice13-function-call-reference-execution-card.md`
+- Closure Review：`docs/plans/2026-05-06-cangjie-phase2-slice13-function-call-reference-closure-review.md`
+
 **Phase 2 Slices 13+（后续）：**
-- Slice 13：function call reference extraction（当前 AST walk 只提取 type annotation/field read/write）
+- ~~Slice 13：function call reference extraction~~ ✅ 完成
+- Slice 14：wildcard import expansion（P1 future，需先写 preflight）
+- Slice 15：alias-resolution（P1 future，需先写 preflight）
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
 
 **Rust-core stop-line 重申（不可协商）：**
@@ -223,4 +240,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 12. ~~Phase 2 Slice 11 — import resolution + IMPORTS edges~~ ✅ 完成
 13. ~~Phase 2 Slice 11b — cjpm tree + external dep resolution~~ ✅ 完成
 14. ~~Phase 2 Slice 12 — cross-file reference extraction~~ ✅ 完成
-15. Phase 2 Slice 13 — function call reference extraction（后续）
+15. ~~Phase 2 Slice 13 — function call reference extraction~~ ✅ 完成
+16. Phase 2 Slice 14+ — wildcard import / alias / method dispatch（后续，需 preflight）

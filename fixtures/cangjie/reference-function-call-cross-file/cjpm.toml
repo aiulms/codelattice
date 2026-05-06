@@ -1,0 +1,6 @@
+[package]
+name = "reference-function-call-cross-file"
+version = "0.1.0"
+src-dir = "src"
+
+[dependencies]
