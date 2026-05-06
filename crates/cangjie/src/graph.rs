@@ -10,6 +10,7 @@ use serde::Serialize;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use crate::diagnostics::CangjieDiagnostic;
 use crate::project::{CangjiePackageInfo, CangjieProject};
 use crate::CangjieSymbol;
 
@@ -25,6 +26,8 @@ pub enum NodeKind {
     Package,
     SourceFile,
     Symbol,
+    /// Compiler or linter diagnostic (cjc / cjlint).
+    Diagnostic,
 }
 
 /// A node in the Cangjie graph.
@@ -48,6 +51,8 @@ pub enum EdgeKind {
     ContainsPackage,
     OwnsSource,
     Defines,
+    /// Diagnostic → Symbol (linter/compiler annotation).
+    Annotates,
 }
 
 /// An edge in the Cangjie graph.
@@ -254,6 +259,81 @@ fn infer_owning_package(
         Some(pkg) => package_node_id(pkg),
         None => package_node_id(&packages[0]), // fallback to first package
     }
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostics graph emission
+// ---------------------------------------------------------------------------
+
+/// Build diagnostic nodes and ANNOTATES edges from a diagnostics list.
+///
+/// Each diagnostic becomes a `Diagnostic` node. When a diagnostic's file path
+/// matches a known source file, ANNOTATES edges are created from the diagnostic
+/// to the symbols in that file that overlap with the diagnostic's line range.
+///
+/// Returns `(nodes, edges)` that should be merged into the graph output.
+pub fn emit_cangjie_diagnostics(
+    diagnostics: &[CangjieDiagnostic],
+    symbols_by_file: &BTreeMap<PathBuf, Vec<CangjieSymbol>>,
+    project_root: &Path,
+) -> (Vec<GraphNode>, Vec<GraphEdge>) {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+
+    for (idx, diag) in diagnostics.iter().enumerate() {
+        let diag_id = format!("diag:{}:{}", diag.source, idx);
+
+        nodes.push(GraphNode {
+            id: diag_id.clone(),
+            kind: NodeKind::Diagnostic,
+            label: diag.message.clone(),
+            properties: serde_json::json!({
+                "filePath": diag.file_path,
+                "severity": diag.severity,
+                "source": diag.source,
+                "rule": diag.rule,
+                "startLine": diag.start_line,
+                "startColumn": diag.start_column,
+                "endLine": diag.end_line,
+                "endColumn": diag.end_column,
+            }),
+        });
+
+        // Find symbols in the same file whose line range overlaps the diagnostic.
+        // Build a PathBuf key that matches symbols_by_file keys.
+        for (file_path, symbols) in symbols_by_file {
+            let file_str = file_path.to_string_lossy();
+            let diag_file = &diag.file_path;
+
+            // Match by suffix (diag.file_path may be relative or absolute)
+            if !file_str.ends_with(diag_file) && !diag_file.ends_with(&*file_str) {
+                // Also try matching by filename alone
+                let diag_name = Path::new(diag_file)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string());
+                let file_name = Path::new(&*file_str)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string());
+                if diag_name != file_name {
+                    continue;
+                }
+            }
+
+            for sym in symbols {
+                // Check line range overlap
+                if sym.start_line <= diag.end_line && sym.end_line >= diag.start_line {
+                    let sym_id = symbol_node_id(file_path, project_root, sym);
+                    edges.push(GraphEdge {
+                        kind: EdgeKind::Annotates,
+                        source_id: diag_id.clone(),
+                        target_id: sym_id,
+                    });
+                }
+            }
+        }
+    }
+
+    (nodes, edges)
 }
 
 // ---------------------------------------------------------------------------

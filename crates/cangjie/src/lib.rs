@@ -1,9 +1,11 @@
+pub mod diagnostics;
 pub mod extractors;
 pub mod graph;
 pub mod manifest;
 pub mod project;
 
 // Re-export key types for convenience
+pub use diagnostics::{CangjieDiagnostic, DiagnosticSeverity};
 pub use extractors::{CangjieSymbol, CangjieSymbolKind};
 pub use manifest::{
     active_members, load_cjpm_manifest, parse_cjpm_lock, parse_cjpm_toml, resolve_path_dependency,
