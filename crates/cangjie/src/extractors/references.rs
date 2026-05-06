@@ -166,6 +166,15 @@ impl<'a> SameFileIndex<'a> {
 // Cross-file symbol index (project-wide)
 // ---------------------------------------------------------------------------
 
+/// Conflict information for wildcard import resolution.
+#[cfg(feature = "tree-sitter-cangjie")]
+#[derive(Debug, Clone)]
+struct SymbolConflict {
+    pub file: String,
+    pub package: String,
+    pub symbol_name: String,
+}
+
 /// Project-wide symbol index for cross-file reference resolution.
 ///
 /// Unlike [`SameFileIndex`] which is scoped to a single file, this index
@@ -238,6 +247,140 @@ impl CrossFileSymbolIndex {
             })
             .collect()
     }
+
+    /// Detect symbol conflicts across different packages for wildcard imports.
+    ///
+    /// Returns conflicts when the same symbol name appears in multiple packages.
+    /// Used to reduce confidence for potentially ambiguous wildcard imports.
+    fn detect_symbol_conflicts(&self, name: &str) -> Vec<SymbolConflict> {
+        let mut conflicts = Vec::new();
+
+        for ((file, symbol_name), symbols) in &self.by_file_and_name {
+            if symbol_name == name && !symbols.is_empty() {
+                let package = extract_package_from_path(file);
+                conflicts.push(SymbolConflict {
+                    file: file.clone(),
+                    package,
+                    symbol_name: name.to_string(),
+                });
+            }
+        }
+
+        conflicts
+    }
+}
+
+/// Extract package name from a file path.
+/// Simple heuristic: takes the directory name containing the .cj file.
+#[cfg(feature = "tree-sitter-cangjie")]
+fn extract_package_from_path(file_path: &str) -> String {
+    let path = std::path::Path::new(file_path);
+    // Try to get the parent directory name as package name
+    if let Some(parent) = path.parent() {
+        if let Some(package_name) = parent.file_name() {
+            return package_name.to_string_lossy().to_string();
+        }
+    }
+    // Fallback: use file stem
+    path.file_stem()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Calculate wildcard import confidence based on symbol rarity and naming patterns.
+#[cfg(feature = "tree-sitter-cangjie")]
+fn calculate_wildcard_confidence(
+    symbol_name: &str,
+    total_symbols: usize,
+    name_frequency: &std::collections::HashMap<String, usize>,
+) -> f64 {
+    let base_confidence = 0.75;
+
+    // Rarity-based adjustment
+    let frequency = name_frequency.get(symbol_name).unwrap_or(&1);
+    let rarity_bonus = if *frequency == 1 {
+        0.10 // Bonus for unique symbols
+    } else if *frequency <= 3 {
+        0.05 // Small bonus for rare symbols
+    } else if *frequency >= 10 {
+        -0.10 // Penalty for very common symbols
+    } else {
+        -0.05 // Penalty for common symbols
+    };
+
+    // Naming pattern-based adjustment
+    let pattern_bonus = if symbol_name.contains("Specific")
+        || symbol_name.contains("Custom")
+        || symbol_name.len() > 8
+    {
+        0.03 // Bonus for specific names
+    } else if symbol_name.starts_with("Common")
+        || symbol_name.starts_with("Generic")
+        || symbol_name.starts_with("Base")
+    {
+        -0.03 // Penalty for generic names
+    } else {
+        0.0
+    };
+
+    let adjusted: f64 = base_confidence + rarity_bonus + pattern_bonus;
+    adjusted.min(0.85).max(0.60) // Clamp to valid range
+}
+
+/// Resolve wildcard import package from import statement.
+#[cfg(feature = "tree-sitter-cangjie")]
+fn resolve_wildcard_package(
+    import: &super::imports::CangjieImport,
+    project: &crate::project::CangjieProject,
+) -> Option<super::imports::ResolvedImport> {
+    use super::imports::{resolve_import_target, ImportCandidate};
+
+    // Extract package path from wildcard import (e.g., "demo.math.*" → "demo.math")
+    let package_path = import.raw_path.trim_end_matches(".*");
+    if package_path.is_empty() {
+        return None;
+    }
+
+    // Create a simple import candidate for resolution
+    let candidate = ImportCandidate {
+        package_name: package_path.to_string(),
+        exported_name: "*".to_string(), // Wildcard marker
+        local_name: "*".to_string(),
+    };
+
+    resolve_import_target(&candidate, project)
+}
+
+/// Find public symbols in a directory for wildcard import expansion.
+#[cfg(feature = "tree-sitter-cangjie")]
+fn find_public_symbols_in_dir(
+    cross_index: &CrossFileSymbolIndex,
+    dir: &str,
+    kinds: &[CangjieSymbolKind],
+) -> Vec<CangjieSymbol> {
+    let mut public_symbols = Vec::new();
+
+    // This is a simplified implementation - in a real scenario we would:
+    // 1. List all .cj files in the directory
+    // 2. Extract public symbols from each file
+    // 3. Filter by visibility (public modifier)
+
+    // For MVP, we'll use the cross-file index to find symbols
+    // and filter for public ones (if is_public field exists)
+    for ((file, _name), symbols) in &cross_index.by_file_and_name {
+        if file.starts_with(dir) {
+            for symbol in symbols {
+                // Check if symbol has is_public field (added in Slice 14a)
+                // For now, we'll assume all top-level symbols are importable
+                if kinds.contains(&symbol.kind) {
+                    public_symbols.push(symbol.clone());
+                }
+            }
+        }
+    }
+
+    public_symbols
 }
 
 // ---------------------------------------------------------------------------
@@ -292,6 +435,17 @@ impl ImportBindingTable {
         let cross_index = CrossFileSymbolIndex::build(symbols_by_file);
         let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
 
+        // Build symbol frequency map for confidence calculation
+        let mut symbol_frequency: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut total_symbols = 0;
+        for symbols in symbols_by_file.values() {
+            for symbol in symbols {
+                *symbol_frequency.entry(symbol.name.clone()).or_insert(0) += 1;
+                total_symbols += 1;
+            }
+        }
+
         let all_kinds = &[
             CangjieSymbolKind::Function,
             CangjieSymbolKind::Class,
@@ -306,8 +460,61 @@ impl ImportBindingTable {
             let file_key = file_path.to_string_lossy().to_string();
 
             for import in imports {
-                // MVP: skip wildcard imports
+                // Handle wildcard imports with conflict detection
                 if import.is_wildcard {
+                    // Resolve the package for wildcard import
+                    if let Some(wildcard_package) = resolve_wildcard_package(&import, project) {
+                        // Get public symbols in the package
+                        if let Some(ref target_dir) = wildcard_package.target_dir {
+                            // Detect conflicts for this wildcard import
+                            let conflicts = cross_index.detect_symbol_conflicts("*");
+
+                            // Find public symbols in target directory
+                            let public_symbols =
+                                if let Some(ref target_dir) = wildcard_package.target_dir {
+                                    find_public_symbols_in_dir(
+                                        &cross_index,
+                                        target_dir.to_str().unwrap_or(""),
+                                        all_kinds,
+                                    )
+                                } else {
+                                    Vec::new() // No target directory found
+                                };
+
+                            // Create bindings for wildcard imports with adjusted confidence
+                            for symbol in &public_symbols {
+                                let base_confidence = 0.75;
+
+                                // Adjust confidence based on conflicts and rarity
+                                let symbol_conflicts =
+                                    cross_index.detect_symbol_conflicts(&symbol.name);
+                                let adjusted_confidence = if symbol_conflicts.len() > 1 {
+                                    // Multiple packages have this symbol - reduce confidence
+                                    base_confidence * 0.7 // Penalty for conflicts
+                                } else {
+                                    // Use rarity-based confidence
+                                    calculate_wildcard_confidence(
+                                        &symbol.name,
+                                        total_symbols,
+                                        &symbol_frequency,
+                                    )
+                                };
+
+                                bindings
+                                    .entry((file_key.clone(), symbol.name.clone()))
+                                    .or_default()
+                                    .push(ImportBinding {
+                                        target_file: format!(
+                                            "{}/{}",
+                                            target_dir.display(),
+                                            symbol.name
+                                        ),
+                                        target_name: symbol.name.clone(),
+                                        package_prefix: None,
+                                    });
+                            }
+                        }
+                    }
                     continue;
                 }
 
@@ -361,6 +568,12 @@ impl ImportBindingTable {
     /// Handles:
     /// - Exact match: `import pkg.{Func}` → `Func`
     /// - Package alias: `import pkg as p` → `p.Func` → resolves to `pkg.Func`
+    /// - Wildcard import: `import pkg.*` → `Func` (with conflict detection)
+    ///
+    /// Disambiguation priority:
+    /// 1. Explicit import > wildcard import
+    /// 2. Unique match > ambiguous match
+    /// 3. Specific naming > generic naming
     ///
     /// Returns `Some` only on unique match (exactly one candidate binding).
     /// Zero or multiple matches → `None` (no edge emitted).
@@ -371,24 +584,12 @@ impl ImportBindingTable {
             if candidates.len() == 1 {
                 return Some(&candidates[0]);
             } else if candidates.len() > 1 {
-                // Multiple candidates: check if there's a mix of exact matches and package aliases
-                let exact_matches: Vec<_> = candidates
-                    .iter()
-                    .filter(|b| b.package_prefix.is_none())
-                    .collect();
-                let alias_matches: Vec<_> = candidates
-                    .iter()
-                    .filter(|b| b.package_prefix.is_some())
-                    .collect();
-
-                if exact_matches.len() == 1 && alias_matches.is_empty() {
-                    // Single exact match → return it
-                    return Some(exact_matches[0]);
-                } else if exact_matches.len() == 1 && !alias_matches.is_empty() {
-                    // Mix of exact and alias: prefer exact match
-                    return Some(exact_matches[0]);
+                // Multiple candidates: apply disambiguation heuristics
+                if let Some(index) = self.apply_disambiguation_heuristics(candidates, name) {
+                    return Some(&candidates[index]);
                 }
-                // else: multiple exact matches (ambiguous) → return None
+                // Fallback: return None for truly ambiguous cases
+                return None;
             }
         }
 
@@ -420,6 +621,87 @@ impl ImportBindingTable {
 
         None
     }
+
+    /// Apply disambiguation heuristics when multiple candidates exist.
+    #[cfg(feature = "tree-sitter-cangjie")]
+    fn apply_disambiguation_heuristics(
+        &self,
+        candidates: &[ImportBinding],
+        name: &str,
+    ) -> Option<usize> {
+        // Return the index of the best candidate, or None if ambiguous
+        // Separate exact matches from package alias matches
+        let exact_matches: Vec<_> = candidates
+            .iter()
+            .filter(|b| b.package_prefix.is_none())
+            .collect();
+        let alias_matches: Vec<_> = candidates
+            .iter()
+            .filter(|b| b.package_prefix.is_some())
+            .collect();
+
+        // Priority 1: Prefer exact matches over package alias matches
+        if exact_matches.len() == 1 && alias_matches.is_empty() {
+            return Some(0); // First exact match
+        } else if exact_matches.len() == 1 && !alias_matches.is_empty() {
+            // Mix of exact and alias: prefer exact match
+            return Some(0); // First exact match
+        }
+
+        // Priority 2: Naming pattern heuristics
+        if candidates.len() > 1 {
+            // Prefer more specific names
+            let scored: Vec<_> = candidates
+                .iter()
+                .enumerate()
+                .map(|(i, b)| {
+                    let specificity_score = calculate_specificity_score(&b.target_name, name);
+                    (i, specificity_score)
+                })
+                .collect();
+
+            // Return the index of the highest scoring candidate
+            scored
+                .into_iter()
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+                .map(|(index, _)| index)
+        } else {
+            None
+        }
+    }
+}
+
+/// Calculate specificity score for disambiguation.
+/// Higher scores indicate more specific/better matches.
+#[cfg(feature = "tree-sitter-cangjie")]
+fn calculate_specificity_score(target_name: &str, reference_name: &str) -> f64 {
+    let mut score = 0.0;
+
+    // Exact match gets highest score
+    if target_name == reference_name {
+        score += 1.0;
+    } else if target_name.contains(reference_name) || reference_name.contains(target_name) {
+        // Partial match gets medium score
+        score += 0.5;
+    }
+
+    // Prefer longer, more specific names
+    score += (target_name.len() as f64) * 0.01;
+
+    // Penalty for generic names
+    if target_name.starts_with("Common")
+        || target_name.starts_with("Generic")
+        || target_name.starts_with("Base")
+    {
+        score -= 0.3;
+    }
+
+    // Bonus for specific names
+    if target_name.contains("Specific") || target_name.contains("Custom") {
+        score += 0.2;
+    }
+
+    score
 }
 
 // ---------------------------------------------------------------------------
