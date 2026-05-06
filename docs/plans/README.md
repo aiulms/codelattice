@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（GitNexus 路线收束：Rust-core 确认为 Rust-native 复刻主线）
+最后更新：2026-05-06（B 线 Rust-native Cangjie migration Phase 1 preflight 完成）
 
 ## 用途
 
@@ -31,20 +31,16 @@ GitNexus 路线已收束：GitNexus-RC TS 冻结为过渡生产环境；gitnexus
 
 详细审计：[GitNexus-RC 路线收束审计](https://gitcode.com/aiulms/gitnexus-rc) — `docs/language-support/plans/2026-05-06-gitnexus-rust-native-mainline-convergence-audit.md`
 
-### Rust-native Cangjie Migration（future，待开启）
+### Rust-native Cangjie Migration
 
-此为 B 线核心内容。在当前 Rust-core 能力基础上，逐步将 Cangjie adapter 从 TS 迁移到 Rust-native 实现。
+**Phase 1 — Preflight ✅ 完成（2026-05-06）：**
+- 冻结 Cangjie adapter scope：~3,500 行可移植逻辑 vs GitNexus-specific 管道
+- 设计 Rust-core cangjie crate 结构（manifest/extractors/resolver/diagnostics/project）
+- 确定 subprocess 策略（cjc/cjlint/cjpm tree → spawn）+ tree-sitter 策略（vendor Option A + feature gate）
+- 定义 stop-line + Phase 2 implementation scope 预览
+- Preflight：[GitNexus-RC plans](https://gitcode.com/aiulms/gitnexus-rc) — `docs/language-support/plans/2026-05-06-rust-native-cangjie-migration-phase1-preflight.md`
 
-**Phase 1 — Preflight（docs-only，下一轮 opening）：**
-1. 写 Cangjie migration preflight：冻结 Rust-core Cangjie adapter scope
-2. 设计 Cangjie crate 结构（crates/cangjie/）
-3. 确定 cjc/cjlint/cjpm subprocess 策略
-4. 确定 manifest model（cjpm.toml）
-5. 冻结符号提取 + reference index scope
-6. 冻结 diagnostics pipeline scope
-7. 确定 cjpm import resolver scope（复用 3-tier strategy）
-
-**Phase 2 — Implementation（后续 execution cards）：**
+**Phase 2 — Implementation（待用户 gate，后续 execution cards）：**
 1. cjpm manifest parser（toml crate）
 2. Cangjie tree-sitter adapter
 3. cjc/cjlint diagnostics runner
@@ -66,6 +62,7 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 - Text fallback / CalleeIndex 提取留待第二刀。
 
 下一步优先级：
-1. GitNexus-RC tracker / plans README / RISK_LEDGER 同步 ✅（2026-05-06 路线收束已完成）
-2. Cangjie migration preflight（B 线下一轮 opening）
-3. 选择下一轮 opening（按 tracker 优先级：active bug gate → next opening → quality watch）
+1. ~~Cangjie migration preflight（B 线下一轮 opening）~~ ✅ 完成（Phase 1 preflight）
+2. Phase 2 Cangjie implementation（需用户 gate）
+3. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
+4. 按 tracker 优先级选择下一轮 opening
