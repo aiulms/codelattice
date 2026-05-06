@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（B 线 Rust-native Cangjie migration Phase 1 preflight 完成）
+最后更新：2026-05-06（Phase 2 Slice 1 完成：cangjie crate skeleton + cjpm parser）
 
 ## 用途
 
@@ -23,7 +23,12 @@
 
 ## 当前推荐下一篇计划
 
-**（当前没有进行中的 execution card）**
+**Phase 2 Slice 2 — workspace/dependency metadata（待用户 gate）**
+
+当前进度：Slice 1 已完成（cangjie crate skeleton + cjpm parser, 105 tests pass）。
+下一步：扩展 workspace member 递归解析、build-members/test-members 过滤、cjpm.lock 最小 parser、path dependency resolution helper。
+
+详细 Execution Card 待写（Slice 2）。
 
 ### 路线收束（2026-05-06）
 
@@ -40,12 +45,36 @@ GitNexus 路线已收束：GitNexus-RC TS 冻结为过渡生产环境；gitnexus
 - 定义 stop-line + Phase 2 implementation scope 预览
 - Preflight：[GitNexus-RC plans](https://gitcode.com/aiulms/gitnexus-rc) — `docs/language-support/plans/2026-05-06-rust-native-cangjie-migration-phase1-preflight.md`
 
-**Phase 2 — Implementation（待用户 gate，后续 execution cards）：**
-1. cjpm manifest parser（toml crate）
-2. Cangjie tree-sitter adapter
-3. cjc/cjlint diagnostics runner
-4. LSP client（future，P1）
-5. Graph emitter 扩展（Diagnostic + ANNOTATES + MODIFIES）
+**Phase 2 — Implementation（进行中，2026-05-06）：**
+
+Slice 1 — cangjie crate skeleton + cjpm parser ✅ 完成：
+- 新建 `crates/cangjie` crate，加入 workspace
+- 实现 `parse_cjpm_toml()` / `load_cjpm_manifest()` API
+- 使用已有 `toml` crate（零新增依赖），serde 反序列化
+- 支持 [package]（name/version/src-dir/cjc-version/output-type）、[workspace]（members/build-members）、[dependencies]（simple string + inline table + git）
+- 新增 fixture `fixtures/cangjie/cjpm-basic/` + 15 tests（13 unit + 2 integration）
+- Execution Card：gitnexus-rust-core `docs/plans/2026-05-06-cangjie-phase2-slice1-execution-card.md`
+
+**Phase 2 Slice 2 — workspace/dependency metadata（待 gate）：**
+1. 解析 workspace member 的 cjpm.toml 递归
+2. build-members / test-members 过滤
+3. cjpm.lock 最小 parser（placeholder preflight）
+4. path dependency resolution helper
+
+**Phase 2 Slice 3 — baseline project model output（后续）：**
+- project root detection via cjpm.toml
+- list source files under src-dir
+- emit minimal project metadata
+
+**Phase 2 Slice 4 — tree-sitter Cangjie preflight / vendor gate（后续）：**
+- 不直接 vendor 大 parser.c，先写 vendor gate / feasibility doc
+- 检查 tree-sitter-cangjie 来源、license、ABI、编译方式
+- 设计 feature gate
+
+**后续 slices（5+）：**
+5. cjc/cjlint diagnostics runner
+6. LSP client（future，P1）
+7. Graph emitter 扩展（Diagnostic + ANNOTATES + MODIFIES）
 
 **Rust-core stop-line 重申（不可协商）：**
 - No MCP server
@@ -63,6 +92,7 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 
 下一步优先级：
 1. ~~Cangjie migration preflight（B 线下一轮 opening）~~ ✅ 完成（Phase 1 preflight）
-2. Phase 2 Cangjie implementation（需用户 gate）
-3. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
-4. 按 tracker 优先级选择下一轮 opening
+2. ~~Phase 2 Slice 1 — cangjie crate skeleton + cjpm parser~~ ✅ 完成
+3. Phase 2 Slice 2 — workspace/dependency metadata（需用户 gate）
+4. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
+5. 按 tracker 优先级选择下一轮 opening

@@ -177,6 +177,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitnexus-cangjie"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "toml",
+]
+
+[[package]]
 name = "gitnexus-project-model"
 version = "0.1.0"
 dependencies = [

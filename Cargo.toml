@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/project-model",
     "crates/cli",
+    "crates/cangjie",
 ]
 
 [workspace.package]
