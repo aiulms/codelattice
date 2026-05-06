@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 8 完成：Cangjie diagnostics runner — cjc/cjlint subprocess integration，163 tests pass（with feature），21 new tests，零新增依赖）
+最后更新：2026-05-06（Phase 2 Slice 8-9 完成：diagnostics runner + integration into inspect_cangjie_project one-shot，163 tests pass）
 
 ## 用途
 
@@ -43,6 +43,13 @@ Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
 - 零新增依赖（std::process::Command stdlib + serde_json 已有）
 - Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice8-preflight.md`
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice8-execution-card.md`
+
+**Phase 2 Slice 9 — diagnostics integration into inspect_cangjie_project ✅ 完成（2026-05-06）：**
+- 将 `run_all_diagnostics()` + `emit_cangjie_diagnostics()` 串联到 `inspect_cangjie_project()` one-shot 中
+- SDK absent 时 graceful degrade（空 Vec），不影响现有符号/图输出
+- 图输出自动包含 Diagnostic nodes + ANNOTATES edges
+- 零新增依赖，163/163 pass（with feature），不改 Tool / live repo
+- ~22 行 graph.rs 变更
 
 ### 路线收束（2026-05-06）
 
@@ -131,8 +138,7 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice7-preflight.md`
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
 
-**Phase 2 Slice 9+（后续）：**
-- Slice 9：diagnostics integration into inspect_cangjie_project() one-shot
+**Phase 2 Slices 10+（后续）：**
 - Slice 10：reference extraction（USES/ACCESSES/MODIFIES edges，需 preflight）
 - Slice 11：import resolution（cjpm tree + lock-based，需 preflight）
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
@@ -160,4 +166,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 6. ~~Phase 2 Slice 5 — tree-sitter Cangjie 集成~~ ✅ 完成
 7. ~~Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction~~ ✅ 完成
 8. Phase 2 Slice 8 — Cangjie diagnostics runner ✅ 完成
-9. Phase 2 Slice 9+ — diagnostics integration / reference extraction / import resolution / LSP client preflight
+9. Phase 2 Slice 9 — diagnostics integration into inspect_cangjie_project ✅ 完成
+10. Phase 2 Slices 10+ — reference extraction / import resolution / LSP client preflight
