@@ -1,0 +1,4 @@
+[package]
+name = "reference-cross-file-basic"
+version = "0.1.0"
+src-dir = "src"

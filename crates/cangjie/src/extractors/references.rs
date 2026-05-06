@@ -40,6 +40,9 @@ pub struct CangjieReference {
     pub target_kinds: Vec<CangjieSymbolKind>,
     /// File path where this reference was found.
     pub file_path: String,
+    /// File path of the target symbol's definition (cross-file resolution).
+    /// `None` means unresolved or same-file (emitter falls back to `file_path`).
+    pub target_file: Option<String>,
     /// Confidence score (0.0–1.0).
     pub confidence: f64,
     /// Reason code for the edge (e.g. "cangjie-type-annotation").
@@ -160,6 +163,191 @@ impl<'a> SameFileIndex<'a> {
 }
 
 // ---------------------------------------------------------------------------
+// Cross-file symbol index (project-wide)
+// ---------------------------------------------------------------------------
+
+/// Project-wide symbol index for cross-file reference resolution.
+///
+/// Unlike [`SameFileIndex`] which is scoped to a single file, this index
+/// covers all source files in the project workspace.
+#[cfg(feature = "tree-sitter-cangjie")]
+struct CrossFileSymbolIndex {
+    /// Key: (file_path_string, symbol_name) → all symbols matching that name in that file.
+    by_file_and_name: HashMap<(String, String), Vec<CangjieSymbol>>,
+}
+
+#[cfg(feature = "tree-sitter-cangjie")]
+impl CrossFileSymbolIndex {
+    fn build(
+        symbols_by_file: &std::collections::BTreeMap<std::path::PathBuf, Vec<CangjieSymbol>>,
+    ) -> Self {
+        let mut by_file_and_name: HashMap<(String, String), Vec<CangjieSymbol>> = HashMap::new();
+        for (file, symbols) in symbols_by_file {
+            let file_key = file.to_string_lossy().to_string();
+            for sym in symbols {
+                let key = (file_key.clone(), sym.name.clone());
+                by_file_and_name.entry(key).or_default().push(sym.clone());
+            }
+        }
+        Self { by_file_and_name }
+    }
+
+    /// Look up a symbol in a specific file by name and kind filter.
+    /// Returns `Some` only on unique match (same semantics as SameFileIndex).
+    #[allow(dead_code)] // reserved for direct cross-file lookup; current path uses find_files_with_symbol_in_dir
+    fn resolve(
+        &self,
+        file: &str,
+        name: &str,
+        kinds: &[CangjieSymbolKind],
+    ) -> Option<&CangjieSymbol> {
+        let key = (file.to_string(), name.to_string());
+        let candidates = self.by_file_and_name.get(&key)?;
+        let filtered: Vec<&CangjieSymbol> = candidates
+            .iter()
+            .filter(|s| kinds.contains(&s.kind))
+            .collect();
+        if filtered.len() == 1 {
+            Some(filtered[0])
+        } else {
+            None
+        }
+    }
+
+    /// Find files under `dir` that define a symbol with the given name and matching kind.
+    fn find_files_with_symbol_in_dir(
+        &self,
+        dir: &std::path::Path,
+        name: &str,
+        kinds: &[CangjieSymbolKind],
+    ) -> Vec<String> {
+        let dir_str = dir.to_string_lossy().to_string();
+        self.by_file_and_name
+            .iter()
+            .filter_map(|((file, sym_name), syms)| {
+                if file.starts_with(&dir_str) && sym_name == name {
+                    let matching = syms.iter().any(|s| kinds.contains(&s.kind));
+                    if matching {
+                        Some(file.clone())
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Import binding table (cross-file reference resolution)
+// ---------------------------------------------------------------------------
+
+/// A resolved import binding for cross-file reference lookup.
+#[cfg(feature = "tree-sitter-cangjie")]
+#[derive(Debug, Clone)]
+pub struct ImportBinding {
+    /// The file containing the target symbol definition.
+    pub target_file: String,
+    /// The symbol name as defined in the target file.
+    pub target_name: String,
+}
+
+/// Maps (source_file, local_name) → candidate import bindings.
+///
+/// Built from the project's import graph and symbol index.
+/// Used by reference extraction to resolve cross-file targets.
+#[cfg(feature = "tree-sitter-cangjie")]
+pub struct ImportBindingTable {
+    bindings: HashMap<(String, String), Vec<ImportBinding>>,
+}
+
+#[cfg(feature = "tree-sitter-cangjie")]
+impl ImportBindingTable {
+    /// Build the import binding table from the project's imports and symbol index.
+    ///
+    /// For each named import in each source file:
+    /// 1. Resolve the import target to a package directory.
+    /// 2. Find source files under that directory that define the imported symbol.
+    /// 3. Record the binding if exactly one candidate file is found.
+    pub fn build(
+        symbols_by_file: &std::collections::BTreeMap<std::path::PathBuf, Vec<CangjieSymbol>>,
+        imports_by_file: &std::collections::BTreeMap<
+            std::path::PathBuf,
+            Vec<super::imports::CangjieImport>,
+        >,
+        project: &crate::project::CangjieProject,
+    ) -> Self {
+        use super::imports::{parse_named_import_candidates, resolve_import_target};
+
+        let cross_index = CrossFileSymbolIndex::build(symbols_by_file);
+        let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
+
+        let all_kinds = &[
+            CangjieSymbolKind::Function,
+            CangjieSymbolKind::Class,
+            CangjieSymbolKind::Struct,
+            CangjieSymbolKind::Enum,
+            CangjieSymbolKind::Interface,
+            CangjieSymbolKind::TypeAlias,
+            CangjieSymbolKind::Macro,
+        ];
+
+        for (file_path, imports) in imports_by_file {
+            let file_key = file_path.to_string_lossy().to_string();
+
+            for import in imports {
+                // MVP: skip wildcard imports
+                if import.is_wildcard {
+                    continue;
+                }
+
+                let candidates = parse_named_import_candidates(&import.raw_path);
+                for candidate in candidates {
+                    if let Some(resolved) = resolve_import_target(&candidate, project) {
+                        if let Some(ref target_dir) = resolved.target_dir {
+                            let candidate_files = cross_index.find_files_with_symbol_in_dir(
+                                target_dir,
+                                &candidate.exported_name,
+                                all_kinds,
+                            );
+
+                            if candidate_files.len() == 1 {
+                                bindings
+                                    .entry((file_key.clone(), candidate.local_name.clone()))
+                                    .or_default()
+                                    .push(ImportBinding {
+                                        target_file: candidate_files[0].clone(),
+                                        target_name: candidate.exported_name.clone(),
+                                    });
+                            }
+                            // else: ambiguous or no match → no binding (no fake edge)
+                        }
+                    }
+                }
+            }
+        }
+
+        Self { bindings }
+    }
+
+    /// Resolve a local name in a source file to a cross-file import binding.
+    ///
+    /// Returns `Some` only on unique match (exactly one candidate binding).
+    /// Zero or multiple matches → `None` (no edge emitted).
+    pub fn resolve(&self, source_file: &str, name: &str) -> Option<&ImportBinding> {
+        let key = (source_file.to_string(), name.to_string());
+        let candidates = self.bindings.get(&key)?;
+        if candidates.len() == 1 {
+            Some(&candidates[0])
+        } else {
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AST walk: reference extraction
 // ---------------------------------------------------------------------------
 
@@ -185,6 +373,7 @@ pub fn extract_cangjie_references(
     file_path: &Path,
     symbols: &[CangjieSymbol],
     tree: &tree_sitter::Tree,
+    import_bindings: Option<&ImportBindingTable>,
 ) -> Result<Vec<CangjieReference>, CangjieParseError> {
     let index = SameFileIndex::build(symbols);
     let file_path_str = file_path.to_string_lossy().to_string();
@@ -343,7 +532,8 @@ pub fn extract_cangjie_references(
         result
     }
 
-    // Push a reference if the target resolves uniquely in the same-file index
+    // Push a reference if the target resolves uniquely.
+    // Resolution order: same-file index → import binding table (cross-file).
     fn push_reference(
         references: &mut Vec<CangjieReference>,
         kind: ReferenceKind,
@@ -352,6 +542,7 @@ pub fn extract_cangjie_references(
         target_kinds: Vec<CangjieSymbolKind>,
         file_path: &str,
         index: &SameFileIndex,
+        import_bindings: Option<&ImportBindingTable>,
         confidence: f64,
         reason: &str,
     ) {
@@ -360,7 +551,7 @@ pub fn extract_cangjie_references(
             None => return, // orphan init, skip
         };
 
-        // Only emit if unique match in same-file index
+        // Step 1: same-file resolution
         if index.resolve(target_name, &target_kinds).is_some() {
             references.push(CangjieReference {
                 kind,
@@ -368,9 +559,29 @@ pub fn extract_cangjie_references(
                 target_name: target_name.to_string(),
                 target_kinds,
                 file_path: file_path.to_string(),
+                target_file: None, // same-file: emitter uses file_path
                 confidence,
                 reason: reason.to_string(),
             });
+            return;
+        }
+
+        // Step 2: cross-file resolution via import bindings
+        if let Some(bindings) = import_bindings {
+            if let Some(binding) = bindings.resolve(file_path, target_name) {
+                let cross_reason = format!("{} (cross-file via import)", reason);
+                references.push(CangjieReference {
+                    kind,
+                    source_id,
+                    target_name: binding.target_name.clone(),
+                    target_kinds,
+                    file_path: file_path.to_string(),
+                    target_file: Some(binding.target_file.clone()),
+                    confidence: 0.85, // cross-file explicit import: confidence 0.85
+                    reason: cross_reason,
+                });
+            }
+            // else: ambiguous or no match → no edge (no fake edge)
         }
     }
 
@@ -382,6 +593,7 @@ pub fn extract_cangjie_references(
         type_stack: &mut Vec<String>,
         func_stack: &mut Vec<FuncContext>,
         index: &SameFileIndex,
+        import_bindings: Option<&ImportBindingTable>,
         references: &mut Vec<CangjieReference>,
     ) {
         let kind = node.kind();
@@ -397,7 +609,14 @@ pub fn extract_cangjie_references(
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(idx(i)) {
                     walk(
-                        child, source, file_path, type_stack, func_stack, index, references,
+                        child,
+                        source,
+                        file_path,
+                        type_stack,
+                        func_stack,
+                        index,
+                        import_bindings,
+                        references,
                     );
                 }
             }
@@ -426,7 +645,14 @@ pub fn extract_cangjie_references(
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(idx(i)) {
                     walk(
-                        child, source, file_path, type_stack, func_stack, index, references,
+                        child,
+                        source,
+                        file_path,
+                        type_stack,
+                        func_stack,
+                        index,
+                        import_bindings,
+                        references,
                     );
                 }
             }
@@ -448,7 +674,14 @@ pub fn extract_cangjie_references(
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(idx(i)) {
                     walk(
-                        child, source, file_path, type_stack, func_stack, index, references,
+                        child,
+                        source,
+                        file_path,
+                        type_stack,
+                        func_stack,
+                        index,
+                        import_bindings,
+                        references,
                     );
                 }
             }
@@ -468,7 +701,14 @@ pub fn extract_cangjie_references(
             for i in 0..node.child_count() {
                 if let Some(child) = node.child(idx(i)) {
                     walk(
-                        child, source, file_path, type_stack, func_stack, index, references,
+                        child,
+                        source,
+                        file_path,
+                        type_stack,
+                        func_stack,
+                        index,
+                        import_bindings,
+                        references,
                     );
                 }
             }
@@ -508,6 +748,7 @@ pub fn extract_cangjie_references(
                                         ],
                                         file_path,
                                         index,
+                                        import_bindings,
                                         0.65,
                                         "cangjie-field-read",
                                     );
@@ -538,6 +779,7 @@ pub fn extract_cangjie_references(
                         ],
                         file_path,
                         index,
+                        import_bindings,
                         0.60,
                         "cangjie-type-annotation",
                     );
@@ -566,6 +808,7 @@ pub fn extract_cangjie_references(
                                 ],
                                 file_path,
                                 index,
+                                import_bindings,
                                 0.60,
                                 "cangjie-type-annotation",
                             );
@@ -596,6 +839,7 @@ pub fn extract_cangjie_references(
                                 ],
                                 file_path,
                                 index,
+                                import_bindings,
                                 0.60,
                                 "cangjie-type-annotation",
                             );
@@ -626,6 +870,7 @@ pub fn extract_cangjie_references(
                                 ],
                                 file_path,
                                 index,
+                                import_bindings,
                                 0.60,
                                 "cangjie-type-annotation",
                             );
@@ -683,6 +928,7 @@ pub fn extract_cangjie_references(
                                             CangjieSymbolKind::Enum,
                                         ],
                                         file_path: file_path.to_string(),
+                                        target_file: None,
                                         confidence,
                                         reason: reason.to_string(),
                                     });
@@ -729,6 +975,7 @@ pub fn extract_cangjie_references(
                                                     CangjieSymbolKind::Enum,
                                                 ],
                                                 file_path: file_path.to_string(),
+                                                target_file: None,
                                                 confidence,
                                                 reason: reason.to_string(),
                                             });
@@ -746,7 +993,14 @@ pub fn extract_cangjie_references(
         for i in 0..node.child_count() {
             if let Some(child) = node.child(idx(i)) {
                 walk(
-                    child, source, file_path, type_stack, func_stack, index, references,
+                    child,
+                    source,
+                    file_path,
+                    type_stack,
+                    func_stack,
+                    index,
+                    import_bindings,
+                    references,
                 );
             }
         }
@@ -759,6 +1013,7 @@ pub fn extract_cangjie_references(
         &mut type_stack,
         &mut func_stack,
         &index,
+        import_bindings,
         &mut references,
     );
 

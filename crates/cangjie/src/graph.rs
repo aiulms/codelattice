@@ -383,9 +383,11 @@ pub fn emit_cangjie_reference_edges(
             ReferenceKind::Modifies => EdgeKind::Modifies,
         };
 
-        // Find target symbol node ID from same-file index
-        // The reference file_path is the key — we look up (file_path, target_name)
-        let target_id = symbol_id_lookup.get(&(r.file_path.clone(), r.target_name.clone()));
+        // Resolve target symbol node ID:
+        // 1. Cross-file: use target_file if set
+        // 2. Same-file: use reference's own file_path
+        let lookup_file = r.target_file.as_deref().unwrap_or(&r.file_path);
+        let target_id = symbol_id_lookup.get(&(lookup_file.to_string(), r.target_name.clone()));
 
         if let Some(tid) = target_id {
             edges.push(GraphEdge {
@@ -394,8 +396,7 @@ pub fn emit_cangjie_reference_edges(
                 target_id: tid.clone(),
             });
         }
-        // If target not found, skip — aligns with same-file-only resolution
-        // (no-edge for cross-file / no match)
+        // If target not found, skip (no edge)
     }
 
     edges
@@ -500,8 +501,7 @@ pub fn inspect_cangjie_project(
         }
     }
 
-    // Parse trees for reference extraction (need the tree, not just symbols)
-    // Re-parse files to get trees for reference extraction
+    // Parse trees for reference extraction and import extraction
     let mut file_trees: BTreeMap<PathBuf, tree_sitter::Tree> = BTreeMap::new();
     for file_path in &project.source_files {
         if let Ok(source) = std::fs::read_to_string(file_path) {
@@ -511,7 +511,28 @@ pub fn inspect_cangjie_project(
         }
     }
 
-    // Extract references (same-file only) from each file
+    // Extract imports first — needed to build the cross-file import binding table
+    let mut imports_by_file: BTreeMap<PathBuf, Vec<CangjieImport>> = BTreeMap::new();
+    for file_path in &project.source_files {
+        if let Some(tree) = file_trees.get(file_path) {
+            if let Ok(source) = std::fs::read_to_string(file_path) {
+                let imports =
+                    crate::extractors::imports::extract_cangjie_imports(&source, file_path, tree);
+                if !imports.is_empty() {
+                    imports_by_file.insert(file_path.clone(), imports);
+                }
+            }
+        }
+    }
+
+    // Build cross-file import binding table for reference resolution
+    let import_bindings = crate::extractors::references::ImportBindingTable::build(
+        &symbols_by_file,
+        &imports_by_file,
+        &project,
+    );
+
+    // Extract references (same-file + cross-file via import bindings)
     let mut all_references: Vec<CangjieReference> = Vec::new();
     for file_path in &project.source_files {
         if let (Some(symbols), Some(tree)) =
@@ -519,7 +540,11 @@ pub fn inspect_cangjie_project(
         {
             if let Ok(source) = std::fs::read_to_string(file_path) {
                 if let Ok(refs) = crate::extractors::references::extract_cangjie_references(
-                    &source, file_path, symbols, tree,
+                    &source,
+                    file_path,
+                    symbols,
+                    tree,
+                    Some(&import_bindings),
                 ) {
                     all_references.extend(refs);
                 }
@@ -534,18 +559,6 @@ pub fn inspect_cangjie_project(
     output.edges.extend(ref_edges);
 
     // Import edges (Imports)
-    let mut imports_by_file: BTreeMap<PathBuf, Vec<CangjieImport>> = BTreeMap::new();
-    for file_path in &project.source_files {
-        if let Some(tree) = file_trees.get(file_path) {
-            if let Ok(source) = std::fs::read_to_string(file_path) {
-                let imports =
-                    crate::extractors::imports::extract_cangjie_imports(&source, file_path, tree);
-                if !imports.is_empty() {
-                    imports_by_file.insert(file_path.clone(), imports);
-                }
-            }
-        }
-    }
     let import_edges = emit_cangjie_import_edges(&imports_by_file, &project);
     output.edges.extend(import_edges);
 

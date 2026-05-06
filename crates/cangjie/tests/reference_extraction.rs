@@ -44,7 +44,7 @@ mod reference_extraction {
             p.push("main.cj");
             p
         };
-        extract_cangjie_references(&source, &file_path, &symbols, &tree)
+        extract_cangjie_references(&source, &file_path, &symbols, &tree, None)
             .expect("reference extraction should succeed")
     }
 

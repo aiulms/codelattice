@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 11b 完成：cjpm tree subprocess + external dependency resolution，105 tests pass）
+最后更新：2026-05-06（Phase 2 Slice 12 完成：cross-file reference extraction via import bindings，108 tests pass with feature）
 
 ## 用途
 
@@ -175,8 +175,23 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice11b-preflight.md`
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice11b-execution-card.md`
 
-**Phase 2 Slices 12+（后续）：**
-- Slice 12：cross-file reference extraction using import resolution
+**Phase 2 Slice 12 — cross-file reference extraction ✅ 完成（2026-05-06）：**
+- 从 same-file reference extraction 扩展到跨文件：通过 import binding table 解析被导入符号的 target file
+- 新增 `CrossFileSymbolIndex`（project-wide symbol lookup）+ `ImportBindingTable`（import → target file 映射）
+- `push_reference()` 两步 fallback：same-file（SameFileIndex, confidence 0.60-0.85）→ cross-file（ImportBindingTable, confidence 0.85）
+- `CangjieReference` 新增 `target_file: Option<String>` 字段支持跨文件目标
+- `emit_cangjie_reference_edges()` 使用 `target_file` 进行跨文件 symbol lookup
+- `inspect_cangjie_project()` 重构：先提取 imports → 构建 ImportBindingTable → 再提取 references
+- 新增 fixture `fixtures/cangjie/reference-cross-file-basic/` + 3 integration tests
+- 108/108 pass（with feature），95/95（without feature），零新增依赖
+- MVP 支持：explicit named/grouped import 的 type annotation reference
+- 不支持：wildcard import expansion, alias renamed import, function call references, method dispatch
+- Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice12-cross-file-reference-preflight.md`
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice12-cross-file-reference-execution-card.md`
+- Closure Review：`docs/plans/2026-05-06-cangjie-phase2-slice12-cross-file-reference-closure-review.md`
+
+**Phase 2 Slices 13+（后续）：**
+- Slice 13：function call reference extraction（当前 AST walk 只提取 type annotation/field read/write）
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
 
 **Rust-core stop-line 重申（不可协商）：**
@@ -198,12 +213,14 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 2. ~~Phase 2 Slice 1 — cangjie crate skeleton + cjpm parser~~ ✅ 完成
 3. ~~Phase 2 Slice 2 — workspace/dependency metadata~~ ✅ 完成
 4. ~~Phase 2 Slice 3 — baseline project model output~~ ✅ 完成
-5. ~~Phase 2 Slice 4 — tree-sitter Cangjie vendor gate~~ ✅ 完成（docs-only，待用户批准）
+5. ~~Phase 2 Slice 4 — tree-sitter Cangjie vendor gate~~ ✅ 完成（docs-only）
 6. ~~Phase 2 Slice 5 — tree-sitter Cangjie 集成~~ ✅ 完成
 7. ~~Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction~~ ✅ 完成
-8. Phase 2 Slice 8 — Cangjie diagnostics runner ✅ 完成
-9. Phase 2 Slice 9 — diagnostics integration into inspect_cangjie_project ✅ 完成
-10. ~~Phase 2 Slice 10 — same-file reference extraction~~ ✅ 完成
-11. ~~Phase 2 Slice 11 — import resolution + IMPORTS edges~~ ✅ 完成（2026-05-06）
-12. ~~Phase 2 Slice 11b — cjpm tree + external dep resolution~~ ✅ 完成（2026-05-06）
-13. Phase 2 Slice 12 — cross-file reference extraction（后续）
+8. ~~Phase 2 Slice 7 — Cangjie graph output~~ ✅ 完成
+9. ~~Phase 2 Slice 8 — Cangjie diagnostics runner~~ ✅ 完成
+10. ~~Phase 2 Slice 9 — diagnostics integration~~ ✅ 完成
+11. ~~Phase 2 Slice 10 — same-file reference extraction~~ ✅ 完成
+12. ~~Phase 2 Slice 11 — import resolution + IMPORTS edges~~ ✅ 完成
+13. ~~Phase 2 Slice 11b — cjpm tree + external dep resolution~~ ✅ 完成
+14. ~~Phase 2 Slice 12 — cross-file reference extraction~~ ✅ 完成
+15. Phase 2 Slice 13 — function call reference extraction（后续）
