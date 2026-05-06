@@ -340,10 +340,14 @@ pub fn emit_cangjie_diagnostics(
 // Convenience: one-shot inspect
 // ---------------------------------------------------------------------------
 
-/// Build project model, extract symbols from all source files, and emit
-/// graph output in a single call.
+/// Build project model, extract symbols from all source files, run
+/// diagnostics (cjc + cjlint), and emit graph output in a single call.
 ///
 /// Requires the `tree-sitter-cangjie` feature.
+///
+/// When the Cangjie SDK is not available, diagnostics are skipped gracefully
+/// (empty `Vec`), so the graph output still contains repository, package,
+/// source-file, and symbol nodes.
 #[cfg(feature = "tree-sitter-cangjie")]
 pub fn inspect_cangjie_project(
     root: &Path,
@@ -361,7 +365,25 @@ pub fn inspect_cangjie_project(
         }
     }
 
-    Ok(emit_cangjie_graph(&project, &symbols_by_file))
+    let mut output = emit_cangjie_graph(&project, &symbols_by_file);
+
+    // Diagnostics: graceful degrade when SDK absent (empty Vec)
+    let diagnostics = crate::diagnostics::run_all_diagnostics(&project.root, &project.source_files);
+    let (diag_nodes, diag_edges) =
+        emit_cangjie_diagnostics(&diagnostics, &symbols_by_file, &project.root);
+    output.nodes.extend(diag_nodes);
+    output.edges.extend(diag_edges);
+
+    // Re-sort for determinism after merging diagnostics
+    output.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    output.edges.sort_by(|a, b| {
+        a.kind
+            .cmp(&b.kind)
+            .then_with(|| a.source_id.cmp(&b.source_id))
+            .then_with(|| a.target_id.cmp(&b.target_id))
+    });
+
+    Ok(output)
 }
 
 // ---------------------------------------------------------------------------
