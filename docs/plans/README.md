@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 6 完成：tree-sitter Cangjie AST symbol extraction，135/135 tests pass）
+最后更新：2026-05-06（Phase 2 Slice 7 preflight 完成：Cangjie graph output 集成方案评估，推荐方案 B2）
 
 ## 用途
 
@@ -23,11 +23,12 @@
 
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 7 — tree-sitter Cangjie graph output / project-model 集成（下一刀，需 preflight）**
+**Phase 2 Slice 7 — tree-sitter Cangjie graph output（下一刀，preflight 完成，待 execution card）**
 
 当前进度：Slice 1-6 已完成（cjpm manifest + workspace/lock + project model + vendor gate + tree-sitter 集成 + AST symbol extraction, 135/135 tests pass）。
 Slice 6 符号提取已完成：7 种符号类型（function/class/struct/enum/interface/typeAlias/macro），基于 tree_sitter::Query。
-下一步：Slice 7 — 将 Cangjie 符号接入 graph emitter 或 project-model ItemExtractor trait（需先写 preflight 评估集成方案）。
+Slice 7 preflight 已完成：评估 3 种集成方案（A: ItemExtractor trait / B: 独立 graph output / C: LanguageAdapter trait），推荐方案 B2（cangjie crate 内独立 graph output，不改 project-model，零新依赖）。
+Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice7-preflight.md`
 
 ### 路线收束（2026-05-06）
 
