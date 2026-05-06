@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 5 完成：tree-sitter Cangjie 集成，126/126 tests pass）
+最后更新：2026-05-06（Phase 2 Slice 6 完成：tree-sitter Cangjie AST symbol extraction，135/135 tests pass）
 
 ## 用途
 
@@ -23,11 +23,11 @@
 
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction（下一刀）**
+**Phase 2 Slice 7 — tree-sitter Cangjie graph output / project-model 集成（下一刀，需 preflight）**
 
-当前进度：Slice 1-5 已完成（cjpm manifest parser + workspace/lock metadata + baseline project model + vendor gate + tree-sitter 集成, 126/126 tests pass）。
-Slice 5 tree-sitter 集成已完成：parser.c/scanner.c vendored，build.rs + feature gate 就绪，smoke parse 验证通过。
-下一步：Slice 6 AST 级别符号提取（基于 tree-sitter queries）。
+当前进度：Slice 1-6 已完成（cjpm manifest + workspace/lock + project model + vendor gate + tree-sitter 集成 + AST symbol extraction, 135/135 tests pass）。
+Slice 6 符号提取已完成：7 种符号类型（function/class/struct/enum/interface/typeAlias/macro），基于 tree_sitter::Query。
+下一步：Slice 7 — 将 Cangjie 符号接入 graph emitter 或 project-model ItemExtractor trait（需先写 preflight 评估集成方案）。
 
 ### 路线收束（2026-05-06）
 
@@ -97,7 +97,16 @@ Slice 4 — tree-sitter Cangjie vendor gate ✅ 完成（docs-only）：
 - 不改 GitNexus-RC runtime / Tool / live repo
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice5-execution-card.md`
 
-**后续 slices（6+）：**
+Slice 6 — tree-sitter Cangjie AST symbol extraction ✅ 完成：
+- 7 种符号类型：Function / Class / Struct / Enum / Interface / TypeAlias / Macro
+- 基于 tree_sitter::Query + StreamingIterator API
+- 新增 `extract_cangjie_symbols()` / `extract_cangjie_symbols_from_tree()` API
+- Query 对齐 tags.scm 符号模式（含 `mainDefinition` / `main` anonymous node 特殊处理）
+- 已知限制：`macro` 函数定义语法不被当前 grammar 支持（仅 `macro package` 声明）
+- 新增 9 tests，135/135 pass，零新增依赖
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice6-execution-card.md`
+
+**后续 slices（7+）：**
 5. cjc/cjlint diagnostics runner
 6. LSP client（future，P1）
 7. Graph emitter 扩展（Diagnostic + ANNOTATES + MODIFIES）
@@ -123,6 +132,7 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 4. ~~Phase 2 Slice 3 — baseline project model output~~ ✅ 完成
 5. ~~Phase 2 Slice 4 — tree-sitter Cangjie vendor gate~~ ✅ 完成（docs-only，待用户批准）
 6. ~~Phase 2 Slice 5 — tree-sitter Cangjie 集成~~ ✅ 完成
-7. Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction（下一刀）
-8. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
-8. 按 tracker 优先级选择下一轮 opening
+7. ~~Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction~~ ✅ 完成
+8. Phase 2 Slice 7 — graph output / project-model 集成（需 preflight）
+9. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
+9. 按 tracker 优先级选择下一轮 opening

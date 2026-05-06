@@ -1,6 +1,12 @@
-//! Tree-sitter Cangjie parser integration.
+//! Tree-sitter Cangjie parser integration and AST symbol extraction.
 //!
 //! Available only when the `tree-sitter-cangjie` feature is enabled.
+
+pub mod symbol;
+
+#[cfg(feature = "tree-sitter-cangjie")]
+pub use symbol::{extract_cangjie_symbols, extract_cangjie_symbols_from_tree};
+pub use symbol::{CangjieSymbol, CangjieSymbolKind};
 
 /// Check whether the tree-sitter-cangjie parser is available at runtime.
 ///
