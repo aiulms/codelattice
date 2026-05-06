@@ -1,0 +1,4 @@
+[package]
+name = "pkg2"
+version = "0.2.0"
+src-dir = "src"

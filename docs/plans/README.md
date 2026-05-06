@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 1 完成：cangjie crate skeleton + cjpm parser）
+最后更新：2026-05-06（Phase 2 Slice 2 完成：workspace/dependency metadata）
 
 ## 用途
 
@@ -23,12 +23,10 @@
 
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 2 — workspace/dependency metadata（待用户 gate）**
+**Phase 2 Slice 3 — baseline project model output（待用户 gate）**
 
-当前进度：Slice 1 已完成（cangjie crate skeleton + cjpm parser, 105 tests pass）。
-下一步：扩展 workspace member 递归解析、build-members/test-members 过滤、cjpm.lock 最小 parser、path dependency resolution helper。
-
-详细 Execution Card 待写（Slice 2）。
+当前进度：Slice 1 + 2 已完成（cjpm manifest parser + workspace/lock metadata, 116 tests pass）。
+下一步：project root detection via cjpm.toml、list source files under src-dir、emit minimal project metadata。
 
 ### 路线收束（2026-05-06）
 
@@ -55,13 +53,16 @@ Slice 1 — cangjie crate skeleton + cjpm parser ✅ 完成：
 - 新增 fixture `fixtures/cangjie/cjpm-basic/` + 15 tests（13 unit + 2 integration）
 - Execution Card：gitnexus-rust-core `docs/plans/2026-05-06-cangjie-phase2-slice1-execution-card.md`
 
-**Phase 2 Slice 2 — workspace/dependency metadata（待 gate）：**
-1. 解析 workspace member 的 cjpm.toml 递归
-2. build-members / test-members 过滤
-3. cjpm.lock 最小 parser（placeholder preflight）
-4. path dependency resolution helper
+Slice 2 — workspace/dependency metadata ✅ 完成：
+- `resolve_workspace_manifest()`：递归加载 workspace member 的 cjpm.toml
+- `active_members()`：build-members 过滤（对齐 TS 行为）
+- `resolve_path_dependency()`：path-based dep 解析为绝对路径
+- `parse_cjpm_lock()` / `load_cjpm_lock()`：cjpm.lock 最小 parser（[[requires]] entries）
+- 新增 fixture `fixtures/cangjie/cjpm-workspace/` + 11 tests（8 unit + 3 integration）
+- 116/116 tests pass
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice2-execution-card.md`
 
-**Phase 2 Slice 3 — baseline project model output（后续）：**
+**Phase 2 Slice 3 — baseline project model output（待 gate）：**
 - project root detection via cjpm.toml
 - list source files under src-dir
 - emit minimal project metadata
@@ -93,6 +94,7 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 下一步优先级：
 1. ~~Cangjie migration preflight（B 线下一轮 opening）~~ ✅ 完成（Phase 1 preflight）
 2. ~~Phase 2 Slice 1 — cangjie crate skeleton + cjpm parser~~ ✅ 完成
-3. Phase 2 Slice 2 — workspace/dependency metadata（需用户 gate）
-4. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
-5. 按 tracker 优先级选择下一轮 opening
+3. ~~Phase 2 Slice 2 — workspace/dependency metadata~~ ✅ 完成
+4. Phase 2 Slice 3 — baseline project model output（需用户 gate）
+5. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
+6. 按 tracker 优先级选择下一轮 opening
