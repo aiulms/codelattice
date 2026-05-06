@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 14b 完成：alias resolution，242 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 15 完成：wildcard import edge quality，240 tests pass with feature）
 
 ## 用途
 
@@ -209,7 +209,8 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
 - ~~Slice 14b：alias resolution~~ ✅ 完成
-- Slice 15+：后续 bounded slices（需先写 preflight）
+- ~~Slice 15：wildcard import edge quality~~ ✅ 完成
+- Slice 16+：后续 bounded slices（需 preflight）
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
 
 **Rust-core stop-line 重申（不可协商）：**
@@ -244,4 +245,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 15. ~~Phase 2 Slice 13 — function call reference extraction~~ ✅ 完成
 16. ~~Phase 2 Slice 14a — wildcard import expansion~~ ✅ 完成
 17. ~~Phase 2 Slice 14b — alias resolution~~ ✅ 完成
-18. Phase 2 Slice 15+ — 后续 bounded slices（需 preflight）
+18. ~~Phase 2 Slice 15 — wildcard import edge quality~~ ✅ 完成
+19. Phase 2 Slice 16+ — 后续 bounded slices（需 preflight）
