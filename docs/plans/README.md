@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 10 完成：same-file reference extraction (USES/ACCESSES/MODIFIES edges)，175 tests pass）
+最后更新：2026-05-06（Phase 2 Slice 11 完成：Cangjie import resolution (IMPORTS edges)，209 tests pass）
 
 ## 用途
 
@@ -150,9 +150,19 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice7-preflight.md`
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
 
-**Phase 2 Slices 10+（后续）：**
-- Slice 10：reference extraction（USES/ACCESSES/MODIFIES edges，需 preflight）
-- Slice 11：import resolution（cjpm tree + lock-based，需 preflight）
+**Phase 2 Slice 11 — Cangjie import resolution ✅ 完成（2026-05-06）：**
+- AST import 语句解析（feature-gated）+ same-project import resolution
+- 新增 `crates/cangjie/src/extractors/imports.rs`（~610 行）：import 类型定义 + 字符串解析器（port TS adapter）+ AST walk + 候选目录生成 + 包名解析
+- `parse_import_targets()` / `parse_named_import_candidates()` / `resolve_import_target()` API
+- graph.rs 新增 Imports EdgeKind + `emit_cangjie_import_edges()` + `inspect_cangjie_project()` 集成
+- 新增 fixture `fixtures/cangjie/imports-basic/` + 35 new tests（25 unit + 10 integration）
+- 209/209 pass（with feature），179/179（without feature），零新增依赖
+- 不支持 cjpm tree 子进程（deferred to Slice 11b），不解析 git-based dependency
+- Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice11-preflight.md`
+
+**Phase 2 Slices 11b+（后续）：**
+- Slice 11b：cjpm tree subprocess + external dependency resolution
+- Slice 12：cross-file reference extraction using import resolution
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
 
 **Rust-core stop-line 重申（不可协商）：**
@@ -180,4 +190,6 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 8. Phase 2 Slice 8 — Cangjie diagnostics runner ✅ 完成
 9. Phase 2 Slice 9 — diagnostics integration into inspect_cangjie_project ✅ 完成
 10. ~~Phase 2 Slice 10 — same-file reference extraction~~ ✅ 完成
-11. Phase 2 Slice 11 — import resolution preflight（cjpm tree + lock-based resolution）
+11. ~~Phase 2 Slice 11 — import resolution + IMPORTS edges~~ ✅ 完成（2026-05-06）
+12. Phase 2 Slice 11b — cjpm tree + external dep resolution（后续）
+13. Phase 2 Slice 12 — cross-file reference extraction（后续）

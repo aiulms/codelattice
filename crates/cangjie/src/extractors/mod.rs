@@ -2,9 +2,16 @@
 //!
 //! Available only when the `tree-sitter-cangjie` feature is enabled.
 
+pub mod imports;
 pub mod references;
 pub mod symbol;
 
+#[cfg(feature = "tree-sitter-cangjie")]
+pub use imports::extract_cangjie_imports;
+pub use imports::{
+    parse_import_targets, parse_named_import_candidates, resolve_import_target, CangjieImport,
+    ImportCandidate, ImportVisibility, PackageAlias, ResolutionKind, ResolvedImport,
+};
 #[cfg(feature = "tree-sitter-cangjie")]
 pub use references::extract_cangjie_references;
 pub use references::{CangjieReference, ReferenceKind};

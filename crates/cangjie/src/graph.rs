@@ -11,6 +11,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostics::CangjieDiagnostic;
+use crate::extractors::imports::CangjieImport;
 use crate::extractors::references::{CangjieReference, ReferenceKind};
 use crate::project::{CangjiePackageInfo, CangjieProject};
 use crate::CangjieSymbol;
@@ -60,6 +61,8 @@ pub enum EdgeKind {
     Accesses,
     /// Reference → Symbol (write/mutation).
     Modifies,
+    /// SourceFile → Package or SourceFile → SourceFile (import dependency).
+    Imports,
 }
 
 /// An edge in the Cangjie graph.
@@ -399,6 +402,76 @@ pub fn emit_cangjie_reference_edges(
 }
 
 // ---------------------------------------------------------------------------
+// Import edge emission
+// ---------------------------------------------------------------------------
+
+/// Emit graph edges from extracted imports.
+///
+/// Each [`CangjieImport`] maps to an Imports edge.
+/// For same-project imports that resolve to a known package, the edge connects
+/// the SourceFile to the target Package. For unresolved imports (external),
+/// no edge is emitted.
+///
+/// Returns edges that should be merged into the graph output.
+pub fn emit_cangjie_import_edges(
+    imports_by_file: &std::collections::BTreeMap<PathBuf, Vec<CangjieImport>>,
+    project: &CangjieProject,
+) -> Vec<GraphEdge> {
+    use crate::extractors::imports::{parse_named_import_candidates, resolve_import_target};
+
+    let mut edges = Vec::new();
+
+    for (file_path, imports) in imports_by_file {
+        let file_id = source_file_node_id(file_path, &project.root);
+
+        for import in imports {
+            // Skip wildcard imports for now (no specific symbol target)
+            if import.is_wildcard {
+                continue;
+            }
+
+            // Parse import candidates from raw path
+            let candidates = parse_named_import_candidates(&import.raw_path);
+            for candidate in candidates {
+                // Try to resolve the package
+                if let Some(resolved) = resolve_import_target(&candidate, project) {
+                    match resolved.resolution {
+                        crate::extractors::imports::ResolutionKind::External => {
+                            // Skip external packages
+                            continue;
+                        }
+                        _ => {
+                            // Emit Imports edge from source file to target package
+                            let target_pkg = project
+                                .packages
+                                .iter()
+                                .find(|p| p.name == resolved.target_package_name);
+
+                            let target_pkg_id = if let Some(pkg) = target_pkg {
+                                package_node_id(pkg)
+                            } else if let Some(ref target_dir) = resolved.target_dir {
+                                // Sub-package within the same project — use owning package
+                                infer_owning_package(target_dir, &project.root, &project.packages)
+                            } else {
+                                continue;
+                            };
+
+                            edges.push(GraphEdge {
+                                kind: EdgeKind::Imports,
+                                source_id: file_id.clone(),
+                                target_id: target_pkg_id,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: one-shot inspect
 // ---------------------------------------------------------------------------
 
@@ -459,6 +532,22 @@ pub fn inspect_cangjie_project(
     // Reference edges (Uses/Accesses/Modifies)
     let ref_edges = emit_cangjie_reference_edges(&all_references, &symbols_by_file, &project.root);
     output.edges.extend(ref_edges);
+
+    // Import edges (Imports)
+    let mut imports_by_file: BTreeMap<PathBuf, Vec<CangjieImport>> = BTreeMap::new();
+    for file_path in &project.source_files {
+        if let Some(tree) = file_trees.get(file_path) {
+            if let Ok(source) = std::fs::read_to_string(file_path) {
+                let imports =
+                    crate::extractors::imports::extract_cangjie_imports(&source, file_path, tree);
+                if !imports.is_empty() {
+                    imports_by_file.insert(file_path.clone(), imports);
+                }
+            }
+        }
+    }
+    let import_edges = emit_cangjie_import_edges(&imports_by_file, &project);
+    output.edges.extend(import_edges);
 
     // Diagnostics: graceful degrade when SDK absent (empty Vec)
     let diagnostics = crate::diagnostics::run_all_diagnostics(&project.root, &project.source_files);

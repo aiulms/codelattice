@@ -6,7 +6,11 @@ pub mod project;
 
 // Re-export key types for convenience
 pub use diagnostics::{CangjieDiagnostic, DiagnosticSeverity};
-pub use extractors::{CangjieReference, CangjieSymbol, CangjieSymbolKind, ReferenceKind};
+pub use extractors::{
+    parse_import_targets, parse_named_import_candidates, resolve_import_target, CangjieImport,
+    CangjieReference, CangjieSymbol, CangjieSymbolKind, ImportCandidate, ImportVisibility,
+    PackageAlias, ReferenceKind, ResolutionKind, ResolvedImport,
+};
 pub use manifest::{
     active_members, load_cjpm_manifest, parse_cjpm_lock, parse_cjpm_toml, resolve_path_dependency,
     resolve_workspace_manifest, CangjieDependency, CangjieManifest, CangjieManifestError,
