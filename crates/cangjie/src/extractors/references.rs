@@ -252,6 +252,8 @@ pub struct ImportBinding {
     pub target_file: String,
     /// The symbol name as defined in the target file.
     pub target_name: String,
+    /// Package alias prefix (for `import pkg as p` → can reference "p.Func").
+    pub package_prefix: Option<String>,
 }
 
 /// Maps (source_file, local_name) → candidate import bindings.
@@ -265,6 +267,12 @@ pub struct ImportBindingTable {
 
 #[cfg(feature = "tree-sitter-cangjie")]
 impl ImportBindingTable {
+    /// Create a new ImportBindingTable for testing purposes.
+
+    pub fn new(bindings: HashMap<(String, String), Vec<ImportBinding>>) -> Self {
+        Self { bindings }
+    }
+
     /// Build the import binding table from the project's imports and symbol index.
     ///
     /// For each named import in each source file:
@@ -303,6 +311,21 @@ impl ImportBindingTable {
                     continue;
                 }
 
+                // Handle package alias: `import pkg as p`
+                if let Some(ref package_alias) = import.package_alias {
+                    // Create a binding that allows "p.Func" references
+                    // The binding key is (source_file, "p"), and package_prefix is "pkg"
+                    bindings
+                        .entry((file_key.clone(), package_alias.alias.clone()))
+                        .or_default()
+                        .push(ImportBinding {
+                            target_file: String::new(), // Placeholder - actual target resolved during reference lookup
+                            target_name: String::new(), // Placeholder - actual name resolved during reference lookup
+                            package_prefix: Some(package_alias.package_name.clone()),
+                        });
+                    continue;
+                }
+
                 let candidates = parse_named_import_candidates(&import.raw_path);
                 for candidate in candidates {
                     if let Some(resolved) = resolve_import_target(&candidate, project) {
@@ -320,6 +343,7 @@ impl ImportBindingTable {
                                     .push(ImportBinding {
                                         target_file: candidate_files[0].clone(),
                                         target_name: candidate.exported_name.clone(),
+                                        package_prefix: None,
                                     });
                             }
                             // else: ambiguous or no match → no binding (no fake edge)
@@ -334,16 +358,67 @@ impl ImportBindingTable {
 
     /// Resolve a local name in a source file to a cross-file import binding.
     ///
+    /// Handles:
+    /// - Exact match: `import pkg.{Func}` → `Func`
+    /// - Package alias: `import pkg as p` → `p.Func` → resolves to `pkg.Func`
+    ///
     /// Returns `Some` only on unique match (exactly one candidate binding).
     /// Zero or multiple matches → `None` (no edge emitted).
     pub fn resolve(&self, source_file: &str, name: &str) -> Option<&ImportBinding> {
+        // Try exact match first
         let key = (source_file.to_string(), name.to_string());
-        let candidates = self.bindings.get(&key)?;
-        if candidates.len() == 1 {
-            Some(&candidates[0])
-        } else {
-            None
+        if let Some(candidates) = self.bindings.get(&key) {
+            if candidates.len() == 1 {
+                return Some(&candidates[0]);
+            } else if candidates.len() > 1 {
+                // Multiple candidates: check if there's a mix of exact matches and package aliases
+                let exact_matches: Vec<_> = candidates
+                    .iter()
+                    .filter(|b| b.package_prefix.is_none())
+                    .collect();
+                let alias_matches: Vec<_> = candidates
+                    .iter()
+                    .filter(|b| b.package_prefix.is_some())
+                    .collect();
+
+                if exact_matches.len() == 1 && alias_matches.is_empty() {
+                    // Single exact match → return it
+                    return Some(exact_matches[0]);
+                } else if exact_matches.len() == 1 && !alias_matches.is_empty() {
+                    // Mix of exact and alias: prefer exact match
+                    return Some(exact_matches[0]);
+                }
+                // else: multiple exact matches (ambiguous) → return None
+            }
         }
+
+        // Try package prefix matching for "p.Func" style references
+        if let Some(dot_pos) = name.find('.') {
+            let prefix = &name[..dot_pos];
+            let symbol_name = &name[dot_pos + 1..];
+
+            // Look for bindings with this prefix (package alias)
+            let prefix_key = (source_file.to_string(), prefix.to_string());
+            if let Some(candidates) = self.bindings.get(&prefix_key) {
+                if candidates.len() == 1 {
+                    let binding = &candidates[0];
+                    // Check if this binding has a package prefix
+                    if let Some(ref package_prefix) = binding.package_prefix {
+                        // For package alias "import pkg as p", the reference "p.Func"
+                        // should be treated as "pkg.Func" for lookup
+                        let full_name = format!("{}.{}", package_prefix, symbol_name);
+                        let full_key = (source_file.to_string(), full_name);
+                        if let Some(full_candidates) = self.bindings.get(&full_key) {
+                            if full_candidates.len() == 1 {
+                                return Some(&full_candidates[0]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        None
     }
 }
 

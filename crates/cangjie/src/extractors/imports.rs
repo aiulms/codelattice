@@ -243,7 +243,7 @@ fn parse_named_candidates_from_target(raw: &str) -> Vec<ImportCandidate> {
         }];
     }
 
-    // Grouped form: `demo.math.{add, sub}`
+    // Grouped form: `demo.math.{add, sub as alias}`
     if let Some(grouped) = parse_grouped_import(target) {
         let package_name = grouped.0;
         if package_name.is_empty() {
@@ -253,12 +253,7 @@ fn parse_named_candidates_from_target(raw: &str) -> Vec<ImportCandidate> {
         return grouped
             .1
             .into_iter()
-            .filter(|s| is_valid_identifier(s))
-            .map(|sym| ImportCandidate {
-                package_name: package_name.clone(),
-                exported_name: sym.clone(),
-                local_name: sym,
-            })
+            .flat_map(|sym| parse_symbol_with_alias(&package_name, &sym))
             .collect();
     }
 
@@ -295,6 +290,51 @@ fn parse_grouped_import(target: &str) -> Option<(String, Vec<String>)> {
     let symbols = split_top_level_comma(inner);
 
     Some((package_name, symbols))
+}
+
+/// Parse a single symbol with optional alias from a grouped import.
+///
+/// Handles:
+/// - `"add"` → exported="add", local="add"
+/// - `"add as plus"` → exported="add", local="plus"
+///
+/// Returns None if the symbol is invalid.
+fn parse_symbol_with_alias(package_name: &str, symbol: &str) -> Option<ImportCandidate> {
+    let symbol = symbol.trim();
+    if symbol.is_empty() {
+        return None;
+    }
+
+    // Check for alias: "sym as alias"
+    if has_alias(symbol) {
+        let stripped = strip_alias(symbol);
+        let alias_name = symbol
+            .rfind(" as ")
+            .map(|pos| symbol[pos + 4..].trim().to_string())
+            .unwrap_or_default();
+
+        // Validate both the original symbol and the alias
+        if !is_valid_identifier(stripped) || !is_valid_identifier(&alias_name) {
+            return None;
+        }
+
+        return Some(ImportCandidate {
+            package_name: package_name.to_string(),
+            exported_name: stripped.to_string(),
+            local_name: alias_name,
+        });
+    }
+
+    // No alias: use the symbol as-is
+    if is_valid_identifier(symbol) {
+        Some(ImportCandidate {
+            package_name: package_name.to_string(),
+            exported_name: symbol.to_string(),
+            local_name: symbol.to_string(),
+        })
+    } else {
+        None
+    }
 }
 
 /// Extract the package name from a raw import target.
