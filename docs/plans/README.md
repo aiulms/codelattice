@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 15 完成：wildcard import edge quality，240 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 16 完成：Cangjie graph output parity smoke，248 tests pass with feature）
 
 ## 用途
 
@@ -205,12 +205,24 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice13-function-call-reference-execution-card.md`
 - Closure Review：`docs/plans/2026-05-06-cangjie-phase2-slice13-function-call-reference-closure-review.md`
 
-**Phase 2 Slices 13+（后续）：**
+**Phase 2 Slice 16 — Cangjie graph output parity smoke ✅ 完成（2026-05-07）：**
+- 实现基础 parity smoke test (`crates/cangjie/tests/graph_parity_smoke.rs`)
+- 验证节点/边类型覆盖率：Repository/Package/SourceFile/Symbol + 所有边类型
+- 验证图结构完整性：所有边引用有效节点
+- 验证输出确定性：多次运行结果一致
+- 验证 JSON 序列化：可正确序列化/反序列化
+- 6 new tests，248/248 pass（with feature），零新增依赖
+- 不做 live repo/GitNexus-RC runtime 修改
+- Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice16-graph-output-parity-smoke-preflight.md`
+- Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice16-graph-output-parity-smoke-execution-card.md`
+
+**Phase 2 Slices 17+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
 - ~~Slice 14b：alias resolution~~ ✅ 完成
 - ~~Slice 15：wildcard import edge quality~~ ✅ 完成
-- Slice 16+：后续 bounded slices（需 preflight）
+- ~~Slice 16：Cangjie graph output parity smoke~~ ✅ 完成
+- Slice 17+：后续 bounded slices（需 preflight）
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
 
 **Rust-core stop-line 重申（不可协商）：**
@@ -246,4 +258,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 16. ~~Phase 2 Slice 14a — wildcard import expansion~~ ✅ 完成
 17. ~~Phase 2 Slice 14b — alias resolution~~ ✅ 完成
 18. ~~Phase 2 Slice 15 — wildcard import edge quality~~ ✅ 完成
-19. Phase 2 Slice 16+ — 后续 bounded slices（需 preflight）
+19. ~~Phase 2 Slice 16 — Cangjie graph output parity smoke~~ ✅ 完成
+20. Phase 2 Slice 17+ — 后续 bounded slices（需 preflight）

@@ -6,7 +6,7 @@
 //! The symbol-to-graph path requires tree-sitter-cangjie and is gated behind
 //! the `tree-sitter-cangjie` feature.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
@@ -21,7 +21,7 @@ use crate::CangjieSymbol;
 // ---------------------------------------------------------------------------
 
 /// Kind of a graph node.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum NodeKind {
     Repository,
@@ -33,7 +33,7 @@ pub enum NodeKind {
 }
 
 /// A node in the Cangjie graph.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphNode {
     pub id: String,
     pub kind: NodeKind,
@@ -47,7 +47,7 @@ pub struct GraphNode {
 // ---------------------------------------------------------------------------
 
 /// Kind of a graph edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum EdgeKind {
     ContainsPackage,
@@ -66,7 +66,7 @@ pub enum EdgeKind {
 }
 
 /// An edge in the Cangjie graph.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GraphEdge {
     pub kind: EdgeKind,
     #[serde(rename = "sourceId")]
@@ -82,7 +82,7 @@ pub struct GraphEdge {
 /// Cangjie graph output — a set of nodes and edges.
 ///
 /// JSON structure is compatible with project-model `GraphOutput`.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CangjieGraphOutput {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
