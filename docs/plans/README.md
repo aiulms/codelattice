@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 11 完成：Cangjie import resolution (IMPORTS edges)，209 tests pass）
+最后更新：2026-05-06（Phase 2 Slice 11b 完成：cjpm tree subprocess + external dependency resolution，105 tests pass）
 
 ## 用途
 
@@ -160,8 +160,22 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - 不支持 cjpm tree 子进程（deferred to Slice 11b），不解析 git-based dependency
 - Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice11-preflight.md`
 
-**Phase 2 Slices 11b+（后续）：**
-- Slice 11b：cjpm tree subprocess + external dependency resolution
+**Phase 2 Slice 11b — cjpm tree + external dependency resolution ✅ 完成（2026-05-06）：**
+- 新增 `subprocess/cjpm_tree.rs`（~360 行）：port TS cjpm-metadata.ts
+- `run_cjpm_tree()`：spawn `cjpm tree --skip-script`，30s timeout，graceful degrade
+- `parse_cjpm_tree_output()`：two-phase parser（flat entries → index-path tree assembly）
+- `find_package_dir_by_name()`：递归 workspace subtree 搜索（MAX_DEPTH=3）
+- `resolve_tree_dependency_dir()`：thread-local cache + multi-root 聚合
+- 新增 `ResolutionKind::TreeDependency` + `candidate_package_dirs()` 4-level fallback：
+  workspace member → path dep → lock entry → tree dep
+- `is_tree_dependency_match()` helper for external dep matching
+- `resolve_cangjie_tool()` / `build_cangjie_spawn_env()` 改为 pub 复用
+- 10 unit tests + graceful degrade tests，105/105 pass（with feature）
+- 零新增依赖（std::process::Command stdlib + HashMap/PathBuf 标准库）
+- Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice11b-preflight.md`
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice11b-execution-card.md`
+
+**Phase 2 Slices 12+（后续）：**
 - Slice 12：cross-file reference extraction using import resolution
 - LSP client（P1 future，触发 stop-line，需先写 preflight）
 
@@ -191,5 +205,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 9. Phase 2 Slice 9 — diagnostics integration into inspect_cangjie_project ✅ 完成
 10. ~~Phase 2 Slice 10 — same-file reference extraction~~ ✅ 完成
 11. ~~Phase 2 Slice 11 — import resolution + IMPORTS edges~~ ✅ 完成（2026-05-06）
-12. Phase 2 Slice 11b — cjpm tree + external dep resolution（后续）
+12. ~~Phase 2 Slice 11b — cjpm tree + external dep resolution~~ ✅ 完成（2026-05-06）
 13. Phase 2 Slice 12 — cross-file reference extraction（后续）
