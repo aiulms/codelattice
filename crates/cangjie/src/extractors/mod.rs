@@ -2,8 +2,12 @@
 //!
 //! Available only when the `tree-sitter-cangjie` feature is enabled.
 
+pub mod references;
 pub mod symbol;
 
+#[cfg(feature = "tree-sitter-cangjie")]
+pub use references::extract_cangjie_references;
+pub use references::{CangjieReference, ReferenceKind};
 #[cfg(feature = "tree-sitter-cangjie")]
 pub use symbol::{extract_cangjie_symbols, extract_cangjie_symbols_from_tree};
 pub use symbol::{CangjieSymbol, CangjieSymbolKind};

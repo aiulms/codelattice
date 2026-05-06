@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 8-9 完成：diagnostics runner + integration into inspect_cangjie_project one-shot，163 tests pass）
+最后更新：2026-05-06（Phase 2 Slice 10 完成：same-file reference extraction (USES/ACCESSES/MODIFIES edges)，175 tests pass）
 
 ## 用途
 
@@ -50,6 +50,18 @@ Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
 - 图输出自动包含 Diagnostic nodes + ANNOTATES edges
 - 零新增依赖，163/163 pass（with feature），不改 Tool / live repo
 - ~22 行 graph.rs 变更
+
+**Phase 2 Slice 10 — same-file reference extraction ✅ 完成（2026-05-06）：**
+- Same-file AST walk reference extraction（USES/ACCESSES/MODIFIES edges）
+- 新增 `crates/cangjie/src/extractors/references.rs`：AST walk + same-file symbol index
+- Port TS adapter `extractReferences()` 模式：typeStack + funcStack 跟踪
+- Builtin type 过滤（25 种 Cangjie builtin types 不产生 USES edge）
+- graph.rs 新增 Uses/Accesses/Modifies EdgeKind + emit_cangjie_reference_edges()
+- 集成到 inspect_cangjie_project() one-shot
+- 175/175 pass（with feature），155/155（without feature），零新增依赖
+- 新增 fixture `fixtures/cangjie/references-basic/`
+- Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice10-preflight.md`
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice10-execution-card.md`
 
 ### 路线收束（2026-05-06）
 
@@ -167,4 +179,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 7. ~~Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction~~ ✅ 完成
 8. Phase 2 Slice 8 — Cangjie diagnostics runner ✅ 完成
 9. Phase 2 Slice 9 — diagnostics integration into inspect_cangjie_project ✅ 完成
-10. Phase 2 Slices 10+ — reference extraction / import resolution / LSP client preflight
+10. ~~Phase 2 Slice 10 — same-file reference extraction~~ ✅ 完成
+11. Phase 2 Slice 11 — import resolution preflight（cjpm tree + lock-based resolution）

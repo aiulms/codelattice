@@ -7,10 +7,11 @@
 //! the `tree-sitter-cangjie` feature.
 
 use serde::Serialize;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostics::CangjieDiagnostic;
+use crate::extractors::references::{CangjieReference, ReferenceKind};
 use crate::project::{CangjiePackageInfo, CangjieProject};
 use crate::CangjieSymbol;
 
@@ -53,6 +54,12 @@ pub enum EdgeKind {
     Defines,
     /// Diagnostic → Symbol (linter/compiler annotation).
     Annotates,
+    /// Reference → Symbol (type annotation).
+    Uses,
+    /// Reference → Symbol (field read).
+    Accesses,
+    /// Reference → Symbol (write/mutation).
+    Modifies,
 }
 
 /// An edge in the Cangjie graph.
@@ -337,6 +344,61 @@ pub fn emit_cangjie_diagnostics(
 }
 
 // ---------------------------------------------------------------------------
+// Reference edge emission
+// ---------------------------------------------------------------------------
+
+/// Emit graph edges from extracted references.
+///
+/// Each [`CangjieReference`] maps to a Uses/Accesses/Modifies edge.
+/// The source is the enclosing Method/Constructor/Function node ID;
+/// the target is the resolved symbol node ID.
+///
+/// Returns edges that should be merged into the graph output.
+pub fn emit_cangjie_reference_edges(
+    references: &[CangjieReference],
+    symbols_by_file: &BTreeMap<PathBuf, Vec<CangjieSymbol>>,
+    project_root: &Path,
+) -> Vec<GraphEdge> {
+    // Build a lookup from (file_path, symbol_name) → symbol_node_id for all symbols
+    // Store owned Strings as keys to avoid borrowing temporaries.
+    let mut symbol_id_lookup: HashMap<(String, String), String> = HashMap::new();
+    for (file_path, symbols) in symbols_by_file {
+        let file_key = file_path.to_string_lossy().to_string();
+        for sym in symbols {
+            let key = (file_key.clone(), sym.name.clone());
+            let node_id = symbol_node_id(file_path, project_root, sym);
+            symbol_id_lookup.insert(key, node_id);
+        }
+    }
+
+    let mut edges = Vec::new();
+
+    for r in references {
+        let edge_kind = match r.kind {
+            ReferenceKind::Uses => EdgeKind::Uses,
+            ReferenceKind::Accesses => EdgeKind::Accesses,
+            ReferenceKind::Modifies => EdgeKind::Modifies,
+        };
+
+        // Find target symbol node ID from same-file index
+        // The reference file_path is the key — we look up (file_path, target_name)
+        let target_id = symbol_id_lookup.get(&(r.file_path.clone(), r.target_name.clone()));
+
+        if let Some(tid) = target_id {
+            edges.push(GraphEdge {
+                kind: edge_kind,
+                source_id: r.source_id.clone(),
+                target_id: tid.clone(),
+            });
+        }
+        // If target not found, skip — aligns with same-file-only resolution
+        // (no-edge for cross-file / no match)
+    }
+
+    edges
+}
+
+// ---------------------------------------------------------------------------
 // Convenience: one-shot inspect
 // ---------------------------------------------------------------------------
 
@@ -365,7 +427,38 @@ pub fn inspect_cangjie_project(
         }
     }
 
+    // Parse trees for reference extraction (need the tree, not just symbols)
+    // Re-parse files to get trees for reference extraction
+    let mut file_trees: BTreeMap<PathBuf, tree_sitter::Tree> = BTreeMap::new();
+    for file_path in &project.source_files {
+        if let Ok(source) = std::fs::read_to_string(file_path) {
+            if let Ok(tree) = crate::extractors::parse_cangjie_source(&source) {
+                file_trees.insert(file_path.clone(), tree);
+            }
+        }
+    }
+
+    // Extract references (same-file only) from each file
+    let mut all_references: Vec<CangjieReference> = Vec::new();
+    for file_path in &project.source_files {
+        if let (Some(symbols), Some(tree)) =
+            (symbols_by_file.get(file_path), file_trees.get(file_path))
+        {
+            if let Ok(source) = std::fs::read_to_string(file_path) {
+                if let Ok(refs) = crate::extractors::references::extract_cangjie_references(
+                    &source, file_path, symbols, tree,
+                ) {
+                    all_references.extend(refs);
+                }
+            }
+        }
+    }
+
     let mut output = emit_cangjie_graph(&project, &symbols_by_file);
+
+    // Reference edges (Uses/Accesses/Modifies)
+    let ref_edges = emit_cangjie_reference_edges(&all_references, &symbols_by_file, &project.root);
+    output.edges.extend(ref_edges);
 
     // Diagnostics: graceful degrade when SDK absent (empty Vec)
     let diagnostics = crate::diagnostics::run_all_diagnostics(&project.root, &project.source_files);
@@ -374,7 +467,7 @@ pub fn inspect_cangjie_project(
     output.nodes.extend(diag_nodes);
     output.edges.extend(diag_edges);
 
-    // Re-sort for determinism after merging diagnostics
+    // Re-sort for determinism after merging
     output.nodes.sort_by(|a, b| a.id.cmp(&b.id));
     output.edges.sort_by(|a, b| {
         a.kind
