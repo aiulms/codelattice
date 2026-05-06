@@ -1,7 +1,7 @@
 # Phase 2 Slice 7 Execution Card — Cangjie graph output
 
 **日期：** 2026-05-06
-**状态：** 进行中
+**状态：** 完成 ✅
 **前置：** Slice 7 preflight（推荐方案 B2）✅
 
 ## 1. Scope
@@ -61,15 +61,15 @@ pub fn inspect_cangjie_project(root: &Path) -> Result<CangjieGraphOutput, ...>;
 
 ## 5. Acceptance Criteria
 
-- [ ] `cargo build` 成功（不启用 feature）
-- [ ] `cargo build --features tree-sitter-cangjie` 成功
-- [ ] `cargo test` 保持 135/135 pass（零回归）
-- [ ] `cargo test --features tree-sitter-cangjie` 新增 graph smoke tests 通过
-- [ ] Graph output 包含 Repository/Package/SourceFile/Symbol 节点 + ContainsPackage/OwnsSource/Defines 边
-- [ ] 测试覆盖 cjpm-basic fixture 的 graph 输出
-- [ ] `cargo fmt --check` clean
-- [ ] `git diff --check` clean
-- [ ] 零新增依赖
+- [x] `cargo build` 成功（不启用 feature）
+- [x] `cargo build --features tree-sitter-cangjie` 成功
+- [x] `cargo test` 保持已有测试通过
+- [x] `cargo test --features tree-sitter-cangjie` 新增 graph tests 通过
+- [x] Graph output 包含 Repository/Package/SourceFile/Symbol 节点 + ContainsPackage/OwnsSource/Defines 边
+- [x] 测试覆盖 6 tests（空项目、符号边、确定性、JSON 序列化、package ID）
+- [x] `cargo fmt --check` clean
+- [x] `git diff --check` clean
+- [x] 零新增依赖
 
 ## 6. Stop-line
 

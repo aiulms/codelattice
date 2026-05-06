@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 7 preflight 完成：Cangjie graph output 集成方案评估，推荐方案 B2）
+最后更新：2026-05-06（Phase 2 Slice 7 完成：Cangjie graph output，142 tests pass）
 
 ## 用途
 
@@ -23,12 +23,16 @@
 
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 7 — tree-sitter Cangjie graph output（下一刀，preflight 完成，待 execution card）**
+**Phase 2 Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）**
 
-当前进度：Slice 1-6 已完成（cjpm manifest + workspace/lock + project model + vendor gate + tree-sitter 集成 + AST symbol extraction, 135/135 tests pass）。
-Slice 6 符号提取已完成：7 种符号类型（function/class/struct/enum/interface/typeAlias/macro），基于 tree_sitter::Query。
-Slice 7 preflight 已完成：评估 3 种集成方案（A: ItemExtractor trait / B: 独立 graph output / C: LanguageAdapter trait），推荐方案 B2（cangjie crate 内独立 graph output，不改 project-model，零新依赖）。
+当前进度：Slice 1-7 已完成。
+Slice 7：方案 B2（cangjie 独立 graph output）已实现，142 tests pass，零新增依赖。
+新增 `crates/cangjie/src/graph.rs`：CangjieGraphOutput（Repository/Package/SourceFile/Symbol 节点 + ContainsPackage/OwnsSource/Defines 边）。
 Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice7-preflight.md`
+Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
+
+**Phase 2 Slice 8+ — 下一步（需 preflight)：**
+- diagnostics runner（cjc/cjlint subprocess）或 LSP client — 均触发 stop-line，需先写 preflight
 
 ### 路线收束（2026-05-06）
 
@@ -107,7 +111,17 @@ Slice 6 — tree-sitter Cangjie AST symbol extraction ✅ 完成：
 - 新增 9 tests，135/135 pass，零新增依赖
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice6-execution-card.md`
 
-**后续 slices（7+）：**
+Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
+- 方案 B2（cangjie 独立 graph output）已实现
+- 新增 `crates/cangjie/src/graph.rs`（~370 行）
+- CangjieGraphOutput：Repository/Package/SourceFile/Symbol 节点 + ContainsPackage/OwnsSource/Defines 边
+- 新增 `inspect_cangjie_project()` 一站式入口
+- 6 tests，142/142 pass（with feature），零新增依赖
+- 不改 project-model crate
+- Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice7-preflight.md`
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
+
+**后续 slices（8+）：**
 5. cjc/cjlint diagnostics runner
 6. LSP client（future，P1）
 7. Graph emitter 扩展（Diagnostic + ANNOTATES + MODIFIES）
@@ -134,6 +148,6 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 5. ~~Phase 2 Slice 4 — tree-sitter Cangjie vendor gate~~ ✅ 完成（docs-only，待用户批准）
 6. ~~Phase 2 Slice 5 — tree-sitter Cangjie 集成~~ ✅ 完成
 7. ~~Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction~~ ✅ 完成
-8. Phase 2 Slice 7 — graph output / project-model 集成（需 preflight）
-9. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
-9. 按 tracker 优先级选择下一轮 opening
+8. Phase 2 Slice 7 — Cangjie graph output ✅ 完成
+9. Phase 2 Slice 8+ — diagnostics runner / LSP client（需 preflight）
+10. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
