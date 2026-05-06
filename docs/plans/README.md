@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 2 完成：workspace/dependency metadata）
+最后更新：2026-05-06（Phase 2 Slice 3 完成：baseline project model output）
 
 ## 用途
 
@@ -23,10 +23,10 @@
 
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 3 — baseline project model output（待用户 gate）**
+**Phase 2 Slice 4 — tree-sitter Cangjie preflight / vendor gate（需要用户 gate）**
 
-当前进度：Slice 1 + 2 已完成（cjpm manifest parser + workspace/lock metadata, 116 tests pass）。
-下一步：project root detection via cjpm.toml、list source files under src-dir、emit minimal project metadata。
+当前进度：Slice 1 + 2 + 3 已完成（cjpm manifest parser + workspace/lock metadata + baseline project model, 123/123 tests pass）。
+下一步：不直接 vendor 大 parser.c，先写 vendor gate / feasibility doc，检查 tree-sitter-cangjie 来源、license、ABI、编译方式，设计 feature gate。这是需要用户 gate 的大依赖/vendor point。
 
 ### 路线收束（2026-05-06）
 
@@ -62,12 +62,15 @@ Slice 2 — workspace/dependency metadata ✅ 完成：
 - 116/116 tests pass
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice2-execution-card.md`
 
-**Phase 2 Slice 3 — baseline project model output（待 gate）：**
-- project root detection via cjpm.toml
-- list source files under src-dir
-- emit minimal project metadata
+Slice 3 — baseline project model output ✅ 完成：
+- `find_project_root()`：从路径向上查找 cjpm.toml
+- `list_source_files()`：递归列出 .cj 文件（跳过 hidden/target/.cache/.generated）
+- `build_project_model()`：从 workspace 构建 project model
+- `CangjieProject` / `CangjiePackageInfo` 类型定义
+- 7 new unit tests，123/123 tests pass
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice3-execution-card.md`
 
-**Phase 2 Slice 4 — tree-sitter Cangjie preflight / vendor gate（后续）：**
+**Phase 2 Slice 4 — tree-sitter Cangjie preflight / vendor gate（需要用户 gate）：**
 - 不直接 vendor 大 parser.c，先写 vendor gate / feasibility doc
 - 检查 tree-sitter-cangjie 来源、license、ABI、编译方式
 - 设计 feature gate
@@ -95,6 +98,7 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 1. ~~Cangjie migration preflight（B 线下一轮 opening）~~ ✅ 完成（Phase 1 preflight）
 2. ~~Phase 2 Slice 1 — cangjie crate skeleton + cjpm parser~~ ✅ 完成
 3. ~~Phase 2 Slice 2 — workspace/dependency metadata~~ ✅ 完成
-4. Phase 2 Slice 3 — baseline project model output（需用户 gate）
-5. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
-6. 按 tracker 优先级选择下一轮 opening
+4. ~~Phase 2 Slice 3 — baseline project model output~~ ✅ 完成
+5. Phase 2 Slice 4 — tree-sitter Cangjie preflight / vendor gate（需用户 gate）
+6. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
+7. 按 tracker 优先级选择下一轮 opening
