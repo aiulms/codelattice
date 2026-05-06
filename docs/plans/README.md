@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-06（Phase 2 Slice 4 完成：tree-sitter Cangjie vendor gate / feasibility doc，待用户 gate）
+最后更新：2026-05-06（Phase 2 Slice 5 完成：tree-sitter Cangjie 集成，126/126 tests pass）
 
 ## 用途
 
@@ -23,11 +23,11 @@
 
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 5 — tree-sitter Cangjie 集成（待用户批准 Slice 4 gate）**
+**Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction（下一刀）**
 
-当前进度：Slice 1-4 已完成（cjpm manifest parser + workspace/lock metadata + baseline project model + tree-sitter vendor gate, 123/123 tests pass）。
-Slice 4 vendor gate 已写就，推荐选项 A（vendor + feature gate），等待用户批准。
-批准后下一步：从 GitNexus-RC 复制 parser.c/scanner.c，新增 build.rs + feature gate，实现 AST 级别符号提取。
+当前进度：Slice 1-5 已完成（cjpm manifest parser + workspace/lock metadata + baseline project model + vendor gate + tree-sitter 集成, 126/126 tests pass）。
+Slice 5 tree-sitter 集成已完成：parser.c/scanner.c vendored，build.rs + feature gate 就绪，smoke parse 验证通过。
+下一步：Slice 6 AST 级别符号提取（基于 tree-sitter queries）。
 
 ### 路线收束（2026-05-06）
 
@@ -82,9 +82,22 @@ Slice 4 — tree-sitter Cangjie vendor gate ✅ 完成（docs-only）：
 - Vendor Gate：`docs/plans/2026-05-06-cangjie-phase2-slice4-vendor-gate.md`
 - Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice4-execution-card.md`
 
-**Phase 2 Slice 5 — tree-sitter Cangjie 集成（待用户批准 Slice 4 gate）：**
+**Phase 2 Slice 5 — tree-sitter Cangjie 集成 ✅ 完成：**
+- Vendor parser.c (~4.7MB) + scanner.c (~5.7KB) + tree_sitter headers 从 GitNexus-RC 复制
+- 新增 `build.rs`：`cc::Build` 编译 parser.c + scanner.c（仅 feature 启用时）
+- Feature gate `tree-sitter-cangjie`：`tree-sitter = "0.26"` + `cc = "1"`，默认关闭
+- 新增 `crates/cangjie/src/extractors/mod.rs`：`try_init_cangjie_parser()` / `is_cangjie_parser_available()` / `parse_cangjie_source()` / `tree_has_error_nodes()`
+- `pub mod extractors` 条件导出（feature-gated）
+- 新增 smoke test：`tests/tree_sitter_smoke.rs`（3 tests，feature-gated）
+- `cargo build` 成功（零新增编译，feature 关闭时）
+- `cargo build --features tree-sitter-cangjie` 成功（parser.c 编译通过，4 个上游 scanner.c warnings）
+- `cargo test` 126/126 pass（123 existing + 3 new）
+- `cargo test --features tree-sitter-cangjie` 126/126 pass（smoke test 通过，parse main.cj 无 ERROR nodes）
+- 零新增依赖（tree-sitter 0.26 已在 workspace；cc crate 已在 lockfile）
+- 不改 GitNexus-RC runtime / Tool / live repo
+- Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice5-execution-card.md`
 
-**后续 slices（5+）：**
+**后续 slices（6+）：**
 5. cjc/cjlint diagnostics runner
 6. LSP client（future，P1）
 7. Graph emitter 扩展（Diagnostic + ANNOTATES + MODIFIES）
@@ -109,6 +122,7 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 3. ~~Phase 2 Slice 2 — workspace/dependency metadata~~ ✅ 完成
 4. ~~Phase 2 Slice 3 — baseline project model output~~ ✅ 完成
 5. ~~Phase 2 Slice 4 — tree-sitter Cangjie vendor gate~~ ✅ 完成（docs-only，待用户批准）
-6. Phase 2 Slice 5 — tree-sitter Cangjie 集成（待用户批准）
-7. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
-7. 按 tracker 优先级选择下一轮 opening
+6. ~~Phase 2 Slice 5 — tree-sitter Cangjie 集成~~ ✅ 完成
+7. Phase 2 Slice 6 — tree-sitter Cangjie AST symbol extraction（下一刀）
+8. Rust-core Rust analysis readiness 改善（CALLS resolution rate 等 bounded slices）
+8. 按 tracker 优先级选择下一轮 opening

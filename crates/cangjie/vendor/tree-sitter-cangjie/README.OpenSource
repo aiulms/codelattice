@@ -1,0 +1,11 @@
+[
+    {
+        "Name": " ansies",
+        "License": " Mulan PSL2.0 License ",
+        "License File": " LICENSE ",
+        "Version Number": " v2.0 ",
+        "Owner": "vchuoshen6"
+        "Upstream URL": "https://gitcode.com/Cangjie-SIG/cjpackage-ansies",
+        "Description": "Cangjie grammar for tree-sitter"
+    }
+]
