@@ -233,6 +233,20 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Execution Card：本 slice 实现
 - Follow-up：`fix(cangjie): make CLI feature gating graceful` (a87ea7e)
 
+**Phase 2 Slice 18 — Cangjie production fixture smoke ✅ 大部分成功（2026-05-07）：**
+- 在真实 Cangjie 项目（cangjie-GitNexus-Index/runtime/cjgui）上运行 smoke test
+- 验证 CLI 可用性：✅ 成功运行，输出合法 JSON，运行时间 ~0.15s
+- 统计基础指标：✅ Nodes=715（1 repo + 1 pkg + 14 files + 699 symbols），Edges=3,401（1 contains + 14 owns + 699 defines + 2,687 uses）
+- 图结构完整性：❌ 发现 646 个 dangling sources（19% 的 edges 损坏，均为构造函数调用）
+- 输出确定性：✅ 两次运行结果一致
+- Gap 分析：Reference extraction 为构造函数调用创建 edges，但 Symbol extraction 未提取构造函数 symbols
+- 修复建议：Phase 2 Slice 19 — Constructor symbol extraction（优先级：High，预估 ~300-400 行）
+- 192/192 tests pass（without feature），259/259 pass（with feature）
+- 不改 GitNexus-RC runtime/Tool/live repo
+- Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-preflight.md`
+- Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-execution-card.md`
+- Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-closure-review.md`
+
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
