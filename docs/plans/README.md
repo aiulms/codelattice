@@ -219,16 +219,19 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 **Phase 2 Slice 17 — Cangjie CLI surface MVP ✅ 完成（2026-05-07）：**
 - 新增 CLI 子命令：`cangjie inspect` 和 `cangjie graph`
 - Feature gate：`tree-sitter-cangjie` 启用时可见 Cangjie 子命令
-- Graceful failure：feature 禁用时隐藏 cangjie 命令，不 panic
+- Graceful failure：cangjie 子命令始终可见，feature 禁用时返回清晰错误
 - 稳定 JSON 输出：stdout 纯 JSON，stderr 承载错误
-- 错误处理：root 不存在时退出码非零，错误信息清晰
-- CLI integration tests：13 new tests 验证 JSON 契约、节点/边类型、错误路径
+- 错误处理：root 不存在时退出码非零，错误信息清晰；feature 禁用时提示 `--features tree-sitter-cangjie`
+- CLI integration tests：15 tests（13 feature-enabled + 2 feature-disabled）验证 JSON 契约、节点/边类型、错误路径
+- Integration tests feature gating：`graph_parity_smoke.rs` + `alias_reference.rs` 添加 `#![cfg(feature = "tree-sitter-cangjie")]`
 - 更新 README.md：添加 Cangjie CLI 使用说明、feature 要求、stop-lines
 - 零新增依赖（复用 clap + serde_json + gitnexus-cangjie）
-- 258/258 tests pass（with feature：105 cangjie + 7 call + 10 PM + 10 graph + 4 symbol + 5 import + 45 CLI + 45 harness + 4 stdlib_index + 13 cangjie CLI）
+- 233/233 tests pass（with feature），45/45 pass（without feature）
 - 不改 GitNexus-RC runtime/Tool/live repo
+- Feature-gate follow-up ✅ 完成（2026-05-07）：CLI graceful failure, integration tests feature gating
 - Preflight：直接从 Slice 17 spec 实现（execution card 即实现）
 - Execution Card：本 slice 实现
+- Follow-up：`fix(cangjie): make CLI feature gating graceful` (a87ea7e)
 
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
