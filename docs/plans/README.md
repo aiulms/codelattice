@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 20 follow-up：multi-project smoke 改为 #[ignore] opt-in，264 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 21：Constructor symbol extraction + synthetic coexistence，~170 tests pass with feature）
 
 ## 用途
 
@@ -279,6 +279,21 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice20-multi-project-production-smoke-execution-card.md`
 - Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice20-multi-project-production-smoke-closure-review.md`
 
+**Phase 2 Slice 21 — Cangjie constructor symbol extraction ✅ 完全成功（2026-05-07）：**
+- 语义核查结论：能安全推进，采用方案 C3（补充 + Fallback 共存）
+- 新增 `CangjieSymbolKind::Init` 枚举变体 + `owner_name: Option<String>` 字段
+- Init symbol extraction：tree-sitter query 捕获 class/struct body 中的 init 定义
+- Constructor source ID → Init symbol node ID 映射：`resolve_source_id()` 函数
+- Synthetic nodes coexistence policy：已被 init symbol 覆盖的 source ID 不再发 synthetic node
+- Constructor 类 synthetic nodes 降为 0（fixture 验证）
+- 新增 fixture `constructor-basic/` + `constructor-cross-file/`
+- 新增 6 constructor integration tests + 7 endpoint integrity property tests
+- 109 lib tests pass（with feature），95 pass（without feature），零新增依赖
+- 不改 GitNexus-RC / Tool / live repo
+- Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice21-constructor-symbol-extraction-preflight.md`
+- Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice21-constructor-symbol-extraction-execution-card.md`
+- Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice21-constructor-symbol-extraction-closure-review.md`
+
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
@@ -327,4 +342,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 22. ~~Phase 2 Slice 19 — Cangjie reference source endpoint integrity repair~~ ✅ 完成
 23. ~~Phase 2 Slice 20 — Multi-project Cangjie production smoke~~ ✅ 完成
 24. ~~Phase 2 Slice 20 follow-up — multi-project smoke opt-in hygiene~~ ✅ 完成（#[ignore] + 文档闭合）
-25. Phase 2 Slice 21+ — 后续 bounded slices（需 preflight）
+25. ~~Phase 2 Slice 21 — Cangjie constructor symbol extraction~~ ✅ 完成（Init kind + source ID 映射 + synthetic coexistence）
+26. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）

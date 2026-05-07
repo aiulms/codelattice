@@ -1498,12 +1498,14 @@ mod tests {
                 name: "Point".to_string(),
                 start_line: 1,
                 end_line: 5,
+                owner_name: None,
             },
             CangjieSymbol {
                 kind: CangjieSymbolKind::Struct,
                 name: "Size".to_string(),
                 start_line: 7,
                 end_line: 10,
+                owner_name: None,
             },
         ];
         let index = SameFileIndex::build(&symbols);
@@ -1529,6 +1531,7 @@ mod tests {
             name: "Point".to_string(),
             start_line: 1,
             end_line: 5,
+            owner_name: None,
         }];
         let index = SameFileIndex::build(&symbols);
 
@@ -1546,12 +1549,14 @@ mod tests {
                 name: "Point".to_string(),
                 start_line: 1,
                 end_line: 5,
+                owner_name: None,
             },
             CangjieSymbol {
                 kind: CangjieSymbolKind::Struct,
                 name: "Point".to_string(),
                 start_line: 7,
                 end_line: 10,
+                owner_name: None,
             },
         ];
         let index = SameFileIndex::build(&symbols);
@@ -1572,12 +1577,14 @@ mod tests {
                 name: "Point".to_string(),
                 start_line: 1,
                 end_line: 5,
+                owner_name: None,
             },
             CangjieSymbol {
                 kind: CangjieSymbolKind::Function,
                 name: "Point".to_string(),
                 start_line: 7,
                 end_line: 10,
+                owner_name: None,
             },
         ];
         let index = SameFileIndex::build(&symbols);

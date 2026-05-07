@@ -358,12 +358,16 @@ pub fn emit_cangjie_diagnostics(
 ///
 /// Reference extraction creates source IDs for Constructor/Method/Function
 /// scopes (e.g., `Constructor:/path/to/file:ClassName.init#arity`),
-/// but symbol extraction doesn't emit corresponding nodes for these scopes.
+/// but symbol extraction may not emit corresponding nodes for these scopes.
 /// This function creates synthetic nodes for all unique source IDs
+/// that are not already covered by real symbol nodes (via resolved_source_ids),
 /// to ensure endpoint integrity.
 ///
 /// Returns nodes that should be merged into the graph output.
-pub fn emit_synthetic_source_nodes(references: &[CangjieReference]) -> Vec<GraphNode> {
+pub fn emit_synthetic_source_nodes(
+    references: &[CangjieReference],
+    resolved_source_ids: &std::collections::HashSet<String>,
+) -> Vec<GraphNode> {
     // Collect unique source IDs
     let unique_source_ids: std::collections::HashSet<_> =
         references.iter().map(|r| r.source_id.clone()).collect();
@@ -371,6 +375,11 @@ pub fn emit_synthetic_source_nodes(references: &[CangjieReference]) -> Vec<Graph
     let mut nodes = Vec::new();
 
     for source_id in unique_source_ids {
+        // 跳过已被真实 init symbol 覆盖的 source IDs
+        if resolved_source_ids.contains(&source_id) {
+            continue;
+        }
+
         // Parse source_id to determine kind and extract label
         let (kind, label) = if source_id.starts_with("Constructor:") {
             ("Constructor", extract_constructor_label(&source_id))
@@ -454,12 +463,17 @@ fn extract_function_label(source_id: &str) -> &str {
 /// The source is the enclosing Method/Constructor/Function node ID;
 /// the target is the resolved symbol node ID.
 ///
-/// Returns edges that should be merged into the graph output.
+/// 当 source_id 格式为 `Constructor:<abs-path>:<Owner>.init#arity` 且
+/// 存在对应的 Init symbol 时，将 source_id 映射为 init symbol 的 node_id，
+/// 使 edge source 指向真实 definition 而非 synthetic node。
+///
+/// Returns (edges, resolved_source_ids) — edges 应合并到 graph，
+/// resolved_source_ids 是已被真实 init symbol 覆盖的 source ID 集合。
 pub fn emit_cangjie_reference_edges(
     references: &[CangjieReference],
     symbols_by_file: &BTreeMap<PathBuf, Vec<CangjieSymbol>>,
     project_root: &Path,
-) -> Vec<GraphEdge> {
+) -> (Vec<GraphEdge>, std::collections::HashSet<String>) {
     // Build a lookup from (file_path, symbol_name) → symbol_node_id for all symbols
     // Store owned Strings as keys to avoid borrowing temporaries.
     let mut symbol_id_lookup: HashMap<(String, String), String> = HashMap::new();
@@ -472,7 +486,26 @@ pub fn emit_cangjie_reference_edges(
         }
     }
 
+    // 构建 Constructor source_id → init symbol node_id 映射
+    // 格式：Constructor:<abs-path>:<Owner>.init#arity → sym:<rel-path>:Init:<Owner>.init
+    let mut constructor_to_symbol_id: HashMap<String, String> = HashMap::new();
+    for (file_path, symbols) in symbols_by_file {
+        for sym in symbols {
+            if sym.kind == crate::CangjieSymbolKind::Init {
+                if let Some(ref owner) = sym.owner_name {
+                    // 构建 Constructor source_id 格式
+                    let abs_path = file_path.to_string_lossy();
+                    let constructor_source_id = format!("Constructor:{}:{}.init", abs_path, owner);
+                    let sym_id = symbol_node_id(file_path, project_root, sym);
+                    constructor_to_symbol_id.insert(constructor_source_id, sym_id);
+                }
+            }
+        }
+    }
+
     let mut edges = Vec::new();
+    let mut resolved_source_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
 
     for r in references {
         let edge_kind = match r.kind {
@@ -480,6 +513,12 @@ pub fn emit_cangjie_reference_edges(
             ReferenceKind::Accesses => EdgeKind::Accesses,
             ReferenceKind::Modifies => EdgeKind::Modifies,
         };
+
+        // 解析 source_id：优先使用 init symbol node_id（如果存在）
+        let effective_source_id = resolve_source_id(&r.source_id, &constructor_to_symbol_id);
+        if effective_source_id != r.source_id {
+            resolved_source_ids.insert(r.source_id.clone());
+        }
 
         // Resolve target symbol node ID:
         // 1. Cross-file: use target_file if set
@@ -490,14 +529,44 @@ pub fn emit_cangjie_reference_edges(
         if let Some(tid) = target_id {
             edges.push(GraphEdge {
                 kind: edge_kind,
-                source_id: r.source_id.clone(),
+                source_id: effective_source_id,
                 target_id: tid.clone(),
             });
         }
         // If target not found, skip (no edge)
     }
 
-    edges
+    (edges, resolved_source_ids)
+}
+
+/// 解析 source_id：如果存在对应的 init symbol node_id，返回 node_id；否则返回原始 source_id。
+///
+/// Constructor source_id 格式可能包含 #arity 后缀（如 `Constructor:/path:Foo.init#3`），
+/// 映射时先尝试精确匹配，再尝试去掉 #arity 后缀匹配。
+fn resolve_source_id(
+    source_id: &str,
+    constructor_to_symbol_id: &HashMap<String, String>,
+) -> String {
+    // 只处理 Constructor: 前缀的 source_id
+    if !source_id.starts_with("Constructor:") {
+        return source_id.to_string();
+    }
+
+    // 精确匹配
+    if let Some(sym_id) = constructor_to_symbol_id.get(source_id) {
+        return sym_id.clone();
+    }
+
+    // 去掉 #arity 后缀再匹配
+    if let Some(hash_pos) = source_id.find('#') {
+        let without_arity = &source_id[..hash_pos];
+        if let Some(sym_id) = constructor_to_symbol_id.get(without_arity) {
+            return sym_id.clone();
+        }
+    }
+
+    // 无匹配，返回原始 source_id（synthetic node 会覆盖）
+    source_id.to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -652,12 +721,13 @@ pub fn inspect_cangjie_project(
 
     let mut output = emit_cangjie_graph(&project, &symbols_by_file);
 
-    // Reference edges (Uses/Accesses/Modifies)
-    let ref_edges = emit_cangjie_reference_edges(&all_references, &symbols_by_file, &project.root);
+    // Reference edges (Uses/Accesses/Modifies) + resolved source IDs
+    let (ref_edges, resolved_source_ids) =
+        emit_cangjie_reference_edges(&all_references, &symbols_by_file, &project.root);
     output.edges.extend(ref_edges);
 
-    // Synthetic source nodes (fix dangling source endpoints)
-    let synthetic_nodes = emit_synthetic_source_nodes(&all_references);
+    // Synthetic source nodes (fix dangling source endpoints, skip resolved)
+    let synthetic_nodes = emit_synthetic_source_nodes(&all_references, &resolved_source_ids);
     output.nodes.extend(synthetic_nodes);
 
     // Import edges (Imports)
@@ -768,6 +838,7 @@ mod tests {
                 name: "main".to_string(),
                 start_line: 1,
                 end_line: 3,
+                owner_name: None,
             }],
         );
 
@@ -803,12 +874,14 @@ mod tests {
                     name: "main".to_string(),
                     start_line: 1,
                     end_line: 3,
+                    owner_name: None,
                 },
                 CangjieSymbol {
                     kind: CangjieSymbolKind::Class,
                     name: "App".to_string(),
                     start_line: 5,
                     end_line: 10,
+                    owner_name: None,
                 },
             ],
         );

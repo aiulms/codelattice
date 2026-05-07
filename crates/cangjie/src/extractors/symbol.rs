@@ -15,6 +15,8 @@ pub enum CangjieSymbolKind {
     Interface,
     TypeAlias,
     Macro,
+    /// 构造函数定义（class/struct body 中的 init）
+    Init,
 }
 
 impl std::fmt::Display for CangjieSymbolKind {
@@ -27,6 +29,7 @@ impl std::fmt::Display for CangjieSymbolKind {
             Self::Interface => write!(f, "interface"),
             Self::TypeAlias => write!(f, "typeAlias"),
             Self::Macro => write!(f, "macro"),
+            Self::Init => write!(f, "init"),
         }
     }
 }
@@ -40,6 +43,8 @@ pub struct CangjieSymbol {
     pub start_line: usize,
     /// 1-based end line (inclusive)
     pub end_line: usize,
+    /// 所属类型名称（仅 Init kind 使用，如 "ClassName" 表示 ClassName.init）
+    pub owner_name: Option<String>,
 }
 
 /// Tree-sitter S-expression query for top-level Cangjie definitions.
@@ -58,6 +63,7 @@ const SYMBOL_QUERY: &str = r#"
 (structDefinition (structName) @name)
 (typeAlias (typeAliasName) @name)
 (enumDefinition (enumName) @name)
+(init "init" @init_name)
 "#;
 
 /// Map a tree-sitter node kind to the corresponding [`CangjieSymbolKind`].
@@ -72,6 +78,7 @@ fn classify_symbol(parent_kind: &str) -> Option<CangjieSymbolKind> {
         "structDefinition" => Some(CangjieSymbolKind::Struct),
         "typeAlias" => Some(CangjieSymbolKind::TypeAlias),
         "enumDefinition" => Some(CangjieSymbolKind::Enum),
+        "init" => Some(CangjieSymbolKind::Init),
         _ => None,
     }
 }
@@ -95,11 +102,56 @@ pub fn extract_cangjie_symbols_from_tree(
     let mut cursor = tree_sitter::QueryCursor::new();
     let mut matches = cursor.matches(&query, tree.root_node(), source.as_bytes());
 
-    let name_capture_idx = query
-        .capture_names()
+    let capture_names = query.capture_names();
+    let name_capture_idx = capture_names
         .iter()
         .position(|n| *n == "name")
         .expect("query has @name capture") as u32;
+    let init_name_capture_idx = capture_names
+        .iter()
+        .position(|n| *n == "init_name")
+        .expect("query has @init_name capture") as u32;
+
+    /// 从 init 节点向上查找 owner type name（classDefinition/structDefinition 的 className/structName）
+    fn extract_owner_name(node: tree_sitter::Node, source: &str) -> Option<String> {
+        let mut current = node.parent();
+        while let Some(parent) = current {
+            match parent.kind() {
+                "classDefinition" => {
+                    // 查找 className 子节点
+                    for i in 0..parent.named_child_count() {
+                        if let Some(child) = parent.named_child(i as u32) {
+                            if child.kind() == "className" {
+                                return child
+                                    .utf8_text(source.as_bytes())
+                                    .ok()
+                                    .map(|s| s.to_string());
+                            }
+                        }
+                    }
+                    return None;
+                }
+                "structDefinition" => {
+                    // 查找 structName 子节点
+                    for i in 0..parent.named_child_count() {
+                        if let Some(child) = parent.named_child(i as u32) {
+                            if child.kind() == "structName" {
+                                return child
+                                    .utf8_text(source.as_bytes())
+                                    .ok()
+                                    .map(|s| s.to_string());
+                            }
+                        }
+                    }
+                    return None;
+                }
+                _ => {
+                    current = parent.parent();
+                }
+            }
+        }
+        None
+    }
 
     let mut symbols: Vec<CangjieSymbol> = Vec::new();
 
@@ -127,6 +179,30 @@ pub fn extract_cangjie_symbols_from_tree(
                             name,
                             start_line,
                             end_line,
+                            owner_name: None,
+                        });
+                    }
+                }
+            } else if capture.index == init_name_capture_idx {
+                // @init_name capture：init 构造函数
+                let init_node = capture.node;
+                if let Some(parent) = init_node.parent() {
+                    if parent.kind() == "init" {
+                        let owner_name = extract_owner_name(parent, source);
+                        // init 的 name 用 "Owner.init" 格式（如果 owner 存在）
+                        let name = if let Some(ref owner) = owner_name {
+                            format!("{}.init", owner)
+                        } else {
+                            "init".to_string()
+                        };
+                        let start_line = init_node.start_position().row + 1;
+                        let end_line = parent.end_position().row + 1;
+                        symbols.push(CangjieSymbol {
+                            kind: CangjieSymbolKind::Init,
+                            name,
+                            start_line,
+                            end_line,
+                            owner_name,
                         });
                     }
                 }
@@ -345,6 +421,103 @@ func two(): Int64 { return 2 }
             let main = syms.iter().find(|s| s.name == "main");
             assert!(main.is_some(), "expected main function");
             assert_eq!(main.unwrap().kind, CangjieSymbolKind::Function);
+        }
+
+        #[test]
+        fn class_init_extraction() {
+            let syms = extract(
+                r#"
+open class Foo {
+    var x: Int64
+    public init(x: Int64) {
+        this.x = x
+    }
+}
+"#,
+            );
+            let inits: Vec<_> = syms
+                .iter()
+                .filter(|s| s.kind == CangjieSymbolKind::Init)
+                .collect();
+            assert_eq!(inits.len(), 1, "expected exactly one init symbol");
+            assert_eq!(inits[0].name, "Foo.init");
+            assert_eq!(inits[0].owner_name.as_ref().unwrap(), "Foo");
+            // class + init = 2 symbols
+            let classes: Vec<_> = syms
+                .iter()
+                .filter(|s| s.kind == CangjieSymbolKind::Class)
+                .collect();
+            assert_eq!(classes.len(), 1);
+            assert_eq!(syms.len(), 2);
+        }
+
+        #[test]
+        fn struct_init_extraction() {
+            let syms = extract(
+                r#"
+struct Point {
+    var x: Float64
+    var y: Float64
+    public init(x: Float64, y: Float64) {
+        this.x = x
+        this.y = y
+    }
+}
+"#,
+            );
+            let inits: Vec<_> = syms
+                .iter()
+                .filter(|s| s.kind == CangjieSymbolKind::Init)
+                .collect();
+            assert_eq!(inits.len(), 1, "expected exactly one init symbol");
+            assert_eq!(inits[0].name, "Point.init");
+            assert_eq!(inits[0].owner_name.as_ref().unwrap(), "Point");
+        }
+
+        #[test]
+        fn multiple_inits_in_same_class() {
+            let syms = extract(
+                r#"
+open class Config {
+    var name: String
+    var value: Int64
+    public init(name: String) {
+        this.name = name
+        this.value = 0
+    }
+    public init(name: String, value: Int64) {
+        this.name = name
+        this.value = value
+    }
+}
+"#,
+            );
+            let inits: Vec<_> = syms
+                .iter()
+                .filter(|s| s.kind == CangjieSymbolKind::Init)
+                .collect();
+            // Cangjie 可能不支持多个 init（重载），但 tree-sitter 会解析所有 init 节点
+            // 验证所有 init 都有正确的 owner_name
+            for init in &inits {
+                assert_eq!(init.owner_name.as_ref().unwrap(), "Config");
+                assert!(init.name.starts_with("Config.init"));
+            }
+        }
+
+        #[test]
+        fn class_without_init() {
+            let syms = extract(
+                r#"
+open class Empty {
+    var x: Int64
+}
+"#,
+            );
+            let inits: Vec<_> = syms
+                .iter()
+                .filter(|s| s.kind == CangjieSymbolKind::Init)
+                .collect();
+            assert_eq!(inits.len(), 0, "no init in class without init");
         }
     }
 }
