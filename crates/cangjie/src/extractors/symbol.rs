@@ -45,6 +45,8 @@ pub struct CangjieSymbol {
     pub end_line: usize,
     /// 所属类型名称（仅 Init kind 使用，如 "ClassName" 表示 ClassName.init）
     pub owner_name: Option<String>,
+    /// 参数数量（仅 Init kind 使用，用于区分同一 class/struct 中的多个 init 重载）
+    pub arity: Option<usize>,
 }
 
 /// Tree-sitter S-expression query for top-level Cangjie definitions.
@@ -111,6 +113,26 @@ pub fn extract_cangjie_symbols_from_tree(
         .iter()
         .position(|n| *n == "init_name")
         .expect("query has @init_name capture") as u32;
+
+    /// 统计 init 节点的参数数量（parameterList 中 parameter 子节点个数）。
+    fn count_init_params(init_node: tree_sitter::Node) -> usize {
+        for i in 0..init_node.named_child_count() {
+            if let Some(child) = init_node.named_child(i as u32) {
+                if child.kind() == "parameterList" {
+                    let mut count = 0;
+                    for j in 0..child.named_child_count() {
+                        if let Some(p) = child.named_child(j as u32) {
+                            if p.kind() == "parameter" {
+                                count += 1;
+                            }
+                        }
+                    }
+                    return count;
+                }
+            }
+        }
+        0
+    }
 
     /// 从 init 节点向上查找 owner type name（classDefinition/structDefinition 的 className/structName）
     fn extract_owner_name(node: tree_sitter::Node, source: &str) -> Option<String> {
@@ -180,6 +202,7 @@ pub fn extract_cangjie_symbols_from_tree(
                             start_line,
                             end_line,
                             owner_name: None,
+                            arity: None,
                         });
                     }
                 }
@@ -197,12 +220,14 @@ pub fn extract_cangjie_symbols_from_tree(
                         };
                         let start_line = init_node.start_position().row + 1;
                         let end_line = parent.end_position().row + 1;
+                        let arity = count_init_params(parent);
                         symbols.push(CangjieSymbol {
                             kind: CangjieSymbolKind::Init,
                             name,
                             start_line,
                             end_line,
                             owner_name,
+                            arity: Some(arity),
                         });
                     }
                 }

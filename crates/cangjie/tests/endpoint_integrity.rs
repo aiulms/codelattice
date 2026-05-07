@@ -332,3 +332,28 @@ fn test_init_symbols_have_owner_name() {
         init_nodes.len()
     );
 }
+
+#[test]
+fn test_no_duplicate_node_ids_on_constructor_fixture() {
+    let root = constructor_basic_dir();
+    if !root.exists() {
+        return;
+    }
+
+    let graph = inspect_cangjie_project(&root).expect("inspect should succeed");
+
+    let mut seen_ids: HashSet<String> = HashSet::new();
+    let mut duplicates: Vec<String> = Vec::new();
+    for node in &graph.nodes {
+        if !seen_ids.insert(node.id.clone()) {
+            duplicates.push(node.id.clone());
+        }
+    }
+
+    assert!(
+        duplicates.is_empty(),
+        "found {} duplicate node IDs on constructor fixture: {:?}",
+        duplicates.len(),
+        duplicates
+    );
+}

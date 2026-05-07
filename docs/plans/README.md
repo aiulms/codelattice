@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 21：Constructor symbol extraction + synthetic coexistence，~170 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 21 post-review follow-up：Init symbol node ID 唯一性修复，287 tests pass with feature）
 
 ## 用途
 
@@ -294,6 +294,17 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice21-constructor-symbol-extraction-execution-card.md`
 - Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice21-constructor-symbol-extraction-closure-review.md`
 
+**Phase 2 Slice 21 post-review follow-up — Init symbol node ID 唯一性修复 ✅ 完成（2026-05-07）：**
+- 修复 Slice 21 中的 multi init duplicate graph node ID 问题
+- 新增 `arity: Option<usize>` 字段到 `CangjieSymbol`，init 提取时计数参数
+- `symbol_node_id()` 对 Init symbol 添加 `#arity` 后缀：`sym:<path>:Init:<Owner>.init#<arity>`
+- `constructor_to_symbol_id` 映射键对齐 Constructor source ID 格式（含 `#arity`）
+- 新增 6 个回归测试：duplicate ID 检测、MultiInit 唯一 ID、所有预期 init 存在、synthetic fallback 保留、endpoint integrity
+- 287 tests pass（with feature），0 fail，零新增依赖
+- 修复策略：arity-based 唯一 ID，与 Constructor source ID `#arity` 格式对齐
+- 歧义处理：arity 不匹配时保留 synthetic fallback，不错误映射
+- Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice21-init-node-id-uniqueness-followup-closure-review.md`
+
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
@@ -343,4 +354,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 23. ~~Phase 2 Slice 20 — Multi-project Cangjie production smoke~~ ✅ 完成
 24. ~~Phase 2 Slice 20 follow-up — multi-project smoke opt-in hygiene~~ ✅ 完成（#[ignore] + 文档闭合）
 25. ~~Phase 2 Slice 21 — Cangjie constructor symbol extraction~~ ✅ 完成（Init kind + source ID 映射 + synthetic coexistence）
-26. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+26. ~~Phase 2 Slice 21 post-review follow-up — Init symbol node ID 唯一性修复~~ ✅ 完成（arity-based unique ID）
+27. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）

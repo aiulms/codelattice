@@ -1499,6 +1499,7 @@ mod tests {
                 start_line: 1,
                 end_line: 5,
                 owner_name: None,
+                arity: None,
             },
             CangjieSymbol {
                 kind: CangjieSymbolKind::Struct,
@@ -1506,6 +1507,7 @@ mod tests {
                 start_line: 7,
                 end_line: 10,
                 owner_name: None,
+                arity: None,
             },
         ];
         let index = SameFileIndex::build(&symbols);
@@ -1532,6 +1534,7 @@ mod tests {
             start_line: 1,
             end_line: 5,
             owner_name: None,
+            arity: None,
         }];
         let index = SameFileIndex::build(&symbols);
 
@@ -1550,6 +1553,7 @@ mod tests {
                 start_line: 1,
                 end_line: 5,
                 owner_name: None,
+                arity: None,
             },
             CangjieSymbol {
                 kind: CangjieSymbolKind::Struct,
@@ -1557,6 +1561,7 @@ mod tests {
                 start_line: 7,
                 end_line: 10,
                 owner_name: None,
+                arity: None,
             },
         ];
         let index = SameFileIndex::build(&symbols);
@@ -1578,6 +1583,7 @@ mod tests {
                 start_line: 1,
                 end_line: 5,
                 owner_name: None,
+                arity: None,
             },
             CangjieSymbol {
                 kind: CangjieSymbolKind::Function,
@@ -1585,6 +1591,7 @@ mod tests {
                 start_line: 7,
                 end_line: 10,
                 owner_name: None,
+                arity: None,
             },
         ];
         let index = SameFileIndex::build(&symbols);

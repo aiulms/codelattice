@@ -116,6 +116,19 @@ fn source_file_node_id(file_path: &Path, project_root: &Path) -> String {
 fn symbol_node_id(file_path: &Path, project_root: &Path, symbol: &CangjieSymbol) -> String {
     let rel = file_path.strip_prefix(project_root).unwrap_or(file_path);
     let kind_str = format!("{:?}", symbol.kind);
+    // Init symbol node id 添加 #arity 后缀以保证多 init 构造函数的 node id 唯一性。
+    // 格式：sym:<rel-path>:Init:<Owner>.init#<arity>
+    if symbol.kind == crate::CangjieSymbolKind::Init {
+        if let Some(arity) = symbol.arity {
+            return format!(
+                "sym:{}:{}:{}#{}",
+                rel.to_string_lossy(),
+                kind_str,
+                symbol.name,
+                arity
+            );
+        }
+    }
     format!("sym:{}:{}:{}", rel.to_string_lossy(), kind_str, symbol.name)
 }
 
@@ -487,15 +500,17 @@ pub fn emit_cangjie_reference_edges(
     }
 
     // 构建 Constructor source_id → init symbol node_id 映射
-    // 格式：Constructor:<abs-path>:<Owner>.init#arity → sym:<rel-path>:Init:<Owner>.init
+    // 格式：Constructor:<abs-path>:<Owner>.init#arity → sym:<rel-path>:Init:<Owner>.init#arity
     let mut constructor_to_symbol_id: HashMap<String, String> = HashMap::new();
     for (file_path, symbols) in symbols_by_file {
         for sym in symbols {
             if sym.kind == crate::CangjieSymbolKind::Init {
                 if let Some(ref owner) = sym.owner_name {
-                    // 构建 Constructor source_id 格式
+                    // 构建 Constructor source_id 格式（含 #arity 后缀，与 references.rs 的 build_source_id 输出对齐）
                     let abs_path = file_path.to_string_lossy();
-                    let constructor_source_id = format!("Constructor:{}:{}.init", abs_path, owner);
+                    let arity = sym.arity.unwrap_or(0);
+                    let constructor_source_id =
+                        format!("Constructor:{}:{}.init#{}", abs_path, owner, arity);
                     let sym_id = symbol_node_id(file_path, project_root, sym);
                     constructor_to_symbol_id.insert(constructor_source_id, sym_id);
                 }
@@ -839,6 +854,7 @@ mod tests {
                 start_line: 1,
                 end_line: 3,
                 owner_name: None,
+                arity: None,
             }],
         );
 
@@ -875,6 +891,7 @@ mod tests {
                     start_line: 1,
                     end_line: 3,
                     owner_name: None,
+                    arity: None,
                 },
                 CangjieSymbol {
                     kind: CangjieSymbolKind::Class,
@@ -882,6 +899,7 @@ mod tests {
                     start_line: 5,
                     end_line: 10,
                     owner_name: None,
+                    arity: None,
                 },
             ],
         );
