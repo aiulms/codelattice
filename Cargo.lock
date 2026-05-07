@@ -206,6 +206,7 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
+ "gitnexus-cangjie",
  "gitnexus-project-model",
  "predicates",
  "serde_json",

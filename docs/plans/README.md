@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 16 完成：Cangjie graph output parity smoke，248 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 17 完成：Cangjie CLI surface MVP，258 tests pass with feature）
 
 ## 用途
 
@@ -216,7 +216,21 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice16-graph-output-parity-smoke-preflight.md`
 - Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice16-graph-output-parity-smoke-execution-card.md`
 
-**Phase 2 Slices 17+（后续）：**
+**Phase 2 Slice 17 — Cangjie CLI surface MVP ✅ 完成（2026-05-07）：**
+- 新增 CLI 子命令：`cangjie inspect` 和 `cangjie graph`
+- Feature gate：`tree-sitter-cangjie` 启用时可见 Cangjie 子命令
+- Graceful failure：feature 禁用时隐藏 cangjie 命令，不 panic
+- 稳定 JSON 输出：stdout 纯 JSON，stderr 承载错误
+- 错误处理：root 不存在时退出码非零，错误信息清晰
+- CLI integration tests：13 new tests 验证 JSON 契约、节点/边类型、错误路径
+- 更新 README.md：添加 Cangjie CLI 使用说明、feature 要求、stop-lines
+- 零新增依赖（复用 clap + serde_json + gitnexus-cangjie）
+- 258/258 tests pass（with feature：105 cangjie + 7 call + 10 PM + 10 graph + 4 symbol + 5 import + 45 CLI + 45 harness + 4 stdlib_index + 13 cangjie CLI）
+- 不改 GitNexus-RC runtime/Tool/live repo
+- Preflight：直接从 Slice 17 spec 实现（execution card 即实现）
+- Execution Card：本 slice 实现
+
+**Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
 - ~~Slice 14b：alias resolution~~ ✅ 完成
@@ -259,4 +273,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 17. ~~Phase 2 Slice 14b — alias resolution~~ ✅ 完成
 18. ~~Phase 2 Slice 15 — wildcard import edge quality~~ ✅ 完成
 19. ~~Phase 2 Slice 16 — Cangjie graph output parity smoke~~ ✅ 完成
-20. Phase 2 Slice 17+ — 后续 bounded slices（需 preflight）
+20. ~~Phase 2 Slice 17 — Cangjie CLI surface MVP~~ ✅ 完成
+21. Phase 2 Slice 18+ — 后续 bounded slices（需 preflight）

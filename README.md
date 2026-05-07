@@ -51,6 +51,8 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 
 ## CLI Usage
 
+### Rust Project Analysis
+
 ```bash
 # Full project model inspection
 cargo run -p gitnexus-rust-core-cli -- project-model inspect \
@@ -74,6 +76,43 @@ cargo run -p gitnexus-rust-core-cli -- project-model inspect \
 ```
 
 `--include calls` automatically triggers `--include symbols` and `--include imports` internally.
+
+### Cangjie Project Analysis (Rust-native Local Trial)
+
+**Note:** Cangjie CLI commands require the `tree-sitter-cangjie` feature to be enabled. This is a **local trial implementation** and is not intended to replace the production GitNexus-RC tool.
+
+```bash
+# Enable Cangjie feature
+cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli
+
+# Inspect Cangjie project (outputs graph JSON)
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie inspect \
+  --root /path/to/cangjie/project
+
+# Output Cangjie graph (same as inspect)
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie graph \
+  --root /path/to/cangjie/project
+```
+
+**Feature Requirements:**
+- `--features tree-sitter-cangjie` must be specified when building and running
+- The `tree-sitter-cangjie` feature enables Cangjie language support via tree-sitter parser
+- Without this feature, the `cangjie` subcommand is not available
+
+**Current Capabilities (Slice 17):**
+- Project model scanning (cjpm.toml, workspace members, source files)
+- Symbol extraction (Function, Class, Struct, Enum, Interface, TypeAlias, Macro)
+- Import resolution (named imports, path dependencies, cjpm tree external deps)
+- Reference extraction (same-file and cross-file type annotations)
+- Graph output (Repository/Package/SourceFile/Symbol nodes + edges)
+- Deterministic JSON output to stdout
+
+**Stop-lines for Cangjie:**
+- No full method dispatch (blind name + stdlib trait + receiver type heuristics only)
+- No type inference / trait solving
+- No macro expansion
+- No full cfg evaluator
+- No production replacement for GitNexus-RC tool
 
 ---
 

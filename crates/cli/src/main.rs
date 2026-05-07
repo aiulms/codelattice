@@ -25,6 +25,12 @@ enum Commands {
         #[command(subcommand)]
         sub: ProjectModelCommands,
     },
+    /// Cangjie 子命令域
+    #[cfg(feature = "tree-sitter-cangjie")]
+    Cangjie {
+        #[command(subcommand)]
+        sub: CangjieCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -41,6 +47,23 @@ enum ProjectModelCommands {
         /// symbols: 提取 item/symbol 列表
         #[arg(long, value_name = "INCLUDE")]
         include: Vec<String>,
+    },
+}
+
+#[cfg(feature = "tree-sitter-cangjie")]
+#[derive(Subcommand)]
+enum CangjieCommands {
+    /// 输出 Cangjie 项目 JSON
+    Inspect {
+        /// 项目根目录路径
+        #[arg(long)]
+        root: String,
+    },
+    /// 输出 Cangjie 图 JSON
+    Graph {
+        /// 项目根目录路径
+        #[arg(long)]
+        root: String,
     },
 }
 
@@ -95,6 +118,53 @@ fn main() {
                         std::process::exit(1);
                     });
                     println!("{json}");
+                }
+            }
+        },
+        #[cfg(feature = "tree-sitter-cangjie")]
+        Commands::Cangjie { sub } => match sub {
+            CangjieCommands::Inspect { root } => {
+                let root_path = Path::new(&root);
+                if !root_path.exists() {
+                    eprintln!("错误：root 路径不存在: {root}");
+                    std::process::exit(1);
+                }
+
+                match gitnexus_cangjie::graph::inspect_cangjie_project(root_path) {
+                    Ok(graph_output) => {
+                        let json =
+                            serde_json::to_string_pretty(&graph_output).unwrap_or_else(|e| {
+                                eprintln!("错误：Cangjie JSON 序列化失败: {e}");
+                                std::process::exit(1);
+                            });
+                        println!("{json}");
+                    }
+                    Err(e) => {
+                        eprintln!("错误：Cangjie 项目分析失败: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+            CangjieCommands::Graph { root } => {
+                let root_path = Path::new(&root);
+                if !root_path.exists() {
+                    eprintln!("错误：root 路径不存在: {root}");
+                    std::process::exit(1);
+                }
+
+                match gitnexus_cangjie::graph::inspect_cangjie_project(root_path) {
+                    Ok(graph_output) => {
+                        let json =
+                            serde_json::to_string_pretty(&graph_output).unwrap_or_else(|e| {
+                                eprintln!("错误：Cangjie 图 JSON 序列化失败: {e}");
+                                std::process::exit(1);
+                            });
+                        println!("{json}");
+                    }
+                    Err(e) => {
+                        eprintln!("错误：Cangjie 图生成失败: {e}");
+                        std::process::exit(1);
+                    }
                 }
             }
         },
