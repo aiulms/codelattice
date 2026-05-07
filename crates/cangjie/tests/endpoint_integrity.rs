@@ -103,7 +103,11 @@ fn test_endpoint_integrity_on_production_fixture() {
         dangling_sources.is_empty(),
         "Found {} dangling source IDs. Examples: {:?}",
         dangling_sources.len(),
-        dangling_sources.iter().take(3).map(|e| &e.source_id).collect::<Vec<_>>()
+        dangling_sources
+            .iter()
+            .take(3)
+            .map(|e| &e.source_id)
+            .collect::<Vec<_>>()
     );
 
     // Check for any dangling target IDs
@@ -117,7 +121,11 @@ fn test_endpoint_integrity_on_production_fixture() {
         dangling_targets.is_empty(),
         "Found {} dangling target IDs. Examples: {:?}",
         dangling_targets.len(),
-        dangling_targets.iter().take(3).map(|e| &e.target_id).collect::<Vec<_>>()
+        dangling_targets
+            .iter()
+            .take(3)
+            .map(|e| &e.target_id)
+            .collect::<Vec<_>>()
     );
 }
 
@@ -134,11 +142,9 @@ fn test_synthetic_nodes_are_marked() {
     for node in &graph.nodes {
         if node.kind == gitnexus_cangjie::graph::NodeKind::CallableSource {
             assert_eq!(
-                node.properties["synthetic"],
-                true,
+                node.properties["synthetic"], true,
                 "callableSource node '{}' should have synthetic=true, got: {:?}",
-                node.id,
-                node.properties
+                node.id, node.properties
             );
             assert!(
                 node.properties["kind"].is_string(),

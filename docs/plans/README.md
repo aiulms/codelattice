@@ -304,4 +304,6 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 18. ~~Phase 2 Slice 15 — wildcard import edge quality~~ ✅ 完成
 19. ~~Phase 2 Slice 16 — Cangjie graph output parity smoke~~ ✅ 完成
 20. ~~Phase 2 Slice 17 — Cangjie CLI surface MVP~~ ✅ 完成
-21. Phase 2 Slice 18+ — 后续 bounded slices（需 preflight）
+21. ~~Phase 2 Slice 18 — Cangjie production fixture smoke~~ ✅ 完成
+22. ~~Phase 2 Slice 19 — Cangjie reference source endpoint integrity repair~~ ✅ 完成
+23. Phase 2 Slice 20+ — 后续 bounded slices（需 preflight）
