@@ -237,15 +237,19 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - 在真实 Cangjie 项目（cangjie-GitNexus-Index/runtime/cjgui）上运行 smoke test
 - 验证 CLI 可用性：✅ 成功运行，输出合法 JSON，运行时间 ~0.15s
 - 统计基础指标：✅ Nodes=715（1 repo + 1 pkg + 14 files + 699 symbols），Edges=3,401（1 contains + 14 owns + 699 defines + 2,687 uses）
-- 图结构完整性：❌ 发现 646 个 dangling sources（19% 的 edges 损坏，均为构造函数调用）
+- 图结构完整性：❌ 发现 125 unique dangling source IDs，770 dangling source edges（23% 的 edges 损坏，均为构造函数调用）
 - 输出确定性：✅ 两次运行结果一致
-- Gap 分析：Reference extraction 为构造函数调用创建 edges，但 Symbol extraction 未提取构造函数 symbols
-- 修复建议：Phase 2 Slice 19 — Constructor symbol extraction（优先级：High，预估 ~300-400 行）
+- Gap 分析：Reference extraction 为构造函数调用创建 edges，但 Symbol extraction 未提取构造函数 symbols，导致 ID 策略不一致
+- 修复建议：Phase 2 Slice 19 — Reference source endpoint integrity repair（已完成）
+- 实际方案：Synthetic callable source nodes（非完整 constructor symbol extraction）
+- Future: 真实 constructor symbol extraction 需新 preflight
 - 192/192 tests pass（without feature），259/259 pass（with feature）
 - 不改 GitNexus-RC runtime/Tool/live repo
 - Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-preflight.md`
 - Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-execution-card.md`
 - Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-closure-review.md`
+
+**Note:** Slice 18 发现的 dangling source edges 已在 Slice 19 中修复。Slice 19 采用 Synthetic Source Nodes 方案（非完整 constructor symbol extraction），通过在 graph emission 阶段为 reference source IDs emit synthetic callable source nodes 来修复 endpoint integrity。
 
 **Phase 2 Slice 19 — Cangjie reference source endpoint integrity repair ✅ 完全成功（2026-05-07）：**
 - 修复 Slice 18 暴露的 646 个 constructor call dangling edges（实际运行：125 unique dangling source IDs，770 dangling edges）
@@ -259,6 +263,21 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice19-source-endpoint-integrity-preflight.md`
 - Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice19-source-endpoint-integrity-execution-card.md`
 - Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice19-source-endpoint-integrity-closure-review.md`
+
+**Phase 2 Slice 20 — Multi-project Cangjie production smoke ✅ 完全成功（2026-05-07）：**
+- 对 4 个真实 Cangjie 项目运行 smoke test，验证 synthetic nodes 普适性
+- Smoke targets：cangjie-GitNexus-Index/runtime/cjgui、cangjie/runtime/cjgui、CangjieSkills web_framework test、CangjieSkills json_parser test
+- 统计数据：Total nodes=4,661、Total edges=10,847、Total synthetic nodes=2,064、Total duration=17.258s
+- Endpoint integrity：✅ 所有 4 个 targets 都通过（dangling source=0，dangling target=0）
+- Synthetic nodes 普适性：✅ 良好（synthetic nodes 比例 12%-47%，不同规模项目都有效）
+- 输出确定性：✅ 所有 targets 两次运行结果一致
+- Docs reconciliation：✅ 修正 docs/plans/README.md 中 "Constructor symbol extraction" 过期表述
+- 实现内容：新增 `crates/cangjie/tests/multi_project_smoke.rs`（~250 行代码），含详细统计信息
+- 192/192 tests pass（without feature），264/264 pass（with feature，+1 new multi-project smoke test）
+- 不改 GitNexus-RC runtime/Tool/live repo
+- Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice20-multi-project-production-smoke-preflight.md`
+- Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice20-multi-project-production-smoke-execution-card.md`
+- Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice20-multi-project-production-smoke-closure-review.md`
 
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
@@ -306,4 +325,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 20. ~~Phase 2 Slice 17 — Cangjie CLI surface MVP~~ ✅ 完成
 21. ~~Phase 2 Slice 18 — Cangjie production fixture smoke~~ ✅ 完成
 22. ~~Phase 2 Slice 19 — Cangjie reference source endpoint integrity repair~~ ✅ 完成
-23. Phase 2 Slice 20+ — 后续 bounded slices（需 preflight）
+23. ~~Phase 2 Slice 20 — Multi-project Cangjie production smoke~~ ✅ 完成
+24. Phase 2 Slice 21+ — 后续 bounded slices（需 preflight）
