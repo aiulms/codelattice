@@ -4,6 +4,12 @@
 //! real Cangjie projects, ensuring endpoint integrity and output determinism.
 //!
 //! Requires the `tree-sitter-cangjie` feature.
+//!
+//! **Opt-in**: 此测试依赖本机绝对路径，默认 #[ignore]。
+//! 手动 production smoke 命令：
+//! ```sh
+//! cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --ignored --nocapture
+//! ```
 
 #![cfg(feature = "tree-sitter-cangjie")]
 
@@ -141,6 +147,7 @@ fn run_smoke(root: &Path) -> SmokeResult {
 }
 
 #[test]
+#[ignore] // 依赖本机绝对路径，默认跳过；手动 opt-in: --ignored
 fn test_multi_project_smoke_with_details() {
     // Define smoke targets (read-only access)
     let targets = vec![

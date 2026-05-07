@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 19 完成：Cangjie reference source endpoint integrity repair，263 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 20 follow-up：multi-project smoke 改为 #[ignore] opt-in，264 tests pass with feature）
 
 ## 用途
 
@@ -326,4 +326,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 21. ~~Phase 2 Slice 18 — Cangjie production fixture smoke~~ ✅ 完成
 22. ~~Phase 2 Slice 19 — Cangjie reference source endpoint integrity repair~~ ✅ 完成
 23. ~~Phase 2 Slice 20 — Multi-project Cangjie production smoke~~ ✅ 完成
-24. Phase 2 Slice 21+ — 后续 bounded slices（需 preflight）
+24. ~~Phase 2 Slice 20 follow-up — multi-project smoke opt-in hygiene~~ ✅ 完成（#[ignore] + 文档闭合）
+25. Phase 2 Slice 21+ — 后续 bounded slices（需 preflight）
