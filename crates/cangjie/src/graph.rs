@@ -30,6 +30,10 @@ pub enum NodeKind {
     Symbol,
     /// Compiler or linter diagnostic (cjc / cjlint).
     Diagnostic,
+    /// Synthetic callable source node (Constructor/Method/Function).
+    /// Emitted to fix dangling source endpoints in reference edges.
+    /// Marked with `synthetic = true` in properties.
+    CallableSource,
 }
 
 /// A node in the Cangjie graph.
@@ -347,6 +351,100 @@ pub fn emit_cangjie_diagnostics(
 }
 
 // ---------------------------------------------------------------------------
+// Synthetic source node emission
+// ---------------------------------------------------------------------------
+
+/// Emit synthetic callable source nodes to fix dangling source endpoints.
+///
+/// Reference extraction creates source IDs for Constructor/Method/Function
+/// scopes (e.g., `Constructor:/path/to/file:ClassName.init#arity`),
+/// but symbol extraction doesn't emit corresponding nodes for these scopes.
+/// This function creates synthetic nodes for all unique source IDs
+/// to ensure endpoint integrity.
+///
+/// Returns nodes that should be merged into the graph output.
+pub fn emit_synthetic_source_nodes(references: &[CangjieReference]) -> Vec<GraphNode> {
+    // Collect unique source IDs
+    let unique_source_ids: std::collections::HashSet<_> =
+        references.iter().map(|r| r.source_id.clone()).collect();
+
+    let mut nodes = Vec::new();
+
+    for source_id in unique_source_ids {
+        // Parse source_id to determine kind and extract label
+        let (kind, label) = if source_id.starts_with("Constructor:") {
+            ("Constructor", extract_constructor_label(&source_id))
+        } else if source_id.starts_with("Method:") {
+            ("Method", extract_method_label(&source_id))
+        } else if source_id.starts_with("Function:") {
+            ("Function", extract_function_label(&source_id))
+        } else {
+            // Skip unknown source ID formats (e.g., SourceFile IDs should already exist)
+            continue;
+        };
+
+        nodes.push(GraphNode {
+            id: source_id.clone(),
+            kind: NodeKind::CallableSource,
+            label: label.to_string(),
+            properties: serde_json::json!({
+                "synthetic": true,
+                "kind": kind,
+            }),
+        });
+    }
+
+    nodes
+}
+
+/// Extract a readable label from a Constructor source ID.
+///
+/// Example: `Constructor:/path/to/file:ClassName.init#arity` → `ClassName.init`
+fn extract_constructor_label(source_id: &str) -> &str {
+    // Format: `Constructor:/path/to/file:ClassName.init#arity`
+    // Extract the part after the last ':' and before '#'
+    if let Some(pos) = source_id.rfind(':') {
+        if let Some(hash_pos) = source_id.find('#') {
+            &source_id[pos + 1..hash_pos]
+        } else {
+            &source_id[pos + 1..]
+        }
+    } else {
+        source_id
+    }
+}
+
+/// Extract a readable label from a Method source ID.
+///
+/// Example: `Method:/path/to/file:ClassName.methodName#arity` → `ClassName.methodName`
+fn extract_method_label(source_id: &str) -> &str {
+    // Format: `Method:/path/to/file:ClassName.methodName#arity`
+    // Extract the part after the last ':' and before '#'
+    if let Some(pos) = source_id.rfind(':') {
+        if let Some(hash_pos) = source_id.find('#') {
+            &source_id[pos + 1..hash_pos]
+        } else {
+            &source_id[pos + 1..]
+        }
+    } else {
+        source_id
+    }
+}
+
+/// Extract a readable label from a Function source ID.
+///
+/// Example: `Function:/path/to/file:funcName` → `funcName`
+fn extract_function_label(source_id: &str) -> &str {
+    // Format: `Function:/path/to/file:funcName`
+    // Extract the part after the last ':'
+    if let Some(pos) = source_id.rfind(':') {
+        &source_id[pos + 1..]
+    } else {
+        source_id
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Reference edge emission
 // ---------------------------------------------------------------------------
 
@@ -557,6 +655,10 @@ pub fn inspect_cangjie_project(
     // Reference edges (Uses/Accesses/Modifies)
     let ref_edges = emit_cangjie_reference_edges(&all_references, &symbols_by_file, &project.root);
     output.edges.extend(ref_edges);
+
+    // Synthetic source nodes (fix dangling source endpoints)
+    let synthetic_nodes = emit_synthetic_source_nodes(&all_references);
+    output.nodes.extend(synthetic_nodes);
 
     // Import edges (Imports)
     let import_edges = emit_cangjie_import_edges(&imports_by_file, &project);

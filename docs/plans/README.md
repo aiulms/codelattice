@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 17 完成：Cangjie CLI surface MVP，258 tests pass with feature）
+最后更新：2026-05-07（Phase 2 Slice 19 完成：Cangjie reference source endpoint integrity repair，263 tests pass with feature）
 
 ## 用途
 
@@ -246,6 +246,19 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-preflight.md`
 - Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-execution-card.md`
 - Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice18-production-fixture-smoke-closure-review.md`
+
+**Phase 2 Slice 19 — Cangjie reference source endpoint integrity repair ✅ 完全成功（2026-05-07）：**
+- 修复 Slice 18 暴露的 646 个 constructor call dangling edges（实际运行：125 unique dangling source IDs，770 dangling edges）
+- Root cause 确认：Reference extraction 生成 `Constructor:<absolute-path>:<Owner>.init#arity` 格式 source IDs，但 Symbol extraction 未提取构造函数 symbols，导致 ID 策略不一致
+- 采用方案：方案 B（Synthetic Source Nodes）——在 graph emission 阶段为 reference source IDs emit synthetic callable source nodes
+- 实现内容：新增 `NodeKind::CallableSource` 枚举值 + `emit_synthetic_source_nodes()` 函数（~95 行代码变更）
+- 新增 4 个 endpoint integrity regression tests：`test_no_dangling_source_ids`、`test_no_dangling_target_ids`、`test_endpoint_integrity_on_production_fixture`、`test_synthetic_nodes_are_marked`
+- Before/After 数据：Nodes 715 → 1,361 (+646 synthetic)，Edges 3,401 → 3,401（unchanged），Dangling source IDs 125 → 0 (-100%)，Dangling target IDs 0 → 0（unchanged）
+- 192/192 tests pass（without feature），263/263 pass（with feature，+4 new endpoint integrity tests）
+- 不改 GitNexus-RC runtime/Tool/live repo
+- Preflight：`docs/plans/2026-05-07-cangjie-phase2-slice19-source-endpoint-integrity-preflight.md`
+- Execution Card：`docs/plans/2026-05-07-cangjie-phase2-slice19-source-endpoint-integrity-execution-card.md`
+- Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice19-source-endpoint-integrity-closure-review.md`
 
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
