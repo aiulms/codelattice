@@ -3,6 +3,10 @@
 //! These tests validate that Rust-core graph output covers all expected
 //! node and edge types, maintains structural integrity, and produces
 //! deterministic output across multiple runs.
+//!
+//! Requires the `tree-sitter-cangjie` feature.
+
+#![cfg(feature = "tree-sitter-cangjie")]
 
 use gitnexus_cangjie::graph::{inspect_cangjie_project, CangjieGraphOutput};
 use std::path::PathBuf;

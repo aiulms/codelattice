@@ -1,6 +1,10 @@
 //! Integration tests for alias reference resolution.
 //!
 //! Tests grouped import alias and package alias support.
+//!
+//! Requires the `tree-sitter-cangjie` feature.
+
+#![cfg(feature = "tree-sitter-cangjie")]
 
 use gitnexus_cangjie::extractors::imports::{parse_named_import_candidates, ImportCandidate};
 use gitnexus_cangjie::extractors::references::{ImportBinding, ImportBindingTable};

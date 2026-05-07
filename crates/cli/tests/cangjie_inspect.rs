@@ -9,18 +9,15 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-#[cfg(feature = "tree-sitter-cangjie")]
 fn cli_bin() -> Command {
     Command::cargo_bin("gitnexus-rust-core-cli").unwrap()
 }
 
-#[cfg(feature = "tree-sitter-cangjie")]
 fn cangjie_fixture_dir(name: &str) -> std::path::PathBuf {
     let base = find_workspace_root();
     base.join("fixtures").join("cangjie").join(name)
 }
 
-#[cfg(feature = "tree-sitter-cangjie")]
 fn find_workspace_root() -> std::path::PathBuf {
     let mut base = std::env::current_dir().unwrap();
     while !base.join("fixtures").exists() && base.parent().is_some() {
@@ -253,10 +250,65 @@ fn cangjie_graph_nonexistent_root_exits_nonzero() {
 
 // === Feature gate 测试 ===
 
-// 注意：Feature gate 测试需要在不同 feature 配置下运行
-// 当前测试套件配置为 tree-sitter-cangjie enabled
-// 因此 main_help_without_cangjie_feature 测试被移除
-// 如需测试 feature disabled 场景，请运行：cargo test -p gitnexus-rust-core-cli --test cangjie_inspect
+#[test]
+#[cfg(not(feature = "tree-sitter-cangjie"))]
+fn cangjie_inspect_disabled_feature_error() {
+    let fixture_dir = cangjie_fixture_dir("imports-basic");
+    let output = cli_bin()
+        .arg("cangjie")
+        .arg("inspect")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .output()
+        .unwrap();
+
+    // 应该非 0 退出
+    assert!(!output.status.success(), "应该非 0 退出");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // 应该包含 feature disabled 的错误信息
+    assert!(
+        stderr.contains("Cangjie support is disabled"),
+        "stderr 应该包含 'Cangjie support is disabled'，实际: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--features tree-sitter-cangjie"),
+        "stderr 应该包含 '--features tree-sitter-cangjie'，实际: {}",
+        stderr
+    );
+}
+
+#[test]
+#[cfg(not(feature = "tree-sitter-cangjie"))]
+fn cangjie_graph_disabled_feature_error() {
+    let fixture_dir = cangjie_fixture_dir("imports-basic");
+    let output = cli_bin()
+        .arg("cangjie")
+        .arg("graph")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .output()
+        .unwrap();
+
+    // 应该非 0 退出
+    assert!(!output.status.success(), "应该非 0 退出");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // 应该包含 feature disabled 的错误信息
+    assert!(
+        stderr.contains("Cangjie support is disabled"),
+        "stderr 应该包含 'Cangjie support is disabled'，实际: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--features tree-sitter-cangjie"),
+        "stderr 应该包含 '--features tree-sitter-cangjie'，实际: {}",
+        stderr
+    );
+}
 
 // === 实际功能测试 ===
 
