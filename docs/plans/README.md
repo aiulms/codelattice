@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Production Acceptance 完结 + Rust CALLS endpoint integrity fix + Rust graph contract tests + Rust enum constructor resolution，Rust resolution rate 62.4%）
+最后更新：2026-05-08（Cangjie Production Acceptance 固化完结 — 全部 8 项质量门通过 4/4 production targets，文档同步完成）
 
 ## 用途
 
@@ -465,3 +465,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 		   - Commit: `d9f5997`
 		   - Closure Review: `docs/plans/2026-05-08-rust-enum-constructor-resolution-closure-review.md`
 		38. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
+		39. **Cangjie Production Acceptance 固化** ✅ 完成（2026-05-08）：
+			   - 基线全量回归验证：no-feature ~200 pass, feature ~330 pass
+			   - Production smoke: 4/4 targets PASS（synth=0, dup=0, dang=(0,0), det=true）
+			   - 文档同步：README.md + AGENTS.md + plans README 过期 stats 更新
+			   - 替换 plans README 过期"Slice 7 recommended next"为当前状态总结
+			   - Commit: `e81fe19`
+			   - Closure Review: `docs/plans/2026-05-08-cangjie-production-acceptance-consolidation-closure-review.md`
+			40. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
