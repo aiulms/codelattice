@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2f wildcard import disambiguation: resolution rate 65.6% → 65.7%, +5 split_last_segment resolved）
+最后更新：2026-05-08（Docs consolidation: QUALITY.md Rust gates + README stale stats fix）
 
 ## 用途
 
@@ -30,13 +30,19 @@
 ## 当前推荐下一篇计划
 
 **Priority 2 续 — Rust CALLS resolution quality**
-- 改善 receiver type annotation 扫描（1255 unresolved method-calls 中的可解析部分）
-- crate::/self::/super:: path resolution edge case 修复
+- `crate::` 多段路径分类修复（associated-function 误分类为 qualified-path，1-2 calls）
+- 关联函数 resolution：16 unresolved（含 derive-generated 方法、外部 crate type 方法、re-export 路径）
 - 低置信度 reason/confidence 矩阵审计
+- call form 文档与 confidence 矩阵对齐
+
+**Priority 3 续 — Rust graph contract**
+- 第 4 个 contract fixture（如 module-hierarchy 或 workspace-member）
+- 匹配 Cangjie 的 4 fixture 覆盖水平
 
 **Priority 4 — Cangjie maintenance**
 - Quality gate 周期性回归验证
 - QUALITY.md 维护
+- 小范围 regression fix
 - 小范围 regression fix
 
 **Phase 2 Slice 8 — Cangjie diagnostics runner ✅ 完成（2026-05-06）：**
@@ -520,3 +526,8 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 	   - call-same-crate-resolved: 18 → 23
 	   - 全部测试通过（call comparison 22/22 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
 	   - Closure Review: `docs/plans/2026-05-08-rust-wildcard-import-disambiguation-closure-review.md`
+	45. **Docs Consolidation — Rust Quality Gates + Stale Stats Fix** ✅ 完成（2026-05-08）：
+	   - QUALITY.md 新增完整「Rust Graph Quality Gates」章节（质量门、合同回归门、合同 fixture 表、生产统计、已知差距、stop-lines）
+	   - README.md 过期 stats 修复：resolution rate 65.6% → 65.7%，call fixtures 15→22，新增 2 个 call forms
+	   - docs/plans/README.md 推荐下一篇计划更新为当前准确 openings
+	   - 全部测试通过（no-feature + feature），cargo fmt + git diff clean

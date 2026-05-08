@@ -141,3 +141,127 @@ These boundaries are non-negotiable for Rust-core Cangjie:
 - No destructive git operations
 - No type inference / trait solving / macro expansion / method dispatch / overload resolution
 - No `.codeartsdoer/` or temporary directory commits
+
+---
+
+# Rust Graph Quality Gates
+
+**Last updated:** 2026-05-08
+**Status:** Active
+**Source:** [Rust Production Readiness Smoke Audit](docs/plans/2026-05-08-rust-production-readiness-preflight.md)
+
+This section defines the quality acceptance criteria for the Rust graph output. It mirrors the Cangjie quality gate structure above.
+
+---
+
+## Quality Gates
+
+Every Rust graph output must satisfy these invariants:
+
+| Gate | Threshold | Verified by |
+|------|-----------|-------------|
+| Duplicate node IDs | 0 | `project_model_graph_contract` |
+| Duplicate edge triples | 0 | `project_model_graph_contract` |
+| Dangling source references | 0 | `project_model_graph_contract` |
+| Dangling target references | 0 | `project_model_graph_contract` |
+| Deterministic output | Two runs produce identical JSON | `project_model_graph_contract` |
+| External symbol nodes have `isExternal: true` | All external nodes marked | `graph_contract` (imports-cross-crate) |
+| CALLS endpoint integrity | All CALLS source/target exist in nodes | `project_model_graph_contract` |
+
+## Contract Regression Gates
+
+The `project_model_graph_contract` test suite (23 tests on 3 fixtures) verifies:
+
+| Contract element | How verified |
+|-----------------|-------------|
+| Node kind set present | Repository, Package, Target, SourceFile, Symbol counts per fixture |
+| Edge kind set present | CONTAINS_PACKAGE, HAS_TARGET, OWNS_SOURCE, DEFINES, CALLS, DESIGNATION, ACCESSES |
+| Known symbol IDs exist | Specific Symbol node IDs present in graph |
+| Known edge triples exist | Specific (kind, source, target) present in graph |
+| CALLS endpoint integrity | Every CALLS edge source/target exists as node |
+| External symbol node marking | stdlib target symbols have isExternal=true |
+
+### Contract Fixtures
+
+| Fixture | Tests | What it exercises |
+|---------|-------|-------------------|
+| `portable-smoke` | 8 | Repository/Package/Target/SourceFile nodes, DEFINES/CALLS/DESIGNATION/ACCESSES edges, cross-target calls |
+| `imports-cross-crate` | 8 | External symbol nodes (4 stdlib types), external crate CALLS, ACCESSES edges for same-crate types, DESIGNATION |
+| `multi-module` | 7 | Multi-file project, crate:: path CALLS, cross-file DEFINES, multiple OWNS_SOURCE |
+
+## Running Acceptance Tests
+
+```sh
+# Rust graph contract regression — 23 tests on 3 fixtures
+cargo test --test project_model_graph_contract -- --nocapture
+
+# Full no-feature test suite
+cargo test
+
+# Full feature-enabled test suite
+cargo test --features tree-sitter-cangjie
+```
+
+## Current Production Stats (gitnexus-rust-core self-smoke)
+
+| Metric | Value |
+|--------|-------|
+| Packages | 3 (gitnexus-project-model, gitnexus-rust-core-cli, gitnexus-cangjie) |
+| Source files | 50 |
+| Symbols | 664 (incl. 23 impl blocks) |
+| Imports | variable |
+| Total calls | 3,557 |
+| Resolved calls | 2,338 (65.7%) |
+| Graph nodes | 1,348 (incl. 55 external symbols) |
+| Graph edges | 2,073 (9 edge types) |
+| CALLS edges | 1,039 |
+| Duplicate nodes | 0 |
+| Duplicate edges | 0 |
+| Dangling sources | 0 |
+| Dangling targets | 0 |
+| Deterministic | yes |
+
+### Resolved Call Distribution
+
+| Reason | Count | % of resolved |
+|--------|-------|---------------|
+| stdlib-trait-method-resolved | 914 | 39.1% |
+| same-module-resolved | 474 | 20.3% |
+| known-enum-constructor | 313 | 13.4% |
+| receiver-type-method-resolved | 267 | 11.4% |
+| external-crate-path-resolved | 207 | 8.9% |
+| same-file-unique-name | 67 | 2.9% |
+| method-name-resolved | 35 | 1.5% |
+| same-crate-resolved (Phase 2e+2f) | 23 | 1.0% |
+| module-path-resolved | 18 | 0.8% |
+| import-resolved | 10 | 0.4% |
+
+## Known Gaps (by design)
+
+| Gap | Reason |
+|-----|--------|
+| 1,219 unresolved calls (34.3%) | 1,174 method-calls need type inference (stop-line); 16 free-function; 16 associated-function; 8 qualified-path; 5 external-crate |
+| Method dispatch limited | No type inference / trait solving (stop-line) |
+| Wildcard import not expanded | Stop-line: no macro expansion |
+| ACCESSES edges — same crate only | External type nodes only created for CALLS targets |
+| No macro expansion | `foo!()` calls not expanded (stop-line) |
+| No cfg evaluator | cfg-gated `mod` marked unknown (stop-line) |
+| No `cargo metadata` | Manifest-derived project model only (stop-line) |
+
+## Stop-lines
+
+These boundaries are non-negotiable for Rust-core Rust:
+
+- No type inference / trait solving
+- No macro expansion
+- No full cfg evaluator
+- No `cargo metadata` execution
+- No proc-macro / build.rs execution
+- No arbitrary external crate API symbol resolution (std/core/alloc direct path only)
+- No MCP server, WebUI, HTTP API, embeddings
+- No production replacement for GitNexus-RC
+- No live repo modification
+- No GitNexus-RC runtime/schema modification
+- No `.codeartsdoer/` or temporary directory commits
+- No new dependencies without gate document
+- No destructive git operations

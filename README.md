@@ -25,7 +25,7 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
 | 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
 | 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 12 import fixtures |
-| 4. CALLS Intermediate | Call site extraction + 10 resolved call forms + method dispatch + stdlib trait + external crate path + enum constructor | ✅ Implemented | 19 call fixtures |
+| 4. CALLS Intermediate | Call site extraction + 12 resolved call forms + method dispatch + stdlib trait + external crate path + enum constructor + cross-file same-crate + wildcard disambiguation | ✅ Implemented | 22 call fixtures |
 | 5. Graph Emitter v0.3 | ProjectModel → JSON graph (CALLS + DESIGNATION + ACCESSES edges) + external symbol node completion | ✅ Implemented | 6 graph fixtures + portable-smoke |
 
 ### CALLS Resolved Call Forms
@@ -46,8 +46,10 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | Stdlib trait method | `x.to_string()`, `y.clone()` | 0.55 |
 | External crate path | `Vec::new()`, `String::from()` | 0.80–0.85 |
 | Enum constructor | `Some(42)`, `Ok(val)`, `Err(e)` | 0.80 |
+| Cross-file same-crate (Phase 2e) | `split_last_segment()` from another module | 0.80 |
+| Wildcard-aware disambiguation (Phase 2f) | `helper_func()` via `use calculations::*` | 0.80 |
 
-**Resolution rate: 65.6%**（2321/3539 calls on gitnexus-rust-core，2026-05-08）。
+**Resolution rate: 65.7%**（2338/3557 calls on gitnexus-rust-core，2026-05-08 Phase 2f wildcard import disambiguation）。
 
 ---
 
@@ -171,7 +173,7 @@ gitnexus-rust-core/
     source-ownership/                      # 8 fixtures
     item-extraction/                       # 10 fixtures (with expected-symbols.json)
     import-use/                            # 12 fixtures (with expected-imports.json)
-    call-resolution/                       # 15 fixtures (C1-C7 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
+    call-resolution/                       # 22 fixtures (C1-C14 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
   docs/
     architecture/                          # Architecture docs
     decisions/                             # Decision records
