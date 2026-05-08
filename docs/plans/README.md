@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Production Acceptance 完结：audit + smoke hardening + contract regression guard，4 targets all quality gates green）
+最后更新：2026-05-08（Production Acceptance 完结：audit + smoke hardening + contract regression guard + portable smoke fixture，4 targets + 1 portable all quality gates green）
 
 ## 用途
 
@@ -420,4 +420,13 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 验证 node/edge kind sets, known symbol IDs, known edge triples, quality gates
    - 无 JSON snapshots，无 sort-order binding
    - Closure Review: `docs/plans/2026-05-08-cangjie-contract-regression-guard-closure-review.md`
-34. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+34. **Production Acceptance Addendum — Portable Smoke Fixture** ✅ 完成（2026-05-08）：
+   - 新增 `fixtures/cangjie/portable-smoke/`：3-file Cangjie project exercising all major extraction paths
+   - 覆盖所有 Symbol kinds：Function, Class, Struct, Enum, Interface, TypeAlias, Init（含 #arity）
+   - 覆盖所有 Edge kinds：ContainsPackage, OwnsSource, Defines, Uses, Imports
+   - 跨文件 + 同文件 Uses edges，Constructor/Function call references
+   - 新增 `fixture_smoke_portable()` in multi_project_smoke.rs（4 fixture tests total）
+   - 新增 8 contract tests in graph_contract.rs（24 tests total on 4 fixtures）
+   - 27 nodes, 36 edges, 0 synthetic, 0 duplicate, 0 dangling, deterministic
+   - 192/192 no-feature pass, 284+/284+ feature pass, 4/4 production smoke pass
+35. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）

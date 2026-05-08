@@ -424,6 +424,74 @@ fn fixture_smoke_reference_cross_file() {
 }
 
 #[test]
+fn fixture_smoke_portable() {
+    let root = fixture_path("portable-smoke");
+    let mut result = run_smoke(&root, TargetKind::Fixture);
+    validate_smoke(&mut result);
+
+    println!("\n{}", status_line(&result));
+
+    if result.skipped {
+        panic!("Fixture portable-smoke should never be skipped");
+    }
+    if result.failed {
+        panic!("FAIL: {}", result.fail_reason.unwrap_or_default());
+    }
+
+    // Portable smoke exercises all major extraction paths
+    let kinds = &result.node_kind_distribution;
+    assert!(kinds.contains_key("Repository"), "Missing Repository node");
+    assert!(kinds.contains_key("Package"), "Missing Package node");
+    assert!(kinds.contains_key("SourceFile"), "Missing SourceFile node");
+    assert!(kinds.contains_key("Symbol"), "Missing Symbol node");
+
+    // Should have multiple source files (cross-file structure)
+    let sf = kinds.get("SourceFile").copied().unwrap_or(0);
+    assert!(sf >= 3, "Expected >= 3 SourceFiles, got {}", sf);
+
+    // Should have Init symbols (constructor extraction)
+    assert!(
+        result.init_symbol_count > 0,
+        "Expected Init symbols in portable smoke fixture"
+    );
+    assert_eq!(
+        result.init_symbol_count, result.init_with_arity,
+        "All Init symbols should have #arity suffix, got {}/{}",
+        result.init_with_arity, result.init_symbol_count
+    );
+
+    // Should have Uses edges (reference extraction)
+    let edge_kinds = &result.edge_kind_distribution;
+    let uses = edge_kinds.get("Uses").copied().unwrap_or(0);
+    assert!(uses > 0, "Expected Uses edges in portable smoke fixture");
+
+    // Should have Imports edges (cross-file imports)
+    let imports = edge_kinds.get("Imports").copied().unwrap_or(0);
+    assert!(
+        imports > 0,
+        "Expected Imports edges in portable smoke fixture"
+    );
+
+    // All synthetic must be 0
+    assert_eq!(result.synthetic_count, 0, "Synthetic must be 0");
+    assert_eq!(
+        result.synthetic_constructor, 0,
+        "Constructor synthetic must be 0"
+    );
+
+    assert!(
+        result.nodes >= 20,
+        "Too few nodes for portable smoke: {}",
+        result.nodes
+    );
+    assert!(
+        result.edges >= 30,
+        "Too few edges for portable smoke: {}",
+        result.edges
+    );
+}
+
+#[test]
 #[ignore] // 依赖本机绝对路径，默认跳过；手动 opt-in: --ignored --nocapture
 fn test_production_smoke() {
     // ── Machine-local production targets (optional) ─────────────────────────

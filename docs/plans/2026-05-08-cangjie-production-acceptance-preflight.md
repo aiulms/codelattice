@@ -87,15 +87,18 @@ Type annotations, function calls, constructor calls. Same-file + cross-file via 
 | CLI integration | `cangjie_inspect` test (13 tests) | 13/13 pass |
 | No-feature gracefulness | `cangjie_inspect` test (2 disabled tests) | 2/2 pass |
 | Deterministic graph output | `graph_parity_smoke` → `graph_output_is_deterministic` | pass |
+| Portable fixture contract | `graph_contract` → 8 tests on portable-smoke fixture | 8/8 pass |
+| Portable fixture smoke | `multi_project_smoke` → `fixture_smoke_portable` | pass |
 
-### Production smoke targets (machine-local, #[ignore] guarded)
+### Production smoke targets
 
-| # | Target | Type |
-|---|--------|------|
-| 1 | `/Users/.../cangjie-GitNexus-Index/runtime/cjgui` | Large production project |
-| 2 | `/Users/.../cangjie/runtime/cjgui` | Same project, different index |
-| 3 | `/Users/.../CangjieSkills/tests/web_framework/project` | Small test project |
-| 4 | `/Users/.../CangjieSkills/tests/json_parser/project` | Small test project |
+| # | Target | Type | Availability |
+|---|--------|------|-------------|
+| 1 | `/Users/.../cangjie-GitNexus-Index/runtime/cjgui` | Large production project | Machine-local |
+| 2 | `/Users/.../cangjie/runtime/cjgui` | Same project, different index | Machine-local |
+| 3 | `/Users/.../CangjieSkills/tests/web_framework/project` | Small test project | Machine-local |
+| 4 | `/Users/.../CangjieSkills/tests/json_parser/project` | Small test project | Machine-local |
+| 5 | `fixtures/cangjie/portable-smoke/` | Comprehensive extraction-fixture | **Always available (repo-committed)** |
 
 ---
 
@@ -150,10 +153,10 @@ Type annotations, function calls, constructor calls. Same-file + cross-file via 
 ### Quick check (fixtures only, always available)
 
 ```sh
-# Contract regression — 16 tests on 3 fixtures, < 0.1s
+# Contract regression — 24 tests on 4 fixtures, < 0.1s
 cargo test --features tree-sitter-cangjie --test graph_contract -- --nocapture
 
-# Multi-project smoke — 3 fixture tests, < 0.1s
+# Multi-project smoke — 4 fixture tests, < 0.1s
 cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --nocapture
 
 # Both together

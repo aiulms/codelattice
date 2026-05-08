@@ -391,3 +391,145 @@ fn reference_cross_file_known_edges() {
         "sym:src/mathpkg/ops.cj:Function:add#2",
     );
 }
+
+// ── portable-smoke fixture contract ─────────────────────────────────────────
+
+#[test]
+fn portable_smoke_quality_gates() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    assert_quality_gates(&data);
+}
+
+#[test]
+fn portable_smoke_node_kind_set() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    assert_node_kind(&data.node_kinds, "Repository", 1);
+    assert_node_kind(&data.node_kinds, "Package", 1);
+    assert_node_kind(&data.node_kinds, "SourceFile", 3);
+    // Comprehensive symbol coverage: Function, Class, Struct, Enum, Interface, TypeAlias, Init
+    assert_node_kind(&data.node_kinds, "Symbol", 20);
+}
+
+#[test]
+fn portable_smoke_edge_kind_set() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    assert_edge_kind(&data.edge_kinds, "ContainsPackage", 1);
+    assert_edge_kind(&data.edge_kinds, "OwnsSource", 3);
+    assert_edge_kind(&data.edge_kinds, "Defines", 20);
+    assert_edge_kind(&data.edge_kinds, "Uses", 5);
+    assert_edge_kind(&data.edge_kinds, "Imports", 1);
+}
+
+#[test]
+fn portable_smoke_known_symbol_kinds() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    // Verify every symbol kind appears
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/types.cj:Enum:Status");
+    assert_symbol_exists(
+        &data.symbol_ids,
+        "sym:src/lib/types.cj:Interface:Measurable",
+    );
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/types.cj:TypeAlias:UserId");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/types.cj:Struct:Size");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/types.cj:Class:Point");
+    assert_symbol_exists(
+        &data.symbol_ids,
+        "sym:src/lib/types.cj:Class:MultiInitClass",
+    );
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/math.cj:Class:Calculator");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/math.cj:Function:add#2");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/lib/math.cj:Function:multiply#2");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/main.cj:Function:main#0");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/main.cj:Function:helper#1");
+    assert_symbol_exists(&data.symbol_ids, "sym:src/main.cj:Class:App");
+}
+
+#[test]
+fn portable_smoke_init_arity() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    // All Init symbols must have #arity suffix
+    for id in &data.symbol_ids {
+        if id.contains(":Init:") {
+            assert!(
+                id.contains('#'),
+                "Init symbol '{}' must have arity suffix",
+                id
+            );
+        }
+    }
+    // MultiInitClass has two inits with different arities
+    assert_symbol_exists(
+        &data.symbol_ids,
+        "sym:src/lib/types.cj:Init:MultiInitClass.init#1",
+    );
+    assert_symbol_exists(
+        &data.symbol_ids,
+        "sym:src/lib/types.cj:Init:MultiInitClass.init#2",
+    );
+}
+
+#[test]
+fn portable_smoke_cross_file_uses_edges() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    // Cross-file Uses: main → lib/types symbols
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/lib/types.cj:Class:Point",
+    );
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/lib/types.cj:Struct:Size",
+    );
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/lib/types.cj:Enum:Status",
+    );
+    // Cross-file Uses: main → lib/math symbols
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/lib/math.cj:Function:add#2",
+    );
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/lib/math.cj:Function:multiply#2",
+    );
+}
+
+#[test]
+fn portable_smoke_same_file_uses_edges() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    // Same-file Uses: main → local helper/App
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/main.cj:Function:helper#1",
+    );
+    assert_edge_exists(
+        &data.edge_triples,
+        "Uses",
+        "sym:src/main.cj:Function:main#0",
+        "sym:src/main.cj:Class:App",
+    );
+}
+
+#[test]
+fn portable_smoke_imports_edge() {
+    let data = collect_graph(&fixture_path("portable-smoke"));
+    assert_edge_exists(
+        &data.edge_triples,
+        "Imports",
+        "file:src/main.cj",
+        "pkg:portable-smoke",
+    );
+}

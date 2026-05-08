@@ -9,13 +9,13 @@
 
 ## Summary
 
-Added `graph_contract.rs` — a deterministic contract regression test suite that verifies the Cangjie graph output contract for 3 fixture projects. 16 tests cover quality gates, node/edge kind sets, known symbol IDs, and known edge triples.
+Added `graph_contract.rs` — a deterministic contract regression test suite that verifies the Cangjie graph output contract for 4 fixture projects. 24 tests cover quality gates, node/edge kind sets, known symbol IDs, and known edge triples.
 
 ## Changes
 
-### `crates/cangjie/tests/graph_contract.rs` (NEW, 16 tests)
+### `crates/cangjie/tests/graph_contract.rs` (NEW, 24 tests on 4 fixtures)
 
-Each fixture gets 5-6 tests covering:
+Each fixture gets 5-8 tests covering:
 
 | Layer | What it checks |
 |-------|---------------|
@@ -32,6 +32,7 @@ Each fixture gets 5-6 tests covering:
 | `imports-basic` | 5 | Package with imports, Function/Class/Init symbols, Imports edge |
 | `constructor-basic` | 6 | Multi-init class, Init #arity suffix, Uses edges from real symbols |
 | `reference-cross-file-basic` | 5 | Cross-file Uses edge, Imports edge, multi-file project |
+| `portable-smoke` | 8 | All Symbol kinds (Function, Class, Struct, Enum, Interface, TypeAlias, Init), cross-file + same-file Uses edges, multiple Init arities, comprehensive extraction coverage |
 
 ## Contract Coverage
 
@@ -73,7 +74,7 @@ Each fixture gets 5-6 tests covering:
 - `git diff --check`: clean
 - `cargo test` (no-feature): 93 lib + all integration suites pass (contract tests properly gated)
 - `cargo test --features tree-sitter-cangjie`: 112 lib + all integration suites pass
-- `cargo test --features tree-sitter-cangjie --test graph_contract -- --nocapture`: 16/16 pass
+- `cargo test --features tree-sitter-cangjie --test graph_contract -- --nocapture`: 24/24 pass
 - `cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --ignored --nocapture`: 4/4 production targets pass
 
 ## Stop-lines compliance
