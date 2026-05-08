@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2g: associated-function type-filtered disambiguation, 65.7% → 65.8%, +1 CrossFileSymbolIndex::build）
+最后更新：2026-05-08（Stage 3: 4th Rust contract fixture module-hierarchy, 23→30 tests on 3→4 fixtures）
 
 ## 用途
 
@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.8%（2339/3557）。0 dangling CALLS edges。Graph contract 23/23（3 fixtures）。Enum constructor resolution + external symbol node completion + cross-file same-crate resolution + wildcard disambiguation + associated-function disambiguation 已落地。method-calls 仍为主要 gap（~1174 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.8%（2339/3557）。0 dangling CALLS edges。Graph contract 30/30（4 fixtures：portable-smoke, imports-cross-crate, multi-module, module-hierarchy）。Enum constructor resolution + external symbol node completion + cross-file same-crate resolution + wildcard disambiguation + associated-function disambiguation 已落地。method-calls 仍为主要 gap（~1174 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
@@ -537,3 +537,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 	   - 新增 c15-associated-function-disambiguation fixture（compile-valid, 4 calls, 2 associated-function resolved）
 	   - Improvement: +1 resolved call（CrossFileSymbolIndex::build），65.7% → 65.8%（2339/3557）
 	   - 全部测试通过（call comparison 23/23 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
+
+47. **Stage 3 — 第4个 Rust contract fixture (module-hierarchy)** ✅ 完成（2026-05-08）：
+   - 新增 `fixtures/rust/module-hierarchy/`：多模块工程，有 crate:: 路径、super:: 路径、import 绑定 三种 CALLS 模式
+   - 新增 7 个 contract tests → 总计 30 tests on 4 fixtures（Before: 23 tests on 3 fixtures）
+   - 追平 Cangjie graph contract 的 4-fixture 覆盖水平（Cangjie 24 tests on 4 fixtures）
+   - module-hierarchy：13 nodes, 15 edges, 6 edge types, 2 source files, 3 CALLS（crate-path + super-path + import-resolved）
+   - 全部测试通过（no-feature 30/30 project_model_graph_contract, with-feature 30/30, cangjie_inspect 18/18, graph_contract 24/24）
+   - QUALITY.md 同步更新：contract fixture 表 3→4 fixtures，测试数 23→30

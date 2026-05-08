@@ -729,3 +729,180 @@ fn rust_graph_contract_multi_module_calls_endpoint_integrity() {
         }
     }
 }
+
+// ============================================================
+// module-hierarchy fixture tests
+// ============================================================
+
+#[test]
+fn rust_graph_contract_module_hierarchy_quality_gates() {
+    let data = collect_graph("module-hierarchy");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_module_hierarchy_node_kind_set() {
+    let data = collect_graph("module-hierarchy");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+
+    // 嵌套模块层次：3 个 source file
+    let source_files = data.node_kinds.get("source-file").copied().unwrap_or(0);
+    assert!(
+        source_files >= 3,
+        "应有至少 3 个 source file（lib.rs + utils/mod.rs + utils/calculations.rs），实际: {}",
+        source_files
+    );
+
+    let symbols = data.node_kinds.get("symbol").copied().unwrap_or(0);
+    assert!(symbols >= 5, "应有至少 5 个 symbol，实际: {}", symbols);
+}
+
+#[test]
+fn rust_graph_contract_module_hierarchy_edge_kind_set() {
+    let data = collect_graph("module-hierarchy");
+
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+
+    // 3 个 source file → 3 条 OWNS_SOURCE 边
+    let owns = data.edge_kinds.get("OWNS_SOURCE").copied().unwrap_or(0);
+    assert!(owns >= 3, "应有至少 3 条 OWNS_SOURCE 边，实际: {}", owns);
+
+    // 3 条 CALLS（crate:: 路径 + super:: 路径 + import-resolved）
+    let calls = data.edge_kinds.get("CALLS").copied().unwrap_or(0);
+    assert!(calls >= 3, "应有至少 3 条 CALLS edge，实际: {}", calls);
+}
+
+#[test]
+fn rust_graph_contract_module_hierarchy_known_symbols() {
+    let data = collect_graph("module-hierarchy");
+
+    let required = [
+        "symbol:module-hierarchy::crate::top_level",
+        "symbol:module-hierarchy::crate::call_via_crate_path",
+        "symbol:module-hierarchy::crate::utils",
+        "symbol:module-hierarchy::crate::utils::double",
+        "symbol:module-hierarchy::crate::utils::calculations",
+        "symbol:module-hierarchy::crate::utils::calculations::multiply",
+        "symbol:module-hierarchy::crate::utils::calculations::call_super_direct",
+    ];
+
+    for sym_id in &required {
+        assert!(
+            data.node_ids.contains(*sym_id),
+            "必须存在 symbol: {}",
+            sym_id
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_module_hierarchy_known_defines_edges() {
+    let data = collect_graph("module-hierarchy");
+
+    // 跨文件 DEFINES：3 个 source file 各自定义 symbol
+    let required = [
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:module-hierarchy::crate::call_via_crate_path",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:module-hierarchy::crate::top_level",
+        ),
+        (
+            "DEFINES",
+            "file:src/utils/mod.rs",
+            "symbol:module-hierarchy::crate::utils::double",
+        ),
+        (
+            "DEFINES",
+            "file:src/utils/calculations.rs",
+            "symbol:module-hierarchy::crate::utils::calculations::multiply",
+        ),
+        (
+            "DEFINES",
+            "file:src/utils/calculations.rs",
+            "symbol:module-hierarchy::crate::utils::calculations::call_super_direct",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_module_hierarchy_known_calls_edges() {
+    let data = collect_graph("module-hierarchy");
+
+    // crate:: 路径调用 + super:: 路径调用 + import-resolved 调用
+    let required = [
+        (
+            "CALLS",
+            "symbol:module-hierarchy::crate::call_via_crate_path",
+            "symbol:module-hierarchy::crate::utils::calculations::multiply",
+        ),
+        (
+            "CALLS",
+            "symbol:module-hierarchy::crate::utils::calculations::multiply",
+            "symbol:module-hierarchy::crate::utils::double",
+        ),
+        (
+            "CALLS",
+            "symbol:module-hierarchy::crate::utils::calculations::call_super_direct",
+            "symbol:module-hierarchy::crate::utils::double",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_module_hierarchy_calls_endpoint_integrity() {
+    let data = collect_graph("module-hierarchy");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}

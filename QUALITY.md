@@ -170,7 +170,7 @@ Every Rust graph output must satisfy these invariants:
 
 ## Contract Regression Gates
 
-The `project_model_graph_contract` test suite (23 tests on 3 fixtures) verifies:
+The `project_model_graph_contract` test suite (30 tests on 4 fixtures) verifies:
 
 | Contract element | How verified |
 |-----------------|-------------|
@@ -188,11 +188,12 @@ The `project_model_graph_contract` test suite (23 tests on 3 fixtures) verifies:
 | `portable-smoke` | 8 | Repository/Package/Target/SourceFile nodes, DEFINES/CALLS/DESIGNATION/ACCESSES edges, cross-target calls |
 | `imports-cross-crate` | 8 | External symbol nodes (4 stdlib types), external crate CALLS, ACCESSES edges for same-crate types, DESIGNATION |
 | `multi-module` | 7 | Multi-file project, crate:: path CALLS, cross-file DEFINES, multiple OWNS_SOURCE |
+| `module-hierarchy` | 7 | Multi-level module tree, crate:: direct path, super:: path, import-resolved CALLS, cross-file DEFINES |
 
 ## Running Acceptance Tests
 
 ```sh
-# Rust graph contract regression — 23 tests on 3 fixtures
+# Rust graph contract regression — 30 tests on 4 fixtures
 cargo test --test project_model_graph_contract -- --nocapture
 
 # Full no-feature test suite
