@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2 import/reference quality hardening：ImportKind 枚举 + 差异化 confidence + disambiguation 重写 + dead code 清理 + warning cleanup，all production targets 0 duplicate 0 dangling）
+最后更新：2026-05-08（Stage B function synthetic node elimination：新增 function_to_symbol_id 映射，所有 production targets synthetic=0）
 
 ## 用途
 
@@ -331,6 +331,27 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - 287+ tests pass（with feature），0 fail，零新增依赖
 - Closure Review：`docs/plans/2026-05-08-cangjie-import-reference-quality-hardening-closure-review.md`
 
+**Phase 2 post-hardening hygiene ✅ 完成（2026-05-08）：**
+- 修复 references.rs resolve() 文档注释：更新为 ImportKind-based 策略描述
+- 清理 no-feature warnings：references.rs 7 个 helper 添加 #[cfg(feature = "tree-sitter-cangjie")] gate
+- graph.rs HashSet import gating, cangjie_inspect.rs predicates import gating
+- Unit test module gating (references.rs tests now require tree-sitter-cangjie feature)
+- Zero warnings in both no-feature and feature builds (excluding pre-existing scanner.c)
+- Commit: `ba3db9f`
+
+**Phase 2 Stage B — Function synthetic node elimination ✅ 完成（2026-05-08）：**
+- Root cause: emit_cangjie_reference_edges() 缺少 function_to_symbol_id 映射
+- Fix: 新增 function_to_symbol_id HashMap for Function symbols without owner_name
+- resolve_source_id() 新增 Function: 前缀处理（精确匹配 + arity fallback）
+- Before/After: Function synthetic 1508 → 0（all 4 production targets）
+- Total nodes: 4919 → 3411（不再需要 CallableSource synthetic nodes）
+- All synthetic nodes (Constructor/Method/Function) = 0 across 4 targets
+- 0 duplicate node IDs, 0 duplicate edge triples, 0 dangling, deterministic
+- 3 new unit tests + all existing tests pass
+- 不删除 synthetic fallback（unresolved source IDs 仍可 fallback）
+- Preflight: `docs/plans/2026-05-08-cangjie-stage-b-function-synthetic-mapping-preflight.md`
+- Closure Review: `docs/plans/2026-05-08-cangjie-stage-b-function-synthetic-mapping-closure-review.md`
+
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
@@ -383,4 +404,6 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 26. ~~Phase 2 Slice 21 post-review follow-up — Init symbol node ID 唯一性修复~~ ✅ 完成（arity-based unique ID）
 27. ~~Phase 2 production graph quality hardening — Function symbol node ID 唯一性修复~~ ✅ 完成（owner + arity）
 28. ~~Phase 2 import/reference quality hardening~~ ✅ 完成（ImportKind + confidence + disambiguation + dead code cleanup）
-29. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+29. ~~Phase 2 post-hardening hygiene~~ ✅ 完成（comments + no-feature warnings cleanup）
+30. ~~Phase 2 Stage B — Function synthetic node elimination~~ ✅ 完成（function_to_symbol_id mapping）
+31. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）

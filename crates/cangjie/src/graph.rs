@@ -516,6 +516,9 @@ pub fn emit_cangjie_reference_edges(
     // 构建 Method source_id → Function symbol node_id 映射
     // 格式：Method:<abs-path>:<Owner>.<funcName>#arity → sym:<rel-path>:Function:<Owner>.<funcName>#arity
     let mut method_to_symbol_id: HashMap<String, String> = HashMap::new();
+    // 构建 Function source_id → Function symbol node_id 映射
+    // 格式：Function:<abs-path>:<funcName>#arity → sym:<rel-path>:Function:<funcName>#arity
+    let mut function_to_symbol_id: HashMap<String, String> = HashMap::new();
     for (file_path, symbols) in symbols_by_file {
         for sym in symbols {
             if sym.kind == crate::CangjieSymbolKind::Init {
@@ -530,13 +533,18 @@ pub fn emit_cangjie_reference_edges(
                 }
             }
             if sym.kind == crate::CangjieSymbolKind::Function {
+                let abs_path = file_path.to_string_lossy();
+                let arity = sym.arity.unwrap_or(0);
+                let sym_id = symbol_node_id(file_path, project_root, sym);
                 if sym.owner_name.is_some() {
-                    // sym.name 已经是 Owner.funcName 格式
-                    let abs_path = file_path.to_string_lossy();
-                    let arity = sym.arity.unwrap_or(0);
+                    // sym.name 已经是 Owner.funcName 格式 → Method: prefix
                     let method_source_id = format!("Method:{}:{}#{}", abs_path, sym.name, arity);
-                    let sym_id = symbol_node_id(file_path, project_root, sym);
                     method_to_symbol_id.insert(method_source_id, sym_id);
+                } else {
+                    // 顶级函数 → Function: prefix
+                    let function_source_id =
+                        format!("Function:{}:{}#{}", abs_path, sym.name, arity);
+                    function_to_symbol_id.insert(function_source_id, sym_id);
                 }
             }
         }
@@ -558,6 +566,7 @@ pub fn emit_cangjie_reference_edges(
             &r.source_id,
             &constructor_to_symbol_id,
             &method_to_symbol_id,
+            &function_to_symbol_id,
         );
         if effective_source_id != r.source_id {
             resolved_source_ids.insert(r.source_id.clone());
@@ -584,34 +593,47 @@ pub fn emit_cangjie_reference_edges(
 
 /// 解析 source_id：如果存在对应的真实 symbol node_id，返回 node_id；否则返回原始 source_id。
 ///
-/// 支持 Constructor: 和 Method: 前缀的 source_id 映射。
+/// 支持 Constructor: / Method: / Function: 前缀的 source_id 映射。
 /// 格式可能包含 #arity 后缀（如 `Constructor:/path:Foo.init#3`），
 /// 映射时先尝试精确匹配，再尝试去掉 #arity 后缀匹配。
 fn resolve_source_id(
     source_id: &str,
     constructor_to_symbol_id: &HashMap<String, String>,
     method_to_symbol_id: &HashMap<String, String>,
+    function_to_symbol_id: &HashMap<String, String>,
 ) -> String {
-    // 精确匹配
+    // Constructor: 前缀 → Init symbol node_id
     if source_id.starts_with("Constructor:") {
         if let Some(sym_id) = constructor_to_symbol_id.get(source_id) {
             return sym_id.clone();
         }
-        // 去掉 #arity 后缀再匹配
         if let Some(hash_pos) = source_id.find('#') {
             let without_arity = &source_id[..hash_pos];
             if let Some(sym_id) = constructor_to_symbol_id.get(without_arity) {
                 return sym_id.clone();
             }
         }
-    } else if source_id.starts_with("Method:") {
+    }
+    // Method: 前缀 → Function symbol node_id (方法，有 owner)
+    if source_id.starts_with("Method:") {
         if let Some(sym_id) = method_to_symbol_id.get(source_id) {
             return sym_id.clone();
         }
-        // 去掉 #arity 后缀再匹配
         if let Some(hash_pos) = source_id.find('#') {
             let without_arity = &source_id[..hash_pos];
             if let Some(sym_id) = method_to_symbol_id.get(without_arity) {
+                return sym_id.clone();
+            }
+        }
+    }
+    // Function: 前缀 → Function symbol node_id (顶级函数，无 owner)
+    if source_id.starts_with("Function:") {
+        if let Some(sym_id) = function_to_symbol_id.get(source_id) {
+            return sym_id.clone();
+        }
+        if let Some(hash_pos) = source_id.find('#') {
+            let without_arity = &source_id[..hash_pos];
+            if let Some(sym_id) = function_to_symbol_id.get(without_arity) {
                 return sym_id.clone();
             }
         }
@@ -996,5 +1018,96 @@ mod tests {
             output_type: None,
         };
         assert_eq!(package_node_id(&pkg), "pkg:root");
+    }
+
+    #[test]
+    fn function_source_id_maps_to_symbol_node_id() {
+        use std::collections::HashMap;
+
+        let mut function_to_symbol_id: HashMap<String, String> = HashMap::new();
+        function_to_symbol_id.insert(
+            "Function:/abs/path/src/main.cj:greet#1".to_string(),
+            "sym:src/main.cj:Function:greet#1".to_string(),
+        );
+        let empty = HashMap::new();
+
+        // 精确匹配
+        let result = resolve_source_id(
+            "Function:/abs/path/src/main.cj:greet#1",
+            &empty,
+            &empty,
+            &function_to_symbol_id,
+        );
+        assert_eq!(result, "sym:src/main.cj:Function:greet#1");
+
+        // 无匹配 → 返回原始 source_id
+        let result = resolve_source_id(
+            "Function:/abs/path/src/main.cj:unknown#0",
+            &empty,
+            &empty,
+            &function_to_symbol_id,
+        );
+        assert_eq!(result, "Function:/abs/path/src/main.cj:unknown#0");
+    }
+
+    #[test]
+    fn function_source_id_maps_without_arity_fallback() {
+        use std::collections::HashMap;
+
+        let mut function_to_symbol_id: HashMap<String, String> = HashMap::new();
+        // 映射键不带 arity（fallback）
+        function_to_symbol_id.insert(
+            "Function:/abs/path/src/main.cj:greet".to_string(),
+            "sym:src/main.cj:Function:greet#0".to_string(),
+        );
+        let empty = HashMap::new();
+
+        // 输入带 #arity → 去掉 #arity 后匹配
+        let result = resolve_source_id(
+            "Function:/abs/path/src/main.cj:greet#0",
+            &empty,
+            &empty,
+            &function_to_symbol_id,
+        );
+        assert_eq!(result, "sym:src/main.cj:Function:greet#0");
+    }
+
+    #[test]
+    fn constructor_and_method_mapping_still_works() {
+        use std::collections::HashMap;
+
+        let mut constructor_to_symbol_id: HashMap<String, String> = HashMap::new();
+        constructor_to_symbol_id.insert(
+            "Constructor:/abs/path/src/main.cj:Foo.init#0".to_string(),
+            "sym:src/main.cj:Init:Foo.init#0".to_string(),
+        );
+        let mut method_to_symbol_id: HashMap<String, String> = HashMap::new();
+        method_to_symbol_id.insert(
+            "Method:/abs/path/src/main.cj:Foo.bar#1".to_string(),
+            "sym:src/main.cj:Function:Foo.bar#1".to_string(),
+        );
+        let empty = HashMap::new();
+
+        // Constructor 映射
+        assert_eq!(
+            resolve_source_id(
+                "Constructor:/abs/path/src/main.cj:Foo.init#0",
+                &constructor_to_symbol_id,
+                &empty,
+                &empty,
+            ),
+            "sym:src/main.cj:Init:Foo.init#0"
+        );
+
+        // Method 映射
+        assert_eq!(
+            resolve_source_id(
+                "Method:/abs/path/src/main.cj:Foo.bar#1",
+                &empty,
+                &method_to_symbol_id,
+                &empty,
+            ),
+            "sym:src/main.cj:Function:Foo.bar#1"
+        );
     }
 }
