@@ -56,12 +56,18 @@ enum CangjieCommands {
         /// 项目根目录路径
         #[arg(long)]
         root: String,
+        /// 严格模式：synthetic nodes > 0 时非零退出
+        #[arg(long, default_value = "false")]
+        strict: bool,
     },
     /// 输出 Cangjie 图 JSON
     Graph {
         /// 项目根目录路径
         #[arg(long)]
         root: String,
+        /// 严格模式：synthetic nodes > 0 时非零退出
+        #[arg(long, default_value = "false")]
+        strict: bool,
     },
 }
 
@@ -120,11 +126,12 @@ fn main() {
             }
         },
         Commands::Cangjie { sub } => match sub {
-            CangjieCommands::Inspect { root } | CangjieCommands::Graph { root } => {
+            CangjieCommands::Inspect { root, strict } | CangjieCommands::Graph { root, strict } => {
                 // Feature gate check
                 #[cfg(not(feature = "tree-sitter-cangjie"))]
                 {
                     let _root = root; // Suppress unused variable warning
+                    let _strict = strict;
                     eprintln!("错误：Cangjie support is disabled.");
                     eprintln!("请使用 --features tree-sitter-cangjie 重新编译：");
                     eprintln!("  cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie inspect --root <path>");
@@ -141,6 +148,21 @@ fn main() {
 
                     match gitnexus_cangjie::graph::inspect_cangjie_project(root_path) {
                         Ok(graph_output) => {
+                            if strict {
+                                let synthetic_count = graph_output
+                                    .nodes
+                                    .iter()
+                                    .filter(|n| {
+                                        n.kind == gitnexus_cangjie::graph::NodeKind::CallableSource
+                                    })
+                                    .count();
+                                if synthetic_count > 0 {
+                                    eprintln!(
+                                        "错误：strict mode: found {synthetic_count} synthetic node(s), expected 0"
+                                    );
+                                    std::process::exit(1);
+                                }
+                            }
                             let json =
                                 serde_json::to_string_pretty(&graph_output).unwrap_or_else(|e| {
                                     eprintln!("错误：Cangjie JSON 序列化失败: {e}");
