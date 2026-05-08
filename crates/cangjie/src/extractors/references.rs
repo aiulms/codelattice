@@ -9,9 +9,12 @@
 //!
 //! Available only when the `tree-sitter-cangjie` feature is enabled.
 
+#[cfg(feature = "tree-sitter-cangjie")]
 use std::collections::HashMap;
 
-use super::symbol::{CangjieSymbol, CangjieSymbolKind};
+#[cfg(feature = "tree-sitter-cangjie")]
+use super::symbol::CangjieSymbol;
+use super::symbol::CangjieSymbolKind;
 
 // ---------------------------------------------------------------------------
 // Reference types
@@ -54,6 +57,7 @@ pub struct CangjieReference {
 // ---------------------------------------------------------------------------
 
 /// Cangjie builtin type names — these do NOT produce USES edges.
+#[cfg(feature = "tree-sitter-cangjie")]
 const BUILTIN_TYPES: &[&str] = &[
     "Int8",
     "Int16",
@@ -82,6 +86,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "CString",
 ];
 
+#[cfg(feature = "tree-sitter-cangjie")]
 fn is_builtin_type(name: &str) -> bool {
     BUILTIN_TYPES.contains(&name)
 }
@@ -91,6 +96,7 @@ fn is_builtin_type(name: &str) -> bool {
 // ---------------------------------------------------------------------------
 
 /// Type declaration node kinds that introduce an enclosing type scope.
+#[cfg(feature = "tree-sitter-cangjie")]
 const TYPE_DECLARATION_KINDS: &[&str] = &[
     "classDefinition",
     "structDefinition",
@@ -99,6 +105,7 @@ const TYPE_DECLARATION_KINDS: &[&str] = &[
 ];
 
 /// Type name node kinds for each type declaration.
+#[cfg(feature = "tree-sitter-cangjie")]
 fn type_name_kind(parent_kind: &str) -> Option<&'static str> {
     match parent_kind {
         "classDefinition" => Some("className"),
@@ -114,6 +121,7 @@ fn type_name_kind(parent_kind: &str) -> Option<&'static str> {
 // ---------------------------------------------------------------------------
 
 /// Context for the current enclosing function/method/constructor during AST walk.
+#[cfg(feature = "tree-sitter-cangjie")]
 struct FuncContext {
     /// Function name (funcName for functionDefinition, "init" for init, "main" for mainDefinition).
     func_name: String,
@@ -130,10 +138,12 @@ struct FuncContext {
 // ---------------------------------------------------------------------------
 
 /// Index of symbols within a single file, keyed by name.
+#[cfg(feature = "tree-sitter-cangjie")]
 struct SameFileIndex<'a> {
     by_name: HashMap<&'a str, Vec<&'a CangjieSymbol>>,
 }
 
+#[cfg(feature = "tree-sitter-cangjie")]
 impl<'a> SameFileIndex<'a> {
     fn build(symbols: &'a [CangjieSymbol]) -> Self {
         let mut by_name: HashMap<&str, Vec<&CangjieSymbol>> = HashMap::new();
@@ -468,17 +478,20 @@ impl ImportBindingTable {
     /// Resolve a local name in a source file to a cross-file import binding.
     ///
     /// Handles:
-    /// - Exact match: `import pkg.{Func}` → `Func`
-    /// - Package alias: `import pkg as p` → `p.Func` → resolves to `pkg.Func`
-    /// - Wildcard import: `import pkg.*` → `Func` (with conflict detection)
+    /// - Exact import: `import pkg.{Func}` → `Func`
+    /// - Package alias: `import pkg as p` → `p.Func` resolves to `pkg.Func`
+    /// - Wildcard import: `import pkg.*` → `Func` (low-confidence fallback)
     ///
-    /// Disambiguation priority:
-    /// 1. Explicit import > wildcard import
-    /// 2. Unique match > ambiguous match
-    /// 3. Specific naming > generic naming
+    /// Resolution strategy:
+    /// 1. Single candidate → return directly (confidence per ImportKind)
+    /// 2. Multiple candidates → disambiguation via ImportKind priority:
+    ///    a. Unique ExplicitImport beats everything
+    ///    b. Unique PackageAlias wins if no explicit import
+    ///    c. Otherwise no unique winner → no-edge
+    ///    Principle: 宁可 no-edge，不产生 fake edge
     ///
-    /// Returns `Some` only on unique match (exactly one candidate binding).
-    /// Zero or multiple matches → `None` (no edge emitted).
+    /// Returns `Some` only when a single binding can be confidently chosen.
+    /// Zero candidates or ambiguous multi-candidate → `None` (no edge emitted).
     pub fn resolve(&self, source_file: &str, name: &str) -> Option<&ImportBinding> {
         // Try exact match first
         let key = (source_file.to_string(), name.to_string());
@@ -1344,7 +1357,7 @@ pub fn extract_cangjie_references(
 // Tests
 // ---------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tree-sitter-cangjie"))]
 mod tests {
     use super::*;
 

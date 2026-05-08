@@ -7,6 +7,7 @@
 //! - stdout 只包含 JSON，不混入 human logs
 
 use assert_cmd::Command;
+#[cfg(feature = "tree-sitter-cangjie")]
 use predicates::prelude::*;
 
 fn cli_bin() -> Command {

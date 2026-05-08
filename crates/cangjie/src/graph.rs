@@ -7,7 +7,9 @@
 //! the `tree-sitter-cangjie` feature.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap, HashSet};
+#[cfg(feature = "tree-sitter-cangjie")]
+use std::collections::HashSet;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostics::CangjieDiagnostic;
