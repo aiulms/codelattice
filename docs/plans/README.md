@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Stage 3: 4th Rust contract fixture module-hierarchy, 23→30 tests on 3→4 fixtures）
+最后更新：2026-05-08（Slice 48: crate:: 多段路径 AssociatedFunction 误分类修复）
 
 ## 用途
 
@@ -25,19 +25,19 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.8%（2339/3557）。0 dangling CALLS edges。Graph contract 30/30（4 fixtures：portable-smoke, imports-cross-crate, multi-module, module-hierarchy）。Enum constructor resolution + external symbol node completion + cross-file same-crate resolution + wildcard disambiguation + associated-function disambiguation 已落地。method-calls 仍为主要 gap（~1174 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.8%（2344/3563）。0 dangling CALLS edges。Graph contract 30/30（4 fixtures）。Call comparison 24/24 fixtures（新增 c16-crate-associated-fn）。crate:: 多段路径 AssociatedFunction 误分类已修复（+1 resolved call）。method-calls 仍为主要 gap（~1176 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
 **Priority 2 续 — Rust CALLS resolution quality**
-- `crate::` 多段路径分类修复（associated-function 误分类为 qualified-path，1-2 calls）
-- 关联函数 resolution：16 unresolved（含 derive-generated 方法、外部 crate type 方法、re-export 路径）
+- ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
+- 关联函数 resolution：15 unresolved（含 derive-generated 方法、外部 crate type 方法、re-export 路径）
 - 低置信度 reason/confidence 矩阵审计
 - call form 文档与 confidence 矩阵对齐
 
 **Priority 3 续 — Rust graph contract**
-- 第 4 个 contract fixture（如 module-hierarchy 或 workspace-member）
-- 匹配 Cangjie 的 4 fixture 覆盖水平
+- 第 5 个 contract fixture（如 inline-module 或 self-super-path）
+- 扩大 Rust contract fixture 覆盖
 
 **Priority 4 — Cangjie maintenance**
 - Quality gate 周期性回归验证
@@ -545,3 +545,13 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - module-hierarchy：13 nodes, 15 edges, 6 edge types, 2 source files, 3 CALLS（crate-path + super-path + import-resolved）
    - 全部测试通过（no-feature 30/30 project_model_graph_contract, with-feature 30/30, cangjie_inspect 18/18, graph_contract 24/24）
    - QUALITY.md 同步更新：contract fixture 表 3→4 fixtures，测试数 23→30
+
+48. **Slice 48 — crate:: 多段路径 AssociatedFunction 误分类修复** ✅ 完成（2026-05-08）：
+   - 修复 `classify_callee` 和 `classify_text_callee` 中 `crate::` 路径分类逻辑
+   - 路径 `crate::module::Type::method()` 现在正确分类为 `AssociatedFunction`（之前误分类为 `QualifiedPath`）
+   - `crate::module::function()` 保持 `QualifiedPath`（不退化）
+   - 新增 fixture `c16-crate-associated-fn`（compile-valid，2 source files，3 calls）
+   - Improvement: +1 resolved associated-function call
+   - 全部测试通过（no-feature + feature，call comparison 24/24 fixtures，graph_contract 30/30）
+   - Preflight: `docs/plans/2026-05-08-rust-crate-path-associated-fn-misclassification-preflight.md`
+   - Closure Review: `docs/plans/2026-05-08-rust-crate-path-associated-fn-misclassification-closure-review.md`

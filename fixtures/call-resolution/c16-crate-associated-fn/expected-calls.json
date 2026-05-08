@@ -1,0 +1,71 @@
+[
+  {
+    "id": "src/inner.rs::call::10::to_string",
+    "callerSymbolId": "c16-crate-associated-fn::crate::inner::build",
+    "callerName": "build",
+    "sourcePath": "src/inner.rs",
+    "modulePath": "crate::inner",
+    "span": {
+      "lineStart": 10,
+      "lineEnd": 10,
+      "byteStart": 214,
+      "byteEnd": 230
+    },
+    "rawText": "name.to_string()",
+    "knownCrate": null,
+    "calleePath": "name.to_string",
+    "calleeName": "to_string",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::string::ToString::to_string",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::10::build",
+    "callerSymbolId": "c16-crate-associated-fn::crate::test_associated_fn",
+    "callerName": "test_associated_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 10,
+      "lineEnd": 10,
+      "byteStart": 433,
+      "byteEnd": 468
+    },
+    "rawText": "crate::inner::MyType::build(\"test\")",
+    "knownCrate": null,
+    "calleePath": "crate::inner::MyType::build",
+    "calleeName": "build",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c16-crate-associated-fn::crate::inner::build",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::16::helper",
+    "callerSymbolId": "c16-crate-associated-fn::crate::test_qualified_path",
+    "callerName": "test_qualified_path",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 16,
+      "lineEnd": 16,
+      "byteStart": 634,
+      "byteEnd": 658
+    },
+    "rawText": "crate::inner::helper(10)",
+    "knownCrate": null,
+    "calleePath": "crate::inner::helper",
+    "calleeName": "helper",
+    "callKind": "qualified-path",
+    "resolvedSymbolId": "c16-crate-associated-fn::crate::inner::helper",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.9,
+    "reason": "call-crate-path-resolved",
+    "diagnostics": []
+  }
+]

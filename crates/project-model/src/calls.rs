@@ -880,7 +880,19 @@ fn classify_callee(
                 }
 
                 if first == "crate" {
-                    (path_text.clone(), name, CallKind::QualifiedPath, None)
+                    // crate:: 路径需区分 QualifiedPath（自由函数）和 AssociatedFunction（类型方法）
+                    // 如 crate::module::Type::method() 应有 >=4 段且倒数第二段首字母大写
+                    if segments.len() >= 4
+                        && second_last
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false)
+                    {
+                        (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                    } else {
+                        (path_text.clone(), name, CallKind::QualifiedPath, None)
+                    }
                 } else if first == "self" {
                     (path_text.clone(), name, CallKind::SelfPath, None)
                 } else if first == "super" {
@@ -1903,7 +1915,23 @@ fn classify_text_callee(
         }
 
         let call_kind = if first == "crate" {
-            CallKind::QualifiedPath
+            // crate:: 路径需区分 QualifiedPath（自由函数）和 AssociatedFunction（类型方法）
+            // 如 crate::module::Type::method() 应有 >=4 段且倒数第二段首字母大写
+            if segments.len() >= 4 {
+                let second_last = segments[segments.len() - 2];
+                if second_last
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false)
+                {
+                    CallKind::AssociatedFunction
+                } else {
+                    CallKind::QualifiedPath
+                }
+            } else {
+                CallKind::QualifiedPath
+            }
         } else if first == "self" {
             CallKind::SelfPath
         } else if first == "super" {

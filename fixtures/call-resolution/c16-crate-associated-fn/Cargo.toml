@@ -1,0 +1,4 @@
+[package]
+name = "c16-crate-associated-fn"
+version = "0.1.0"
+edition = "2021"
