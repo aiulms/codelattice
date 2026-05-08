@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Productization Phase: Unified CLI + Bridge Adapter + Smoke Config + Local Trial Packaging + --strict Flag）
+最后更新：2026-05-09（Productization Phase 收尾: Docs Consolidation）
 
 ## 用途
 
@@ -669,3 +669,10 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - productization_commands tests: 15 → 19
     - 零新增依赖，不改 GitNexus-RC / Tool / live repo
     - Preflight: `docs/plans/2026-05-09-analyze-strict-flag-preflight.md`
+
+59. **Docs Consolidation** ✅ 完成（2026-05-09）：
+    - QUALITY.md §--strict：新增 unified `analyze --strict` 文档（Rust + Cangjie），区分 Cangjie inspect/graph 行为和 unified analyze 行为
+    - bridge-preflight.md：状态从 Preflight 改为 Implemented；§五 改为实现状态表（3/4 步骤已落地）；新增 changelog entry
+    - smoke.sh Step 4/6：改用 `analyze --strict`（exit code 检查 + JSON 验证）
+    - 零新增依赖，不改 GitNexus-RC / Tool / live repo
+    - Preflight: `docs/plans/2026-05-09-docs-consolidation-preflight.md`

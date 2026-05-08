@@ -96,6 +96,8 @@ cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --ignore
 
 ## `--strict` Flag
 
+### Cangjie `inspect` / `graph`
+
 Both `cangjie inspect` and `cangjie graph` accept a `--strict` flag (default: `false`):
 
 ```sh
@@ -103,18 +105,46 @@ cangjie inspect --root <path> --strict
 cangjie graph --root <path> --strict
 ```
 
+### Unified `analyze` (Rust + Cangjie)
+
+The unified `analyze` command also accepts `--strict` for both Rust and Cangjie:
+
+```sh
+# Rust
+gitnexus-rust-core-cli analyze --root <path> --language rust --strict
+
+# Cangjie
+gitnexus-rust-core-cli analyze --root <path> --language cangjie --strict
+
+# Auto-detect
+gitnexus-rust-core-cli analyze --root <path> --language auto --strict
+```
+
 **Behavior:**
+- After analysis completes and JSON is output, all quality gates are checked
+- If any gate fails, the CLI exits non-zero with a summary of failed gates on stderr
+- If all gates pass, exit code is 0 (same behavior as without `--strict`)
+- Compatible with both `--format json` and `--format gitnexus-rc`
+
+**Cangjie `inspect`/`graph` behavior:**
 - With `--strict`, the CLI counts `CallableSource` (synthetic) nodes after graph emission
 - If synthetic > 0, the CLI exits non-zero with an error message on stderr
 - If synthetic = 0, output is identical to non-strict mode
-- Feature-disabled builds accept `--strict` without error (graceful no-op, same as non-strict disabled path)
+- Feature-disabled builds accept `--strict` without error (graceful no-op)
 
-**Purpose:** Enforce the zero-synthetic quality gate at the CLI level for CI/CD or scripting, without requiring human inspection of smoke test output.
+**Unified `analyze --strict` behavior:**
+- After analysis and JSON output, all quality gates are checked (Rust: 7 gates; Cangjie: 6 gates)
+- Any gate failure → exit code 1 with failed gate summary on stderr
+- All gates pass → exit code 0
+- Compatible with `--format json` and `--format gitnexus-rc`
+
+**Purpose:** Enforce quality gates at the CLI level for CI/CD or scripting, without requiring human inspection of smoke test output.
 
 **Limitations:**
-- `--strict` only checks synthetic > 0; it does not verify duplicate node IDs, dangling edges, or determinism (those remain covered by test suites)
-- No fixture currently triggers synthetic > 0 in production builds (all current fixtures and production targets produce 0 synthetic)
-- Strict failure (synthetic > 0 → non-zero exit) is tested indirectly by the `multi_project_smoke` and `graph_contract` quality gate suites, which hard-assert `synthetic_count = 0`
+- Cangjie `--strict` only checks synthetic > 0; it does not verify duplicate node IDs, dangling edges, or determinism (those remain covered by test suites)
+- Unified `analyze --strict` checks all quality gates (including duplicate/dangling/deterministic)
+- The `deterministic` gate is marked as "not verified from single CLI run" in single-run CLI mode; full determinism verification requires test suite
+- No fixture currently triggers synthetic > 0 or duplicate/dangling in production builds (all current fixtures and production targets produce clean graphs)
 
 **Tests:** `crates/cli/tests/cangjie_inspect.rs` — 8 dedicated tests covering strict success (valid JSON, graph parity), strict + nonexistent root, and strict + feature-disabled.
 

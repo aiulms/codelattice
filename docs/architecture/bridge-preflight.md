@@ -2,7 +2,7 @@
 
 > **日期：** 2026-05-09
 > **版本：** v1.0.0
-> **状态：** Preflight（不涉及实现）
+> **状态：** Preflight → Implemented（Bridge adapter 已落地，见 `crates/cli/src/bridge_format.rs`）
 > **Stop-line：** No production replacement. No GitNexus-RC modification. No GitNexus-RC-Tool modification.
 
 ---
@@ -153,12 +153,22 @@ fn normalize_edge_endpoints(edges: &[Value], language: &str) -> Vec<NormalizedEd
 
 ---
 
-## 五、下一步建议（如果推进 Bridge Implementation）
+## 五、实现状态
 
-1. **第一步：统一 endpoint 字段名。** 将 Rust 的 `source`/`target` 改为 `sourceId`/`targetId`，或至少两处都接受
-2. **第二步：统一 node kind 序列化。** Cangjie 已有显式 kind 字段，Rust 可新增 `kind` 字段（不改 label）
-3. **第三步：实现 `--format gitnexus-rc` flag。** 在 CLI 新增一种格式，输出 GitNexus-RC 兼容的 JSON
-4. **第四步：schema 对齐。** 与 GitNexus-RC 维护者协商 schema 版本迁移路径
+Bridge adapter 已在 `crates/cli/src/bridge_format.rs`（~830 行）中实现，`analyze --format gitnexus-rc` 可用。
+
+| 步骤 | 状态 | 详情 |
+|------|------|------|
+| **统一 endpoint 字段名** | ✅ 完成 | `normalize_edge_endpoints()` 统一 source/target → sourceId/targetId |
+| **统一 node kind 序列化** | ✅ 完成 | `partition_rust_nodes()` 从 label 推断 kind；`partition_cangjie_nodes()` 直接使用 kind |
+| **实现 --format gitnexus-rc** | ✅ 完成 | `analyze --format gitnexus-rc` 支持 Rust + Cangjie |
+| **schema 对齐** | 待定 | 需与 GitNexus-RC 维护者协商 |
+
+### 后续步骤（需跨仓协商）
+
+1. **前端消费准备。** 与 GitNexus-RC 维护者协商 schema 版本迁移路径
+2. **Bridge integration tests。** 用 GitNexus-RC 测试 fixture 做 roundtrip 验证
+3. **Schema 对齐。** 确认 bridge format 与 GitNexus-RC 前端期望的最终差异
 
 ---
 
@@ -166,4 +176,5 @@ fn normalize_edge_endpoints(edges: &[Value], language: &str) -> Vec<NormalizedEd
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-09 | 1.1.0 | §五 更新为实现状态（3/4 步骤已落地）；状态从 Preflight 改为 Implemented |
 | 2026-05-09 | 1.0.0 | 初始 preflight：消费场景分析、Rust vs Cangjie vs GitNexus-RC 差异矩阵、可直接映射字段、需要 adapter 的差异、stop-line、下一步建议 |

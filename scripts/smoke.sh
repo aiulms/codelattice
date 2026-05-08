@@ -72,9 +72,10 @@ fi
 echo ""
 
 # --- Step 3: Rust CLI smoke ---
-echo "--- Step 4: Rust analyze（portable-smoke fixture） ---"
-RUST_OUTPUT=$(cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json 2>/dev/null) || true
-if echo "$RUST_OUTPUT" | python3 -c "
+echo "--- Step 4: Rust analyze --strict（portable-smoke fixture） ---"
+RUST_OUTPUT=$(cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --language rust --format json --strict 2>/dev/null) || true
+RUST_EXIT=$?
+if [[ $RUST_EXIT -eq 0 ]] && echo "$RUST_OUTPUT" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 s = d['summary']
@@ -85,9 +86,9 @@ assert s['edgeCount'] > 0, 'edgeCount is 0'
 assert passed == len(gates), f'quality gates: {passed}/{len(gates)}'
 print(f'  nodes={s[\"nodeCount\"]} edges={s[\"edgeCount\"]} symbols={s[\"symbolCount\"]} quality={passed}/{len(gates)}')
 " 2>/dev/null; then
-    pass "Rust analyze: $(echo "$RUST_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); s=d['summary']; print(f'nodes={s[\"nodeCount\"]} edges={s[\"edgeCount\"]}')" 2>/dev/null || echo 'ok')"
+    pass "Rust analyze --strict: $(echo "$RUST_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); s=d['summary']; print(f'nodes={s[\"nodeCount\"]} edges={s[\"edgeCount\"]}')" 2>/dev/null || echo 'ok')"
 else
-    fail "Rust analyze（portable-smoke）"
+    fail "Rust analyze --strict（exit=$RUST_EXIT）"
 fi
 
 echo ""
@@ -101,9 +102,10 @@ fi
 echo ""
 
 # --- Step 4: Cangjie CLI smoke ---
-echo "--- Step 6: Cangjie analyze（portable-smoke fixture） ---"
-CANGJIE_OUTPUT=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root fixtures/cangjie/portable-smoke --format json 2>/dev/null) || true
-if echo "$CANGJIE_OUTPUT" | python3 -c "
+echo "--- Step 6: Cangjie analyze --strict（portable-smoke fixture） ---"
+CANGJIE_OUTPUT=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format json --strict 2>/dev/null) || true
+CANGJIE_EXIT=$?
+if [[ $CANGJIE_EXIT -eq 0 ]] && echo "$CANGJIE_OUTPUT" | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 s = d['summary']
@@ -114,9 +116,9 @@ assert s['edgeCount'] > 0, 'edgeCount is 0'
 assert passed == len(gates), f'quality gates: {passed}/{len(gates)}'
 print(f'  nodes={s[\"nodeCount\"]} edges={s[\"edgeCount\"]} symbols={s[\"symbolCount\"]} quality={passed}/{len(gates)}')
 " 2>/dev/null; then
-    pass "Cangjie analyze: $(echo "$CANGJIE_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); s=d['summary']; print(f'nodes={s[\"nodeCount\"]} edges={s[\"edgeCount\"]}')" 2>/dev/null || echo 'ok')"
+    pass "Cangjie analyze --strict: $(echo "$CANGJIE_OUTPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); s=d['summary']; print(f'nodes={s[\"nodeCount\"]} edges={s[\"edgeCount\"]}')" 2>/dev/null || echo 'ok')"
 else
-    fail "Cangjie analyze（portable-smoke）"
+    fail "Cangjie analyze --strict（exit=$CANGJIE_EXIT）"
 fi
 
 echo ""
