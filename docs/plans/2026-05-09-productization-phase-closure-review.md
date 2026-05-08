@@ -3,7 +3,7 @@
 > **日期：** 2026-05-09
 > **版本：** v1.0.0
 > **状态：** Closed — 5/5 priorities 完成
-> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复），`8bdcddf`（Local Trial Packaging），`6eb7653`（Analyze --strict）
+> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复），`8bdcddf`（Local Trial Packaging），`6eb7653`（Analyze --strict），`74ff9af`（closure review 更新），`0e32995`（Docs Consolidation）
 
 ---
 
@@ -116,7 +116,7 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 | 非 JSON 格式不支持 | BY DESIGN | 第一版仅做 JSON stdout |
 | Bridge format CLI integration tests 仅覆盖 analyze | LOW | quality/summary 命令未支持 --format gitnexus-rc |
 | 无本地构建脚本 | ~~LOW~~ → **已修复（`8bdcddf`）** | scripts/build.sh + scripts/smoke.sh |
-| analyze 命令无 --strict flag | ~~LOW~~ → **本轮（Slice: analyze-strict-flag）处理** | 与 Cangjie inspect --strict 行为对齐 |
+| analyze 命令无 --strict flag | ~~LOW~~ → **已修复（`6eb7653`）** | analyze --strict 质量门失败时 exit 1，兼容 --format json 和 --format gitnexus-rc |
 
 ---
 
@@ -168,4 +168,5 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-09 | 1.1.0 | 更新 commits 列表（+74ff9af, +0e32995），residual gaps 全部已修复项标注完成 |
 | 2026-05-09 | 1.0.0 | 初始 closure review：5/5 priorities 完成，landed reality，stop-line 验证，residual gaps，下一步建议 |
