@@ -1236,8 +1236,28 @@ mod tree_sitter_impl {
                         trait_name = Some(first);
                     }
                 }
-                "generic_type" | "scoped_type_identifier" | "where_clause" => {
-                    // 跳过 generic / scoped / where
+                "generic_type" | "scoped_type_identifier" => {
+                    // 递归查找子节点中的 type_identifier
+                    // 处理 impl<'a> SameFileIndex<'a> — SameFileIndex<'a> 被 tree-sitter
+                    // 解析为 generic_type 节点，其子节点含 type_identifier "SameFileIndex"
+                    let mut inner_cursor = child.walk();
+                    for inner_child in child.children(&mut inner_cursor) {
+                        if inner_child.kind() == "type_identifier" {
+                            let text = inner_child
+                                .utf8_text(source_bytes)
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            if impl_target.is_none() {
+                                impl_target = Some(text);
+                            } else {
+                                trait_name = impl_target.take();
+                                impl_target = Some(text);
+                            }
+                        }
+                    }
+                }
+                "where_clause" => {
+                    // 跳过 where clause
                 }
                 _ => {}
             }

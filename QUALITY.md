@@ -212,8 +212,8 @@ cargo test --features tree-sitter-cangjie
 | Source files | 50 |
 | Symbols | 664 (incl. 23 impl blocks) |
 | Imports | variable |
-| Total calls | 3,563 |
-| Resolved calls | 2,344 (65.8%) |
+| Total calls | 3,571 |
+| Resolved calls | 2,352 (65.9%) |
 | Graph nodes | 1,348 (incl. 55 external symbols) |
 | Graph edges | 2,073 (9 edge types) |
 | CALLS edges | 1,039 |
@@ -237,13 +237,13 @@ cargo test --features tree-sitter-cangjie
 | same-crate-resolved (Phase 2e+2f) | 23 | 1.0% |
 | module-path-resolved | 18 | 0.8% |
 | import-resolved | 10 | 0.4% |
-| associated-fn-resolved (Phase 2g+Slice48) | 2 | 0.08% |
+| associated-fn-resolved (Phase 2g+Slice48+Slice50) | 7 | 0.30% |
 
 ## Known Gaps (by design)
 
 | Gap | Reason |
 |-----|--------|
-| 1,219 unresolved calls (34.2%) | 1,176 method-calls need type inference (stop-line); 16 free-function; 15 associated-function; 7 qualified-path; 5 external-crate |
+| 1,219 unresolved calls (34.1%) | 1,181 method-calls need type inference (stop-line); 16 free-function; 10 associated-function; 7 qualified-path; 5 external-crate |
 | Method dispatch limited | No type inference / trait solving (stop-line) |
 | Wildcard import not expanded | Stop-line: no macro expansion |
 | ACCESSES edges — same crate only | External type nodes only created for CALLS targets |
