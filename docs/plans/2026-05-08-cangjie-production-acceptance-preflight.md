@@ -213,6 +213,6 @@ Not ready for:
 ### Recommended next phase
 
 After Stage 2 (smoke ergonomics) and Stage 3 (contract regression guard):
-- Consider adding `--strict` mode that fails on any synthetic > 0
-- Consider adding a small set of portable production fixtures (not machine-local)
-- Consider documenting the acceptance criteria as a standalone QUALITY.md
+- ✅ Added `--strict` mode that fails on any synthetic > 0 (952f326)
+- ✅ Added portable production fixtures (d048bf9, `fixtures/cangjie/portable-smoke/`)
+- ✅ Documented acceptance criteria as standalone QUALITY.md
