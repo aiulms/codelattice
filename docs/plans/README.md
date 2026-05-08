@@ -34,14 +34,15 @@
 - ✅ Bridge Adapter：crates/cli/src/bridge_format.rs（Rust/Cangjie → GitNexus-RC 兼容格式）
 - ✅ Smoke Targets Config：docs/smoke-targets-config.md（16 targets: 12 Tier 1 + 5 Tier 2）
 - ✅ Bridge Preflight：docs/architecture/bridge-preflight.md（差异矩阵 + stop-line）
-- ✅ 11 integration tests + 7 bridge unit tests
+- ✅ 15 integration tests + 7 bridge unit tests
+- ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
 
 ## 当前推荐下一篇计划
 
 **Productization 下一步：**
-- Bridge format CLI integration tests（--format gitnexus-rc 端到端验证）
 - Local trial packaging（单二进制 + 安装脚本）
 - 前端消费准备（与 GitNexus-RC 维护者协商 schema 对齐）
+- Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture）
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）

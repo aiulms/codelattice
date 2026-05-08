@@ -290,12 +290,17 @@ fn partition_rust_nodes(
                     package_id,
                 });
             }
-            _ => {
-                // 所有其他 label（function/struct/enum/...）视为 symbol
+            "symbol" => {
+                // 显式 symbol 节点：提取 kind 来自 properties.kind
                 let name = props
                     .get("name")
                     .and_then(|v| v.as_str())
-                    .unwrap_or(label)
+                    .unwrap_or("unknown")
+                    .to_string();
+                let kind = props
+                    .get("kind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("symbol")
                     .to_string();
                 let file_id = props
                     .get("fileId")
@@ -315,22 +320,23 @@ fn partition_rust_nodes(
                     }
                 }
 
-                // kind from properties first, then from label
-                let kind = props
-                    .get("kind")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or(label)
-                    .to_string();
-
                 symbols.push(BridgeSymbol {
                     id,
                     name,
                     kind,
-                    package_id: None, // Rust nodes don't have package_id in properties
+                    package_id: None,
                     file_id,
                     parent_id,
                     properties: extra_props,
                 });
+            }
+            // 跳过 diagnostic / workspace / 其他结构节点，不计入 symbol
+            "diagnostic" | "workspace" | "module" => {
+                // 这些是结构/诊断节点，不属于 symbol 列表
+            }
+            _ => {
+                // 未知 label：保守跳过，不计入 symbol
+                // 未来新增 label 时需在此显式处理
             }
         }
     }
@@ -666,6 +672,10 @@ mod tests {
     use super::*;
 
     /// 构造一个最小 Rust graph JSON 用于测试
+    /// 使用与实际 Rust GraphOutput 一致的 label 约定：
+    ///   - repository / package / target / source-file → 结构节点
+    ///   - symbol → 显式 symbol 节点（properties.kind 编码具体类型）
+    ///   - diagnostic → 诊断节点（不计入 symbol）
     fn make_rust_graph_json() -> Value {
         serde_json::json!({
             "schemaVersion": "v0.3",
@@ -674,7 +684,7 @@ mod tests {
                 {"id": "repo:test", "label": "repository", "properties": {"name": "test-repo"}},
                 {"id": "pkg:test", "label": "package", "properties": {"name": "test-pkg", "manifestPath": "Cargo.toml"}},
                 {"id": "sf:src/lib.rs", "label": "source-file", "properties": {"path": "src/lib.rs"}},
-                {"id": "sym:test::func", "label": "function", "properties": {"name": "func", "kind": "function"}}
+                {"id": "sym:test::func", "label": "symbol", "properties": {"name": "func", "kind": "function"}}
             ],
             "edges": [
                 {"type": "CALLS", "source": "sym:test::caller", "target": "sym:test::func", "properties": {"confidence": 0.9}},

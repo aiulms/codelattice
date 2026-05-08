@@ -1,6 +1,6 @@
 # GitNexus Rust-core Governance
 
-最后更新：2026-05-04
+最后更新：2026-05-09
 
 ## 治理来源
 

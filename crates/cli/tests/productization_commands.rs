@@ -213,13 +213,17 @@ fn analyze_rust_bridge_format_vs_json_same_language() {
             .unwrap();
 
     assert_eq!(v_json["language"], v_bridge["language"]);
-    // 两种格式的 sourceFile 数量应一致
+    // 两种格式的 symbol / sourceFile / package 数量应一致
+    assert_eq!(
+        v_json["summary"]["symbolCount"].as_u64().unwrap(),
+        v_bridge["stats"]["symbolCount"].as_u64().unwrap(),
+        "两种格式的 symbolCount 应一致"
+    );
     assert_eq!(
         v_json["summary"]["sourceFileCount"].as_u64().unwrap(),
         v_bridge["stats"]["sourceFileCount"].as_u64().unwrap(),
         "两种格式的 sourceFileCount 应一致"
     );
-    // package 数量应一致
     assert_eq!(
         v_json["summary"]["packageCount"].as_u64().unwrap(),
         v_bridge["stats"]["packageCount"].as_u64().unwrap(),
