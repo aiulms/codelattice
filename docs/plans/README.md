@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Production Acceptance 完结 + Rust 首次 smoke audit + CALLS endpoint integrity 修复，Dangling CALLS edges 459→0）
+最后更新：2026-05-08（Production Acceptance 完结 + Rust CALLS endpoint integrity fix + Rust graph contract tests，Rust 线质量门对齐 Cangjie）
 
 ## 用途
 
@@ -441,4 +441,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 	   - 全部测试通过（cangjie_inspect 18/18, project_model_graph_emit 10/10, production smoke 4/4）
 	   - Preflight: `docs/plans/2026-05-08-rust-production-readiness-preflight.md`
 	   - Closure Review: `docs/plans/2026-05-08-rust-production-readiness-closure-review.md`
-	36. Priority 2-5 — 后续 Rust/Cangjie bounded slices（需 preflight）
+	36. **Rust Graph Contract Tests** ✅ 完成（2026-05-08）：
+	   - 仿照 Cangjie graph_contract.rs 模式，创建 Rust graph contract regression tests
+	   - 新建 `fixtures/rust/portable-smoke/`：3 文件 Rust project，覆盖所有核心节点/边类型
+	   - 新建 `crates/cli/tests/project_model_graph_contract.rs`：8 tests（quality gates, node/edge kinds, known symbols/edges, endpoint integrity）
+	   - Graph 产出：16 nodes, 25 edges, 0 dup, 0 dangling, 确定性输出
+	   - 全部测试通过（cangjie_inspect 18/18, project_model_graph_emit 10/10, project_model_graph_contract 8/8）
+	   - Closure Review: `docs/plans/2026-05-08-rust-graph-contract-closure-review.md`
+	37. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
