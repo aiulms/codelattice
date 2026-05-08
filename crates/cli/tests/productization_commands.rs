@@ -124,6 +124,110 @@ fn analyze_unsupported_format_rejected() {
 }
 
 // ============================================================
+// analyze 命令 — Bridge 格式（Rust）
+// ============================================================
+
+#[test]
+fn analyze_rust_bridge_format() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    // Bridge 格式特有字段
+    assert!(v["repository"].is_object(), "应有 repository 对象");
+    assert!(
+        v["packages"].is_array() && !v["packages"].as_array().unwrap().is_empty(),
+        "packages 应为非空数组"
+    );
+    assert!(
+        v["sourceFiles"].is_array() && !v["sourceFiles"].as_array().unwrap().is_empty(),
+        "sourceFiles 应为非空数组"
+    );
+    assert!(
+        v["symbols"].is_array() && !v["symbols"].as_array().unwrap().is_empty(),
+        "symbols 应为非空数组"
+    );
+    assert!(v["edges"].is_object(), "edges 应为对象（按类型分组）");
+
+    // edges 应按类型分组
+    let edges = &v["edges"];
+    assert!(
+        edges["defines"].is_array() && !edges["defines"].as_array().unwrap().is_empty(),
+        "应有 defines 边"
+    );
+
+    // stats 应匹配
+    assert!(v["stats"]["symbolCount"].as_u64().unwrap() > 0);
+    assert!(v["stats"]["nodeCount"].as_u64().unwrap() > 0);
+
+    // 语言标记
+    assert_eq!(v["language"], "rust");
+}
+
+#[test]
+fn analyze_rust_bridge_format_vs_json_same_language() {
+    // 验证 bridge 格式和 json 格式的语言检测一致
+    let mut cmd_json = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let mut cmd_bridge = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let out_json = cmd_json
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .success();
+    let v_json: Value =
+        serde_json::from_str(&String::from_utf8(out_json.get_output().stdout.clone()).unwrap())
+            .unwrap();
+
+    let out_bridge = cmd_bridge
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+    let v_bridge: Value =
+        serde_json::from_str(&String::from_utf8(out_bridge.get_output().stdout.clone()).unwrap())
+            .unwrap();
+
+    assert_eq!(v_json["language"], v_bridge["language"]);
+    // 两种格式的 sourceFile 数量应一致
+    assert_eq!(
+        v_json["summary"]["sourceFileCount"].as_u64().unwrap(),
+        v_bridge["stats"]["sourceFileCount"].as_u64().unwrap(),
+        "两种格式的 sourceFileCount 应一致"
+    );
+    // package 数量应一致
+    assert_eq!(
+        v_json["summary"]["packageCount"].as_u64().unwrap(),
+        v_bridge["stats"]["packageCount"].as_u64().unwrap(),
+        "两种格式的 packageCount 应一致"
+    );
+}
+
+// ============================================================
 // quality 命令 — Rust
 // ============================================================
 
@@ -265,6 +369,105 @@ fn analyze_cangjie_explicit_language() {
         gate_names.contains(&"synthetic_nodes"),
         "Cangjie 质量门应包含 synthetic_nodes"
     );
+}
+
+// ============================================================
+// analyze 命令 — Cangjie Bridge 格式（feature-gated）
+// ============================================================
+
+#[cfg(feature = "tree-sitter-cangjie")]
+#[test]
+fn analyze_cangjie_bridge_format() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = cangjie_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("cangjie")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert!(v["repository"].is_object(), "应有 repository 对象");
+    assert!(
+        v["packages"].is_array() && !v["packages"].as_array().unwrap().is_empty(),
+        "packages 应为非空数组"
+    );
+    assert!(
+        v["sourceFiles"].is_array() && !v["sourceFiles"].as_array().unwrap().is_empty(),
+        "sourceFiles 应为非空数组"
+    );
+    assert!(
+        v["symbols"].is_array() && !v["symbols"].as_array().unwrap().is_empty(),
+        "symbols 应为非空数组"
+    );
+
+    // Cangjie bridge 格式应有 uses edges
+    let edges = &v["edges"];
+    assert!(
+        edges["uses"].is_array() && !edges["uses"].as_array().unwrap().is_empty(),
+        "Cangjie bridge 格式应有 uses 边"
+    );
+    assert!(
+        edges["defines"].is_array() && !edges["defines"].as_array().unwrap().is_empty(),
+        "Cangjie bridge 格式应有 defines 边"
+    );
+
+    // 语言标记
+    assert_eq!(v["language"], "cangjie");
+}
+
+#[cfg(feature = "tree-sitter-cangjie")]
+#[test]
+fn analyze_cangjie_bridge_edges_use_normalized_endpoints() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = cangjie_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("cangjie")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).unwrap();
+
+    // 所有边的端点字段应为 sourceId / targetId（归一化后）
+    for edge_type in &["defines", "uses", "contains", "owns", "imports"] {
+        if let Some(edges) = v["edges"][edge_type].as_array() {
+            for edge in edges {
+                assert!(
+                    edge["sourceId"].is_string(),
+                    "{edge_type} edge 应有 sourceId 字段"
+                );
+                assert!(
+                    edge["targetId"].is_string(),
+                    "{edge_type} edge 应有 targetId 字段"
+                );
+                // 不应出现旧字段名
+                assert!(
+                    edge.get("source").is_none(),
+                    "{edge_type} edge 不应有 source 字段（应为 sourceId）"
+                );
+                assert!(
+                    edge.get("target").is_none(),
+                    "{edge_type} edge 不应有 target 字段（应为 targetId）"
+                );
+            }
+        }
+    }
 }
 
 // ============================================================

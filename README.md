@@ -3,7 +3,7 @@
 > **Remote:** https://gitcode.com/aiulms/gitnexus-rust-core
 > **Branch:** `master`
 > **Created:** 2026-05-01
-> **Last updated:** 2026-05-08 (Phase 2d constructor chain)
+> **Last updated:** 2026-05-09 (Productization Phase complete)
 
 ---
 
@@ -195,9 +195,14 @@ gitnexus-rust-core/
         project_model_call_expected_compare.rs     # Call comparison
         project_model_graph_expected_compare.rs    # Graph comparison
     cli/
-      src/main.rs                          # CLI entry point
+      src/
+        main.rs                          # CLI entry point
+        bridge_format.rs                 # GitNexus-RC 兼容格式 adapter（NEW）
+        unified_types.rs                 # 统一输出类型定义（NEW）
+        language_detect.rs               # 语言自动检测（NEW）
       tests/
-        project_model_inspect.rs           # Integration tests
+        project_model_inspect.rs         # Integration tests
+        productization_commands.rs        # Productization CLI tests (15)（NEW）
   fixtures/
     manifest-scanner/                      # 6 fixtures
     root-resolution/                       # 9 fixtures
@@ -206,10 +211,12 @@ gitnexus-rust-core/
     import-use/                            # 12 fixtures (with expected-imports.json)
     call-resolution/                       # 22 fixtures (C1-C14 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
   docs/
-    architecture/                          # Architecture docs
+    architecture/                          # Architecture docs (unified-output-contract, bridge-preflight)
     decisions/                             # Decision records
     fixtures/                              # Fixture index
     migration/                             # Migration from GitNexus-RC
+    plans/                                 # Preflight / execution card / closure review
+    smoke-targets-config.md                # Smoke targets list (NEW)
 ```
 
 ---
@@ -237,8 +244,8 @@ gitnexus-rust-core/
 | Remote name | `gitcode` |
 | URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
 | Branch | `master` |
-| HEAD | `496941c` |
-| Total commits | 123 |
+| HEAD | `5363eb8` |
+| Total commits | 150 |
 
 ---
 
