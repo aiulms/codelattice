@@ -115,6 +115,7 @@ const STDLIB_SYMBOL_INDEX: &[StdlibSymbolEntry] = &[
     e("std::path::PathBuf", Struct, false),
     // --- std path::PathBuf methods ---
     e("std::path::PathBuf::new", AssociatedFunction, false),
+    e("std::path::PathBuf::from", AssociatedFunction, false),
     // --- std process ---
     e("std::process::Command", Struct, false),
     e("std::process::exit", Function, false),
@@ -203,6 +204,7 @@ mod tests {
         assert!(lookup_stdlib_symbol("std::vec::Vec::new").is_some());
         assert!(lookup_stdlib_symbol("std::collections::HashMap::new").is_some());
         assert!(lookup_stdlib_symbol("std::path::PathBuf::new").is_some());
+        assert!(lookup_stdlib_symbol("std::path::PathBuf::from").is_some());
         assert!(lookup_stdlib_symbol("std::string::String::from").is_some());
         assert!(lookup_stdlib_symbol("std::clone::Clone::clone").is_some());
         assert!(lookup_stdlib_symbol("std::string::ToString::to_string").is_some());
