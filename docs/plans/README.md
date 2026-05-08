@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2d 构造函数链推断 + STDLIB_TYPE_METHODS 扩展完结 — resolution rate 62.2% → 65.0%，+105 resolved calls）
+最后更新：2026-05-08（Phase 2e cross-file same-crate resolution 完结 — resolution rate 65.0% → 65.6%，+38 resolved calls）
 
 ## 用途
 
@@ -490,3 +490,16 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 本轮合计：62.2% → 65.0%（+105 resolved calls, +2.8pp）
    - Commit: `6d0f157`
 41. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
+42. **Phase 2e — 跨文件 same-crate call resolution** ✅ 完成（2026-05-08）：
+   - 新增 CalleeIndex 跨文件 same-crate 搜索（`lookup_crate_wide_function` / `lookup_crate_wide_type`）
+   - 新增 `CallSameCrateResolved` reason（confidence 0.80）
+   - `resolve_free_function` 新增 step 2.5：crate-wide unique function search
+   - `resolve_type_module` 新增 step 3：crate-wide type search（辅助 associated function）
+   - `resolve_qualified_path` 新增 CalleeIndex fallback（模块链解析失败时）
+   - 新增 c13-cross-file-same-crate fixture（compile-valid, 2 calls resolved）
+   - 新增 source_to_package 映射到 CalleeIndex
+   - Improvement: +38 resolved calls, 65.0% → 65.6%（2321/3539）
+   - 18 calls.rs → stdlib_tables.rs 跨文件调用全部解析
+   - 全部测试通过（call comparison 21/21 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
+   - Commits: `55bc86a`, `669ddc6`
+   - Closure Review: `docs/plans/2026-05-08-rust-cross-file-same-crate-closure-review.md`
