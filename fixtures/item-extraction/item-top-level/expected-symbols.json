@@ -1,6 +1,6 @@
 {
   "fixtureName": "item-top-level",
-  "scenario": "所有主要 Rust 顶层 item 类型：pub fn / pub struct / pub enum / pub trait / pub type alias / pub const / pub static / macro_rules! / private fn / private struct。验证 10 种 symbolKind 的 id、name、visibility、span",
+  "scenario": "\u6240\u6709\u4e3b\u8981 Rust \u9876\u5c42 item \u7c7b\u578b\uff1apub fn / pub struct / pub enum / pub trait / pub type alias / pub const / pub static / macro_rules! / private fn / private struct\u3002\u9a8c\u8bc1 10 \u79cd symbolKind \u7684 id\u3001name\u3001visibility\u3001span",
   "inputRoot": "item-top-level",
   "expectedSymbols": [
     {
@@ -13,9 +13,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 1, "lineEnd": 1 },
+      "span": {
+        "lineStart": 1,
+        "lineEnd": 1
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -29,9 +36,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 3, "lineEnd": 5 },
+      "span": {
+        "lineStart": 3,
+        "lineEnd": 5
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -45,9 +59,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 7, "lineEnd": 11 },
+      "span": {
+        "lineStart": 7,
+        "lineEnd": 11
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -61,9 +82,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 13, "lineEnd": 15 },
+      "span": {
+        "lineStart": 13,
+        "lineEnd": 15
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -77,9 +105,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 17, "lineEnd": 17 },
+      "span": {
+        "lineStart": 17,
+        "lineEnd": 17
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -93,9 +128,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 19, "lineEnd": 19 },
+      "span": {
+        "lineStart": 19,
+        "lineEnd": 19
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -109,9 +151,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 21, "lineEnd": 21 },
+      "span": {
+        "lineStart": 21,
+        "lineEnd": 21
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -125,9 +174,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 23, "lineEnd": 25 },
+      "span": {
+        "lineStart": 23,
+        "lineEnd": 25
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -141,9 +197,16 @@
       "modulePath": "crate",
       "visibility": "private",
       "parentId": null,
-      "span": { "lineStart": 27, "lineEnd": 27 },
+      "span": {
+        "lineStart": 27,
+        "lineEnd": 27
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": false
     },
@@ -157,16 +220,92 @@
       "modulePath": "crate",
       "visibility": "private",
       "parentId": null,
-      "span": { "lineStart": 29, "lineEnd": 29 },
+      "span": {
+        "lineStart": 29,
+        "lineEnd": 29
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": false
+    },
+    {
+      "id": "item-top-level::crate::Red",
+      "name": "Red",
+      "symbolKind": "enum-variant",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-top-level",
+      "targetName": "item_top_level",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-top-level::crate::Color",
+      "span": {
+        "lineStart": 8,
+        "lineEnd": 8
+      },
+      "implDetails": null,
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-top-level::crate::Green",
+      "name": "Green",
+      "symbolKind": "enum-variant",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-top-level",
+      "targetName": "item_top_level",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-top-level::crate::Color",
+      "span": {
+        "lineStart": 9,
+        "lineEnd": 9
+      },
+      "implDetails": null,
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-top-level::crate::Blue",
+      "name": "Blue",
+      "symbolKind": "enum-variant",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-top-level",
+      "targetName": "item_top_level",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-top-level::crate::Color",
+      "span": {
+        "lineStart": 10,
+        "lineEnd": 10
+      },
+      "implDetails": null,
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
+      "genericParams": null,
+      "isPub": true
     }
   ],
   "expectedSymbolDiagnostics": [],
   "expectedStats": {
-    "symbolCount": 10,
+    "symbolCount": 13,
     "diagnosticCount": 0,
     "sourceFileCount": 1
   },
@@ -174,6 +313,6 @@
   "knownLimitations": [],
   "confidencePolicy": {
     "tolerance": 0.05,
-    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+    "description": "item extraction Symbol \u65e0 confidence \u5b57\u6bb5\uff0c\u6b64\u5b57\u6bb5\u9884\u7559"
   }
 }

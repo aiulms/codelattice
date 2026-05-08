@@ -889,7 +889,18 @@ fn classify_callee(
                             .map(|c| c.is_uppercase())
                             .unwrap_or(false)
                     {
-                        (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                        // Enum::Variant 模式：最后一段也大写时是 enum variant constructor
+                        // 如 crate::module::CangjieParseError::ParseFailed()
+                        let is_enum_variant = name
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false);
+                        if is_enum_variant {
+                            (path_text.clone(), name, CallKind::FreeFunction, None)
+                        } else {
+                            (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                        }
                     } else {
                         (path_text.clone(), name, CallKind::QualifiedPath, None)
                     }
@@ -904,7 +915,17 @@ fn classify_callee(
                     .unwrap_or(false)
                     && segments.len() >= 3
                 {
-                    (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                    // >=3 段路径中区分 Type::method()（AssociatedFunction）和 Enum::Variant()（FreeFunction）
+                    let is_enum_variant = name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false);
+                    if is_enum_variant {
+                        (path_text.clone(), name, CallKind::FreeFunction, None)
+                    } else {
+                        (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                    }
                 } else if first
                     .chars()
                     .next()
@@ -912,7 +933,18 @@ fn classify_callee(
                     .unwrap_or(false)
                     && segments.len() == 2
                 {
-                    (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                    // 2 段路径中区分 Type::method() 和 Enum::Variant()
+                    // Rust 命名约定：associated function 是 snake_case，enum variant 是 PascalCase
+                    let is_enum_variant = name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false);
+                    if is_enum_variant {
+                        (path_text.clone(), name, CallKind::FreeFunction, None)
+                    } else {
+                        (path_text.clone(), name, CallKind::AssociatedFunction, None)
+                    }
                 } else {
                     (path_text.clone(), name, CallKind::QualifiedPath, None)
                 }
@@ -1943,7 +1975,17 @@ fn classify_text_callee(
                     .map(|c| c.is_uppercase())
                     .unwrap_or(false)
                 {
-                    CallKind::AssociatedFunction
+                    // Enum::Variant 模式：最后一段也大写时是 enum variant constructor
+                    let is_enum_variant = name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false);
+                    if is_enum_variant {
+                        CallKind::FreeFunction
+                    } else {
+                        CallKind::AssociatedFunction
+                    }
                 } else {
                     CallKind::QualifiedPath
                 }
@@ -1962,7 +2004,17 @@ fn classify_text_callee(
                 .map(|c| c.is_uppercase())
                 .unwrap_or(false)
             {
-                CallKind::AssociatedFunction
+                // 区分 Type::method()（AssociatedFunction）和 Enum::Variant()（FreeFunction）
+                let is_enum_variant = name
+                    .chars()
+                    .next()
+                    .map(|c| c.is_uppercase())
+                    .unwrap_or(false);
+                if is_enum_variant {
+                    CallKind::FreeFunction
+                } else {
+                    CallKind::AssociatedFunction
+                }
             } else {
                 CallKind::QualifiedPath
             }

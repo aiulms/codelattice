@@ -146,7 +146,7 @@ These boundaries are non-negotiable for Rust-core Cangjie:
 
 # Rust Graph Quality Gates
 
-**Last updated:** 2026-05-08
+**Last updated:** 2026-05-08（Slice 53: enum variant extraction + classification fix）
 **Status:** Active
 **Source:** [Rust Production Readiness Smoke Audit](docs/plans/2026-05-08-rust-production-readiness-preflight.md)
 
@@ -211,13 +211,13 @@ cargo test --features tree-sitter-cangjie
 |--------|-------|
 | Packages | 3 (gitnexus-project-model, gitnexus-rust-core-cli, gitnexus-cangjie) |
 | Source files | 50 |
-| Symbols | 664 (incl. 23 impl blocks) |
+| Symbols | 783 (incl. 173 enum variants) |
 | Imports | variable |
-| Total calls | 3,571 |
-| Resolved calls | 2,352 (65.9%) |
-| Graph nodes | 1,348 (incl. 55 external symbols) |
-| Graph edges | 2,073 (9 edge types) |
-| CALLS edges | 1,039 |
+| Total calls | 3,608 |
+| Resolved calls | 2,369 (65.7%) |
+| Graph nodes | — (run `cargo run -- project-model graph --root .` to refresh) |
+| Graph edges | — (run `cargo run -- project-model graph --root .` to refresh) |
+| CALLS edges | — (run `cargo run -- project-model graph --root .` to refresh) |
 | Duplicate nodes | 0 |
 | Duplicate edges | 0 |
 | Dangling sources | 0 |

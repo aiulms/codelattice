@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Slice 52: 第 6 个 contract fixture — self-path）
+最后更新：2026-05-08（Slice 53: enum variant extraction + classification fix）
 
 ## 用途
 
@@ -25,17 +25,17 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.9%（2357/3579）。0 dangling CALLS edges。Graph contract 44/44（6 fixtures）。Call comparison 24/24 fixtures。import binding 同符号消歧 + self-path fixture 扩展 已完成。method-calls 仍为主要 gap（~1186 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.7%（2369/3608）。0 dangling CALLS edges。Graph contract 44/44（6 fixtures）。Call comparison 24/24 fixtures。Symbol comparison 4/4 fixtures。Enum variant 提取 + 分类修复已完成（Slice 53）：173 variant symbols，318 enum-constructor calls 全量 resolved。method-calls 仍为主要 gap（~1204 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
 **Priority 2 续 — Rust CALLS resolution quality**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
 - ~~import binding 多重同符号消歧~~ ✅ 完成（Slice 51）
-- 关联函数 resolution：10 unresolved（含 derive-generated 方法、外部 crate type 方法、re-export 路径；其中 5 个外部 crate tree-sitter 调用 + 3 个 stop-line 无法修复）
+- 关联函数 resolution：8 unresolved（含 stop-line 外部 crate type 方法、derive-generated 方法）
 - 低置信度 reason/confidence 矩阵审计
 - call form 文档与 confidence 矩阵对齐
-- Enum::Variant() 分类修复（2 `CangjieParseError::ParseFailed` 误判为 AssociatedFunction）
+- ~~Enum::Variant() 分类修复~~ ✅ 完成（Slice 53）
 
 **Priority 3 续 — Rust graph contract**
 - ~~第 5 个 contract fixture inline-module~~ ✅ 完成（Slice 49）
@@ -594,3 +594,14 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 覆盖 HAS_PARENT（5 条）、DESIGNATION、模块嵌套结构
    - Graph contract: 37→44 tests（5→6 fixtures）
    - 全部测试通过（no-feature + feature + graph_contract 44/44）
+
+53. **Slice 53 — enum variant 提取 + Type::Variant 分类修复** ✅ 完成（2026-05-08）：
+   - model.rs：新增 `SymbolKind::EnumVariant`
+   - item.rs：enum_item 分支提取 variant 子符号（`extract_enum_variant_symbol`），parentId 指向 enum
+   - calls.rs：`classify_callee` + `classify_text_callee` 检测 `Enum::Variant` 模式（callee name 首字母大写 → FreeFunction）
+   - 173 enum variant symbols 提取，318 enum-constructor calls 全量 resolved（100%）
+   - 修复 `CangjieParseError::ParseFailed` 分类：AssociatedFunction → FreeFunction，1/2 resolved
+   - Symbol comparison 3 fixture expected JSON 更新（item-top-level, item-top-level-regression, item-parse-error）
+   - 全部测试通过（no-feature + graph_contract 44/44 + call_expected_compare 7/7 + symbol_expected_compare 4/4）
+   - Preflight: `docs/plans/2026-05-08-rust-enum-variant-extraction-preflight.md`
+   - Closure Review: `docs/plans/2026-05-08-rust-enum-variant-extraction-closure-review.md`

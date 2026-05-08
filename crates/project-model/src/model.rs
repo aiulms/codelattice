@@ -234,6 +234,7 @@ pub enum SymbolKind {
     Const,
     Static,
     MacroDefinition,
+    EnumVariant,
 }
 
 impl SymbolKind {
@@ -251,6 +252,7 @@ impl SymbolKind {
             SymbolKind::Const => "const",
             SymbolKind::Static => "static",
             SymbolKind::MacroDefinition => "macro-definition",
+            SymbolKind::EnumVariant => "enum-variant",
         }
     }
 }

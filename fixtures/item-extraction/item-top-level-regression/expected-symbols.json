@@ -1,6 +1,6 @@
 {
   "fixtureName": "item-top-level-regression",
-  "scenario": "全种类 top-level item 回归测试：function / struct / enum / trait / type-alias / const / static / macro-definition + private function",
+  "scenario": "\u5168\u79cd\u7c7b top-level item \u56de\u5f52\u6d4b\u8bd5\uff1afunction / struct / enum / trait / type-alias / const / static / macro-definition + private function",
   "inputRoot": "item-top-level-regression",
   "expectedSymbols": [
     {
@@ -13,9 +13,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 1, "lineEnd": 1 },
+      "span": {
+        "lineStart": 1,
+        "lineEnd": 1
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -29,9 +36,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 2, "lineEnd": 2 },
+      "span": {
+        "lineStart": 2,
+        "lineEnd": 2
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -45,9 +59,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 3, "lineEnd": 3 },
+      "span": {
+        "lineStart": 3,
+        "lineEnd": 3
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -61,9 +82,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 4, "lineEnd": 4 },
+      "span": {
+        "lineStart": 4,
+        "lineEnd": 4
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -77,9 +105,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 5, "lineEnd": 5 },
+      "span": {
+        "lineStart": 5,
+        "lineEnd": 5
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -93,9 +128,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 6, "lineEnd": 6 },
+      "span": {
+        "lineStart": 6,
+        "lineEnd": 6
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -109,9 +151,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 7, "lineEnd": 7 },
+      "span": {
+        "lineStart": 7,
+        "lineEnd": 7
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -125,9 +174,16 @@
       "modulePath": "crate",
       "visibility": "public",
       "parentId": null,
-      "span": { "lineStart": 8, "lineEnd": 8 },
+      "span": {
+        "lineStart": 8,
+        "lineEnd": 8
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": true
     },
@@ -141,30 +197,99 @@
       "modulePath": "crate",
       "visibility": "private",
       "parentId": null,
-      "span": { "lineStart": 9, "lineEnd": 9 },
+      "span": {
+        "lineStart": 9,
+        "lineEnd": 9
+      },
       "implDetails": null,
-      "modifiers": { "isAsync": false, "isUnsafe": false, "isConstFn": false },
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
       "genericParams": null,
       "isPub": false
+    },
+    {
+      "id": "item-top-level-regression::crate::Red",
+      "name": "Red",
+      "symbolKind": "enum-variant",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-top-level-regression",
+      "targetName": "item_top_level_regression",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-top-level-regression::crate::Color",
+      "span": {
+        "lineStart": 3,
+        "lineEnd": 3
+      },
+      "implDetails": null,
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-top-level-regression::crate::Green",
+      "name": "Green",
+      "symbolKind": "enum-variant",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-top-level-regression",
+      "targetName": "item_top_level_regression",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-top-level-regression::crate::Color",
+      "span": {
+        "lineStart": 3,
+        "lineEnd": 3
+      },
+      "implDetails": null,
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
+      "genericParams": null,
+      "isPub": true
+    },
+    {
+      "id": "item-top-level-regression::crate::Blue",
+      "name": "Blue",
+      "symbolKind": "enum-variant",
+      "sourcePath": "src/lib.rs",
+      "packageName": "item-top-level-regression",
+      "targetName": "item_top_level_regression",
+      "modulePath": "crate",
+      "visibility": "public",
+      "parentId": "item-top-level-regression::crate::Color",
+      "span": {
+        "lineStart": 3,
+        "lineEnd": 3
+      },
+      "implDetails": null,
+      "modifiers": {
+        "isAsync": false,
+        "isUnsafe": false,
+        "isConstFn": false
+      },
+      "genericParams": null,
+      "isPub": true
     }
   ],
   "expectedSymbolDiagnostics": [],
   "expectedStats": {
-    "symbolCount": 9,
+    "symbolCount": 12,
     "diagnosticCount": 0,
     "sourceFileCount": 1
   },
-  "expectedAbsence": [
-    {
-      "type": "noEnumVariantSymbol",
-      "reason": "enum Color { Red, Green, Blue } 的 variant 不应作为独立 symbol",
-      "kind": "enum",
-      "reason": "Red / Green / Blue 不应是独立 symbol"
-    }
-  ],
+  "expectedAbsence": [],
   "knownLimitations": [],
   "confidencePolicy": {
     "tolerance": 0.05,
-    "description": "item extraction Symbol 无 confidence 字段，此字段预留"
+    "description": "item extraction Symbol \u65e0 confidence \u5b57\u6bb5\uff0c\u6b64\u5b57\u6bb5\u9884\u7559"
   }
 }

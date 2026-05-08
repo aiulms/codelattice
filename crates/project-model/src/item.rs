@@ -854,7 +854,30 @@ mod tree_sitter_impl {
                     SymbolKind::Enum,
                     "name",
                 ) {
+                    let enum_id = sym.id.clone();
                     symbols.push(sym);
+
+                    // 提取 enum variant 子符号（如 ParseFailed、NotFound 等）
+                    // tree-sitter AST: enum_item → enum_variant_list → enum_variant → identifier
+                    let mut cursor = node.walk();
+                    for child in node.children(&mut cursor) {
+                        if child.kind() == "enum_variant_list" {
+                            let mut vcursor = child.walk();
+                            for variant in child.children(&mut vcursor) {
+                                if variant.kind() == "enum_variant" {
+                                    if let Some(vsym) = extract_enum_variant_symbol(
+                                        &variant,
+                                        source_bytes,
+                                        input,
+                                        module_path,
+                                        &enum_id,
+                                    ) {
+                                        symbols.push(vsym);
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
             "trait_item" => {
@@ -1086,6 +1109,49 @@ mod tree_sitter_impl {
             module_path,
             parent_id,
             generic_params.as_deref(),
+            false,
+            false,
+            false,
+            None,
+            vec![],
+        ))
+    }
+
+    /// 提取 enum variant 符号
+    /// tree-sitter AST: enum_variant → identifier (variant name)
+    fn extract_enum_variant_symbol(
+        node: &tree_sitter::Node,
+        source_bytes: &[u8],
+        input: &ItemExtractionInput,
+        module_path: &str,
+        parent_enum_id: &str,
+    ) -> Option<Symbol> {
+        let mut cursor = node.walk();
+        let name_node = node
+            .children(&mut cursor)
+            .find(|c| c.kind() == "identifier")?;
+        let name = name_node.utf8_text(source_bytes).ok()?;
+
+        let line_start = byte_to_line(source_bytes, node.start_byte());
+        let line_end = byte_to_line(source_bytes, node.end_byte());
+
+        // variant 继承父 enum 的可见性（enum 是 pub 则 variant 也是 pub）
+        let visibility = if parent_enum_id.contains("::crate::") {
+            Visibility::Public
+        } else {
+            Visibility::Private
+        };
+
+        Some(build_symbol_full(
+            name,
+            SymbolKind::EnumVariant,
+            &visibility,
+            line_start,
+            line_end,
+            input,
+            module_path,
+            Some(parent_enum_id),
+            None,
             false,
             false,
             false,
