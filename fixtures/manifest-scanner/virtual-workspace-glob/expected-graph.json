@@ -62,6 +62,48 @@
         }
       },
       {
+        "id": "symbol:alpha::crate::alpha",
+        "label": "symbol",
+        "properties": {
+          "genericParams": null,
+          "implDetails": null,
+          "isAsync": false,
+          "isConstFn": false,
+          "isPub": true,
+          "isUnsafe": false,
+          "lineEnd": 1,
+          "lineStart": 1,
+          "modulePath": "crate",
+          "name": "alpha",
+          "packageName": "alpha",
+          "sourcePath": "crates/alpha/src/lib.rs",
+          "symbolKind": "function",
+          "targetName": "alpha",
+          "visibility": "public"
+        }
+      },
+      {
+        "id": "symbol:beta::crate::beta",
+        "label": "symbol",
+        "properties": {
+          "genericParams": null,
+          "implDetails": null,
+          "isAsync": false,
+          "isConstFn": false,
+          "isPub": true,
+          "isUnsafe": false,
+          "lineEnd": 1,
+          "lineStart": 1,
+          "modulePath": "crate",
+          "name": "beta",
+          "packageName": "beta",
+          "sourcePath": "crates/beta/src/lib.rs",
+          "symbolKind": "function",
+          "targetName": "beta",
+          "visibility": "public"
+        }
+      },
+      {
         "id": "target:alpha::alpha::lib",
         "label": "target",
         "properties": {
@@ -116,6 +158,16 @@
         "type": "CONTAINS_WORKSPACE"
       },
       {
+        "source": "file:crates/alpha/src/lib.rs",
+        "target": "symbol:alpha::crate::alpha",
+        "type": "DEFINES"
+      },
+      {
+        "source": "file:crates/beta/src/lib.rs",
+        "target": "symbol:beta::crate::beta",
+        "type": "DEFINES"
+      },
+      {
         "source": "package:crates/alpha/Cargo.toml",
         "target": "target:alpha::alpha::lib",
         "type": "HAS_TARGET"
@@ -139,10 +191,10 @@
     "diagnostics": []
   },
   "expectedStats": {
-    "nodeCount": 8,
-    "edgeCount": 7,
+    "nodeCount": 10,
+    "edgeCount": 9,
     "diagnosticCount": 0,
-    "symbolCount": 0,
+    "symbolCount": 2,
     "callEdgeCount": 0,
     "designationEdgeCount": 0,
     "accessesEdgeCount": 0

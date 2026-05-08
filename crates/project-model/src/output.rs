@@ -38,8 +38,10 @@ pub fn inspect_project_model_with_options(
     include_imports: bool,
     include_calls: bool,
 ) -> ProjectModelOutput {
-    // v0.2: graph + calls 组合时，强制包含 symbol nodes 以保证 graph edge endpoint integrity
-    if include_graph && include_calls {
+    // v0.2: graph 输出依赖 symbol nodes（DEFINES/CALLS edges 的 source/target）。
+    // 当 include_graph 为 true 时，强制 include_symbols = true 以确保 graph edge endpoint integrity。
+    // 之前仅检查 include_graph && include_calls，遗漏了 graph-only 场景。
+    if include_graph {
         include_symbols = true;
     }
     let root_display = root.display().to_string();
