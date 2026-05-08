@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.7%（2338/3557）。0 dangling CALLS edges。Graph contract 23/23（3 fixtures）。Enum constructor resolution + external symbol node completion + cross-file same-crate resolution + wildcard disambiguation 已落地。method-calls 仍为主要 gap（~1217 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.8%（2339/3557）。0 dangling CALLS edges。Graph contract 23/23（3 fixtures）。Enum constructor resolution + external symbol node completion + cross-file same-crate resolution + wildcard disambiguation + associated-function disambiguation 已落地。method-calls 仍为主要 gap（~1174 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
