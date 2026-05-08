@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Production Acceptance 完结：audit + smoke hardening + contract regression guard + portable fixture + QUALITY.md + strict flag CLI tests，4+1 targets all quality gates green）
+最后更新：2026-05-08（Production Acceptance 完结 + Rust 首次 smoke audit + CALLS endpoint integrity 修复，Dangling CALLS edges 459→0）
 
 ## 用途
 
@@ -431,4 +431,14 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 192/192 no-feature pass, 284+/284+ feature pass, 4/4 production smoke pass
    - 独立 QUALITY.md 提取完成（repo root，acceptance criteria single source of truth）
    - Strict flag follow-up ✅ 完成：8 dedicated CLI tests + QUALITY.md --strict section + closure review
-35. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+35. **Rust Production Readiness Smoke Audit + CALLS Endpoint Integrity Fix** ✅ 完成（2026-05-08）：
+	   - 对 gitnexus-rust-core 自身 + 2 fixture 做 read-only smoke
+	   - 发现 459 dangling CALLS edges（全部指向外部 std::* 符号）
+	   - 根因：graph.rs emit CALLS edges for all resolved calls，但外部 symbol node 从未被提取
+	   - 修复：graph.rs 新增外部 symbol node 补全逻辑（+43 minimal external symbol nodes, isExternal=true）
+	   - Dangling CALLS target: 459 → 0，CALLS edges 全部保留
+	   - 更新 c10 test：新增 endpoint integrity + isExternal 验证
+	   - 全部测试通过（cangjie_inspect 18/18, project_model_graph_emit 10/10, production smoke 4/4）
+	   - Preflight: `docs/plans/2026-05-08-rust-production-readiness-preflight.md`
+	   - Closure Review: `docs/plans/2026-05-08-rust-production-readiness-closure-review.md`
+	36. Priority 2-5 — 后续 Rust/Cangjie bounded slices（需 preflight）

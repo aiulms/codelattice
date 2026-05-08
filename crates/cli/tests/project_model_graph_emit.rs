@@ -345,7 +345,7 @@ fn test_graph_c10_external_crate_produces_calls_edges_for_stdlib() {
     assert_common_graph_invariants(&graph);
 
     // v0.2 + Phase 1 direct path resolution: stdlib calls (Vec/HashMap/PathBuf) 被解析
-    // → CALLS edges 存在，但 third-party crate calls（如果有）不产 edge
+    // → CALLS edges 存在
     let calls_edges: Vec<_> = graph["edges"]
         .as_array()
         .unwrap()
@@ -362,6 +362,40 @@ fn test_graph_c10_external_crate_produces_calls_edges_for_stdlib() {
     assert!(
         call_edge_count > 0,
         "expected callEdgeCount > 0 for resolved stdlib calls"
+    );
+
+    // endpoint integrity: 每条 CALLS edge 的 source/target 节点必须存在
+    // 外部 crate symbol（如 std::vec::Vec::new）应有 minimal 外部 symbol node
+    let node_ids: std::collections::HashSet<String> = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|n| n["id"].as_str().unwrap().to_string())
+        .collect();
+
+    for edge in &calls_edges {
+        let source = edge["source"].as_str().unwrap();
+        let target = edge["target"].as_str().unwrap();
+        assert!(
+            node_ids.contains(source),
+            "CALLS edge source node missing: {source}"
+        );
+        assert!(
+            node_ids.contains(target),
+            "CALLS edge target node missing (外部 symbol node 未补全): {target}"
+        );
+    }
+
+    // 验证外部 symbol node 存在且有 isExternal 标记
+    let external_symbols: Vec<_> = graph["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|n| n["label"] == "symbol" && n["properties"]["isExternal"].as_bool() == Some(true))
+        .collect();
+    assert!(
+        !external_symbols.is_empty(),
+        "expected at least one external symbol node with isExternal=true"
     );
 }
 

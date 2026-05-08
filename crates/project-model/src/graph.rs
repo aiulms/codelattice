@@ -529,6 +529,39 @@ pub fn emit_graph(output: &ProjectModelOutput) -> GraphOutput {
         }
     }
 
+    // ---- 外部 symbol node 补全（endpoint integrity）----
+    // CALLS edge 的 target 可能指向外部 crate symbol（如 std::*），
+    // 这些 symbol 未被 symbol extraction 提取为 node。
+    // 为避免 dangling CALLS edge，对被 CALLS 引用但无 node 的 target symbol
+    // 创建 minimal 外部 symbol node（仅 id + label + isExternal 标记）。
+    {
+        let mut external_ids: BTreeSet<String> = BTreeSet::new();
+        for (edge_type, _source, target) in &edges {
+            if edge_type == EdgeKind::Calls.as_str() && !nodes.contains_key(target) {
+                external_ids.insert(target.clone());
+            }
+        }
+        for ext_id in &external_ids {
+            // 从 symbol:std::path::Path::new 提取 name
+            let name = ext_id
+                .strip_prefix("symbol:")
+                .and_then(|s| s.rsplit("::").next())
+                .unwrap_or(ext_id)
+                .to_string();
+            insert_node(
+                &mut nodes,
+                GraphNode {
+                    id: ext_id.clone(),
+                    label: NodeKind::Symbol.as_str().to_string(),
+                    properties: serde_json::json!({
+                        "name": name,
+                        "isExternal": true,
+                    }),
+                },
+            );
+        }
+    }
+
     // ---- DESIGNATION edges（v0.3）----
     // ImplBlock → impl_target type symbol。
     // 只有 impl_details.impl_target 能解析到同 crate 已知 Struct/Enum/Trait 时才产 edge。
