@@ -145,7 +145,52 @@ Type annotations, function calls, constructor calls. Same-file + cross-file via 
 
 ---
 
-## 5. Production Acceptance Judgment
+## 5. Running Acceptance Tests
+
+### Quick check (fixtures only, always available)
+
+```sh
+# Contract regression — 16 tests on 3 fixtures, < 0.1s
+cargo test --features tree-sitter-cangjie --test graph_contract -- --nocapture
+
+# Multi-project smoke — 3 fixture tests, < 0.1s
+cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --nocapture
+
+# Both together
+cargo test --features tree-sitter-cangjie --test graph_contract --test multi_project_smoke -- --nocapture
+```
+
+### Full acceptance suite (fixtures + production paths)
+
+```sh
+# Includes 4 machine-local production targets (~30s)
+cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --ignored --nocapture
+```
+
+Production targets are `#[ignore]`-guarded — missing paths are gracefully skipped, not hard failures.
+
+### Full verification sequence (for commits)
+
+```sh
+cargo fmt --check
+git diff --check
+cargo test                                    # no-feature: 93 lib + integration
+cargo test --features tree-sitter-cangjie     # feature: 112 lib + all integration suites
+cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --ignored --nocapture
+```
+
+### Interpreting results
+
+| Signal | Meaning |
+|--------|---------|
+| `PASS` + synth=0, dup=0, dang=(0,0), det=true | Quality gate green |
+| `SKIP` + reason | Target not available (production path missing, no cjpm.toml) |
+| `FAIL` + reason | Quality gate violation — requires investigation |
+| Summary `fail: 0` | All tested targets pass acceptance criteria |
+
+---
+
+## 6. Production Acceptance Judgment
 
 **Current state: READY for local trial use as a development-quality graph tool.**
 
