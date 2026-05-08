@@ -1164,17 +1164,35 @@ fn resolve_free_function(
                         .as_str()
                         .to_string();
                 }
-            } else {
-                call.reason = CallResolutionReason::CallTargetAmbiguous
-                    .as_str()
-                    .to_string();
-                call.diagnostics.push(CallDiagnostic {
-                    code: "call-target-ambiguous".to_string(),
-                    severity: "warning".to_string(),
-                    message: format!("multiple import bindings for {}", call.callee_name),
-                    target_name: Some(call.callee_name.clone()),
-                });
+                return;
             }
+            if resolved.len() > 1 {
+                // 多个 binding 全部解析到同一 symbol 时，不是歧义
+                // 例：两个函数各自 import 同一符号，两者解析到相同 target
+                let first_id = resolved[0].resolved_symbol_id.as_ref();
+                let all_same = resolved
+                    .iter()
+                    .all(|b| b.resolved_symbol_id.as_ref() == first_id);
+                if all_same && first_id.is_some() {
+                    call.resolved_symbol_id = first_id.cloned();
+                    call.resolved_symbol_kind = resolved[0].resolved_symbol_kind.clone();
+                    call.confidence = 0.85;
+                    call.reason = CallResolutionReason::CallImportResolved
+                        .as_str()
+                        .to_string();
+                    return;
+                }
+            }
+            // 多于 1 个不同 target，或无 resolved binding → 歧义
+            call.reason = CallResolutionReason::CallTargetAmbiguous
+                .as_str()
+                .to_string();
+            call.diagnostics.push(CallDiagnostic {
+                code: "call-target-ambiguous".to_string(),
+                severity: "warning".to_string(),
+                message: format!("multiple import bindings for {}", call.callee_name),
+                target_name: Some(call.callee_name.clone()),
+            });
             return;
         }
         _ => {}

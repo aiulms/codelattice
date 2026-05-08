@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Slice 50: impl 块泛型目标类型解析修复）
+最后更新：2026-05-08（Slice 51: import binding 多重同符号消歧）
 
 ## 用途
 
@@ -25,15 +25,17 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.9%（2352/3571）。0 dangling CALLS edges。Graph contract 37/37（5 fixtures）。Call comparison 24/24 fixtures。crate:: AssociatedFunction 误分类 + impl 泛型目标解析 已修复。method-calls 仍为主要 gap（~1181 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.9%（2357/3579）。0 dangling CALLS edges。Graph contract 37/37（5 fixtures）。Call comparison 24/24 fixtures。import binding 同符号消歧 + crate:: AssociatedFunction 误分类 + impl 泛型目标解析 已修复。method-calls 仍为主要 gap（~1186 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
 **Priority 2 续 — Rust CALLS resolution quality**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
+- ~~import binding 多重同符号消歧~~ ✅ 完成（Slice 51）
 - 关联函数 resolution：10 unresolved（含 derive-generated 方法、外部 crate type 方法、re-export 路径；其中 5 个外部 crate tree-sitter 调用 + 3 个 stop-line 无法修复）
 - 低置信度 reason/confidence 矩阵审计
 - call form 文档与 confidence 矩阵对齐
+- Enum::Variant() 分类修复（2 `CangjieParseError::ParseFailed` 误判为 AssociatedFunction）
 
 **Priority 3 续 — Rust graph contract**
 - ~~第 5 个 contract fixture inline-module~~ ✅ 完成（Slice 49）
@@ -574,3 +576,12 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 全部测试通过（no-feature + feature，call comparison 24/24，graph_contract 37/37）
    - Preflight: `docs/plans/2026-05-08-rust-impl-generic-target-parsing-preflight.md`
    - Closure Review: `docs/plans/2026-05-08-rust-impl-generic-target-parsing-closure-review.md`
+
+51. **Slice 51 — import binding 多重同符号消歧** ✅ 完成（2026-05-08）：
+   - 修复 `resolve_free_function()` 中多个 import binding 指向同一 symbol 时误判为歧义
+   - 例：两个函数各自 `use` 同一符号，两个 binding 解析到相同 target → 应解析而非标记 ambiguous
+   - Improvement: +2 resolved free-function calls（resolve_import_target ×2）
+   - FreeFunction unresolved: 16 → 14
+   - 全部测试通过（no-feature + feature，call comparison 7/7，graph_contract 37/37）
+   - Preflight: `docs/plans/2026-05-08-rust-import-binding-same-symbol-disambiguation-preflight.md`
+   - Closure Review: `docs/plans/2026-05-08-rust-import-binding-same-symbol-disambiguation-closure-review.md`
