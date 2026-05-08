@@ -3,7 +3,7 @@
 > **日期：** 2026-05-09
 > **版本：** v1.0.0
 > **状态：** Closed — 5/5 priorities 完成
-> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复），`8bdcddf`（Local Trial Packaging），`<TBD>`（Analyze --strict）
+> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复），`8bdcddf`（Local Trial Packaging），`6eb7653`（Analyze --strict）
 
 ---
 
