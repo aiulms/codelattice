@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Cangjie Production Acceptance 固化完结 — 全部 8 项质量门通过 4/4 production targets，文档同步完成）
+最后更新：2026-05-08（Phase 2d let-binding 构造函数链 receiver type 推断完结 — resolution rate 62.2% → 64.1%，+74 resolved calls）
 
 ## 用途
 
@@ -464,12 +464,21 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 		   - 全部测试通过（cangjie_inspect 18/18, graph_contract 24/24, project_model_graph_contract 8/8, call comparison 19/19 fixtures pass）
 		   - Commit: `d9f5997`
 		   - Closure Review: `docs/plans/2026-05-08-rust-enum-constructor-resolution-closure-review.md`
-		38. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
-		39. **Cangjie Production Acceptance 固化** ✅ 完成（2026-05-08）：
-			   - 基线全量回归验证：no-feature ~200 pass, feature ~330 pass
-			   - Production smoke: 4/4 targets PASS（synth=0, dup=0, dang=(0,0), det=true）
-			   - 文档同步：README.md + AGENTS.md + plans README 过期 stats 更新
-			   - 替换 plans README 过期"Slice 7 recommended next"为当前状态总结
-			   - Commit: `e81fe19`
-			   - Closure Review: `docs/plans/2026-05-08-cangjie-production-acceptance-consolidation-closure-review.md`
-			40. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
+39. **Cangjie Production Acceptance 固化** ✅ 完成（2026-05-08）：
+   - 基线全量回归验证：no-feature ~200 pass, feature ~330 pass
+   - Production smoke: 4/4 targets PASS（synth=0, dup=0, dang=(0,0), det=true）
+   - 文档同步：README.md + AGENTS.md + plans README 过期 stats 更新
+   - 替换 plans README 过期"Slice 7 recommended next"为当前状态总结
+   - Commit: `e81fe19`
+   - Closure Review: `docs/plans/2026-05-08-cangjie-production-acceptance-consolidation-closure-review.md`
+40. **Phase 2d — let-binding 构造函数链 receiver type 推断** ✅ 完成（2026-05-08）：
+   - 扩展 scan_variable_type_annotation 支持通过 RHS 已知构造函数推断变量类型
+   - 新增 KNOWN_CONSTRUCTORS 表（10 个构造函数 → 6 种基础类型）+ lookup_constructor_type
+   - Phase 2d 逻辑：在无类型注解时扫描 `let v = Constructor(...)` → 推断 receiver type
+   - 恢复被误删除的 strip_generics 函数（calls.rs 中 4 处调用）
+   - 新增 c12-let-constructor-method fixture（14 calls, 全部解析）
+   - Improvement: +74 resolved calls, receiver-type-method-resolved 164 → 235
+   - Resolution rate: 62.2% → 64.1%（+1.9pp），2252/3514
+   - 全部测试通过（call comparison 20/20 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
+   - Closure Review: `docs/plans/2026-05-08-rust-phase2d-constructor-chain-closure-review.md`
+41. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）

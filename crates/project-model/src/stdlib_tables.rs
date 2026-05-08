@@ -254,6 +254,35 @@ pub(crate) fn scan_variable_type_annotation(
         }
     }
 
+    // Phase 2d: let-binding 链已知构造函数推断 receiver type
+    // 处理 let v = Vec::new(); v.push(1) 之类无类型注解的声明
+    // 通过 RHS 中的已知构造函数推断变量类型
+    let let_patterns_no_type: &[String] = &[
+        format!("let {} = ", var_name),
+        format!("let mut {} = ", var_name),
+    ];
+    for pattern in let_patterns_no_type {
+        if let Some(pos) = func_scope.rfind(pattern.as_str()) {
+            let rhs_start = pos + pattern.len();
+            let rest = &func_scope[rhs_start..];
+            let rhs_end = rest.find(';').unwrap_or(rest.len());
+            let rhs = rest[..rhs_end].trim();
+            if let Some(paren_pos) = rhs.find('(') {
+                let constructor_path = rhs[..paren_pos].trim();
+                // 简单校验：构造路径只含字母、数字、_、:
+                if constructor_path
+                    .chars()
+                    .all(|c| c.is_alphanumeric() || c == '_' || c == ':')
+                {
+                    if let Some(base_type) = lookup_constructor_type(constructor_path) {
+                        return Some(base_type.to_string());
+                    }
+                }
+            }
+            break;
+        }
+    }
+
     None
 }
 
@@ -278,6 +307,35 @@ pub(crate) fn lookup_receiver_type_method(base_type: &str, method_name: &str) ->
         }
     }
     None
+}
+
+// ============================================================
+// 已知构造函数 → 基础类型 映射表
+// 用于在 let v = Vec::new() 之类无类型注解的声明中推断 receiver type
+// 不涉及类型推断 — 仅利用已解析的 known crate path
+// ============================================================
+
+/// 已知构造函数 → (base type name, canonical type path)
+/// base type name 用于 STDLIB_TYPE_METHODS lookup
+const KNOWN_CONSTRUCTORS: &[(&str, &str)] = &[
+    ("Vec::new", "Vec"),
+    ("Vec::with_capacity", "Vec"),
+    ("String::new", "String"),
+    ("String::from", "String"),
+    ("HashMap::new", "HashMap"),
+    ("HashMap::with_capacity", "HashMap"),
+    ("HashSet::new", "HashSet"),
+    ("PathBuf::new", "PathBuf"),
+    ("PathBuf::from", "PathBuf"),
+    ("BTreeMap::new", "BTreeMap"),
+];
+
+/// 根据构造函数调用路径查找对应的基础类型名称
+pub(crate) fn lookup_constructor_type(constructor_path: &str) -> Option<&'static str> {
+    KNOWN_CONSTRUCTORS
+        .iter()
+        .find(|(cpath, _)| *cpath == constructor_path)
+        .map(|(_, btype)| *btype)
 }
 
 /// Strip generic parameters from a path for use as resolved_symbol_id.

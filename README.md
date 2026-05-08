@@ -3,7 +3,7 @@
 > **Remote:** https://gitcode.com/aiulms/gitnexus-rust-core
 > **Branch:** `master`
 > **Created:** 2026-05-01
-> **Last updated:** 2026-05-08
+> **Last updated:** 2026-05-08 (Phase 2d constructor chain)
 
 ---
 
@@ -42,11 +42,12 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | Bare module path | `math::add()` | 0.85 |
 | Method dispatch (blind name) | `obj.increment()` | 0.65 |
 | Method dispatch (receiver type) | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
+| Method dispatch (constructor chain) | `v.push(1)` where `let v = Vec::new()` | 0.65 |
 | Stdlib trait method | `x.to_string()`, `y.clone()` | 0.55 |
 | External crate path | `Vec::new()`, `String::from()` | 0.80–0.85 |
 | Enum constructor | `Some(42)`, `Ok(val)`, `Err(e)` | 0.80 |
 
-**Resolution rate: 62.4%**（2183/3500 calls on gitnexus-rust-core，2026-05-08）。
+**Resolution rate: 64.1%**（2252/3514 calls on gitnexus-rust-core，2026-05-08）。
 
 ---
 

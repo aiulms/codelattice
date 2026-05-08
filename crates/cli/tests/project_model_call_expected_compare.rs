@@ -35,6 +35,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c10-external-crate",
     // receiver-type-aware method resolution fixture (Phase 2)
     "c11-receiver-type",
+    // let-binding constructor chaining fixture (Phase 2d)
+    "c12-let-constructor-method",
 ];
 
 fn workspace_root() -> PathBuf {
