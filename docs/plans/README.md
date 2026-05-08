@@ -21,15 +21,23 @@
 - [GitNexus-RC RISK_LEDGER](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/RISK_LEDGER.md`)
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
+## 当前状态总结
+
+**Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
+
+**Rust 线：** Resolution rate 62.4%（2183/3500）。0 dangling CALLS edges。Graph contract 8/8。Enum constructor resolution + external symbol node completion 已落地。method-calls 仍为主要 gap（1255 unresolved，stop-line: no type inference）。
+
 ## 当前推荐下一篇计划
 
-**Phase 2 Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）**
+**Priority 2 续 — Rust CALLS resolution quality**
+- 改善 receiver type annotation 扫描（1255 unresolved method-calls 中的可解析部分）
+- crate::/self::/super:: path resolution edge case 修复
+- 低置信度 reason/confidence 矩阵审计
 
-当前进度：Slice 1-7 已完成。
-Slice 7：方案 B2（cangjie 独立 graph output）已实现，142 tests pass，零新增依赖。
-新增 `crates/cangjie/src/graph.rs`：CangjieGraphOutput（Repository/Package/SourceFile/Symbol 节点 + ContainsPackage/OwnsSource/Defines 边）。
-Preflight：`docs/plans/2026-05-06-cangjie-phase2-slice7-preflight.md`
-Execution Card：`docs/plans/2026-05-06-cangjie-phase2-slice7-execution-card.md`
+**Priority 4 — Cangjie maintenance**
+- Quality gate 周期性回归验证
+- QUALITY.md 维护
+- 小范围 regression fix
 
 **Phase 2 Slice 8 — Cangjie diagnostics runner ✅ 完成（2026-05-06）：**
 - 实现 cjc/cjlint subprocess diagnostics runner（方案 A）

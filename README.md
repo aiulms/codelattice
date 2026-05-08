@@ -3,7 +3,7 @@
 > **Remote:** https://gitcode.com/aiulms/gitnexus-rust-core
 > **Branch:** `master`
 > **Created:** 2026-05-01
-> **Last updated:** 2026-05-04
+> **Last updated:** 2026-05-08
 
 ---
 
@@ -25,8 +25,8 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
 | 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
 | 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 12 import fixtures |
-| 4. CALLS Intermediate | Call site extraction + 9 resolved call forms + method dispatch + stdlib trait + external crate path | ✅ Implemented | 19 call fixtures |
-| 5. Graph Emitter v0.3 | ProjectModel → JSON graph (CALLS + DESIGNATION + ACCESSES edges) | ✅ Implemented | 5 graph fixtures |
+| 4. CALLS Intermediate | Call site extraction + 10 resolved call forms + method dispatch + stdlib trait + external crate path + enum constructor | ✅ Implemented | 19 call fixtures |
+| 5. Graph Emitter v0.3 | ProjectModel → JSON graph (CALLS + DESIGNATION + ACCESSES edges) + external symbol node completion | ✅ Implemented | 6 graph fixtures + portable-smoke |
 
 ### CALLS Resolved Call Forms
 
@@ -44,8 +44,9 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | Method dispatch (receiver type) | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
 | Stdlib trait method | `x.to_string()`, `y.clone()` | 0.55 |
 | External crate path | `Vec::new()`, `String::from()` | 0.80–0.85 |
+| Enum constructor | `Some(42)`, `Ok(val)`, `Err(e)` | 0.80 |
 
-**Resolution rate: 54.0%** (1189/2203 calls on gitnexus-rust-core, v4 consolidation 2026-05-04).
+**Resolution rate: 62.4%**（2183/3500 calls on gitnexus-rust-core，2026-05-08）。
 
 ---
 
@@ -119,8 +120,15 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie gr
 ## Verification
 
 ```bash
-cargo fmt --check    # Formatting check
-cargo test           # 89 tests (7 call + 10 PM + 10 graph + 4 symbol + 5 import + 45 unit + 4 harness + 4 stdlib_index)
+cargo fmt --check                                     # Formatting check
+cargo test                                            # 200+ tests (no-feature)
+cargo test --features tree-sitter-cangjie             # 330+ tests (with feature)
+cargo test --features tree-sitter-cangjie \
+  --test cangjie_inspect -- --nocapture               # Cangjie CLI tests (18)
+cargo test --features tree-sitter-cangjie \
+  --test graph_contract -- --nocapture                # Cangjie contract regression (24)
+cargo test --features tree-sitter-cangjie \
+  --test multi_project_smoke -- --nocapture           # Cangjie fixture smoke (4)
 ```
 
 ---
@@ -195,8 +203,8 @@ gitnexus-rust-core/
 | Remote name | `gitcode` |
 | URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
 | Branch | `master` |
-| HEAD | `41e0884` |
-| Total commits | 42 |
+| HEAD | `496941c` |
+| Total commits | 123 |
 
 ---
 
