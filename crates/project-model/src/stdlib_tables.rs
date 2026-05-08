@@ -155,6 +155,54 @@ pub(crate) static STDLIB_TYPE_METHODS: &[StdlibTypeMethodEntry] = &[
             ("clear", "clear"),
         ],
     },
+    // HashSet<T>
+    StdlibTypeMethodEntry {
+        type_path: "std::collections::HashSet",
+        patterns: &["HashSet"],
+        methods: &[
+            ("len", "len"),
+            ("is_empty", "is_empty"),
+            ("contains", "contains"),
+            ("insert", "insert"),
+            ("remove", "remove"),
+            ("clear", "clear"),
+            ("get", "get"),
+        ],
+    },
+    // BTreeMap<K,V>
+    StdlibTypeMethodEntry {
+        type_path: "std::collections::BTreeMap",
+        patterns: &["BTreeMap"],
+        methods: &[
+            ("len", "len"),
+            ("is_empty", "is_empty"),
+            ("contains_key", "contains_key"),
+            ("get", "get"),
+            ("insert", "insert"),
+            ("remove", "remove"),
+            ("clear", "clear"),
+        ],
+    },
+    // PathBuf
+    StdlibTypeMethodEntry {
+        type_path: "std::path::PathBuf",
+        patterns: &["PathBuf"],
+        methods: &[
+            ("as_path", "as_path"),
+            ("push", "push"),
+            ("pop", "pop"),
+            ("exists", "exists"),
+            ("is_dir", "is_dir"),
+            ("is_file", "is_file"),
+            ("to_str", "to_str"),
+            ("display", "display"),
+            ("join", "join"),
+            ("parent", "parent"),
+            ("file_name", "file_name"),
+            ("extension", "extension"),
+            ("strip_prefix", "strip_prefix"),
+        ],
+    },
 ];
 
 /// 从 let 绑定中扫描变量类型注解。
