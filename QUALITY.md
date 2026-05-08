@@ -146,7 +146,7 @@ These boundaries are non-negotiable for Rust-core Cangjie:
 
 # Rust Graph Quality Gates
 
-**Last updated:** 2026-05-08（Slice 54: 第 7 个 graph contract fixture — enum-variant）
+**Last updated:** 2026-05-08（Slice 55: 第 8 个 graph contract fixture — workspace-member）
 **Status:** Active
 **Source:** [Rust Production Readiness Smoke Audit](docs/plans/2026-05-08-rust-production-readiness-preflight.md)
 
@@ -170,7 +170,7 @@ Every Rust graph output must satisfy these invariants:
 
 ## Contract Regression Gates
 
-The `project_model_graph_contract` test suite (51 tests on 7 fixtures) verifies:
+The `project_model_graph_contract` test suite (58 tests on 8 fixtures) verifies:
 
 | Contract element | How verified |
 |-----------------|-------------|
@@ -192,11 +192,12 @@ The `project_model_graph_contract` test suite (51 tests on 7 fixtures) verifies:
 | `inline-module` | 7 | Inline modules with nested definitions, crate:: path from nested module, HAS_PARENT edges for module hierarchy |
 | `self-path` | 7 | self:: path resolution for free functions, self:: path to associated function, module hierarchy HAS_PARENT, DESIGNATION edges |
 | `enum-variant` | 7 | Enum variant Symbol nodes (7 variants), HAS_PARENT (variant → enum), DEFINES for all symbols, CALLS for tuple variant invocation |
+| `workspace-member` | 7 | Workspace node + CONTAINS_WORKSPACE edge, cross-crate CALLS (lib-b → lib-a), 2 packages/targets/source-files, CONTAINS_PACKAGE, external stdlib symbols, enum variants |
 
 ## Running Acceptance Tests
 
 ```sh
-# Rust graph contract regression — 51 tests on 7 fixtures
+# Rust graph contract regression — 58 tests on 8 fixtures
 cargo test --test project_model_graph_contract -- --nocapture
 
 # Full no-feature test suite

@@ -1523,3 +1523,256 @@ fn rust_graph_contract_enum_variant_calls_endpoint_integrity() {
         }
     }
 }
+
+// ============================================================
+// workspace-member fixture — workspace + 跨 crate 调用
+// ============================================================
+
+#[test]
+fn rust_graph_contract_workspace_member_quality_gates() {
+    let data = collect_graph("workspace-member");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_workspace_member_node_kind_set() {
+    let data = collect_graph("workspace-member");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(
+        data.node_kinds.contains_key("workspace"),
+        "应有 workspace 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+    assert!(
+        data.node_kinds.contains_key("source-file"),
+        "应有 source-file 节点"
+    );
+
+    // 2 个成员 crate，各 1 个 source file
+    let source_files = data.node_kinds.get("source-file").copied().unwrap_or(0);
+    assert_eq!(
+        source_files, 2,
+        "应有 2 个 source file（lib-a + lib-b），实际: {}",
+        source_files
+    );
+
+    let packages = data.node_kinds.get("package").copied().unwrap_or(0);
+    assert_eq!(
+        packages, 2,
+        "应有 2 个 package（lib-a + lib-b），实际: {}",
+        packages
+    );
+
+    let targets = data.node_kinds.get("target").copied().unwrap_or(0);
+    assert_eq!(
+        targets, 2,
+        "应有 2 个 target（lib-a + lib-b），实际: {}",
+        targets
+    );
+}
+
+#[test]
+fn rust_graph_contract_workspace_member_edge_kind_set() {
+    let data = collect_graph("workspace-member");
+
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+    assert!(
+        data.edge_kinds.contains_key("OWNS_SOURCE"),
+        "应有 OWNS_SOURCE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_TARGET"),
+        "应有 HAS_TARGET 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("CONTAINS_PACKAGE"),
+        "应有 CONTAINS_PACKAGE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("CONTAINS_WORKSPACE"),
+        "应有 CONTAINS_WORKSPACE 边（repo → workspace）"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_PARENT"),
+        "应有 HAS_PARENT 边"
+    );
+
+    // 2 个 CONTAINS_PACKAGE：workspace → lib-a, workspace → lib-b
+    let contains_pkg = data
+        .edge_kinds
+        .get("CONTAINS_PACKAGE")
+        .copied()
+        .unwrap_or(0);
+    assert_eq!(
+        contains_pkg, 2,
+        "应有 2 条 CONTAINS_PACKAGE 边，实际: {}",
+        contains_pkg
+    );
+
+    // cross-crate CALLS 存在
+    let calls = data.edge_kinds.get("CALLS").copied().unwrap_or(0);
+    assert!(
+        calls >= 2,
+        "应有至少 2 条 CALLS 边（跨 crate），实际: {}",
+        calls
+    );
+}
+
+#[test]
+fn rust_graph_contract_workspace_member_known_symbols() {
+    let data = collect_graph("workspace-member");
+
+    // lib-a 的符号
+    for name in &["greet", "Point", "_impl_Point", "new", "distance", "Status"] {
+        let id = format!("symbol:lib-a::crate::{}", name);
+        assert!(data.node_ids.contains(&id), "应有 lib-a symbol: {}", id);
+    }
+
+    // lib-a enum variants
+    for variant in &["Active", "Inactive", "Pending"] {
+        let id = format!("symbol:lib-a::crate::{}", variant);
+        assert!(data.node_ids.contains(&id), "应有 lib-a variant: {}", id);
+    }
+
+    // lib-b 的符号
+    for name in &["welcome", "make_point", "active_status", "welcome_length"] {
+        let id = format!("symbol:lib-b::crate::{}", name);
+        assert!(data.node_ids.contains(&id), "应有 lib-b symbol: {}", id);
+    }
+}
+
+#[test]
+fn rust_graph_contract_workspace_member_known_defines_edges() {
+    let data = collect_graph("workspace-member");
+
+    // lib-a 的 DEFINES 边
+    let lib_a_symbols = vec![
+        "greet",
+        "Point",
+        "_impl_Point",
+        "new",
+        "distance",
+        "Status",
+        "Active",
+        "Inactive",
+        "Pending",
+    ];
+    for sym in &lib_a_symbols {
+        let symbol_id = format!("symbol:lib-a::crate::{}", sym);
+        let triple = (
+            "DEFINES".to_string(),
+            "file:lib-a/src/lib.rs".to_string(),
+            symbol_id,
+        );
+        assert!(
+            data.edge_triples.contains(&triple),
+            "应有 DEFINES edge: file:lib-a/src/lib.rs -> {}",
+            triple.2
+        );
+    }
+
+    // lib-b 的 DEFINES 边
+    let lib_b_symbols = vec!["welcome", "make_point", "active_status", "welcome_length"];
+    for sym in &lib_b_symbols {
+        let symbol_id = format!("symbol:lib-b::crate::{}", sym);
+        let triple = (
+            "DEFINES".to_string(),
+            "file:lib-b/src/lib.rs".to_string(),
+            symbol_id,
+        );
+        assert!(
+            data.edge_triples.contains(&triple),
+            "应有 DEFINES edge: file:lib-b/src/lib.rs -> {}",
+            triple.2
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_workspace_member_known_calls_edges() {
+    let data = collect_graph("workspace-member");
+
+    // 跨 crate CALLS：lib-b::welcome → lib-a::greet
+    let welcome_greet = (
+        "CALLS".to_string(),
+        "symbol:lib-b::crate::welcome".to_string(),
+        "symbol:lib-a::crate::greet".to_string(),
+    );
+    assert!(
+        data.edge_triples.contains(&welcome_greet),
+        "应有跨 crate CALLS edge: lib-b::welcome -> lib-a::greet"
+    );
+
+    // 跨 crate CALLS：lib-b::make_point → lib-a::new
+    let make_new = (
+        "CALLS".to_string(),
+        "symbol:lib-b::crate::make_point".to_string(),
+        "symbol:lib-a::crate::new".to_string(),
+    );
+    assert!(
+        data.edge_triples.contains(&make_new),
+        "应有跨 crate CALLS edge: lib-b::make_point -> lib-a::new"
+    );
+
+    // 验证 CONTAINS_WORKSPACE 边（repo → workspace）
+    let repo_id = data
+        .node_ids
+        .iter()
+        .find(|id| id.starts_with("repo:"))
+        .expect("应有 repo 节点");
+    let ws_triple = (
+        "CONTAINS_WORKSPACE".to_string(),
+        repo_id.clone(),
+        "workspace:Cargo.toml".to_string(),
+    );
+    assert!(
+        data.edge_triples.contains(&ws_triple),
+        "应有 CONTAINS_WORKSPACE edge: {} -> workspace:Cargo.toml",
+        repo_id
+    );
+
+    // 验证 CONTAINS_PACKAGE 边
+    for member in &["lib-a", "lib-b"] {
+        let triple = (
+            "CONTAINS_PACKAGE".to_string(),
+            "workspace:Cargo.toml".to_string(),
+            format!("package:{}/Cargo.toml", member),
+        );
+        assert!(
+            data.edge_triples.contains(&triple),
+            "应有 CONTAINS_PACKAGE edge: workspace -> {}",
+            member
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_workspace_member_calls_endpoint_integrity() {
+    let data = collect_graph("workspace-member");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}
