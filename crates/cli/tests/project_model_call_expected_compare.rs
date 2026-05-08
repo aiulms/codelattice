@@ -37,6 +37,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c11-receiver-type",
     // let-binding constructor chaining fixture (Phase 2d)
     "c12-let-constructor-method",
+    // cross-file same-crate resolution (Phase 2e: wildcard import + associated fn in same crate)
+    "c13-cross-file-same-crate",
 ];
 
 fn workspace_root() -> PathBuf {

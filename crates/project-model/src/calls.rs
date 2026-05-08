@@ -42,7 +42,7 @@ pub fn extract_and_resolve_calls(
     symbols: &[Symbol],
     imports: &[ImportUse],
 ) -> CallExtractionResult {
-    let symbol_index = build_callee_index(symbols);
+    let symbol_index = build_callee_index(symbols, source_ownership);
     let import_bindings = build_import_binding_table(imports);
     let caller_index = build_caller_index(symbols);
 
@@ -125,9 +125,11 @@ struct CalleeMatch {
 
 struct CalleeIndex {
     by_module_and_name: HashMap<(String, String), Vec<CalleeMatch>>,
+    /// source_path → package_name 映射，用于跨文件 same-crate 搜索
+    source_to_package: HashMap<String, String>,
 }
 
-fn build_callee_index(symbols: &[Symbol]) -> CalleeIndex {
+fn build_callee_index(symbols: &[Symbol], source_ownership: &[SourceOwnership]) -> CalleeIndex {
     let mut index: HashMap<(String, String), Vec<CalleeMatch>> = HashMap::new();
 
     for sym in symbols {
@@ -150,8 +152,19 @@ fn build_callee_index(symbols: &[Symbol]) -> CalleeIndex {
         });
     }
 
+    // 构建 source_path → package_name 映射（用于跨文件 same-crate 搜索）
+    let source_to_package: HashMap<String, String> = source_ownership
+        .iter()
+        .filter_map(|so| {
+            so.package
+                .as_ref()
+                .map(|pkg| (so.source_path.clone(), pkg.clone()))
+        })
+        .collect();
+
     CalleeIndex {
         by_module_and_name: index,
+        source_to_package,
     }
 }
 
@@ -198,6 +211,51 @@ impl CalleeIndex {
             .values()
             .flatten()
             .filter(|m| m.source_path == source_path && m.name == name && m.symbol_kind == kind)
+            .collect()
+    }
+
+    /// 跨文件 same-crate function 搜索
+    /// 查找与 caller 同 package 的其他 source file 中匹配的 function symbol
+    /// 用于 same-module + import binding 都失败后的跨文件解析
+    fn lookup_crate_wide_function(
+        &self,
+        caller_source_path: &str,
+        name: &str,
+    ) -> Vec<&CalleeMatch> {
+        let caller_package = match self.source_to_package.get(caller_source_path) {
+            Some(pkg) => pkg,
+            None => return vec![],
+        };
+
+        self.by_module_and_name
+            .values()
+            .flatten()
+            .filter(|m| {
+                m.symbol_kind == "function"
+                    && m.name == name
+                    && m.source_path != caller_source_path
+                    && self.source_to_package.get(&m.source_path) == Some(caller_package)
+            })
+            .collect()
+    }
+
+    /// 跨文件 same-crate type 搜索（用于 associated function 的 type 查找）
+    /// 查找与 caller 同 package 的其他 source file 中匹配的 struct/enum type symbol
+    fn lookup_crate_wide_type(&self, caller_source_path: &str, name: &str) -> Vec<&CalleeMatch> {
+        let caller_package = match self.source_to_package.get(caller_source_path) {
+            Some(pkg) => pkg,
+            None => return vec![],
+        };
+
+        self.by_module_and_name
+            .values()
+            .flatten()
+            .filter(|m| {
+                (m.symbol_kind == "struct" || m.symbol_kind == "enum")
+                    && m.name == name
+                    && m.source_path != caller_source_path
+                    && self.source_to_package.get(&m.source_path) == Some(caller_package)
+            })
             .collect()
     }
 }
@@ -1065,6 +1123,23 @@ fn resolve_free_function(
         _ => {}
     }
 
+    // 2.5. 跨文件 same-crate function 搜索
+    // 当 same-module 和 import binding 都失败时，在 caller 所在 crate 的其他文件中查找
+    // 仅当 crate 内唯一匹配时解析（no-edge 策略：多个 match 时不解析）
+    let same_crate = symbol_index.lookup_crate_wide_function(&call.source_path, &call.callee_name);
+    match same_crate.as_slice() {
+        [single] => {
+            call.resolved_symbol_id = Some(single.id.clone());
+            call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+            call.confidence = 0.80;
+            call.reason = CallResolutionReason::CallSameCrateResolved
+                .as_str()
+                .to_string();
+            return;
+        }
+        _ => {}
+    }
+
     // 3. same-file unique-name fallback
     // heuristic 只在 same-module 和 import-binding 都失败后触发
     // 查找同 source file 内唯一同名 Function symbol（限制 symbol_kind == "function"）
@@ -1390,7 +1465,13 @@ fn resolve_associated_function(
     let (type_prefix, type_name) = split_last_segment(&type_and_module);
 
     let type_module = if type_prefix.is_empty() || type_prefix == "crate" {
-        resolve_type_module(&type_name, module_path, import_bindings, symbol_index)
+        resolve_type_module(
+            &type_name,
+            module_path,
+            &call.source_path,
+            import_bindings,
+            symbol_index,
+        )
     } else if type_prefix.starts_with("crate::")
         || type_prefix.starts_with("self::")
         || type_prefix.starts_with("super::")
@@ -1400,9 +1481,21 @@ fn resolve_associated_function(
             .or_else(|| type_prefix.strip_prefix("self::"))
             .or_else(|| type_prefix.strip_prefix("super::"))
             .unwrap_or(&type_prefix);
-        resolve_type_module(&type_name, clean_prefix, import_bindings, symbol_index)
+        resolve_type_module(
+            &type_name,
+            clean_prefix,
+            &call.source_path,
+            import_bindings,
+            symbol_index,
+        )
     } else {
-        resolve_type_module(&type_name, &type_prefix, import_bindings, symbol_index)
+        resolve_type_module(
+            &type_name,
+            &type_prefix,
+            &call.source_path,
+            import_bindings,
+            symbol_index,
+        )
     };
 
     call.callee_name = method_name.clone();
@@ -1511,6 +1604,7 @@ fn resolve_associated_function(
 fn resolve_type_module(
     type_name: &str,
     current_module: &str,
+    caller_source_path: &str,
     import_bindings: &ImportBindingTable,
     symbol_index: &CalleeIndex,
 ) -> Option<String> {
@@ -1532,8 +1626,13 @@ fn resolve_type_module(
         }
     }
 
-    // 3. 全局搜索（低置信度 fallback）
-    None
+    // 3. 跨文件 same-crate type 搜索
+    // 在 caller 所在 crate 的其他文件中查找唯一匹配的 type symbol
+    let same_crate_types = symbol_index.lookup_crate_wide_type(caller_source_path, type_name);
+    match same_crate_types.as_slice() {
+        [single] => Some(single.module_path.clone()),
+        _ => None,
+    }
 }
 
 // ============================================================

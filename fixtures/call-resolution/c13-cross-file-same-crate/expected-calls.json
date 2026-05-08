@@ -1,0 +1,48 @@
+[
+  {
+    "id": "src/lib.rs::call::8::compute_value",
+    "callerSymbolId": "c13-cross-file-same-crate::crate::main_fn",
+    "callerName": "main_fn",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 8,
+      "lineEnd": 8,
+      "byteStart": 181,
+      "byteEnd": 197
+    },
+    "rawText": "compute_value(5)",
+    "knownCrate": null,
+    "calleePath": "compute_value",
+    "calleeName": "compute_value",
+    "callKind": "free-function",
+    "resolvedSymbolId": "c13-cross-file-same-crate::crate::helpers::compute_value",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.8,
+    "reason": "call-same-crate-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::13::new",
+    "callerSymbolId": "c13-cross-file-same-crate::crate::create_calculator",
+    "callerName": "create_calculator",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 13,
+      "lineEnd": 13,
+      "byteStart": 292,
+      "byteEnd": 309
+    },
+    "rawText": "Calculator::new()",
+    "knownCrate": null,
+    "calleePath": "Calculator::new",
+    "calleeName": "new",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c13-cross-file-same-crate::crate::helpers::new",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  }
+]

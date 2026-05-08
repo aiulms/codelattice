@@ -1,0 +1,4 @@
+[package]
+name = "c13-cross-file-same-crate"
+version = "0.1.0"
+edition = "2021"
