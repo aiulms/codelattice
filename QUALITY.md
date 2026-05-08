@@ -211,7 +211,7 @@ cargo test --features tree-sitter-cangjie
 | Symbols | 664 (incl. 23 impl blocks) |
 | Imports | variable |
 | Total calls | 3,557 |
-| Resolved calls | 2,338 (65.7%) |
+| Resolved calls | 2,339 (65.8%) |
 | Graph nodes | 1,348 (incl. 55 external symbols) |
 | Graph edges | 2,073 (9 edge types) |
 | CALLS edges | 1,039 |
@@ -235,6 +235,7 @@ cargo test --features tree-sitter-cangjie
 | same-crate-resolved (Phase 2e+2f) | 23 | 1.0% |
 | module-path-resolved | 18 | 0.8% |
 | import-resolved | 10 | 0.4% |
+| associated-fn-resolved (Phase 2g) | 1 | 0.04% |
 
 ## Known Gaps (by design)
 

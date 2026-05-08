@@ -41,6 +41,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c13-cross-file-same-crate",
     // wildcard import 源模块感知消歧（Phase 2f: 同名函数在多个模块中，wildcard import 消歧）
     "c14-wildcard-disambiguation",
+    // 关联函数消歧：同模块两类型各有同名 build() 方法，按 impl_target 过滤消歧
+    "c15-associated-function-disambiguation",
 ];
 
 fn workspace_root() -> PathBuf {

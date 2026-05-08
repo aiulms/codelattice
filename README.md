@@ -49,7 +49,7 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | Cross-file same-crate (Phase 2e) | `split_last_segment()` from another module | 0.80 |
 | Wildcard-aware disambiguation (Phase 2f) | `helper_func()` via `use calculations::*` | 0.80 |
 
-**Resolution rate: 65.7%**（2338/3557 calls on gitnexus-rust-core，2026-05-08 Phase 2f wildcard import disambiguation）。
+**Resolution rate: 65.8%**（2339/3557 calls on gitnexus-rust-core，2026-05-08 Phase 2g associated-function disambiguation）。
 
 ---
 

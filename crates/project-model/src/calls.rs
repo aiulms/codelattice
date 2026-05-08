@@ -1603,6 +1603,15 @@ fn resolve_associated_function(
                         || m.symbol_kind == "method"
                         || m.symbol_kind == "associated-function"
                 })
+                // 按 type_name 过滤：若 impl_details 已知且 impl_target 不匹配，排除该匹配
+                // 解决同模块多类型同名方法导致的误判歧义（如 SameFileIndex::build vs CrossFileSymbolIndex::build）
+                .filter(|m| {
+                    if let Some(ref details) = m.impl_details {
+                        details.impl_target == type_name
+                    } else {
+                        true // 无 impl_details 时保守保留
+                    }
+                })
                 .collect();
 
             match impl_matches.as_slice() {

@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Docs consolidation: QUALITY.md Rust gates + README stale stats fix）
+最后更新：2026-05-08（Phase 2g: associated-function type-filtered disambiguation, 65.7% → 65.8%, +1 CrossFileSymbolIndex::build）
 
 ## 用途
 
@@ -531,3 +531,9 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 	   - README.md 过期 stats 修复：resolution rate 65.6% → 65.7%，call fixtures 15→22，新增 2 个 call forms
 	   - docs/plans/README.md 推荐下一篇计划更新为当前准确 openings
 	   - 全部测试通过（no-feature + feature），cargo fmt + git diff clean
+	46. **Phase 2g — 关联函数 type-filtered 消歧** ✅ 完成（2026-05-08）：
+	   - `resolve_associated_function` 中按 `impl_details.impl_target == type_name` 过滤方法匹配
+	   - 解决同模块多类型同名方法导致的误判歧义（如 `DataProcessor::build` vs `RequestHandler::build`）
+	   - 新增 c15-associated-function-disambiguation fixture（compile-valid, 4 calls, 2 associated-function resolved）
+	   - Improvement: +1 resolved call（CrossFileSymbolIndex::build），65.7% → 65.8%（2339/3557）
+	   - 全部测试通过（call comparison 23/23 fixtures, graph_contract 24/24, cangjie_inspect 18/18）

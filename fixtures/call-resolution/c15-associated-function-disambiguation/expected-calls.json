@@ -1,0 +1,94 @@
+[
+  {
+    "id": "src/lib.rs::call::12::to_string",
+    "callerSymbolId": "c15-associated-function-disambiguation::crate::build",
+    "callerName": "build",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 12,
+      "lineEnd": 12,
+      "byteStart": 329,
+      "byteEnd": 345
+    },
+    "rawText": "name.to_string()",
+    "knownCrate": null,
+    "calleePath": "name.to_string",
+    "calleeName": "to_string",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::string::ToString::to_string",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::28::to_string",
+    "callerSymbolId": "c15-associated-function-disambiguation::crate::build::_L26",
+    "callerName": "build",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 28,
+      "lineEnd": 28,
+      "byteStart": 598,
+      "byteEnd": 614
+    },
+    "rawText": "path.to_string()",
+    "knownCrate": null,
+    "calleePath": "path.to_string",
+    "calleeName": "to_string",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::string::ToString::to_string",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::38::build",
+    "callerSymbolId": "c15-associated-function-disambiguation::crate::run",
+    "callerName": "run",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 38,
+      "lineEnd": 38,
+      "byteStart": 759,
+      "byteEnd": 787
+    },
+    "rawText": "DataProcessor::build(\"data\")",
+    "knownCrate": null,
+    "calleePath": "DataProcessor::build",
+    "calleeName": "build",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c15-associated-function-disambiguation::crate::build",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::39::build",
+    "callerSymbolId": "c15-associated-function-disambiguation::crate::run",
+    "callerName": "run",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 39,
+      "lineEnd": 39,
+      "byteStart": 802,
+      "byteEnd": 831
+    },
+    "rawText": "RequestHandler::build(\"/api\")",
+    "knownCrate": null,
+    "calleePath": "RequestHandler::build",
+    "calleeName": "build",
+    "callKind": "associated-function",
+    "resolvedSymbolId": "c15-associated-function-disambiguation::crate::build::_L26",
+    "resolvedSymbolKind": "associated-function",
+    "confidence": 0.75,
+    "reason": "call-associated-fn-resolved",
+    "diagnostics": []
+  }
+]
