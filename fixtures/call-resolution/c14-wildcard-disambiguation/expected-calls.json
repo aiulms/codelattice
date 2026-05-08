@@ -1,0 +1,48 @@
+[
+  {
+    "id": "src/lib.rs::call::13::helper_func",
+    "callerSymbolId": "c14-wildcard-disambiguation::crate::run",
+    "callerName": "run",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 13,
+      "lineEnd": 13,
+      "byteStart": 503,
+      "byteEnd": 517
+    },
+    "rawText": "helper_func(x)",
+    "knownCrate": null,
+    "calleePath": "helper_func",
+    "calleeName": "helper_func",
+    "callKind": "free-function",
+    "resolvedSymbolId": "c14-wildcard-disambiguation::crate::calculations::helper_func",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.8,
+    "reason": "call-same-crate-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::18::process",
+    "callerSymbolId": "c14-wildcard-disambiguation::crate::run_process",
+    "callerName": "run_process",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 18,
+      "lineEnd": 18,
+      "byteStart": 643,
+      "byteEnd": 653
+    },
+    "rawText": "process(x)",
+    "knownCrate": null,
+    "calleePath": "process",
+    "calleeName": "process",
+    "callKind": "free-function",
+    "resolvedSymbolId": "c14-wildcard-disambiguation::crate::calculations::process",
+    "resolvedSymbolKind": "function",
+    "confidence": 0.8,
+    "reason": "call-same-crate-resolved",
+    "diagnostics": []
+  }
+]

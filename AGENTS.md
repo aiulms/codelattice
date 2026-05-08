@@ -96,7 +96,7 @@ For multi-step work：
 - `crates/project-model/src/calls.rs` 已从 2161 行拆分至 1858 行（2026-05-04 stdlib_tables 提取，-14.0%）。
 - 已提取 `stdlib_tables.rs`（311 行）：prelude type / trait method / type method 映射表 + 辅助函数。
 - Text fallback（~337 行）和 CalleeIndex/ImportBindingTable/CallerIndex（~233 行）暂留 calls.rs，待下一刀。
-- CALLS resolution rate: 65.6%（2321/3539 on gitnexus-rust-core，2026-05-08 Phase 2e cross-file same-crate resolution 落地）。
+- CALLS resolution rate: 65.7%（2338/3557 on gitnexus-rust-core，2026-05-08 Phase 2f wildcard import disambiguation 落地）。
 - 继续新增 CALLS 策略前，需再次评估是否进一步拆分。
 
 质量要求：

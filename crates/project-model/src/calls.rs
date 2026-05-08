@@ -42,9 +42,12 @@ pub fn extract_and_resolve_calls(
     symbols: &[Symbol],
     imports: &[ImportUse],
 ) -> CallExtractionResult {
-    let symbol_index = build_callee_index(symbols, source_ownership);
+    let mut symbol_index = build_callee_index(symbols, source_ownership);
     let import_bindings = build_import_binding_table(imports);
     let caller_index = build_caller_index(symbols);
+    // 构建 wildcard import 源模块映射：caller source_path → wildcard-imported module paths
+    // 用于 crate-wide search 多 match 时的源模块感知消歧
+    symbol_index.wildcard_modules = build_wildcard_module_map(imports);
 
     // 构建已知外部 crate 名称集合（来自所有 package 的 [dependencies]）
     let dependency_names: HashSet<String> = packages
@@ -127,6 +130,9 @@ struct CalleeIndex {
     by_module_and_name: HashMap<(String, String), Vec<CalleeMatch>>,
     /// source_path → package_name 映射，用于跨文件 same-crate 搜索
     source_to_package: HashMap<String, String>,
+    /// caller source_path → wildcard-imported module original_path 集合
+    /// 用于 crate-wide search 多 match 时的源模块感知消歧
+    wildcard_modules: HashMap<String, HashSet<String>>,
 }
 
 fn build_callee_index(symbols: &[Symbol], source_ownership: &[SourceOwnership]) -> CalleeIndex {
@@ -165,6 +171,7 @@ fn build_callee_index(symbols: &[Symbol], source_ownership: &[SourceOwnership]) 
     CalleeIndex {
         by_module_and_name: index,
         source_to_package,
+        wildcard_modules: HashMap::new(),
     }
 }
 
@@ -308,6 +315,44 @@ fn build_import_binding_table(imports: &[ImportUse]) -> ImportBindingTable {
     }
 
     ImportBindingTable { bindings: table }
+}
+
+/// 构建 wildcard import 源模块映射
+///
+/// 从已解析 ImportUse 中提取 wildcard/glob import（original_path 以 "::*" 结尾），
+/// 构建 caller source_path → wildcard-imported module 路径的映射。
+///
+/// 用途：crate-wide search 返回多个 match 时，利用 wildcard import 的源模块信息消歧——优先匹配
+/// 来自 wildcard-imported 模块的 symbol。
+///
+/// 检测方式：original_path 以 "::*" 结尾的 import 为 wildcard/glob import。
+/// 提取 module 路径：去掉末尾 "::*"，将 original_path 规范化为与 CalleeMatch.module_path
+/// 可比较的绝对模块路径。
+///
+/// 规范化策略：
+/// - 含 "::" 的路径（如 "crate::stdlib_tables::*"）→ 直接去掉 "::*" → "crate::stdlib_tables"
+/// - 裸名称（如 "calculations::*"）→ 基于 caller 的 module_path 构建：
+///   caller module_path = "crate" → "crate::calculations"
+fn build_wildcard_module_map(
+    imports: &[ImportUse],
+) -> std::collections::HashMap<String, HashSet<String>> {
+    let mut map: std::collections::HashMap<String, HashSet<String>> = HashMap::new();
+    for imp in imports {
+        if let Some(stripped) = imp.original_path.strip_suffix("::*") {
+            // 规范化为绝对模块路径（对齐 CalleeMatch.module_path）
+            let normalized = if stripped.contains("::") {
+                // 已有完整路径：crate::stdlib_tables, self::foo
+                stripped.to_string()
+            } else {
+                // 裸名称：基于 caller 的 module_path 构建
+                let caller_module = imp.module_path.as_deref().unwrap_or("crate");
+                format!("{}::{}", caller_module, stripped)
+            };
+            let entry = map.entry(imp.source_path.clone()).or_default();
+            entry.insert(normalized);
+        }
+    }
+    map
 }
 
 impl ImportBindingTable {
@@ -1136,6 +1181,27 @@ fn resolve_free_function(
                 .as_str()
                 .to_string();
             return;
+        }
+        // 2.5b. wildcard import 源模块感知消歧
+        // 多个 match 时，利用 caller 的 wildcard import 信息消歧：
+        // 若仅一个 match 来自 wildcard-imported 模块，则解析该 match
+        multiple if !multiple.is_empty() => {
+            if let Some(wildcard_imported) = symbol_index.wildcard_modules.get(&call.source_path) {
+                let preferred: Vec<_> = multiple
+                    .iter()
+                    .filter(|m| wildcard_imported.contains(&m.module_path))
+                    .collect();
+                if preferred.len() == 1 {
+                    let single = preferred[0];
+                    call.resolved_symbol_id = Some(single.id.clone());
+                    call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                    call.confidence = 0.80;
+                    call.reason = CallResolutionReason::CallSameCrateResolved
+                        .as_str()
+                        .to_string();
+                    return;
+                }
+            }
         }
         _ => {}
     }

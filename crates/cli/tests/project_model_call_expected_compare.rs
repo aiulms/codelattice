@@ -39,6 +39,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c12-let-constructor-method",
     // cross-file same-crate resolution (Phase 2e: wildcard import + associated fn in same crate)
     "c13-cross-file-same-crate",
+    // wildcard import 源模块感知消歧（Phase 2f: 同名函数在多个模块中，wildcard import 消歧）
+    "c14-wildcard-disambiguation",
 ];
 
 fn workspace_root() -> PathBuf {

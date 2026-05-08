@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Rust graph contract 扩展：8 tests on 1 fixture → 23 tests on 3 fixtures）
+最后更新：2026-05-08（Phase 2f wildcard import disambiguation: resolution rate 65.6% → 65.7%, +5 split_last_segment resolved）
 
 ## 用途
 
@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 62.4%（2183/3500）。0 dangling CALLS edges。Graph contract 8/8。Enum constructor resolution + external symbol node completion 已落地。method-calls 仍为主要 gap（1255 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.7%（2338/3557）。0 dangling CALLS edges。Graph contract 23/23（3 fixtures）。Enum constructor resolution + external symbol node completion + cross-file same-crate resolution + wildcard disambiguation 已落地。method-calls 仍为主要 gap（~1217 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
@@ -511,3 +511,12 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 	   - 缩小与 Cangjie graph contract（24 tests on 4 fixtures）的覆盖差距
 	   - 全部测试通过（cangjie_inspect 18/18, graph_contract 24/24, project_model_graph_contract 23/23）
 	   - Closure Review: `docs/plans/2026-05-08-rust-graph-contract-expansion-closure-review.md`
+	44. **Phase 2f — wildcard import 源模块感知消歧** ✅ 完成（2026-05-08）：
+	   - 新增 `build_wildcard_module_map()` + CalleeIndex.wildcard_modules 字段
+	   - `resolve_free_function` 新增 step 2.5b：wildcard import 源模块感知消歧
+	   - 规范化 wildcard import original_path（裸名称 → crate::module 路径，含 :: 路径直接去 ::*）
+	   - 新增 c14-wildcard-disambiguation fixture（compile-valid, 2 calls）
+	   - Improvement: +5 resolved calls（split_last_segment all resolved），65.6% → 65.7%（2338/3557）
+	   - call-same-crate-resolved: 18 → 23
+	   - 全部测试通过（call comparison 22/22 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
+	   - Closure Review: `docs/plans/2026-05-08-rust-wildcard-import-disambiguation-closure-review.md`
