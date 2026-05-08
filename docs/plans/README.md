@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Slice 48: crate:: 多段路径 AssociatedFunction 误分类修复）
+最后更新：2026-05-08（Slice 49: 第5个 Rust contract fixture inline-module）
 
 ## 用途
 
@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.8%（2344/3563）。0 dangling CALLS edges。Graph contract 30/30（4 fixtures）。Call comparison 24/24 fixtures（新增 c16-crate-associated-fn）。crate:: 多段路径 AssociatedFunction 误分类已修复（+1 resolved call）。method-calls 仍为主要 gap（~1176 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.8%（2344/3563）。0 dangling CALLS edges。Graph contract 37/37（5 fixtures: +inline-module）。Call comparison 24/24 fixtures。crate:: AssociatedFunction 误分类已修复。method-calls 仍为主要 gap（~1176 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
@@ -36,8 +36,8 @@
 - call form 文档与 confidence 矩阵对齐
 
 **Priority 3 续 — Rust graph contract**
-- 第 5 个 contract fixture（如 inline-module 或 self-super-path）
-- 扩大 Rust contract fixture 覆盖
+- ~~第 5 个 contract fixture inline-module~~ ✅ 完成（Slice 49）
+- 第 6 个 contract fixture（如 workspace-member 或 self-super-path-combined）
 
 **Priority 4 — Cangjie maintenance**
 - Quality gate 周期性回归验证
@@ -555,3 +555,13 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 全部测试通过（no-feature + feature，call comparison 24/24 fixtures，graph_contract 30/30）
    - Preflight: `docs/plans/2026-05-08-rust-crate-path-associated-fn-misclassification-preflight.md`
    - Closure Review: `docs/plans/2026-05-08-rust-crate-path-associated-fn-misclassification-closure-review.md`
+
+49. **Slice 49 — 第5个 Rust graph contract fixture (inline-module)** ✅ 完成（2026-05-08）：
+   - 新增 `fixtures/rust/inline-module/`：inline module 结构，含嵌套 inline module + crate::/self::/super:: 调用
+   - 新增 7 个 contract tests → 总计 37 tests on 5 fixtures（Before: 30 tests on 4 fixtures）
+   - Graph 产出：12 nodes, 18 edges, 6 edge types（含 HAS_PARENT），8 symbols（含 2 module symbols）
+   - 验证 inline module symbol nodes + HAS_PARENT 边（之前 fixture 未覆盖）
+   - 已知限制：self::/super:: 调用 unresolved（modulePath flat limitation，已记录）
+   - 全部测试通过（no-feature + feature，graph_contract 37/37）
+   - Preflight: `docs/plans/2026-05-08-rust-graph-contract-inline-module-preflight.md`
+   - Closure Review: `docs/plans/2026-05-08-rust-graph-contract-inline-module-closure-review.md`

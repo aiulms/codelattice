@@ -906,3 +906,192 @@ fn rust_graph_contract_module_hierarchy_calls_endpoint_integrity() {
         }
     }
 }
+
+// ============================================================
+// inline-module fixture — 验证 inline module 的 symbol 结构和 CALLS
+// ============================================================
+
+#[test]
+fn rust_graph_contract_inline_module_quality_gates() {
+    let data = collect_graph("inline-module");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_inline_module_node_kind_set() {
+    let data = collect_graph("inline-module");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+    assert!(
+        data.node_kinds.contains_key("source-file"),
+        "应有 source-file 节点"
+    );
+
+    let source_files = data.node_kinds.get("source-file").copied().unwrap_or(0);
+    assert_eq!(
+        source_files, 1,
+        "应有 1 个 source file（唯一 lib.rs），实际: {}",
+        source_files
+    );
+
+    let symbols = data.node_kinds.get("symbol").copied().unwrap_or(0);
+    assert!(
+        symbols >= 8,
+        "应有至少 8 个 symbol（含 2 个 module symbol），实际: {}",
+        symbols
+    );
+}
+
+#[test]
+fn rust_graph_contract_inline_module_edge_kind_set() {
+    let data = collect_graph("inline-module");
+
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+    assert!(
+        data.edge_kinds.contains_key("OWNS_SOURCE"),
+        "应有 OWNS_SOURCE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_TARGET"),
+        "应有 HAS_TARGET 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("CONTAINS_PACKAGE"),
+        "应有 CONTAINS_PACKAGE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_PARENT"),
+        "应有 HAS_PARENT 边（inline module 特有）"
+    );
+
+    let has_parent = data.edge_kinds.get("HAS_PARENT").copied().unwrap_or(0);
+    assert!(
+        has_parent >= 6,
+        "应有至少 6 条 HAS_PARENT 边，实际: {}",
+        has_parent
+    );
+
+    let calls = data.edge_kinds.get("CALLS").copied().unwrap_or(0);
+    assert!(calls >= 1, "应有至少 1 条 CALLS edge，实际: {}", calls);
+}
+
+#[test]
+fn rust_graph_contract_inline_module_known_symbols() {
+    let data = collect_graph("inline-module");
+
+    let required = [
+        "symbol:inline-module::crate::root_fn",
+        "symbol:inline-module::crate::inner",
+        "symbol:inline-module::crate::inner::inner_fn",
+        "symbol:inline-module::crate::inner::call_self",
+        "symbol:inline-module::crate::inner::call_super",
+        "symbol:inline-module::crate::inner::nested",
+        "symbol:inline-module::crate::inner::nested::call_crate",
+        "symbol:inline-module::crate::inner::nested::call_super_to_parent",
+    ];
+
+    for sym_id in &required {
+        assert!(
+            data.node_ids.contains(*sym_id),
+            "必须存在 symbol: {}",
+            sym_id
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_inline_module_known_defines_edges() {
+    let data = collect_graph("inline-module");
+
+    let required = [
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:inline-module::crate::root_fn",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:inline-module::crate::inner::call_self",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:inline-module::crate::inner::call_super",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:inline-module::crate::inner::inner_fn",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:inline-module::crate::inner::nested::call_crate",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_inline_module_known_calls_edges() {
+    let data = collect_graph("inline-module");
+
+    let required = [(
+        "CALLS",
+        "symbol:inline-module::crate::inner::nested::call_crate",
+        "symbol:inline-module::crate::root_fn",
+    )];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_inline_module_calls_endpoint_integrity() {
+    let data = collect_graph("inline-module");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}
