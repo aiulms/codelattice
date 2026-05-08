@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Productization Phase: Unified CLI + Bridge Adapter + Smoke Config + Local Trial Packaging）
+最后更新：2026-05-09（Productization Phase: Unified CLI + Bridge Adapter + Smoke Config + Local Trial Packaging + --strict Flag）
 
 ## 用途
 
@@ -37,13 +37,14 @@
 - ✅ 15 integration tests + 7 bridge unit tests
 - ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
 - ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
+- ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
 
 ## 当前推荐下一篇计划
 
 **Productization 下一步：**
-- Bridge format 扩展：quality/summary 命令支持 --format gitnexus-rc
 - 前端消费准备（与 GitNexus-RC 维护者协商 schema 对齐）
 - Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture）
+- ~~Bridge format 扩展~~（quality/summary 无 graph 输出，--format gitnexus-rc 语义不适配）
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
@@ -658,3 +659,13 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - 产品化 closure review 更新：residual gaps 状态刷新（2 个已修复标注，1 个新增 gap 已处理）
     - 零新增依赖，不改 GitNexus-RC / Tool / live repo
     - Preflight: `docs/plans/2026-05-09-local-trial-packaging-preflight.md`
+
+58. **Analyze --strict Flag** ✅ 完成（2026-05-09）：
+    - `analyze` 命令新增 `--strict` flag（默认 false）
+    - strict 模式：分析完成后检查所有 quality gates，任一失败 → stderr 输出失败详情 → exit 1
+    - 与 Cangjie inspect/graph `--strict` 行为对齐
+    - 兼容 `--format json` 和 `--format gitnexus-rc`
+    - 新增 4 个 integration tests（2 Rust + 2 Cangjie feature-gated）
+    - productization_commands tests: 15 → 19
+    - 零新增依赖，不改 GitNexus-RC / Tool / live repo
+    - Preflight: `docs/plans/2026-05-09-analyze-strict-flag-preflight.md`

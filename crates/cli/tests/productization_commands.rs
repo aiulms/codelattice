@@ -124,6 +124,69 @@ fn analyze_unsupported_format_rejected() {
 }
 
 // ============================================================
+// analyze 命令 — Rust strict 模式
+// ============================================================
+
+#[test]
+fn analyze_rust_strict_passes_on_clean_fixture() {
+    // --strict 模式下，clean fixture 应 exit 0 并输出合法 JSON
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .arg("--strict")
+        .assert()
+        .success(); // 所有质量门 pass → exit 0
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    // strict 不影响 JSON 输出内容
+    assert_eq!(v["language"], "rust");
+    assert!(v["summary"]["nodeCount"].as_u64().unwrap() > 0);
+    assert!(v["qualityGates"].is_array());
+    // 所有 quality gates 应通过
+    for gate in v["qualityGates"].as_array().unwrap() {
+        assert!(
+            gate["passed"].as_bool().unwrap(),
+            "所有质量门应通过: {}",
+            gate["gateName"]
+        );
+    }
+}
+
+#[test]
+fn analyze_rust_strict_with_bridge_format() {
+    // --strict 应与 --format gitnexus-rc 兼容
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .arg("--strict")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+    assert!(v["repository"].is_object(), "bridge 格式应有 repository");
+    assert_eq!(v["language"], "rust");
+}
+
+// ============================================================
 // analyze 命令 — Bridge 格式（Rust）
 // ============================================================
 
@@ -472,6 +535,65 @@ fn analyze_cangjie_bridge_edges_use_normalized_endpoints() {
             }
         }
     }
+}
+
+// ============================================================
+// analyze 命令 — Cangjie strict 模式（feature-gated）
+// ============================================================
+
+#[cfg(feature = "tree-sitter-cangjie")]
+#[test]
+fn analyze_cangjie_strict_passes_on_clean_fixture() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = cangjie_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("cangjie")
+        .arg("--format")
+        .arg("json")
+        .arg("--strict")
+        .assert()
+        .success(); // 所有质量门 pass（synthetic=0 等）→ exit 0
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(v["language"], "cangjie");
+    for gate in v["qualityGates"].as_array().unwrap() {
+        assert!(
+            gate["passed"].as_bool().unwrap(),
+            "Cangjie 所有质量门应通过: {}",
+            gate["gateName"]
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-cangjie")]
+#[test]
+fn analyze_cangjie_strict_with_bridge_format() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = cangjie_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("cangjie")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .arg("--strict")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+    assert!(v["repository"].is_object(), "bridge 格式应有 repository");
+    assert_eq!(v["language"], "cangjie");
 }
 
 // ============================================================

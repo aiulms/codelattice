@@ -57,6 +57,9 @@ enum Commands {
         /// 输出格式（MVP 仅支持 json）
         #[arg(long, default_value = "json")]
         format: String,
+        /// 严格模式：质量门失败时 exit code 非零
+        #[arg(long, default_value = "false")]
+        strict: bool,
     },
     /// 质量门检查：对指定项目运行质量门，输出 JSON，退出码反映结果
     Quality {
@@ -795,6 +798,7 @@ fn main() {
             root,
             language,
             format,
+            strict,
         } => {
             if format != "json" && format != "gitnexus-rc" {
                 eprintln!("错误：支持的格式：json, gitnexus-rc");
@@ -830,6 +834,14 @@ fn main() {
                         }
                     };
 
+                    // 计算 quality gates（bridge 和 json 格式都需要用于 --strict）
+                    let quality_gates = compute_rust_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("v0.3")
+                        .to_string();
+
                     if is_bridge {
                         let analyzed_at = now_iso8601();
                         let bridge = bridge_format::convert_rust_graph(
@@ -849,12 +861,6 @@ fn main() {
                         println!("{json}");
                     } else {
                         let summary = build_rust_summary(&json_val, &nodes, &edges);
-                        let quality_gates = compute_rust_quality_gates(&nodes, &edges);
-                        let schema_version = json_val
-                            .get("schemaVersion")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("v0.3")
-                            .to_string();
 
                         let result = LanguageAnalysisResult {
                             language: lang,
@@ -862,7 +868,7 @@ fn main() {
                             analyzed_at: now_iso8601(),
                             schema_version,
                             summary,
-                            quality_gates,
+                            quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
 
@@ -871,6 +877,19 @@ fn main() {
                             std::process::exit(1);
                         });
                         println!("{json}");
+                    }
+
+                    // --strict 检查：质量门失败时 exit non-zero
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
                     }
                 }
                 "cangjie" => {
@@ -881,6 +900,14 @@ fn main() {
                             std::process::exit(1);
                         }
                     };
+
+                    // 计算 quality gates（bridge 和 json 格式都需要用于 --strict）
+                    let quality_gates = compute_cangjie_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("v1.0.0")
+                        .to_string();
 
                     if is_bridge {
                         let analyzed_at = now_iso8601();
@@ -901,12 +928,6 @@ fn main() {
                         println!("{json}");
                     } else {
                         let summary = build_cangjie_summary(&nodes, &edges);
-                        let quality_gates = compute_cangjie_quality_gates(&nodes, &edges);
-                        let schema_version = json_val
-                            .get("schemaVersion")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("v1.0.0")
-                            .to_string();
 
                         let result = LanguageAnalysisResult {
                             language: lang,
@@ -914,7 +935,7 @@ fn main() {
                             analyzed_at: now_iso8601(),
                             schema_version,
                             summary,
-                            quality_gates,
+                            quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
 
@@ -923,6 +944,19 @@ fn main() {
                             std::process::exit(1);
                         });
                         println!("{json}");
+                    }
+
+                    // --strict 检查：质量门失败时 exit non-zero
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
                     }
                 }
                 other => {

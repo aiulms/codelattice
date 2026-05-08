@@ -3,7 +3,7 @@
 > **日期：** 2026-05-09
 > **版本：** v1.0.0
 > **状态：** Closed — 5/5 priorities 完成
-> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复）
+> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复），`8bdcddf`（Local Trial Packaging），`<TBD>`（Analyze --strict）
 
 ---
 
@@ -115,7 +115,8 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 | `--language auto` 不做深度检测 | LOW | 仅检查 manifest 文件存在性，不做 language heuristics |
 | 非 JSON 格式不支持 | BY DESIGN | 第一版仅做 JSON stdout |
 | Bridge format CLI integration tests 仅覆盖 analyze | LOW | quality/summary 命令未支持 --format gitnexus-rc |
-| 无本地构建脚本 | LOW（新增 gap） | 非 Rust 开发者试用门槛高 → **本轮（Slice: local-trial-packaging）处理** |
+| 无本地构建脚本 | ~~LOW~~ → **已修复（`8bdcddf`）** | scripts/build.sh + scripts/smoke.sh |
+| analyze 命令无 --strict flag | ~~LOW~~ → **本轮（Slice: analyze-strict-flag）处理** | 与 Cangjie inspect --strict 行为对齐 |
 
 ---
 

@@ -127,6 +127,9 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie gr
 cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json
 cargo run -p gitnexus-rust-core-cli -- analyze --root . --language auto --format json
 
+# analyze --strict — CI/CD 模式（质量门失败 → exit 1）
+cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json --strict
+
 # quality — 质量门检查（exit code: 0=pass, 1=fail, 2=ambiguous）
 cargo run -p gitnexus-rust-core-cli -- quality --root fixtures/rust/portable-smoke --language rust
 cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
