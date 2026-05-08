@@ -146,7 +146,7 @@ These boundaries are non-negotiable for Rust-core Cangjie:
 
 # Rust Graph Quality Gates
 
-**Last updated:** 2026-05-08（Slice 55: 第 8 个 graph contract fixture — workspace-member）
+**Last updated:** 2026-05-09（Slice 56: production readiness 综合审计 + stats 刷新）
 **Status:** Active
 **Source:** [Rust Production Readiness Smoke Audit](docs/plans/2026-05-08-rust-production-readiness-preflight.md)
 
@@ -213,13 +213,13 @@ cargo test --features tree-sitter-cangjie
 |--------|-------|
 | Packages | 3 (gitnexus-project-model, gitnexus-rust-core-cli, gitnexus-cangjie) |
 | Source files | 50 |
-| Symbols | 783 (incl. 173 enum variants) |
+| Symbols | 838 (incl. 173 enum variants) |
 | Imports | variable |
-| Total calls | 3,608 |
-| Resolved calls | 2,369 (65.7%) |
-| Graph nodes | — (run `cargo run -- project-model graph --root .` to refresh) |
-| Graph edges | — (run `cargo run -- project-model graph --root .` to refresh) |
-| CALLS edges | — (run `cargo run -- project-model graph --root .` to refresh) |
+| Total calls | 3,609 |
+| Resolved calls | 2,370 (65.7%) |
+| Graph nodes | 1,524 (1 repo + 1 workspace + 3 packages + 3 targets + 50 source-files + 838 symbols + 628 diagnostics) |
+| Graph edges | 2,438 |
+| CALLS edges | 1,054 |
 | Duplicate nodes | 0 |
 | Duplicate edges | 0 |
 | Dangling sources | 0 |
@@ -230,23 +230,25 @@ cargo test --features tree-sitter-cangjie
 
 | Reason | Count | % of resolved |
 |--------|-------|---------------|
-| stdlib-trait-method-resolved | 914 | 39.1% |
-| same-module-resolved | 474 | 20.3% |
-| known-enum-constructor | 313 | 13.4% |
-| receiver-type-method-resolved | 267 | 11.4% |
-| external-crate-path-resolved | 207 | 8.9% |
-| same-file-unique-name | 67 | 2.9% |
+| stdlib-trait-method-resolved | 922 | 38.9% |
+| same-module-resolved | 476 | 20.1% |
+| known-enum-constructor | 317 | 13.4% |
+| receiver-type-method-resolved | 272 | 11.5% |
+| external-crate-path-resolved | 207 | 8.7% |
+| same-file-unique-name | 71 | 3.0% |
 | method-name-resolved | 35 | 1.5% |
-| same-crate-resolved (Phase 2e+2f) | 23 | 1.0% |
+| same-crate-resolved | 23 | 1.0% |
 | module-path-resolved | 18 | 0.8% |
-| import-resolved | 10 | 0.4% |
-| associated-fn-resolved (Phase 2g+Slice48+Slice50) | 7 | 0.30% |
+| import-resolved | 12 | 0.5% |
+| crate-path-resolved | 9 | 0.4% |
+| associated-fn-resolved | 7 | 0.3% |
+| super-path-resolved | 1 | 0.0% |
 
 ## Known Gaps (by design)
 
 | Gap | Reason |
 |-----|--------|
-| 1,219 unresolved calls (34.1%) | 1,181 method-calls need type inference (stop-line); 16 free-function; 10 associated-function; 7 qualified-path; 5 external-crate |
+| 1,239 unresolved calls (34.3%) | 1,204 method-calls need type inference (stop-line); 15 free-function (closures/cfg-gated/cross-module variant); 8 associated-function (external crate type); 7 qualified-path (cross-crate workspace); 5 external-crate |
 | Method dispatch limited | No type inference / trait solving (stop-line) |
 | Wildcard import not expanded | Stop-line: no macro expansion |
 | ACCESSES edges — same crate only | External type nodes only created for CALLS targets |

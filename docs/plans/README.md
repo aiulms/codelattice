@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Slice 55: 第 8 个 graph contract fixture — workspace-member）
+最后更新：2026-05-09（Slice 56: production readiness 综合审计 + QUALITY.md stats 刷新）
 
 ## 用途
 
@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.7%（2369/3608）。0 dangling CALLS edges。Graph contract 58/58（8 fixtures）。Call comparison 24/24 fixtures。Symbol comparison 4/4 fixtures。Enum variant 提取 + 分类修复已完成（Slice 53）：173 variant symbols，318 enum-constructor calls 全量 resolved。第 7-8 个 fixture enum-variant + workspace-member 已完成（Slice 54 + 55）。method-calls 仍为主要 gap（~1204 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.7%（2370/3609）。0 dangling CALLS edges。Graph contract 58/58（8 fixtures）。Call comparison 24/24 fixtures。Symbol comparison 4/4 fixtures。Graph 产出：1524 nodes, 2438 edges, 1054 CALLS edges。Enum variant 提取 + 分类修复已完成（Slice 53）：173 variant symbols，318 enum-constructor calls 全量 resolved。第 7-8 个 fixture enum-variant + workspace-member 已完成（Slice 54 + 55）。method-calls 仍为主要 gap（~1204 unresolved，stop-line: no type inference）。Unresolved free-function 15 个全部为局部闭包/cfg-gated/跨模块 variant（均在 stop-line 后）。
 
 ## 当前推荐下一篇计划
 
@@ -625,3 +625,12 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 验证 stdlib 外部 symbol：String::from、push_str、push
    - Graph contract: 51→58 tests（7→8 fixtures）
    - 全部测试通过（no-feature + feature + graph_contract 58/58）
+
+56. **Slice 56 — Rust Production Readiness 综合审计 + QUALITY.md stats 刷新** ✅ 完成（2026-05-09）：
+   - 全面 read-only audit：重跑 self-smoke、Cangjie 回归、graph contract 全量
+   - QUALITY.md 更新：stats 表（symbols 783→838、graph nodes/edges/CALLS 填入实际值）、resolved call distribution 表刷新（新增 crate-path-resolved/super-path-resolved）、unresolved breakdown 更新
+   - docs/plans/README.md 同步：当前状态总结更新为最新 stats
+   - 确认所有 unresolved free-function（15）均在 stop-line 后（局部闭包/cfg-gated/跨模块 variant）
+   - 全部测试通过：no-feature ~200 pass、feature ~330 pass、Cangjie fixture smoke 4/4 PASS、Cangjie graph contract 24/24、Rust graph contract 58/58
+   - 0 duplicate, 0 dangling, deterministic for both Rust and Cangjie
+   - cargo fmt --check + git diff --check clean
