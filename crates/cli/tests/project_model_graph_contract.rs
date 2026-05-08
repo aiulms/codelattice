@@ -1095,3 +1095,213 @@ fn rust_graph_contract_inline_module_calls_endpoint_integrity() {
         }
     }
 }
+
+// ============================================================
+// self-path fixture — 验证 self:: 路径解析、模块结构、HAS_PARENT
+// ============================================================
+
+#[test]
+fn rust_graph_contract_self_path_quality_gates() {
+    let data = collect_graph("self-path");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_self_path_node_kind_set() {
+    let data = collect_graph("self-path");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+    assert!(
+        data.node_kinds.contains_key("source-file"),
+        "应有 source-file 节点"
+    );
+
+    let source_files = data.node_kinds.get("source-file").copied().unwrap_or(0);
+    assert_eq!(
+        source_files, 1,
+        "应有 1 个 source file，实际: {}",
+        source_files
+    );
+
+    let symbols = data.node_kinds.get("symbol").copied().unwrap_or(0);
+    assert!(
+        symbols >= 13,
+        "应有至少 13 个 symbol（含 module、struct、impl、method），实际: {}",
+        symbols
+    );
+}
+
+#[test]
+fn rust_graph_contract_self_path_edge_kind_set() {
+    let data = collect_graph("self-path");
+
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+    assert!(
+        data.edge_kinds.contains_key("OWNS_SOURCE"),
+        "应有 OWNS_SOURCE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_TARGET"),
+        "应有 HAS_TARGET 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("CONTAINS_PACKAGE"),
+        "应有 CONTAINS_PACKAGE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_PARENT"),
+        "应有 HAS_PARENT 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("DESIGNATION"),
+        "应有 DESIGNATION 边"
+    );
+
+    let calls = data.edge_kinds.get("CALLS").copied().unwrap_or(0);
+    assert!(
+        calls >= 2,
+        "应有至少 2 条 CALLS edge（direct_caller + self_caller），实际: {}",
+        calls
+    );
+
+    let has_parent = data.edge_kinds.get("HAS_PARENT").copied().unwrap_or(0);
+    assert!(
+        has_parent >= 5,
+        "应有至少 5 条 HAS_PARENT 边，实际: {}",
+        has_parent
+    );
+}
+
+#[test]
+fn rust_graph_contract_self_path_known_symbols() {
+    let data = collect_graph("self-path");
+
+    let required = [
+        "symbol:self-path::crate::top_level_fn",
+        "symbol:self-path::crate::direct_caller",
+        "symbol:self-path::crate::self_caller",
+        "symbol:self-path::crate::self_associated_caller",
+        "symbol:self-path::crate::Calculator",
+        "symbol:self-path::crate::_impl_Calculator",
+        "symbol:self-path::crate::new",
+        "symbol:self-path::crate::add",
+        "symbol:self-path::crate::inner",
+        "symbol:self-path::crate::inner::inner_fn",
+        "symbol:self-path::crate::deeper",
+        "symbol:self-path::crate::deeper::nested",
+        "symbol:self-path::crate::deeper::nested::deep_fn",
+    ];
+
+    for sym_id in &required {
+        assert!(
+            data.node_ids.contains(*sym_id),
+            "必须存在 symbol: {}",
+            sym_id
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_self_path_known_defines_edges() {
+    let data = collect_graph("self-path");
+
+    let required = [
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:self-path::crate::top_level_fn",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:self-path::crate::self_caller",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:self-path::crate::direct_caller",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:self-path::crate::Calculator",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:self-path::crate::inner::inner_fn",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_self_path_known_calls_edges() {
+    let data = collect_graph("self-path");
+
+    // self:: 路径解析：self_caller → top_level_fn
+    let required = [
+        (
+            "CALLS",
+            "symbol:self-path::crate::direct_caller",
+            "symbol:self-path::crate::top_level_fn",
+        ),
+        (
+            "CALLS",
+            "symbol:self-path::crate::self_caller",
+            "symbol:self-path::crate::top_level_fn",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_self_path_calls_endpoint_integrity() {
+    let data = collect_graph("self-path");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}

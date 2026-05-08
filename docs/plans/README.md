@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Slice 51: import binding 多重同符号消歧）
+最后更新：2026-05-08（Slice 52: 第 6 个 contract fixture — self-path）
 
 ## 用途
 
@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.9%（2357/3579）。0 dangling CALLS edges。Graph contract 37/37（5 fixtures）。Call comparison 24/24 fixtures。import binding 同符号消歧 + crate:: AssociatedFunction 误分类 + impl 泛型目标解析 已修复。method-calls 仍为主要 gap（~1186 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.9%（2357/3579）。0 dangling CALLS edges。Graph contract 44/44（6 fixtures）。Call comparison 24/24 fixtures。import binding 同符号消歧 + self-path fixture 扩展 已完成。method-calls 仍为主要 gap（~1186 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
@@ -39,7 +39,8 @@
 
 **Priority 3 续 — Rust graph contract**
 - ~~第 5 个 contract fixture inline-module~~ ✅ 完成（Slice 49）
-- 第 6 个 contract fixture（如 workspace-member 或 self-super-path-combined）
+- ~~第 6 个 contract fixture self-path~~ ✅ 完成（Slice 52）
+- 第 7 个 contract fixture（如 workspace-member 或 enum-variant）
 
 **Priority 4 — Cangjie maintenance**
 - Quality gate 周期性回归验证
@@ -585,3 +586,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 全部测试通过（no-feature + feature，call comparison 7/7，graph_contract 37/37）
    - Preflight: `docs/plans/2026-05-08-rust-import-binding-same-symbol-disambiguation-preflight.md`
    - Closure Review: `docs/plans/2026-05-08-rust-import-binding-same-symbol-disambiguation-closure-review.md`
+
+52. **Slice 52 — 第 6 个 graph contract fixture（self-path）** ✅ 完成（2026-05-08）：
+   - 新增 fixture `fixtures/rust/self-path/`：self:: 路径调用、模块层次结构、struct + impl
+   - 新增 7 个 contract tests：quality_gates、node_kind_set、edge_kind_set、known_symbols、known_defines_edges、known_calls_edges、calls_endpoint_integrity
+   - 验证 self::top_level_fn() → same-module CALLS edge
+   - 覆盖 HAS_PARENT（5 条）、DESIGNATION、模块嵌套结构
+   - Graph contract: 37→44 tests（5→6 fixtures）
+   - 全部测试通过（no-feature + feature + graph_contract 44/44）
