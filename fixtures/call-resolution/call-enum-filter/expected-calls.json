@@ -12,21 +12,15 @@
       "byteEnd": 153
     },
     "rawText": "Some(42)",
-    "calleePath": "Some",
+    "knownCrate": "std",
+    "calleePath": "std::option::Option::Some",
     "calleeName": "Some",
-    "callKind": "free-function",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-enum-constructor",
-    "diagnostics": [
-      {
-        "code": "call-enum-constructor-filtered",
-        "severity": "info",
-        "message": "Some 是 Rust enum variant constructor，不是函数调用",
-        "targetName": "Some"
-      }
-    ]
+    "callKind": "enum-constructor",
+    "resolvedSymbolId": "std::option::Option::Some",
+    "resolvedSymbolKind": "enum-variant",
+    "confidence": 0.8,
+    "reason": "call-known-enum-constructor",
+    "diagnostics": []
   },
   {
     "id": "src/lib.rs::call::8::Ok",
@@ -41,21 +35,15 @@
       "byteEnd": 179
     },
     "rawText": "Ok(helper())",
-    "calleePath": "Ok",
+    "knownCrate": "std",
+    "calleePath": "std::result::Result::Ok",
     "calleeName": "Ok",
-    "callKind": "free-function",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-enum-constructor",
-    "diagnostics": [
-      {
-        "code": "call-enum-constructor-filtered",
-        "severity": "info",
-        "message": "Ok 是 Rust enum variant constructor，不是函数调用",
-        "targetName": "Ok"
-      }
-    ]
+    "callKind": "enum-constructor",
+    "resolvedSymbolId": "std::result::Result::Ok",
+    "resolvedSymbolKind": "enum-variant",
+    "confidence": 0.8,
+    "reason": "call-known-enum-constructor",
+    "diagnostics": []
   },
   {
     "id": "src/lib.rs::call::8::helper",
@@ -92,21 +80,15 @@
       "byteEnd": 205
     },
     "rawText": "Err(\"error\")",
-    "calleePath": "Err",
+    "knownCrate": "std",
+    "calleePath": "std::result::Result::Err",
     "calleeName": "Err",
-    "callKind": "free-function",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-enum-constructor",
-    "diagnostics": [
-      {
-        "code": "call-enum-constructor-filtered",
-        "severity": "info",
-        "message": "Err 是 Rust enum variant constructor，不是函数调用",
-        "targetName": "Err"
-      }
-    ]
+    "callKind": "enum-constructor",
+    "resolvedSymbolId": "std::result::Result::Err",
+    "resolvedSymbolKind": "enum-variant",
+    "confidence": 0.8,
+    "reason": "call-known-enum-constructor",
+    "diagnostics": []
   },
   {
     "id": "src/lib.rs::call::10::helper",
@@ -143,21 +125,15 @@
       "byteEnd": 239
     },
     "rawText": "Ok(x.unwrap())",
-    "calleePath": "Ok",
+    "knownCrate": "std",
+    "calleePath": "std::result::Result::Ok",
     "calleeName": "Ok",
-    "callKind": "free-function",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-enum-constructor",
-    "diagnostics": [
-      {
-        "code": "call-enum-constructor-filtered",
-        "severity": "info",
-        "message": "Ok 是 Rust enum variant constructor，不是函数调用",
-        "targetName": "Ok"
-      }
-    ]
+    "callKind": "enum-constructor",
+    "resolvedSymbolId": "std::result::Result::Ok",
+    "resolvedSymbolKind": "enum-variant",
+    "confidence": 0.8,
+    "reason": "call-known-enum-constructor",
+    "diagnostics": []
   },
   {
     "id": "src/lib.rs::call::11::unwrap",

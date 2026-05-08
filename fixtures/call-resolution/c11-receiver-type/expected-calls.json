@@ -127,22 +127,15 @@
       "byteEnd": 681
     },
     "rawText": "Some(42)",
-    "knownCrate": null,
-    "calleePath": "Some",
+    "knownCrate": "std",
+    "calleePath": "std::option::Option::Some",
     "calleeName": "Some",
-    "callKind": "free-function",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-enum-constructor",
-    "diagnostics": [
-      {
-        "code": "call-enum-constructor-filtered",
-        "severity": "info",
-        "message": "Some \u662f Rust enum variant constructor\uff0c\u4e0d\u662f\u51fd\u6570\u8c03\u7528",
-        "targetName": "Some"
-      }
-    ]
+    "callKind": "enum-constructor",
+    "resolvedSymbolId": "std::option::Option::Some",
+    "resolvedSymbolKind": "enum-variant",
+    "confidence": 0.8,
+    "reason": "call-known-enum-constructor",
+    "diagnostics": []
   },
   {
     "id": "src/lib.rs::call::24::unwrap_or",
@@ -180,22 +173,15 @@
       "byteEnd": 813
     },
     "rawText": "Ok(42)",
-    "knownCrate": null,
-    "calleePath": "Ok",
+    "knownCrate": "std",
+    "calleePath": "std::result::Result::Ok",
     "calleeName": "Ok",
-    "callKind": "free-function",
-    "resolvedSymbolId": null,
-    "resolvedSymbolKind": null,
-    "confidence": 0.0,
-    "reason": "call-enum-constructor",
-    "diagnostics": [
-      {
-        "code": "call-enum-constructor-filtered",
-        "severity": "info",
-        "message": "Ok \u662f Rust enum variant constructor\uff0c\u4e0d\u662f\u51fd\u6570\u8c03\u7528",
-        "targetName": "Ok"
-      }
-    ]
+    "callKind": "enum-constructor",
+    "resolvedSymbolId": "std::result::Result::Ok",
+    "resolvedSymbolKind": "enum-variant",
+    "confidence": 0.8,
+    "reason": "call-known-enum-constructor",
+    "diagnostics": []
   },
   {
     "id": "src/lib.rs::call::30::is_ok",

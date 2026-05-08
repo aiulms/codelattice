@@ -380,6 +380,41 @@ fn extract_calls_from_file(
     )
 }
 
+/// 已知 stdlib enum variant constructor 解析结果
+struct KnownEnumVariant {
+    symbol_id: String,
+    enum_path: String,
+}
+
+/// 将已知 stdlib enum variant constructor 名称解析到对应 enum variant symbol ID
+///
+/// 当前支持：
+/// - Some/None → std::option::Option::{Some,None}
+/// - Ok/Err → std::result::Result::{Ok,Err}
+///
+/// 返回 None 表示不是已知 enum constructor（调用方应走正常 CallSite 创建路径）
+fn resolve_known_enum_constructor(name: &str) -> Option<KnownEnumVariant> {
+    match name {
+        "Some" => Some(KnownEnumVariant {
+            symbol_id: "std::option::Option::Some".to_string(),
+            enum_path: "std::option::Option::Some".to_string(),
+        }),
+        "None" => Some(KnownEnumVariant {
+            symbol_id: "std::option::Option::None".to_string(),
+            enum_path: "std::option::Option::None".to_string(),
+        }),
+        "Ok" => Some(KnownEnumVariant {
+            symbol_id: "std::result::Result::Ok".to_string(),
+            enum_path: "std::result::Result::Ok".to_string(),
+        }),
+        "Err" => Some(KnownEnumVariant {
+            symbol_id: "std::result::Result::Err".to_string(),
+            enum_path: "std::result::Result::Err".to_string(),
+        }),
+        _ => None,
+    }
+}
+
 #[cfg(feature = "tree-sitter-extraction")]
 fn extract_calls_tree_sitter(
     source_text: &str,
@@ -571,10 +606,10 @@ fn process_call_expression(
     let (callee_path, callee_name, call_kind, known_crate) =
         classify_callee(&func_node, source_bytes, module_path, dependency_names);
 
-    // Rust enum variant constructor 过滤：Some/Ok/Err/None 不是函数调用
+    // Rust enum variant constructor 解析：Some/Ok/Err → 已知 stdlib enum variant
     // tree-sitter 把 Some(x) 解析为 call_expression，但 Rust 语义中这些是 enum variant constructors
-    const RUST_ENUM_CONSTRUCTORS: &[&str] = &["Some", "Ok", "Err", "None"];
-    if RUST_ENUM_CONSTRUCTORS.contains(&callee_name.as_str()) {
+    // 已知 stdlib enum variants 可以解析到对应 enum 类型的 variant symbol ID
+    if let Some(resolved) = resolve_known_enum_constructor(&callee_name) {
         let caller_info = caller_index.find_enclosing(source_path, line_start);
         return Some(CallSite {
             id: format!("{}::call::{}::{}", source_path, line_start, callee_name),
@@ -589,25 +624,17 @@ fn process_call_expression(
                 byte_end: node.end_byte(),
             },
             raw_text,
-            known_crate: None,
-            callee_path: callee_path.clone(),
+            known_crate: Some("std".to_string()),
+            callee_path: resolved.enum_path.clone(),
             callee_name: callee_name.clone(),
-            call_kind: call_kind.as_str().to_string(),
-            resolved_symbol_id: None,
-            resolved_symbol_kind: None,
-            confidence: 0.0,
-            reason: CallResolutionReason::CallEnumConstructor
+            call_kind: "enum-constructor".to_string(),
+            resolved_symbol_id: Some(resolved.symbol_id.clone()),
+            resolved_symbol_kind: Some("enum-variant".to_string()),
+            confidence: 0.80,
+            reason: CallResolutionReason::CallKnownEnumConstructor
                 .as_str()
                 .to_string(),
-            diagnostics: vec![CallDiagnostic {
-                code: "call-enum-constructor-filtered".to_string(),
-                severity: "info".to_string(),
-                message: format!(
-                    "{} 是 Rust enum variant constructor，不是函数调用",
-                    callee_name
-                ),
-                target_name: Some(callee_name.clone()),
-            }],
+            diagnostics: vec![],
         });
     }
 

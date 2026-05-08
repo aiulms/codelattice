@@ -595,6 +595,9 @@ pub enum CallResolutionReason {
     /// confidence 0.65，低于所有现有 resolution path
     CallMethodNameResolved,
     CallEnumConstructor,
+    /// 已知 stdlib enum variant constructor（Some→Option::Some, Ok→Result::Ok, Err→Result::Err）
+    /// 解析到对应 enum variant symbol ID，confidence 0.80
+    CallKnownEnumConstructor,
     /// external crate call classified to known crate name（不解析 crate 内 symbol）
     /// confidence 0.60：crate name known from [dependencies]，低于 method-name-resolved(0.65)
     CallExternalCrateClassified,
@@ -635,6 +638,10 @@ impl CallResolutionReason {
             CallResolutionReason::CallMethodNameResolved => "call-method-name-resolved",
             // Rust enum variant constructor（Some/Ok/Err）不是函数调用，直接标记
             CallResolutionReason::CallEnumConstructor => "call-enum-constructor",
+            // 已知 stdlib enum variant constructor（Some→Option::Some, Ok→Result::Ok 等）
+            // 解析到对应 enum variant symbol ID
+            // confidence 0.80：名称已知但未做 receiver type 验证，低于 same-module(0.90)
+            CallResolutionReason::CallKnownEnumConstructor => "call-known-enum-constructor",
             // external crate call classified to known crate name
             // confidence 0.60：crate name known，symbol within crate 未解析
             CallResolutionReason::CallExternalCrateClassified => "call-external-crate-classified",
