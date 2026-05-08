@@ -1285,15 +1285,41 @@ fn resolve_qualified_path(
             }
         }
         _ => {
-            call.reason = CallResolutionReason::CallTargetUnresolved
-                .as_str()
-                .to_string();
-            call.diagnostics.push(CallDiagnostic {
-                code: "call-target-unresolved".to_string(),
-                severity: "warning".to_string(),
-                message: format!("crate path 无法解析: {}", prefix),
-                target_name: Some(name),
-            });
+            // 模块链解析失败，但尝试直接在 CalleeIndex 中查找
+            // CalleeIndex 从实际 symbol extraction 构建，不需要文件系统验证
+            let target_mp = if segments.is_empty() {
+                "crate".to_string()
+            } else {
+                format!("crate::{}", segments.join("::"))
+            };
+            let matches = symbol_index.lookup(&target_mp, &name);
+            match matches {
+                [single] => {
+                    call.resolved_symbol_id = Some(single.id.clone());
+                    call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                    call.confidence = 0.90;
+                    call.reason = CallResolutionReason::CallCratePathResolved
+                        .as_str()
+                        .to_string();
+                    return;
+                }
+                [] => {
+                    call.reason = CallResolutionReason::CallTargetUnresolved
+                        .as_str()
+                        .to_string();
+                    call.diagnostics.push(CallDiagnostic {
+                        code: "call-target-unresolved".to_string(),
+                        severity: "warning".to_string(),
+                        message: format!("crate path 无法解析: {}", prefix),
+                        target_name: Some(name),
+                    });
+                }
+                _ => {
+                    call.reason = CallResolutionReason::CallTargetAmbiguous
+                        .as_str()
+                        .to_string();
+                }
+            }
         }
     }
 }
