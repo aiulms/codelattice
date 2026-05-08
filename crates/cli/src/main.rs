@@ -9,6 +9,7 @@
 //!
 //! JSON stdout，human logs stderr。
 
+mod bridge_format;
 mod language_detect;
 mod unified_types;
 
@@ -795,11 +796,12 @@ fn main() {
             language,
             format,
         } => {
-            if format != "json" {
-                eprintln!("错误：当前仅支持 --format json");
+            if format != "json" && format != "gitnexus-rc" {
+                eprintln!("错误：支持的格式：json, gitnexus-rc");
                 std::process::exit(1);
             }
 
+            let is_bridge = format == "gitnexus-rc";
             let root_path = match check_root(&root) {
                 Ok(p) => p,
                 Err(e) => {
@@ -828,29 +830,48 @@ fn main() {
                         }
                     };
 
-                    let summary = build_rust_summary(&json_val, &nodes, &edges);
-                    let quality_gates = compute_rust_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.3")
-                        .to_string();
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = bridge_format::convert_rust_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_rust_summary(&json_val, &nodes, &edges);
+                        let quality_gates = compute_rust_quality_gates(&nodes, &edges);
+                        let schema_version = json_val
+                            .get("schemaVersion")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("v0.3")
+                            .to_string();
 
-                    let result = LanguageAnalysisResult {
-                        language: lang,
-                        root: root_path.to_string_lossy().to_string(),
-                        analyzed_at: now_iso8601(),
-                        schema_version,
-                        summary,
-                        quality_gates,
-                        graph: json_val,
-                    };
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates,
+                            graph: json_val,
+                        };
 
-                    let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                        eprintln!("错误：JSON 序列化失败: {e}");
-                        std::process::exit(1);
-                    });
-                    println!("{json}");
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
                 }
                 "cangjie" => {
                     let (json_val, nodes, edges) = match run_cangjie_analysis(root_path) {
@@ -861,29 +882,48 @@ fn main() {
                         }
                     };
 
-                    let summary = build_cangjie_summary(&nodes, &edges);
-                    let quality_gates = compute_cangjie_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v1.0.0")
-                        .to_string();
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = bridge_format::convert_cangjie_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_cangjie_summary(&nodes, &edges);
+                        let quality_gates = compute_cangjie_quality_gates(&nodes, &edges);
+                        let schema_version = json_val
+                            .get("schemaVersion")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("v1.0.0")
+                            .to_string();
 
-                    let result = LanguageAnalysisResult {
-                        language: lang,
-                        root: root_path.to_string_lossy().to_string(),
-                        analyzed_at: now_iso8601(),
-                        schema_version,
-                        summary,
-                        quality_gates,
-                        graph: json_val,
-                    };
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates,
+                            graph: json_val,
+                        };
 
-                    let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                        eprintln!("错误：JSON 序列化失败: {e}");
-                        std::process::exit(1);
-                    });
-                    println!("{json}");
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
                 }
                 other => {
                     eprintln!("错误：不支持的语言: {other}");

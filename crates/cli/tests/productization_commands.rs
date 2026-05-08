@@ -120,7 +120,7 @@ fn analyze_unsupported_format_rejected() {
         .arg("yaml")
         .assert()
         .failure()
-        .stderr(predicate::str::contains("仅支持 --format json"));
+        .stderr(predicate::str::contains("支持的格式"));
 }
 
 // ============================================================

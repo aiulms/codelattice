@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Slice 56: production readiness 综合审计 + QUALITY.md stats 刷新）
+最后更新：2026-05-09（Productization Phase: Unified CLI + Bridge Adapter + Smoke Config）
 
 ## 用途
 
@@ -27,9 +27,23 @@
 
 **Rust 线：** Resolution rate 65.7%（2370/3609）。0 dangling CALLS edges。Graph contract 58/58（8 fixtures）。Call comparison 24/24 fixtures。Symbol comparison 4/4 fixtures。Graph 产出：1524 nodes, 2438 edges, 1054 CALLS edges。Enum variant 提取 + 分类修复已完成（Slice 53）：173 variant symbols，318 enum-constructor calls 全量 resolved。第 7-8 个 fixture enum-variant + workspace-member 已完成（Slice 54 + 55）。method-calls 仍为主要 gap（~1204 unresolved，stop-line: no type inference）。Unresolved free-function 15 个全部为局部闭包/cfg-gated/跨模块 variant（均在 stop-line 后）。
 
+**Productization 线（本轮新增，2026-05-09）：**
+- ✅ Unified CLI Surface：analyze / quality / summary 三个产品化命令，--language auto 检测
+- ✅ Unified Output Contract：docs/architecture/unified-output-contract.md（GraphSummary + QualityGateResult + LanguageAnalysisResult）
+- ✅ Quality Command：JSON 输出 + exit codes 0/1/2，7 个质量门
+- ✅ Bridge Adapter：crates/cli/src/bridge_format.rs（Rust/Cangjie → GitNexus-RC 兼容格式）
+- ✅ Smoke Targets Config：docs/smoke-targets-config.md（16 targets: 12 Tier 1 + 5 Tier 2）
+- ✅ Bridge Preflight：docs/architecture/bridge-preflight.md（差异矩阵 + stop-line）
+- ✅ 11 integration tests + 7 bridge unit tests
+
 ## 当前推荐下一篇计划
 
-**Priority 2 续 — Rust CALLS resolution quality**
+**Productization 下一步：**
+- Bridge format CLI integration tests（--format gitnexus-rc 端到端验证）
+- Local trial packaging（单二进制 + 安装脚本）
+- 前端消费准备（与 GitNexus-RC 维护者协商 schema 对齐）
+
+**Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
 - ~~import binding 多重同符号消歧~~ ✅ 完成（Slice 51）
 - 关联函数 resolution：8 unresolved（含 stop-line 外部 crate type 方法、derive-generated 方法）

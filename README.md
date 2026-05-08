@@ -118,6 +118,37 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie gr
 - No full cfg evaluator
 - No production replacement for GitNexus-RC tool
 
+### Unified Productization CLI（本地试用入口）
+
+面向产品化的统一 CLI 入口，提供 analyze / quality / summary 三个命令和语言自动检测。
+
+```bash
+# analyze — 完整分析（graph + quality gates）
+cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json
+cargo run -p gitnexus-rust-core-cli -- analyze --root . --language auto --format json
+
+# quality — 质量门检查（exit code: 0=pass, 1=fail, 2=ambiguous）
+cargo run -p gitnexus-rust-core-cli -- quality --root fixtures/rust/portable-smoke --language rust
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
+  quality --root fixtures/cangjie/portable-smoke --language cangjie
+
+# summary — 统计摘要（不含完整 graph）
+cargo run -p gitnexus-rust-core-cli -- summary --root fixtures/rust/portable-smoke --language rust --format json
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
+  summary --root fixtures/cangjie/portable-smoke --language cangjie --format json
+```
+
+**语言自动检测（--language auto）：**
+- 存在 `Cargo.toml` → `rust`
+- 存在 `cjpm.toml` → `cangjie`
+- 两者都存在 → 报错，要求显式指定
+
+**Bridge 格式（--format gitnexus-rc）：**
+- 将 Rust/Cangjie graph 转换为 GitNexus-RC 兼容格式
+- 归一化 edge 端点字段（source/target → sourceId/targetId）
+- 节点按 kind 显式分类，边按类型分组
+- Stop-line：不修改 GitNexus-RC 代码，不做 production replacement
+
 ---
 
 ## Verification
