@@ -209,6 +209,7 @@ dependencies = [
  "gitnexus-cangjie",
  "gitnexus-project-model",
  "predicates",
+ "serde",
  "serde_json",
 ]
 
