@@ -311,6 +311,158 @@ fn cangjie_graph_disabled_feature_error() {
     );
 }
 
+// === --strict quality gate 测试 ===
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn cangjie_inspect_strict_on_portable_smoke_succeeds() {
+    let fixture_dir = cangjie_fixture_dir("portable-smoke");
+    cli_bin()
+        .arg("cangjie")
+        .arg("inspect")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .arg("--strict")
+        .assert()
+        .success();
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn cangjie_inspect_strict_stdout_is_pure_json() {
+    let fixture_dir = cangjie_fixture_dir("portable-smoke");
+    let output = cli_bin()
+        .arg("cangjie")
+        .arg("inspect")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .arg("--strict")
+        .output()
+        .unwrap();
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let _: serde_json::Value =
+        serde_json::from_str(&stdout).expect("--strict stdout 必须只包含 JSON");
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn cangjie_graph_strict_equals_inspect_strict() {
+    let fixture_dir = cangjie_fixture_dir("portable-smoke");
+
+    let inspect_output = cli_bin()
+        .arg("cangjie")
+        .arg("inspect")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .arg("--strict")
+        .output()
+        .unwrap();
+
+    let graph_output = cli_bin()
+        .arg("cangjie")
+        .arg("graph")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .arg("--strict")
+        .output()
+        .unwrap();
+
+    let inspect_stdout = String::from_utf8_lossy(&inspect_output.stdout);
+    let graph_stdout = String::from_utf8_lossy(&graph_output.stdout);
+
+    assert_eq!(
+        inspect_stdout, graph_stdout,
+        "inspect --strict 和 graph --strict 应输出相同内容"
+    );
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn cangjie_inspect_strict_nonexistent_root_exits_nonzero() {
+    cli_bin()
+        .arg("cangjie")
+        .arg("inspect")
+        .arg("--root")
+        .arg("/nonexistent/path/that/does/not/exist")
+        .arg("--strict")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("不存在"));
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn cangjie_graph_strict_nonexistent_root_exits_nonzero() {
+    cli_bin()
+        .arg("cangjie")
+        .arg("graph")
+        .arg("--root")
+        .arg("/nonexistent/path/that/does/not/exist")
+        .arg("--strict")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("不存在"));
+}
+
+#[test]
+#[cfg(not(feature = "tree-sitter-cangjie"))]
+fn cangjie_inspect_strict_disabled_feature_error() {
+    let fixture_dir = cangjie_fixture_dir("imports-basic");
+    let output = cli_bin()
+        .arg("cangjie")
+        .arg("inspect")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .arg("--strict")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "feature disabled + --strict 应该非 0 退出"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Cangjie support is disabled"),
+        "stderr 应该包含 'Cangjie support is disabled'"
+    );
+    assert!(
+        stderr.contains("--features tree-sitter-cangjie"),
+        "stderr 应该包含 '--features tree-sitter-cangjie'"
+    );
+}
+
+#[test]
+#[cfg(not(feature = "tree-sitter-cangjie"))]
+fn cangjie_graph_strict_disabled_feature_error() {
+    let fixture_dir = cangjie_fixture_dir("imports-basic");
+    let output = cli_bin()
+        .arg("cangjie")
+        .arg("graph")
+        .arg("--root")
+        .arg(fixture_dir.to_string_lossy().as_ref())
+        .arg("--strict")
+        .output()
+        .unwrap();
+
+    assert!(
+        !output.status.success(),
+        "feature disabled + --strict 应该非 0 退出"
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Cangjie support is disabled"),
+        "stderr 应该包含 'Cangjie support is disabled'"
+    );
+    assert!(
+        stderr.contains("--features tree-sitter-cangjie"),
+        "stderr 应该包含 '--features tree-sitter-cangjie'"
+    );
+}
+
 // === 实际功能测试 ===
 
 #[test]

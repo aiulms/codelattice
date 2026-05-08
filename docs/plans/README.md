@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Production Acceptance 完结：audit + smoke hardening + contract regression guard + portable fixture + QUALITY.md，4+1 targets all quality gates green）
+最后更新：2026-05-08（Production Acceptance 完结：audit + smoke hardening + contract regression guard + portable fixture + QUALITY.md + strict flag CLI tests，4+1 targets all quality gates green）
 
 ## 用途
 
@@ -430,4 +430,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 27 nodes, 36 edges, 0 synthetic, 0 duplicate, 0 dangling, deterministic
    - 192/192 no-feature pass, 284+/284+ feature pass, 4/4 production smoke pass
    - 独立 QUALITY.md 提取完成（repo root，acceptance criteria single source of truth）
+   - Strict flag follow-up ✅ 完成：8 dedicated CLI tests + QUALITY.md --strict section + closure review
 35. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）

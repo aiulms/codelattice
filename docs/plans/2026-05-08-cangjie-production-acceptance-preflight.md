@@ -214,5 +214,6 @@ Not ready for:
 
 After Stage 2 (smoke ergonomics) and Stage 3 (contract regression guard):
 - ✅ Added `--strict` mode that fails on any synthetic > 0 (952f326)
+- ✅ Added dedicated CLI tests + docs for `--strict` (strict quality gate follow-up)
 - ✅ Added portable production fixtures (d048bf9, `fixtures/cangjie/portable-smoke/`)
 - ✅ Documented acceptance criteria as standalone QUALITY.md

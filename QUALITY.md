@@ -94,6 +94,30 @@ cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --ignore
 3. In `multi_project_smoke.rs`, add a `fixture_smoke_<name>` test
 4. Run full verification sequence above
 
+## `--strict` Flag
+
+Both `cangjie inspect` and `cangjie graph` accept a `--strict` flag (default: `false`):
+
+```sh
+cangjie inspect --root <path> --strict
+cangjie graph --root <path> --strict
+```
+
+**Behavior:**
+- With `--strict`, the CLI counts `CallableSource` (synthetic) nodes after graph emission
+- If synthetic > 0, the CLI exits non-zero with an error message on stderr
+- If synthetic = 0, output is identical to non-strict mode
+- Feature-disabled builds accept `--strict` without error (graceful no-op, same as non-strict disabled path)
+
+**Purpose:** Enforce the zero-synthetic quality gate at the CLI level for CI/CD or scripting, without requiring human inspection of smoke test output.
+
+**Limitations:**
+- `--strict` only checks synthetic > 0; it does not verify duplicate node IDs, dangling edges, or determinism (those remain covered by test suites)
+- No fixture currently triggers synthetic > 0 in production builds (all current fixtures and production targets produce 0 synthetic)
+- Strict failure (synthetic > 0 → non-zero exit) is tested indirectly by the `multi_project_smoke` and `graph_contract` quality gate suites, which hard-assert `synthetic_count = 0`
+
+**Tests:** `crates/cli/tests/cangjie_inspect.rs` — 8 dedicated tests covering strict success (valid JSON, graph parity), strict + nonexistent root, and strict + feature-disabled.
+
 ## Known Gaps (by design)
 
 | Gap | Reason |
