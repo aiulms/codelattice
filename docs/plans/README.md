@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Slice 53: enum variant extraction + classification fix）
+最后更新：2026-05-08（Slice 54: 第 7 个 graph contract fixture — enum-variant）
 
 ## 用途
 
@@ -25,7 +25,7 @@
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 
-**Rust 线：** Resolution rate 65.7%（2369/3608）。0 dangling CALLS edges。Graph contract 44/44（6 fixtures）。Call comparison 24/24 fixtures。Symbol comparison 4/4 fixtures。Enum variant 提取 + 分类修复已完成（Slice 53）：173 variant symbols，318 enum-constructor calls 全量 resolved。method-calls 仍为主要 gap（~1204 unresolved，stop-line: no type inference）。
+**Rust 线：** Resolution rate 65.7%（2369/3608）。0 dangling CALLS edges。Graph contract 51/51（7 fixtures）。Call comparison 24/24 fixtures。Symbol comparison 4/4 fixtures。Enum variant 提取 + 分类修复已完成（Slice 53）：173 variant symbols，318 enum-constructor calls 全量 resolved。第 7 个 fixture enum-variant 已完成（Slice 54）。method-calls 仍为主要 gap（~1204 unresolved，stop-line: no type inference）。
 
 ## 当前推荐下一篇计划
 
@@ -40,7 +40,8 @@
 **Priority 3 续 — Rust graph contract**
 - ~~第 5 个 contract fixture inline-module~~ ✅ 完成（Slice 49）
 - ~~第 6 个 contract fixture self-path~~ ✅ 完成（Slice 52）
-- 第 7 个 contract fixture（如 workspace-member 或 enum-variant）
+- ~~第 7 个 contract fixture enum-variant~~ ✅ 完成（Slice 54）
+- 第 8 个 contract fixture（如 workspace-member）
 
 **Priority 4 — Cangjie maintenance**
 - Quality gate 周期性回归验证
@@ -605,3 +606,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 全部测试通过（no-feature + graph_contract 44/44 + call_expected_compare 7/7 + symbol_expected_compare 4/4）
    - Preflight: `docs/plans/2026-05-08-rust-enum-variant-extraction-preflight.md`
    - Closure Review: `docs/plans/2026-05-08-rust-enum-variant-extraction-closure-review.md`
+
+54. **Slice 54 — 第 7 个 graph contract fixture（enum-variant）** ✅ 完成（2026-05-08）：
+   - 新增 fixture `fixtures/rust/enum-variant/`：简单 variant、元组 variant、结构体 variant、impl 方法内 variant 调用
+   - 新增 7 个 contract tests：quality_gates、node_kind_set、edge_kind_set、known_symbols、known_defines_edges、known_calls_edges、calls_endpoint_integrity
+   - 验证 7 个 enum variant Symbol 节点 + HAS_PARENT 边（variant → enum）
+   - 验证 CALLS 边：make_keypress → KeyPress（元组 variant 调用）
+   - Graph contract: 44→51 tests（6→7 fixtures）
+   - 全部测试通过（no-feature + feature + graph_contract 51/51）

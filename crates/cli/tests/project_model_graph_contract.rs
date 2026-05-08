@@ -1305,3 +1305,221 @@ fn rust_graph_contract_self_path_calls_endpoint_integrity() {
         }
     }
 }
+
+// ============================================================
+// enum-variant fixture — 枚举 variant 符号提取和调用解析
+// ============================================================
+
+#[test]
+fn rust_graph_contract_enum_variant_quality_gates() {
+    let data = collect_graph("enum-variant");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_enum_variant_node_kind_set() {
+    let data = collect_graph("enum-variant");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+    assert!(
+        data.node_kinds.contains_key("source-file"),
+        "应有 source-file 节点"
+    );
+
+    let source_files = data.node_kinds.get("source-file").copied().unwrap_or(0);
+    assert_eq!(
+        source_files, 1,
+        "应有 1 个 source file，实际: {}",
+        source_files
+    );
+
+    let symbols = data.node_kinds.get("symbol").copied().unwrap_or(0);
+    assert!(
+        symbols >= 14,
+        "应有至少 14 个 symbol（含 7 个 enum variant + enum + struct + impl + method），实际: {}",
+        symbols
+    );
+}
+
+#[test]
+fn rust_graph_contract_enum_variant_edge_kind_set() {
+    let data = collect_graph("enum-variant");
+
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+    assert!(
+        data.edge_kinds.contains_key("OWNS_SOURCE"),
+        "应有 OWNS_SOURCE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_TARGET"),
+        "应有 HAS_TARGET 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("CONTAINS_PACKAGE"),
+        "应有 CONTAINS_PACKAGE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_PARENT"),
+        "应有 HAS_PARENT 边（variant → enum）"
+    );
+    assert!(
+        data.edge_kinds.contains_key("DESIGNATION"),
+        "应有 DESIGNATION 边"
+    );
+
+    // 所有 14 个 symbol 都有 DEFINES 边
+    let defines = data.edge_kinds.get("DEFINES").copied().unwrap_or(0);
+    assert_eq!(defines, 14, "应有 14 条 DEFINES 边，实际: {}", defines);
+
+    // 7 个 enum variant 都有 HAS_PARENT 边
+    let has_parent = data.edge_kinds.get("HAS_PARENT").copied().unwrap_or(0);
+    assert!(
+        has_parent >= 7,
+        "应有至少 7 条 HAS_PARENT 边（variant → enum + method → impl），实际: {}",
+        has_parent
+    );
+}
+
+#[test]
+fn rust_graph_contract_enum_variant_known_symbols() {
+    let data = collect_graph("enum-variant");
+
+    // enum 类型
+    assert!(
+        data.node_ids.contains("symbol:enum-variant::crate::Color"),
+        "应有 Color enum symbol"
+    );
+    assert!(
+        data.node_ids
+            .contains("symbol:enum-variant::crate::WebEvent"),
+        "应有 WebEvent enum symbol"
+    );
+
+    // Color enum 的 variant 符号
+    for variant in &["Red", "Green", "Blue"] {
+        let id = format!("symbol:enum-variant::crate::{}", variant);
+        assert!(
+            data.node_ids.contains(&id),
+            "应有 Color::{} variant symbol: {}",
+            variant,
+            id
+        );
+    }
+
+    // WebEvent enum 的 variant 符号
+    for variant in &["PageLoad", "KeyPress", "Click"] {
+        let id = format!("symbol:enum-variant::crate::{}", variant);
+        assert!(
+            data.node_ids.contains(&id),
+            "应有 WebEvent::{} variant symbol: {}",
+            variant,
+            id
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_enum_variant_known_defines_edges() {
+    let data = collect_graph("enum-variant");
+
+    // 每个 symbol 都有 DEFINES 边从 source file 出发
+    let expected_symbols = vec![
+        "Color",
+        "Red",
+        "Green",
+        "Blue",
+        "WebEvent",
+        "PageLoad",
+        "KeyPress",
+        "Click",
+        "EventLogger",
+        "_impl_EventLogger",
+        "log_click",
+        "make_red",
+        "make_keypress",
+        "make_click",
+    ];
+
+    for sym in &expected_symbols {
+        let symbol_id = format!("symbol:enum-variant::crate::{}", sym);
+        let triple = (
+            "DEFINES".to_string(),
+            "file:src/lib.rs".to_string(),
+            symbol_id,
+        );
+        assert!(
+            data.edge_triples.contains(&triple),
+            "应有 DEFINES edge: file:src/lib.rs -> {}",
+            triple.2
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_enum_variant_known_calls_edges() {
+    let data = collect_graph("enum-variant");
+
+    // WebEvent::KeyPress(c) 元组 variant 调用 → KeyPress symbol
+    let keypress_triple = (
+        "CALLS".to_string(),
+        "symbol:enum-variant::crate::make_keypress".to_string(),
+        "symbol:enum-variant::crate::KeyPress".to_string(),
+    );
+    assert!(
+        data.edge_triples.contains(&keypress_triple),
+        "应有 CALLS edge: make_keypress -> KeyPress"
+    );
+
+    // 验证 HAS_PARENT 边：variant → enum
+    for (variant, parent) in &[
+        ("Red", "Color"),
+        ("Green", "Color"),
+        ("Blue", "Color"),
+        ("PageLoad", "WebEvent"),
+        ("KeyPress", "WebEvent"),
+        ("Click", "WebEvent"),
+    ] {
+        let triple = (
+            "HAS_PARENT".to_string(),
+            format!("symbol:enum-variant::crate::{}", variant),
+            format!("symbol:enum-variant::crate::{}", parent),
+        );
+        assert!(
+            data.edge_triples.contains(&triple),
+            "应有 HAS_PARENT edge: {} -> {}",
+            variant,
+            parent
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_enum_variant_calls_endpoint_integrity() {
+    let data = collect_graph("enum-variant");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}

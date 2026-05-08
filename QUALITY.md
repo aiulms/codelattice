@@ -146,7 +146,7 @@ These boundaries are non-negotiable for Rust-core Cangjie:
 
 # Rust Graph Quality Gates
 
-**Last updated:** 2026-05-08（Slice 53: enum variant extraction + classification fix）
+**Last updated:** 2026-05-08（Slice 54: 第 7 个 graph contract fixture — enum-variant）
 **Status:** Active
 **Source:** [Rust Production Readiness Smoke Audit](docs/plans/2026-05-08-rust-production-readiness-preflight.md)
 
@@ -170,7 +170,7 @@ Every Rust graph output must satisfy these invariants:
 
 ## Contract Regression Gates
 
-The `project_model_graph_contract` test suite (44 tests on 6 fixtures) verifies:
+The `project_model_graph_contract` test suite (51 tests on 7 fixtures) verifies:
 
 | Contract element | How verified |
 |-----------------|-------------|
@@ -191,11 +191,12 @@ The `project_model_graph_contract` test suite (44 tests on 6 fixtures) verifies:
 | `module-hierarchy` | 7 | Multi-level module tree, crate:: direct path, super:: path, import-resolved CALLS, cross-file DEFINES |
 | `inline-module` | 7 | Inline modules with nested definitions, crate:: path from nested module, HAS_PARENT edges for module hierarchy |
 | `self-path` | 7 | self:: path resolution for free functions, self:: path to associated function, module hierarchy HAS_PARENT, DESIGNATION edges |
+| `enum-variant` | 7 | Enum variant Symbol nodes (7 variants), HAS_PARENT (variant → enum), DEFINES for all symbols, CALLS for tuple variant invocation |
 
 ## Running Acceptance Tests
 
 ```sh
-# Rust graph contract regression — 44 tests on 6 fixtures
+# Rust graph contract regression — 51 tests on 7 fixtures
 cargo test --test project_model_graph_contract -- --nocapture
 
 # Full no-feature test suite
