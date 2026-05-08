@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Stage B function synthetic node elimination：新增 function_to_symbol_id 映射，所有 production targets synthetic=0）
+最后更新：2026-05-08（Production Acceptance 完结：audit + smoke hardening + contract regression guard，4 targets all quality gates green）
 
 ## 用途
 
@@ -406,4 +406,18 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 28. ~~Phase 2 import/reference quality hardening~~ ✅ 完成（ImportKind + confidence + disambiguation + dead code cleanup）
 29. ~~Phase 2 post-hardening hygiene~~ ✅ 完成（comments + no-feature warnings cleanup）
 30. ~~Phase 2 Stage B — Function synthetic node elimination~~ ✅ 完成（function_to_symbol_id mapping）
-31. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+31. **Production Acceptance Stage 1 — Audit + Preflight** ✅ 完成（2026-05-08）：
+   - 写 production acceptance preflight：CLI output contract, quality gate coverage, gaps, stop-lines
+   - 判定：READY for local trial use as development-quality graph tool
+   - Preflight: `docs/plans/2026-05-08-cangjie-production-acceptance-preflight.md`
+32. **Production Acceptance Stage 2 — Harden Test/Smoke Ergonomics** ✅ 完成（2026-05-08）：
+   - 重写 `multi_project_smoke.rs`：区分 Fixture（always available, hard assert）vs Production（#[ignore] guarded, graceful skip）
+   - 新增 3 fixture-based smoke tests（imports-basic, constructor-basic, reference-cross-file-basic）
+   - 改进输出格式（PASS/FAIL/SKIP 表格 + summary）
+   - 修复 fixture_path 解析（CARGO_MANIFEST_DIR → .parent() ×2）
+33. **Production Acceptance Stage 3 — Contract Snapshot / Regression Guard** ✅ 完成（2026-05-08）：
+   - 新增 `graph_contract.rs`：16 tests on 3 fixtures
+   - 验证 node/edge kind sets, known symbol IDs, known edge triples, quality gates
+   - 无 JSON snapshots，无 sort-order binding
+   - Closure Review: `docs/plans/2026-05-08-cangjie-contract-regression-guard-closure-review.md`
+34. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
