@@ -148,19 +148,19 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 
 ## 六、下一步建议
 
-### 短期（可在 Rust-core 内闭环）
-1. ~~**Bridge format 分类精准化**~~ ✅ 已修复（`0b8ed5f`）：partition_rust_nodes 仅匹配 label="symbol"
-2. ~~**Bridge format package_id**~~ ✅ 已修复（`9528000`）：edge traversal 两跳查找
-3. **Local trial packaging** ✅ 完成（`scripts/build.sh` + `scripts/smoke.sh`）：一键构建 + 快速验证
-4. **Bridge format 扩展**：quality/summary 命令也支持 `--format gitnexus-rc`
+### 短期（可在 Rust-core 内闭环）— 已全部完成
+1. ~~**Bridge format 分类精准化**~~ ✅ 已修复（`0b8ed5f`）
+2. ~~**Bridge format package_id**~~ ✅ 已修复（`9528000`）
+3. ~~**Local trial packaging**~~ ✅ 完成（`8bdcddf`）：scripts/build.sh + scripts/smoke.sh
+4. ~~**Bridge format 扩展**~~ → **不适用**：quality/summary 不输出 graph，`--format gitnexus-rc` 对其无语义意义
 
 ### 中期（需跨仓协商）
-4. **前端消费准备**：与 GitNexus-RC 维护者协商 schema 版本迁移路径
-5. **Bridge integration tests**：用 `--format gitnexus-rc` 对 GitNexus-RC 的测试 fixture 做 roundtrip 验证
+1. **前端消费准备**：与 GitNexus-RC 维护者协商 schema 版本迁移路径
+2. **Bridge integration tests**：用 `--format gitnexus-rc` 对 GitNexus-RC 的测试 fixture 做 roundtrip 验证
 
 ### 长期（需 stop-line 调整）
-6. **MCP/HTTP 消费层**：如果前端消费验证成功，可考虑新增 HTTP API 或 MCP server
-7. **单二进制发布**：release build + CI/CD pipeline
+1. **MCP/HTTP 消费层**：如果前端消费验证成功，可考虑新增 HTTP API 或 MCP server
+2. **单二进制发布**：release build + CI/CD pipeline
 
 ---
 
@@ -168,5 +168,6 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-09 | 1.2.0 | 下一步建议重编号：短期→全部完成/不适用，中/长期独立编号 |
 | 2026-05-09 | 1.1.0 | 更新 commits 列表（+74ff9af, +0e32995），residual gaps 全部已修复项标注完成 |
 | 2026-05-09 | 1.0.0 | 初始 closure review：5/5 priorities 完成，landed reality，stop-line 验证，residual gaps，下一步建议 |
