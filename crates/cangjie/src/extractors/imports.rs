@@ -338,6 +338,7 @@ fn parse_symbol_with_alias(package_name: &str, symbol: &str) -> Option<ImportCan
 }
 
 /// Extract the package name from a raw import target.
+#[allow(dead_code)]
 fn package_name_from_target(raw: &str) -> Option<String> {
     let target = strip_alias(raw);
     if target.is_empty() {

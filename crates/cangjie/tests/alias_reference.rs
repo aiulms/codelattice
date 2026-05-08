@@ -6,8 +6,8 @@
 
 #![cfg(feature = "tree-sitter-cangjie")]
 
-use gitnexus_cangjie::extractors::imports::{parse_named_import_candidates, ImportCandidate};
-use gitnexus_cangjie::extractors::references::{ImportBinding, ImportBindingTable};
+use gitnexus_cangjie::extractors::imports::parse_named_import_candidates;
+use gitnexus_cangjie::extractors::references::{ImportBinding, ImportBindingTable, ImportKind};
 use std::collections::HashMap;
 
 // -----------------------------------------------------------------------
@@ -91,6 +91,7 @@ fn test_import_binding_with_package_prefix() {
             target_file: String::new(),
             target_name: String::new(),
             package_prefix: Some("pkg".to_string()),
+            import_kind: ImportKind::PackageAlias,
         });
 
     // Regular import binding: `import pkg.Func` → direct binding
@@ -101,6 +102,7 @@ fn test_import_binding_with_package_prefix() {
             target_file: "/path/to/pkg/func.cj".to_string(),
             target_name: "Func".to_string(),
             package_prefix: None,
+            import_kind: ImportKind::ExplicitImport,
         });
 
     let table = ImportBindingTable::new(bindings);
@@ -117,7 +119,6 @@ fn test_import_binding_with_package_prefix() {
 }
 
 #[test]
-#[ignore]
 fn test_import_binding_exact_match_priority() {
     // Exact match should have priority over package prefix matching
     let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
@@ -134,6 +135,7 @@ fn test_import_binding_exact_match_priority() {
             target_file: "/path/to/pkg/func.cj".to_string(),
             target_name: "Func".to_string(),
             package_prefix: Some("pkg".to_string()), // This came from wildcard import
+            import_kind: ImportKind::WildcardImport,
         });
 
     // Exact match for direct import
@@ -144,6 +146,7 @@ fn test_import_binding_exact_match_priority() {
             target_file: "/path/to/other/func.cj".to_string(),
             target_name: "Func".to_string(),
             package_prefix: None, // Explicit import
+            import_kind: ImportKind::ExplicitImport,
         });
 
     let table = ImportBindingTable::new(bindings);
@@ -160,7 +163,6 @@ fn test_import_binding_exact_match_priority() {
 }
 
 #[test]
-#[ignore]
 fn test_import_binding_no_ambiguous_resolution() {
     // Multiple exact matches should return None (no fake edge)
     let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
@@ -176,6 +178,7 @@ fn test_import_binding_no_ambiguous_resolution() {
             target_file: "/path/to/pkg1/func.cj".to_string(),
             target_name: "Func".to_string(),
             package_prefix: Some("pkg1".to_string()),
+            import_kind: ImportKind::WildcardImport,
         });
 
     // Second wildcard import expansion (from pkg2.*)
@@ -186,6 +189,7 @@ fn test_import_binding_no_ambiguous_resolution() {
             target_file: "/path/to/pkg2/func.cj".to_string(),
             target_name: "Func".to_string(),
             package_prefix: Some("pkg2".to_string()),
+            import_kind: ImportKind::WildcardImport,
         });
 
     let table = ImportBindingTable::new(bindings);

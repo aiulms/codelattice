@@ -166,15 +166,6 @@ impl<'a> SameFileIndex<'a> {
 // Cross-file symbol index (project-wide)
 // ---------------------------------------------------------------------------
 
-/// Conflict information for wildcard import resolution.
-#[cfg(feature = "tree-sitter-cangjie")]
-#[derive(Debug, Clone)]
-struct SymbolConflict {
-    pub file: String,
-    pub package: String,
-    pub symbol_name: String,
-}
-
 /// Project-wide symbol index for cross-file reference resolution.
 ///
 /// Unlike [`SameFileIndex`] which is scoped to a single file, this index
@@ -247,85 +238,6 @@ impl CrossFileSymbolIndex {
             })
             .collect()
     }
-
-    /// Detect symbol conflicts across different packages for wildcard imports.
-    ///
-    /// Returns conflicts when the same symbol name appears in multiple packages.
-    /// Used to reduce confidence for potentially ambiguous wildcard imports.
-    fn detect_symbol_conflicts(&self, name: &str) -> Vec<SymbolConflict> {
-        let mut conflicts = Vec::new();
-
-        for ((file, symbol_name), symbols) in &self.by_file_and_name {
-            if symbol_name == name && !symbols.is_empty() {
-                let package = extract_package_from_path(file);
-                conflicts.push(SymbolConflict {
-                    file: file.clone(),
-                    package,
-                    symbol_name: name.to_string(),
-                });
-            }
-        }
-
-        conflicts
-    }
-}
-
-/// Extract package name from a file path.
-/// Simple heuristic: takes the directory name containing the .cj file.
-#[cfg(feature = "tree-sitter-cangjie")]
-fn extract_package_from_path(file_path: &str) -> String {
-    let path = std::path::Path::new(file_path);
-    // Try to get the parent directory name as package name
-    if let Some(parent) = path.parent() {
-        if let Some(package_name) = parent.file_name() {
-            return package_name.to_string_lossy().to_string();
-        }
-    }
-    // Fallback: use file stem
-    path.file_stem()
-        .unwrap_or_default()
-        .to_string_lossy()
-        .to_string()
-}
-
-/// Calculate wildcard import confidence based on symbol rarity and naming patterns.
-#[cfg(feature = "tree-sitter-cangjie")]
-fn calculate_wildcard_confidence(
-    symbol_name: &str,
-    total_symbols: usize,
-    name_frequency: &std::collections::HashMap<String, usize>,
-) -> f64 {
-    let base_confidence = 0.75;
-
-    // Rarity-based adjustment
-    let frequency = name_frequency.get(symbol_name).unwrap_or(&1);
-    let rarity_bonus = if *frequency == 1 {
-        0.10 // Bonus for unique symbols
-    } else if *frequency <= 3 {
-        0.05 // Small bonus for rare symbols
-    } else if *frequency >= 10 {
-        -0.10 // Penalty for very common symbols
-    } else {
-        -0.05 // Penalty for common symbols
-    };
-
-    // Naming pattern-based adjustment
-    let pattern_bonus = if symbol_name.contains("Specific")
-        || symbol_name.contains("Custom")
-        || symbol_name.len() > 8
-    {
-        0.03 // Bonus for specific names
-    } else if symbol_name.starts_with("Common")
-        || symbol_name.starts_with("Generic")
-        || symbol_name.starts_with("Base")
-    {
-        -0.03 // Penalty for generic names
-    } else {
-        0.0
-    };
-
-    let adjusted: f64 = base_confidence + rarity_bonus + pattern_bonus;
-    adjusted.min(0.85).max(0.60) // Clamp to valid range
 }
 
 /// Resolve wildcard import package from import statement.
@@ -387,6 +299,21 @@ fn find_public_symbols_in_dir(
 // Import binding table (cross-file reference resolution)
 // ---------------------------------------------------------------------------
 
+/// The kind of import that produced a cross-file binding.
+///
+/// Used to differentiate confidence in reference edge emission:
+/// explicit imports have higher confidence than wildcard fallbacks.
+#[cfg(feature = "tree-sitter-cangjie")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportKind {
+    /// Explicit named import (simple, grouped, or alias).
+    ExplicitImport,
+    /// Wildcard import (`import pkg.*`).
+    WildcardImport,
+    /// Package alias import (`import pkg as p`).
+    PackageAlias,
+}
+
 /// A resolved import binding for cross-file reference lookup.
 #[cfg(feature = "tree-sitter-cangjie")]
 #[derive(Debug, Clone)]
@@ -397,6 +324,8 @@ pub struct ImportBinding {
     pub target_name: String,
     /// Package alias prefix (for `import pkg as p` → can reference "p.Func").
     pub package_prefix: Option<String>,
+    /// The kind of import that produced this binding.
+    pub import_kind: ImportKind,
 }
 
 /// Maps (source_file, local_name) → candidate import bindings.
@@ -435,17 +364,6 @@ impl ImportBindingTable {
         let cross_index = CrossFileSymbolIndex::build(symbols_by_file);
         let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
 
-        // Build symbol frequency map for confidence calculation
-        let mut symbol_frequency: std::collections::HashMap<String, usize> =
-            std::collections::HashMap::new();
-        let mut total_symbols = 0;
-        for symbols in symbols_by_file.values() {
-            for symbol in symbols {
-                *symbol_frequency.entry(symbol.name.clone()).or_insert(0) += 1;
-                total_symbols += 1;
-            }
-        }
-
         let all_kinds = &[
             CangjieSymbolKind::Function,
             CangjieSymbolKind::Class,
@@ -464,11 +382,7 @@ impl ImportBindingTable {
                 if import.is_wildcard {
                     // Resolve the package for wildcard import
                     if let Some(wildcard_package) = resolve_wildcard_package(&import, project) {
-                        // Get public symbols in the package
                         if let Some(ref target_dir) = wildcard_package.target_dir {
-                            // Detect conflicts for this wildcard import
-                            let conflicts = cross_index.detect_symbol_conflicts("*");
-
                             // Find public symbols in target directory
                             let public_symbols =
                                 if let Some(ref target_dir) = wildcard_package.target_dir {
@@ -478,28 +392,13 @@ impl ImportBindingTable {
                                         all_kinds,
                                     )
                                 } else {
-                                    Vec::new() // No target directory found
+                                    Vec::new()
                                 };
 
-                            // Create bindings for wildcard imports with adjusted confidence
+                            // Create wildcard import bindings.
+                            // Conflicts (same symbol in multiple wildcard sources) are
+                            // handled at resolve() time — multiple candidates → no-edge.
                             for symbol in &public_symbols {
-                                let base_confidence = 0.75;
-
-                                // Adjust confidence based on conflicts and rarity
-                                let symbol_conflicts =
-                                    cross_index.detect_symbol_conflicts(&symbol.name);
-                                let adjusted_confidence = if symbol_conflicts.len() > 1 {
-                                    // Multiple packages have this symbol - reduce confidence
-                                    base_confidence * 0.7 // Penalty for conflicts
-                                } else {
-                                    // Use rarity-based confidence
-                                    calculate_wildcard_confidence(
-                                        &symbol.name,
-                                        total_symbols,
-                                        &symbol_frequency,
-                                    )
-                                };
-
                                 bindings
                                     .entry((file_key.clone(), symbol.name.clone()))
                                     .or_default()
@@ -511,6 +410,7 @@ impl ImportBindingTable {
                                         ),
                                         target_name: symbol.name.clone(),
                                         package_prefix: None,
+                                        import_kind: ImportKind::WildcardImport,
                                     });
                             }
                         }
@@ -529,6 +429,7 @@ impl ImportBindingTable {
                             target_file: String::new(), // Placeholder - actual target resolved during reference lookup
                             target_name: String::new(), // Placeholder - actual name resolved during reference lookup
                             package_prefix: Some(package_alias.package_name.clone()),
+                            import_kind: ImportKind::PackageAlias,
                         });
                     continue;
                 }
@@ -551,6 +452,7 @@ impl ImportBindingTable {
                                         target_file: candidate_files[0].clone(),
                                         target_name: candidate.exported_name.clone(),
                                         package_prefix: None,
+                                        import_kind: ImportKind::ExplicitImport,
                                     });
                             }
                             // else: ambiguous or no match → no binding (no fake edge)
@@ -623,85 +525,46 @@ impl ImportBindingTable {
     }
 
     /// Apply disambiguation heuristics when multiple candidates exist.
+    ///
+    /// Priority order (from AGENTS.md + governance):
+    /// 1. ExplicitImport (highest confidence, direct named import)
+    /// 2. PackageAlias (indirect, needs prefix resolution)
+    /// 3. WildcardImport (lowest confidence, heuristic expansion)
+    ///
+    /// Returns `Some(index)` into `candidates` for the best match,
+    /// or `None` if truly ambiguous (no unique winner).
     #[cfg(feature = "tree-sitter-cangjie")]
     fn apply_disambiguation_heuristics(
         &self,
         candidates: &[ImportBinding],
-        name: &str,
+        _name: &str,
     ) -> Option<usize> {
-        // Return the index of the best candidate, or None if ambiguous
-        // Separate exact matches from package alias matches
-        let exact_matches: Vec<_> = candidates
+        // Priority 1: Unique ExplicitImport beats everything else
+        let explicit_positions: Vec<usize> = candidates
             .iter()
-            .filter(|b| b.package_prefix.is_none())
+            .enumerate()
+            .filter(|(_, b)| b.import_kind == ImportKind::ExplicitImport)
+            .map(|(i, _)| i)
             .collect();
-        let alias_matches: Vec<_> = candidates
-            .iter()
-            .filter(|b| b.package_prefix.is_some())
-            .collect();
-
-        // Priority 1: Prefer exact matches over package alias matches
-        if exact_matches.len() == 1 && alias_matches.is_empty() {
-            return Some(0); // First exact match
-        } else if exact_matches.len() == 1 && !alias_matches.is_empty() {
-            // Mix of exact and alias: prefer exact match
-            return Some(0); // First exact match
+        if explicit_positions.len() == 1 {
+            return Some(explicit_positions[0]);
         }
 
-        // Priority 2: Naming pattern heuristics
-        if candidates.len() > 1 {
-            // Prefer more specific names
-            let scored: Vec<_> = candidates
-                .iter()
-                .enumerate()
-                .map(|(i, b)| {
-                    let specificity_score = calculate_specificity_score(&b.target_name, name);
-                    (i, specificity_score)
-                })
-                .collect();
-
-            // Return the index of the highest scoring candidate
-            scored
-                .into_iter()
-                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
-                .map(|(index, _)| index)
-        } else {
-            None
+        // Priority 2: If no explicit import, look for unique PackageAlias
+        let alias_positions: Vec<usize> = candidates
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.import_kind == ImportKind::PackageAlias)
+            .map(|(i, _)| i)
+            .collect();
+        if alias_positions.len() == 1 {
+            return Some(alias_positions[0]);
         }
+
+        // Priority 3: Multiple wildcards or mixed without clear winner → ambiguous
+        // "宁可 no-edge，也不要错误高置信度 edge"
+        None
     }
-}
-
-/// Calculate specificity score for disambiguation.
-/// Higher scores indicate more specific/better matches.
-#[cfg(feature = "tree-sitter-cangjie")]
-fn calculate_specificity_score(target_name: &str, reference_name: &str) -> f64 {
-    let mut score = 0.0;
-
-    // Exact match gets highest score
-    if target_name == reference_name {
-        score += 1.0;
-    } else if target_name.contains(reference_name) || reference_name.contains(target_name) {
-        // Partial match gets medium score
-        score += 0.5;
-    }
-
-    // Prefer longer, more specific names
-    score += (target_name.len() as f64) * 0.01;
-
-    // Penalty for generic names
-    if target_name.starts_with("Common")
-        || target_name.starts_with("Generic")
-        || target_name.starts_with("Base")
-    {
-        score -= 0.3;
-    }
-
-    // Bonus for specific names
-    if target_name.contains("Specific") || target_name.contains("Custom") {
-        score += 0.2;
-    }
-
-    score
 }
 
 // ---------------------------------------------------------------------------
@@ -987,7 +850,17 @@ pub fn extract_cangjie_references(
         // Step 2: cross-file resolution via import bindings
         if let Some(bindings) = import_bindings {
             if let Some(binding) = bindings.resolve(file_path, target_name) {
-                let cross_reason = format!("{} (cross-file via import)", reason);
+                let (import_confidence, import_reason) = match binding.import_kind {
+                    ImportKind::ExplicitImport => {
+                        (0.85, format!("{} (cross-file via explicit import)", reason))
+                    }
+                    ImportKind::PackageAlias => {
+                        (0.80, format!("{} (cross-file via package alias)", reason))
+                    }
+                    ImportKind::WildcardImport => {
+                        (0.70, format!("{} (cross-file via wildcard import)", reason))
+                    }
+                };
                 references.push(CangjieReference {
                     kind,
                     source_id,
@@ -995,8 +868,8 @@ pub fn extract_cangjie_references(
                     target_kinds,
                     file_path: file_path.to_string(),
                     target_file: Some(binding.target_file.clone()),
-                    confidence: 0.85, // cross-file explicit import: confidence 0.85
-                    reason: cross_reason,
+                    confidence: import_confidence,
+                    reason: import_reason,
                 });
             }
             // else: ambiguous or no match → no edge (no fake edge)

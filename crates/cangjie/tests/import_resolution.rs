@@ -5,9 +5,7 @@
 
 #[cfg(feature = "tree-sitter-cangjie")]
 mod import_tests {
-    use gitnexus_cangjie::extractors::{
-        extract_cangjie_imports, extract_cangjie_symbols, parse_cangjie_source,
-    };
+    use gitnexus_cangjie::extractors::{extract_cangjie_imports, parse_cangjie_source};
     use gitnexus_cangjie::graph::inspect_cangjie_project;
     use gitnexus_cangjie::project::find_project_root;
     use std::path::{Path, PathBuf};
@@ -63,7 +61,7 @@ mod import_tests {
     #[test]
     fn fixture_add_parses_cleanly() {
         let source = read_fixture_file("demo/math/add.cj");
-        let file_path = fixture_dir().join("src").join("demo/math/add.cj");
+        let _file_path = fixture_dir().join("src").join("demo/math/add.cj");
         let tree = parse_cangjie_source(&source).unwrap();
         fn has_error_node(node: tree_sitter::Node) -> bool {
             if node.kind() == "ERROR" {

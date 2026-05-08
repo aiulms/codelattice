@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2 production graph quality hardening：Function symbol node ID 唯一性修复 + Method source ID 映射，all production targets 0 duplicate）
+最后更新：2026-05-08（Phase 2 import/reference quality hardening：ImportKind 枚举 + 差异化 confidence + disambiguation 重写 + dead code 清理 + warning cleanup，all production targets 0 duplicate 0 dangling）
 
 ## 用途
 
@@ -318,6 +318,19 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - 287+ tests pass（with feature），0 fail，零新增依赖
 - Closure Review：`docs/plans/2026-05-08-cangjie-production-graph-quality-hardening-closure-review.md`
 
+**Phase 2 import/reference quality hardening ✅ 完成（2026-05-08）：**
+- ImportKind 枚举：ExplicitImport / WildcardImport / PackageAlias 三种 import 种类
+- 差异化 confidence：ExplicitImport=0.85, PackageAlias=0.80, WildcardImport=0.70（原 flat 0.85）
+- Disambiguation 重写：Unique ExplicitImport > Unique PackageAlias > 多 wildcard no-edge
+- Dead code 清理：移除 SymbolConflict, detect_symbol_conflicts, calculate_wildcard_confidence, extract_package_from_path, calculate_specificity_score（~100 lines）
+- Warning cleanup：package_name_from_target 添加 #[allow(dead_code)]，移除未使用 import 和变量
+- 测试启用：2 个 #[ignore] 测试（exact match priority, ambiguous resolution）启用并通过
+- Reason 字符串区分：`cross-file via explicit import` / `cross-file via package alias` / `cross-file via wildcard import`
+- 核心原则："宁可 no-edge，也不要错误高置信度 edge"
+- Production smoke: 4/4 targets 全部 0 duplicate, 0 dangling, deterministic
+- 287+ tests pass（with feature），0 fail，零新增依赖
+- Closure Review：`docs/plans/2026-05-08-cangjie-import-reference-quality-hardening-closure-review.md`
+
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
@@ -369,4 +382,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 25. ~~Phase 2 Slice 21 — Cangjie constructor symbol extraction~~ ✅ 完成（Init kind + source ID 映射 + synthetic coexistence）
 26. ~~Phase 2 Slice 21 post-review follow-up — Init symbol node ID 唯一性修复~~ ✅ 完成（arity-based unique ID）
 27. ~~Phase 2 production graph quality hardening — Function symbol node ID 唯一性修复~~ ✅ 完成（owner + arity）
-28. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+28. ~~Phase 2 import/reference quality hardening~~ ✅ 完成（ImportKind + confidence + disambiguation + dead code cleanup）
+29. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
