@@ -761,8 +761,11 @@ pub fn extract_cangjie_references(
             let qualified = format!("{}.{}", owner, ctx.func_name);
             Some(format!("Method:{}:{}#{}", file_path, qualified, ctx.arity))
         } else {
-            // top-level function or main → Function:<filePath>:<funcName>
-            Some(format!("Function:{}:{}", file_path, ctx.func_name))
+            // top-level function or main → Function:<filePath>:<funcName>#<arity>
+            Some(format!(
+                "Function:{}:{}#{}",
+                file_path, ctx.func_name, ctx.arity
+            ))
         }
     }
 

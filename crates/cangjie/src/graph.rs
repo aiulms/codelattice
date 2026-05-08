@@ -7,7 +7,7 @@
 //! the `tree-sitter-cangjie` feature.
 
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::diagnostics::CangjieDiagnostic;
@@ -116,18 +116,22 @@ fn source_file_node_id(file_path: &Path, project_root: &Path) -> String {
 fn symbol_node_id(file_path: &Path, project_root: &Path, symbol: &CangjieSymbol) -> String {
     let rel = file_path.strip_prefix(project_root).unwrap_or(file_path);
     let kind_str = format!("{:?}", symbol.kind);
-    // Init symbol node id 添加 #arity 后缀以保证多 init 构造函数的 node id 唯一性。
-    // 格式：sym:<rel-path>:Init:<Owner>.init#<arity>
-    if symbol.kind == crate::CangjieSymbolKind::Init {
-        if let Some(arity) = symbol.arity {
-            return format!(
-                "sym:{}:{}:{}#{}",
-                rel.to_string_lossy(),
-                kind_str,
-                symbol.name,
-                arity
-            );
+    // Init 和 Function symbol node id 添加 #arity 后缀以保证多定义时的 node id 唯一性。
+    // Init 格式：sym:<rel-path>:Init:<Owner>.init#<arity>
+    // Function 格式：sym:<rel-path>:Function:<[Owner.]name>#<arity>
+    match symbol.kind {
+        crate::CangjieSymbolKind::Init | crate::CangjieSymbolKind::Function => {
+            if let Some(arity) = symbol.arity {
+                return format!(
+                    "sym:{}:{}:{}#{}",
+                    rel.to_string_lossy(),
+                    kind_str,
+                    symbol.name,
+                    arity
+                );
+            }
         }
+        _ => {}
     }
     format!("sym:{}:{}:{}", rel.to_string_lossy(), kind_str, symbol.name)
 }
@@ -455,14 +459,19 @@ fn extract_method_label(source_id: &str) -> &str {
 
 /// Extract a readable label from a Function source ID.
 ///
-/// Example: `Function:/path/to/file:funcName` → `funcName`
+/// Example: `Function:/path/to/file:funcName#0` → `funcName`
 fn extract_function_label(source_id: &str) -> &str {
-    // Format: `Function:/path/to/file:funcName`
-    // Extract the part after the last ':'
-    if let Some(pos) = source_id.rfind(':') {
+    // Format: `Function:/path/to/file:funcName#arity`
+    // Extract the part after the last ':' and before '#'
+    let after_colon = if let Some(pos) = source_id.rfind(':') {
         &source_id[pos + 1..]
     } else {
         source_id
+    };
+    if let Some(hash_pos) = after_colon.find('#') {
+        &after_colon[..hash_pos]
+    } else {
+        after_colon
     }
 }
 
@@ -502,6 +511,9 @@ pub fn emit_cangjie_reference_edges(
     // 构建 Constructor source_id → init symbol node_id 映射
     // 格式：Constructor:<abs-path>:<Owner>.init#arity → sym:<rel-path>:Init:<Owner>.init#arity
     let mut constructor_to_symbol_id: HashMap<String, String> = HashMap::new();
+    // 构建 Method source_id → Function symbol node_id 映射
+    // 格式：Method:<abs-path>:<Owner>.<funcName>#arity → sym:<rel-path>:Function:<Owner>.<funcName>#arity
+    let mut method_to_symbol_id: HashMap<String, String> = HashMap::new();
     for (file_path, symbols) in symbols_by_file {
         for sym in symbols {
             if sym.kind == crate::CangjieSymbolKind::Init {
@@ -513,6 +525,16 @@ pub fn emit_cangjie_reference_edges(
                         format!("Constructor:{}:{}.init#{}", abs_path, owner, arity);
                     let sym_id = symbol_node_id(file_path, project_root, sym);
                     constructor_to_symbol_id.insert(constructor_source_id, sym_id);
+                }
+            }
+            if sym.kind == crate::CangjieSymbolKind::Function {
+                if sym.owner_name.is_some() {
+                    // sym.name 已经是 Owner.funcName 格式
+                    let abs_path = file_path.to_string_lossy();
+                    let arity = sym.arity.unwrap_or(0);
+                    let method_source_id = format!("Method:{}:{}#{}", abs_path, sym.name, arity);
+                    let sym_id = symbol_node_id(file_path, project_root, sym);
+                    method_to_symbol_id.insert(method_source_id, sym_id);
                 }
             }
         }
@@ -529,8 +551,12 @@ pub fn emit_cangjie_reference_edges(
             ReferenceKind::Modifies => EdgeKind::Modifies,
         };
 
-        // 解析 source_id：优先使用 init symbol node_id（如果存在）
-        let effective_source_id = resolve_source_id(&r.source_id, &constructor_to_symbol_id);
+        // 解析 source_id：优先使用真实 symbol node_id（Init/Function）
+        let effective_source_id = resolve_source_id(
+            &r.source_id,
+            &constructor_to_symbol_id,
+            &method_to_symbol_id,
+        );
         if effective_source_id != r.source_id {
             resolved_source_ids.insert(r.source_id.clone());
         }
@@ -554,29 +580,38 @@ pub fn emit_cangjie_reference_edges(
     (edges, resolved_source_ids)
 }
 
-/// 解析 source_id：如果存在对应的 init symbol node_id，返回 node_id；否则返回原始 source_id。
+/// 解析 source_id：如果存在对应的真实 symbol node_id，返回 node_id；否则返回原始 source_id。
 ///
-/// Constructor source_id 格式可能包含 #arity 后缀（如 `Constructor:/path:Foo.init#3`），
+/// 支持 Constructor: 和 Method: 前缀的 source_id 映射。
+/// 格式可能包含 #arity 后缀（如 `Constructor:/path:Foo.init#3`），
 /// 映射时先尝试精确匹配，再尝试去掉 #arity 后缀匹配。
 fn resolve_source_id(
     source_id: &str,
     constructor_to_symbol_id: &HashMap<String, String>,
+    method_to_symbol_id: &HashMap<String, String>,
 ) -> String {
-    // 只处理 Constructor: 前缀的 source_id
-    if !source_id.starts_with("Constructor:") {
-        return source_id.to_string();
-    }
-
     // 精确匹配
-    if let Some(sym_id) = constructor_to_symbol_id.get(source_id) {
-        return sym_id.clone();
-    }
-
-    // 去掉 #arity 后缀再匹配
-    if let Some(hash_pos) = source_id.find('#') {
-        let without_arity = &source_id[..hash_pos];
-        if let Some(sym_id) = constructor_to_symbol_id.get(without_arity) {
+    if source_id.starts_with("Constructor:") {
+        if let Some(sym_id) = constructor_to_symbol_id.get(source_id) {
             return sym_id.clone();
+        }
+        // 去掉 #arity 后缀再匹配
+        if let Some(hash_pos) = source_id.find('#') {
+            let without_arity = &source_id[..hash_pos];
+            if let Some(sym_id) = constructor_to_symbol_id.get(without_arity) {
+                return sym_id.clone();
+            }
+        }
+    } else if source_id.starts_with("Method:") {
+        if let Some(sym_id) = method_to_symbol_id.get(source_id) {
+            return sym_id.clone();
+        }
+        // 去掉 #arity 后缀再匹配
+        if let Some(hash_pos) = source_id.find('#') {
+            let without_arity = &source_id[..hash_pos];
+            if let Some(sym_id) = method_to_symbol_id.get(without_arity) {
+                return sym_id.clone();
+            }
         }
     }
 
@@ -755,6 +790,16 @@ pub fn inspect_cangjie_project(
         emit_cangjie_diagnostics(&diagnostics, &symbols_by_file, &project.root);
     output.nodes.extend(diag_nodes);
     output.edges.extend(diag_edges);
+
+    // 去重：同一 source file 中同一函数引用同一 struct 多次会产重复 (kind, sourceId, targetId) edge。
+    // 这些 edge 代表不同的 reference occurrence，但在 graph identity 层面构成 multigraph 噪音，
+    // 因此做确定性去重（保留首次出现）。
+    {
+        let mut seen_edges: HashSet<(EdgeKind, String, String)> = HashSet::new();
+        output
+            .edges
+            .retain(|e| seen_edges.insert((e.kind, e.source_id.clone(), e.target_id.clone())));
+    }
 
     // Re-sort for determinism after merging
     output.nodes.sort_by(|a, b| a.id.cmp(&b.id));

@@ -114,33 +114,12 @@ pub fn extract_cangjie_symbols_from_tree(
         .position(|n| *n == "init_name")
         .expect("query has @init_name capture") as u32;
 
-    /// 统计 init 节点的参数数量（parameterList 中 parameter 子节点个数）。
-    fn count_init_params(init_node: tree_sitter::Node) -> usize {
-        for i in 0..init_node.named_child_count() {
-            if let Some(child) = init_node.named_child(i as u32) {
-                if child.kind() == "parameterList" {
-                    let mut count = 0;
-                    for j in 0..child.named_child_count() {
-                        if let Some(p) = child.named_child(j as u32) {
-                            if p.kind() == "parameter" {
-                                count += 1;
-                            }
-                        }
-                    }
-                    return count;
-                }
-            }
-        }
-        0
-    }
-
-    /// 从 init 节点向上查找 owner type name（classDefinition/structDefinition 的 className/structName）
+    /// 从 definition 节点向上查找 owner type name（classDefinition/structDefinition/...）
     fn extract_owner_name(node: tree_sitter::Node, source: &str) -> Option<String> {
         let mut current = node.parent();
         while let Some(parent) = current {
             match parent.kind() {
                 "classDefinition" => {
-                    // 查找 className 子节点
                     for i in 0..parent.named_child_count() {
                         if let Some(child) = parent.named_child(i as u32) {
                             if child.kind() == "className" {
@@ -154,10 +133,35 @@ pub fn extract_cangjie_symbols_from_tree(
                     return None;
                 }
                 "structDefinition" => {
-                    // 查找 structName 子节点
                     for i in 0..parent.named_child_count() {
                         if let Some(child) = parent.named_child(i as u32) {
                             if child.kind() == "structName" {
+                                return child
+                                    .utf8_text(source.as_bytes())
+                                    .ok()
+                                    .map(|s| s.to_string());
+                            }
+                        }
+                    }
+                    return None;
+                }
+                "enumDefinition" => {
+                    for i in 0..parent.named_child_count() {
+                        if let Some(child) = parent.named_child(i as u32) {
+                            if child.kind() == "enumName" {
+                                return child
+                                    .utf8_text(source.as_bytes())
+                                    .ok()
+                                    .map(|s| s.to_string());
+                            }
+                        }
+                    }
+                    return None;
+                }
+                "interfaceDefinition" => {
+                    for i in 0..parent.named_child_count() {
+                        if let Some(child) = parent.named_child(i as u32) {
+                            if child.kind() == "interfaceName" {
                                 return child
                                     .utf8_text(source.as_bytes())
                                     .ok()
@@ -173,6 +177,26 @@ pub fn extract_cangjie_symbols_from_tree(
             }
         }
         None
+    }
+
+    /// 统计 functionDefinition/init 节点的 parameterList 中的 parameter 数量
+    fn count_params(func_node: tree_sitter::Node) -> usize {
+        for i in 0..func_node.named_child_count() {
+            if let Some(child) = func_node.named_child(i as u32) {
+                if child.kind() == "parameterList" {
+                    let mut count = 0;
+                    for j in 0..child.named_child_count() {
+                        if let Some(p) = child.named_child(j as u32) {
+                            if p.kind() == "parameter" {
+                                count += 1;
+                            }
+                        }
+                    }
+                    return count;
+                }
+            }
+        }
+        0
     }
 
     let mut symbols: Vec<CangjieSymbol> = Vec::new();
@@ -196,14 +220,37 @@ pub fn extract_cangjie_symbols_from_tree(
                     if let Some(kind) = classify_symbol(kind_str) {
                         let start_line = name_node.start_position().row + 1;
                         let end_line = parent.end_position().row + 1;
-                        symbols.push(CangjieSymbol {
-                            kind,
-                            name,
-                            start_line,
-                            end_line,
-                            owner_name: None,
-                            arity: None,
-                        });
+                        match kind {
+                            CangjieSymbolKind::Function => {
+                                // Function/method：提取 owner_name（如果在 class/struct 中）
+                                // 和参数数量（用于区分重载）
+                                let owner_name = extract_owner_name(parent, source);
+                                let name = if let Some(ref owner) = owner_name {
+                                    format!("{}.{}", owner, name)
+                                } else {
+                                    name
+                                };
+                                let arity = count_params(parent);
+                                symbols.push(CangjieSymbol {
+                                    kind,
+                                    name,
+                                    start_line,
+                                    end_line,
+                                    owner_name,
+                                    arity: Some(arity),
+                                });
+                            }
+                            _ => {
+                                symbols.push(CangjieSymbol {
+                                    kind,
+                                    name,
+                                    start_line,
+                                    end_line,
+                                    owner_name: None,
+                                    arity: None,
+                                });
+                            }
+                        }
                     }
                 }
             } else if capture.index == init_name_capture_idx {
@@ -220,7 +267,7 @@ pub fn extract_cangjie_symbols_from_tree(
                         };
                         let start_line = init_node.start_position().row + 1;
                         let end_line = parent.end_position().row + 1;
-                        let arity = count_init_params(parent);
+                        let arity = count_params(parent);
                         symbols.push(CangjieSymbol {
                             kind: CangjieSymbolKind::Init,
                             name,

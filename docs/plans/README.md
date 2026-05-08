@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-07（Phase 2 Slice 21 post-review follow-up：Init symbol node ID 唯一性修复，287 tests pass with feature）
+最后更新：2026-05-08（Phase 2 production graph quality hardening：Function symbol node ID 唯一性修复 + Method source ID 映射，all production targets 0 duplicate）
 
 ## 用途
 
@@ -305,6 +305,19 @@ Slice 7 — Cangjie graph output ✅ 完成（2026-05-06）：
 - 歧义处理：arity 不匹配时保留 synthetic fallback，不错误映射
 - Closure Review：`docs/plans/2026-05-07-cangjie-phase2-slice21-init-node-id-uniqueness-followup-closure-review.md`
 
+**Phase 2 production graph quality hardening — Function symbol node ID 唯一性修复 ✅ 完成（2026-05-08）：**
+- 在 production fixture smoke 中发现 json_parser 项目有 16 个重复 Function node ID（toString ×6, asBool ×2, ...）
+- 根因：symbol extraction 对 class methods 不提取 owner_name，所有同名方法产生相同 node ID
+- 修复：Function symbol 提取 owner_name + arity，方法 name 格式化为 `Owner.funcName`，node ID 追加 `#arity`
+- 新增 Method source_id → Function symbol node_id 映射（与 Constructor→Init 映射对齐）
+- `extract_owner_name()` 新增 enumDefinition/interfaceDefinition 支持
+- `count_init_params()` 重命名为 `count_params()`（通用化）
+- `references.rs` `build_source_id()`: Function source ID 追加 `#arity`
+- `resolve_source_id()`: 支持 `Method:` 前缀 source ID 映射
+- Production smoke: 4/4 targets 全部 0 duplicate nodes, 0 dangling, deterministic
+- 287+ tests pass（with feature），0 fail，零新增依赖
+- Closure Review：`docs/plans/2026-05-08-cangjie-production-graph-quality-hardening-closure-review.md`
+
 **Phase 2 Slices 18+（后续）：**
 - ~~Slice 13：function call reference extraction~~ ✅ 完成
 - ~~Slice 14a：wildcard import expansion~~ ✅ 完成
@@ -355,4 +368,5 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 24. ~~Phase 2 Slice 20 follow-up — multi-project smoke opt-in hygiene~~ ✅ 完成（#[ignore] + 文档闭合）
 25. ~~Phase 2 Slice 21 — Cangjie constructor symbol extraction~~ ✅ 完成（Init kind + source ID 映射 + synthetic coexistence）
 26. ~~Phase 2 Slice 21 post-review follow-up — Init symbol node ID 唯一性修复~~ ✅ 完成（arity-based unique ID）
-27. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）
+27. ~~Phase 2 production graph quality hardening — Function symbol node ID 唯一性修复~~ ✅ 完成（owner + arity）
+28. Phase 2 Slice 22+ — 后续 bounded slices（需 preflight）

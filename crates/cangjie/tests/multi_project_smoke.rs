@@ -25,9 +25,17 @@ struct SmokeResult {
     nodes: usize,
     edges: usize,
     synthetic_count: usize,
+    synthetic_constructor: usize,
+    synthetic_method: usize,
+    synthetic_function: usize,
+    init_symbol_count: usize,
+    init_with_arity: usize,
+    duplicate_nodes: usize,
+    duplicate_edges: usize,
     dangling_sources: usize,
     dangling_targets: usize,
     duration_secs: f64,
+    deterministic: bool,
     node_kind_distribution: HashMap<String, usize>,
     edge_kind_distribution: HashMap<String, usize>,
     skipped: bool,
@@ -43,9 +51,17 @@ fn run_smoke(root: &Path) -> SmokeResult {
             nodes: 0,
             edges: 0,
             synthetic_count: 0,
+            synthetic_constructor: 0,
+            synthetic_method: 0,
+            synthetic_function: 0,
+            init_symbol_count: 0,
+            init_with_arity: 0,
+            duplicate_nodes: 0,
+            duplicate_edges: 0,
             dangling_sources: 0,
             dangling_targets: 0,
             duration_secs: 0.0,
+            deterministic: false,
             node_kind_distribution: HashMap::new(),
             edge_kind_distribution: HashMap::new(),
             skipped: true,
@@ -61,9 +77,17 @@ fn run_smoke(root: &Path) -> SmokeResult {
             nodes: 0,
             edges: 0,
             synthetic_count: 0,
+            synthetic_constructor: 0,
+            synthetic_method: 0,
+            synthetic_function: 0,
+            init_symbol_count: 0,
+            init_with_arity: 0,
+            duplicate_nodes: 0,
+            duplicate_edges: 0,
             dangling_sources: 0,
             dangling_targets: 0,
             duration_secs: 0.0,
+            deterministic: false,
             node_kind_distribution: HashMap::new(),
             edge_kind_distribution: HashMap::new(),
             skipped: true,
@@ -113,14 +137,88 @@ fn run_smoke(root: &Path) -> SmokeResult {
                 *edge_kind_distribution.entry(kind_str).or_insert(0) += 1;
             }
 
+            // Breakdown synthetic nodes by kind (Constructor/Method/Function)
+            let mut synthetic_constructor = 0usize;
+            let mut synthetic_method = 0usize;
+            let mut synthetic_function = 0usize;
+            for node in &graph.nodes {
+                if node.kind == gitnexus_cangjie::graph::NodeKind::CallableSource {
+                    if let Some(kind_val) = node.properties.get("kind") {
+                        match kind_val.as_str().unwrap_or("") {
+                            "Constructor" => synthetic_constructor += 1,
+                            "Method" => synthetic_method += 1,
+                            "Function" => synthetic_function += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            // Count Init symbols and verify #arity suffix
+            let mut init_symbol_count = 0usize;
+            let mut init_with_arity = 0usize;
+            for node in &graph.nodes {
+                if node.kind == gitnexus_cangjie::graph::NodeKind::Symbol {
+                    if let Some(kind_val) = node.properties.get("kind") {
+                        if kind_val.as_str() == Some("Init") {
+                            init_symbol_count += 1;
+                            if node.id.contains('#') {
+                                init_with_arity += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Check duplicate node IDs
+            let mut seen_node_ids: HashSet<&str> = HashSet::new();
+            let mut duplicate_nodes = 0usize;
+            for node in &graph.nodes {
+                if !seen_node_ids.insert(node.id.as_str()) {
+                    duplicate_nodes += 1;
+                }
+            }
+
+            // Check duplicate edge triples
+            let mut seen_edge_triples: HashSet<(String, String, String)> = HashSet::new();
+            let mut duplicate_edges = 0usize;
+            for edge in &graph.edges {
+                let triple = (
+                    format!("{:?}", edge.kind),
+                    edge.source_id.clone(),
+                    edge.target_id.clone(),
+                );
+                if !seen_edge_triples.insert(triple) {
+                    duplicate_edges += 1;
+                }
+            }
+
+            // Output determinism: run a second time and compare JSON
+            let deterministic = match inspect_cangjie_project(root) {
+                Ok(graph2) => {
+                    let json1 = serde_json::to_value(&graph).unwrap_or_default();
+                    let json2 = serde_json::to_value(&graph2).unwrap_or_default();
+                    json1 == json2
+                }
+                Err(_) => false,
+            };
+
             SmokeResult {
                 root: root.display().to_string(),
                 nodes: graph.nodes.len(),
                 edges: graph.edges.len(),
                 synthetic_count,
+                synthetic_constructor,
+                synthetic_method,
+                synthetic_function,
+                init_symbol_count,
+                init_with_arity,
+                duplicate_nodes,
+                duplicate_edges,
                 dangling_sources,
                 dangling_targets,
                 duration_secs: duration.as_secs_f64(),
+                deterministic,
                 node_kind_distribution,
                 edge_kind_distribution,
                 skipped: false,
@@ -134,9 +232,17 @@ fn run_smoke(root: &Path) -> SmokeResult {
                 nodes: 0,
                 edges: 0,
                 synthetic_count: 0,
+                synthetic_constructor: 0,
+                synthetic_method: 0,
+                synthetic_function: 0,
+                init_symbol_count: 0,
+                init_with_arity: 0,
+                duplicate_nodes: 0,
+                duplicate_edges: 0,
                 dangling_sources: 0,
                 dangling_targets: 0,
                 duration_secs: 0.0,
+                deterministic: false,
                 node_kind_distribution: HashMap::new(),
                 edge_kind_distribution: HashMap::new(),
                 skipped: true,
@@ -176,9 +282,22 @@ fn test_multi_project_smoke_with_details() {
         println!("\n=== Project: {} ===", result.root);
         println!("Nodes: {}", result.nodes);
         println!("Edges: {}", result.edges);
-        println!("Synthetic nodes: {}", result.synthetic_count);
+        println!(
+            "Synthetic nodes: total={}, Constructor={}, Method={}, Function={}",
+            result.synthetic_count,
+            result.synthetic_constructor,
+            result.synthetic_method,
+            result.synthetic_function
+        );
+        println!(
+            "Init symbols: total={}, with_arity={}",
+            result.init_symbol_count, result.init_with_arity
+        );
+        println!("Duplicate node IDs: {}", result.duplicate_nodes);
+        println!("Duplicate edge triples: {}", result.duplicate_edges);
         println!("Dangling source edges: {}", result.dangling_sources);
         println!("Dangling target edges: {}", result.dangling_targets);
+        println!("Output deterministic: {}", result.deterministic);
         println!("Duration: {:.3}s", result.duration_secs);
         println!(
             "Node kind distribution: {:?}",
@@ -195,15 +314,48 @@ fn test_multi_project_smoke_with_details() {
             "Dangling source edges found in {}",
             result.root
         );
-
         assert_eq!(
             result.dangling_targets, 0,
             "Dangling target edges found in {}",
             result.root
         );
 
-        // Verify synthetic nodes are marked
-        // (This is verified indirectly by endpoint integrity)
+        // Assert no duplicate node IDs (graph identity)
+        assert_eq!(
+            result.duplicate_nodes, 0,
+            "Duplicate node IDs found in {}",
+            result.root
+        );
+
+        // Assert no duplicate edge triples (graph identity, post-deduplication)
+        assert_eq!(
+            result.duplicate_edges, 0,
+            "Duplicate edge triples found in {}",
+            result.root
+        );
+
+        // Assert output determinism
+        assert!(
+            result.deterministic,
+            "Output not deterministic for {}",
+            result.root
+        );
+
+        // Assert all Init symbols have #arity suffix
+        if result.init_symbol_count > 0 {
+            assert_eq!(
+                result.init_symbol_count, result.init_with_arity,
+                "Not all Init symbols have #arity suffix in {}: {}/{}",
+                result.root, result.init_with_arity, result.init_symbol_count
+            );
+        }
+
+        // Assert Constructor synthetic nodes are eliminated by Init symbols
+        assert_eq!(
+            result.synthetic_constructor, 0,
+            "Constructor synthetic nodes should be 0 (covered by Init symbols) in {}, got {}",
+            result.root, result.synthetic_constructor
+        );
     }
 
     // Print summary
@@ -219,11 +371,23 @@ fn test_multi_project_smoke_with_details() {
         let total_nodes: usize = successful.iter().map(|r| r.nodes).sum();
         let total_edges: usize = successful.iter().map(|r| r.edges).sum();
         let total_synthetic: usize = successful.iter().map(|r| r.synthetic_count).sum();
+        let total_synthetic_constructor: usize =
+            successful.iter().map(|r| r.synthetic_constructor).sum();
+        let total_synthetic_method: usize = successful.iter().map(|r| r.synthetic_method).sum();
+        let total_synthetic_function: usize = successful.iter().map(|r| r.synthetic_function).sum();
+        let total_init: usize = successful.iter().map(|r| r.init_symbol_count).sum();
         let total_duration: f64 = successful.iter().map(|r| r.duration_secs).sum();
 
         println!("Total nodes: {}", total_nodes);
         println!("Total edges: {}", total_edges);
-        println!("Total synthetic nodes: {}", total_synthetic);
+        println!(
+            "Total synthetic nodes: {} (Constructor={}, Method={}, Function={})",
+            total_synthetic,
+            total_synthetic_constructor,
+            total_synthetic_method,
+            total_synthetic_function
+        );
+        println!("Total Init symbols: {}", total_init);
         println!("Total duration: {:.3}s", total_duration);
     }
 
