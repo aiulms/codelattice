@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2d let-binding 构造函数链 receiver type 推断完结 — resolution rate 62.2% → 64.1%，+74 resolved calls）
+最后更新：2026-05-08（Phase 2d 构造函数链推断 + STDLIB_TYPE_METHODS 扩展完结 — resolution rate 62.2% → 65.0%，+105 resolved calls）
 
 ## 用途
 
@@ -480,5 +480,13 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - Improvement: +74 resolved calls, receiver-type-method-resolved 164 → 235
    - Resolution rate: 62.2% → 64.1%（+1.9pp），2252/3514
    - 全部测试通过（call comparison 20/20 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
+   - Commit: `3898fb7`
    - Closure Review: `docs/plans/2026-05-08-rust-phase2d-constructor-chain-closure-review.md`
+40b. **STDLIB_TYPE_METHODS 扩展 — PathBuf, HashSet, BTreeMap** ✅ 完成（2026-05-08）：
+   - 新增 3 种 stdlib 类型的 method 条目以完成 KNOWN_CONSTRUCTORS 覆盖
+   - HashSet: 7 methods, BTreeMap: 7 methods, PathBuf: 13 methods
+   - Improvement: +31 resolved calls, receiver-type-method-resolved 235 → 266
+   - Resolution rate: 64.1% → 65.0%（+0.9pp），2283/3514
+   - 本轮合计：62.2% → 65.0%（+105 resolved calls, +2.8pp）
+   - Commit: `6d0f157`
 41. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）

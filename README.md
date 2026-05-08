@@ -47,7 +47,7 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | External crate path | `Vec::new()`, `String::from()` | 0.80–0.85 |
 | Enum constructor | `Some(42)`, `Ok(val)`, `Err(e)` | 0.80 |
 
-**Resolution rate: 64.1%**（2252/3514 calls on gitnexus-rust-core，2026-05-08）。
+**Resolution rate: 65.0%**（2283/3514 calls on gitnexus-rust-core，2026-05-08）。
 
 ---
 
