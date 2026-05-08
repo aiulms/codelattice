@@ -374,3 +374,358 @@ fn rust_graph_contract_portable_smoke_calls_endpoint_integrity() {
         }
     }
 }
+
+// ============================================================
+// imports-cross-crate fixture tests
+// ============================================================
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_quality_gates() {
+    let data = collect_graph("imports-cross-crate");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_node_kind_set() {
+    let data = collect_graph("imports-cross-crate");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+    assert!(
+        data.node_kinds.contains_key("source-file"),
+        "应有 source-file 节点"
+    );
+    assert!(data.node_kinds.contains_key("symbol"), "应有 symbol 节点");
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_edge_kind_set() {
+    let data = collect_graph("imports-cross-crate");
+
+    assert!(
+        data.edge_kinds.contains_key("CONTAINS_PACKAGE"),
+        "应有 CONTAINS_PACKAGE 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("HAS_TARGET"),
+        "应有 HAS_TARGET 边"
+    );
+    assert!(
+        data.edge_kinds.contains_key("OWNS_SOURCE"),
+        "应有 OWNS_SOURCE 边"
+    );
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(
+        data.edge_kinds.contains_key("DESIGNATION"),
+        "应有 DESIGNATION 边"
+    );
+    assert!(data.edge_kinds.contains_key("ACCESSES"), "应有 ACCESSES 边");
+
+    // 至少 4 条 CALLS（含 external crate 调用）
+    let calls = data.edge_kinds.get("CALLS").copied().unwrap_or(0);
+    assert!(calls >= 4, "至少应有 4 条 CALLS edge，实际: {}", calls);
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_known_symbols() {
+    let data = collect_graph("imports-cross-crate");
+
+    let required = [
+        "symbol:imports-cross-crate::crate::DataStore",
+        "symbol:imports-cross-crate::crate::new",
+        "symbol:imports-cross-crate::crate::insert",
+        "symbol:imports-cross-crate::crate::get",
+        "symbol:imports-cross-crate::crate::create_store",
+    ];
+
+    for sym_id in &required {
+        assert!(
+            data.node_ids.contains(*sym_id),
+            "必须存在 symbol: {}",
+            sym_id
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_known_calls_edges() {
+    let data = collect_graph("imports-cross-crate");
+
+    // 外部 crate 函数调用（external-crate-path-resolved）
+    let required = [
+        (
+            "CALLS",
+            "symbol:imports-cross-crate::crate::new",
+            "symbol:std::vec::Vec::new",
+        ),
+        (
+            "CALLS",
+            "symbol:imports-cross-crate::crate::new",
+            "symbol:std::collections::HashMap::new",
+        ),
+        (
+            "CALLS",
+            "symbol:imports-cross-crate::crate::get",
+            "symbol:std::string::String::from",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_external_symbol_nodes() {
+    let data = collect_graph("imports-cross-crate");
+
+    // 验证有外部 symbol node 且数量正确
+    let expected_external = [
+        "symbol:std::vec::Vec::new",
+        "symbol:std::collections::HashMap::new",
+        "symbol:std::string::String::from",
+        "symbol:std::clone::Clone::clone",
+    ];
+
+    for ext_id in &expected_external {
+        assert!(
+            data.node_ids.contains(*ext_id),
+            "必须存在外部 symbol node: {}",
+            ext_id
+        );
+    }
+
+    // 外部 symbol node 应该都有对应的 CALLS target
+    for (kind, _source, target) in &data.edge_triples {
+        if kind == "CALLS" && target.starts_with("symbol:std::") {
+            assert!(
+                data.node_ids.contains(target),
+                "外部 CALLS target 必须有对应 node: {}",
+                target
+            );
+        }
+    }
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_calls_endpoint_integrity() {
+    let data = collect_graph("imports-cross-crate");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}
+
+#[test]
+fn rust_graph_contract_imports_cross_crate_known_designation_edge() {
+    let data = collect_graph("imports-cross-crate");
+
+    // impl DataStore → DataStore struct (DESIGNATION)
+    let designation_triples: Vec<_> = data
+        .edge_triples
+        .iter()
+        .filter(|(k, _, t)| {
+            k == "DESIGNATION" && t == "symbol:imports-cross-crate::crate::DataStore"
+        })
+        .collect();
+    assert!(
+        !designation_triples.is_empty(),
+        "应有 impl DataStore → DataStore DESIGNATION edge"
+    );
+}
+
+// ============================================================
+// multi-module fixture tests
+// ============================================================
+
+#[test]
+fn rust_graph_contract_multi_module_quality_gates() {
+    let data = collect_graph("multi-module");
+
+    assert_eq!(data.duplicate_nodes, 0, "不应有重复节点 ID");
+    assert_eq!(data.duplicate_edges, 0, "不应有重复边");
+    assert_eq!(data.dangling_sources, 0, "不应有悬空 source 引用");
+    assert_eq!(data.dangling_targets, 0, "不应有悬空 target 引用");
+    assert!(data.deterministic, "输出必须是确定性的");
+}
+
+#[test]
+fn rust_graph_contract_multi_module_node_kind_set() {
+    let data = collect_graph("multi-module");
+
+    assert!(
+        data.node_kinds.contains_key("repository"),
+        "应有 repository 节点"
+    );
+    assert!(data.node_kinds.contains_key("package"), "应有 package 节点");
+    assert!(data.node_kinds.contains_key("target"), "应有 target 节点");
+
+    // 关键：多模块至少应有 2 个 source file
+    let source_files = data.node_kinds.get("source-file").copied().unwrap_or(0);
+    assert!(
+        source_files >= 2,
+        "至少应有 2 个 source file，实际: {}",
+        source_files
+    );
+
+    let symbols = data.node_kinds.get("symbol").copied().unwrap_or(0);
+    assert!(symbols >= 4, "至少应有 4 个 symbol，实际: {}", symbols);
+}
+
+#[test]
+fn rust_graph_contract_multi_module_edge_kind_set() {
+    let data = collect_graph("multi-module");
+
+    assert!(data.edge_kinds.contains_key("CALLS"), "应有 CALLS 边");
+    assert!(data.edge_kinds.contains_key("DEFINES"), "应有 DEFINES 边");
+
+    // 关键：2 个 source file 应有 2 条 OWNS_SOURCE 边
+    let owns = data.edge_kinds.get("OWNS_SOURCE").copied().unwrap_or(0);
+    assert!(owns >= 2, "应有至少 2 条 OWNS_SOURCE 边，实际: {}", owns);
+
+    let calls = data.edge_kinds.get("CALLS").copied().unwrap_or(0);
+    assert!(calls >= 3, "应有至少 3 条 CALLS edge，实际: {}", calls);
+}
+
+#[test]
+fn rust_graph_contract_multi_module_known_symbols() {
+    let data = collect_graph("multi-module");
+
+    let required = [
+        "symbol:multi-module::crate::process_data",
+        "symbol:multi-module::crate::run_pipeline",
+        "symbol:multi-module::crate::utils::double_value",
+        "symbol:multi-module::crate::utils::format_result",
+    ];
+
+    for sym_id in &required {
+        assert!(
+            data.node_ids.contains(*sym_id),
+            "必须存在 symbol: {}",
+            sym_id
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_multi_module_known_defines_edges() {
+    let data = collect_graph("multi-module");
+
+    // 跨文件 DEFINES：utils.rs 定义自己的 symbol
+    let required = [
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:multi-module::crate::process_data",
+        ),
+        (
+            "DEFINES",
+            "file:src/lib.rs",
+            "symbol:multi-module::crate::run_pipeline",
+        ),
+        (
+            "DEFINES",
+            "file:src/utils.rs",
+            "symbol:multi-module::crate::utils::double_value",
+        ),
+        (
+            "DEFINES",
+            "file:src/utils.rs",
+            "symbol:multi-module::crate::utils::format_result",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_multi_module_known_calls_edges() {
+    let data = collect_graph("multi-module");
+
+    // crate:: 路径调用 + same-module 调用
+    let required = [
+        (
+            "CALLS",
+            "symbol:multi-module::crate::process_data",
+            "symbol:multi-module::crate::utils::double_value",
+        ),
+        (
+            "CALLS",
+            "symbol:multi-module::crate::process_data",
+            "symbol:multi-module::crate::utils::format_result",
+        ),
+        (
+            "CALLS",
+            "symbol:multi-module::crate::run_pipeline",
+            "symbol:multi-module::crate::process_data",
+        ),
+    ];
+
+    for (kind, source, target) in &required {
+        let triple = (kind.to_string(), source.to_string(), target.to_string());
+        assert!(
+            data.edge_triples.contains(&triple),
+            "必须存在 edge: {}: {} → {}",
+            kind,
+            source,
+            target
+        );
+    }
+}
+
+#[test]
+fn rust_graph_contract_multi_module_calls_endpoint_integrity() {
+    let data = collect_graph("multi-module");
+
+    for (kind, source, target) in &data.edge_triples {
+        if kind == "CALLS" {
+            assert!(
+                data.node_ids.contains(source),
+                "CALLS source 必须存在: {}",
+                source
+            );
+            assert!(
+                data.node_ids.contains(target),
+                "CALLS target 必须存在: {}",
+                target
+            );
+        }
+    }
+}

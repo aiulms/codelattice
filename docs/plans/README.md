@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Phase 2e cross-file same-crate resolution 完结 — resolution rate 65.0% → 65.6%，+38 resolved calls）
+最后更新：2026-05-08（Rust graph contract 扩展：8 tests on 1 fixture → 23 tests on 3 fixtures）
 
 ## 用途
 
@@ -503,3 +503,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 全部测试通过（call comparison 21/21 fixtures, graph_contract 24/24, cangjie_inspect 18/18）
    - Commits: `55bc86a`, `669ddc6`
    - Closure Review: `docs/plans/2026-05-08-rust-cross-file-same-crate-closure-review.md`
+	43. **Rust Graph Contract Expansion** ✅ 完成（2026-05-08）：
+	   - 新增 2 个 Rust graph contract fixtures：`imports-cross-crate`（外部 symbol node + ACCESSES）和 `multi-module`（跨文件 crate:: 路径 CALLS）
+	   - 新增 15 个 contract tests → 总计 23 tests on 3 fixtures（Before: 8 tests on 1 fixture）
+	   - imports-cross-crate：14 nodes, 22 edges, 8 edge types, 4 external symbol nodes, 7 CALLS（含 external crate）
+	   - multi-module：10 nodes, 12 edges, 5 edge types, 2 source files, 3 CALLS（含 crate:: 路径）
+	   - 缩小与 Cangjie graph contract（24 tests on 4 fixtures）的覆盖差距
+	   - 全部测试通过（cangjie_inspect 18/18, graph_contract 24/24, project_model_graph_contract 23/23）
+	   - Closure Review: `docs/plans/2026-05-08-rust-graph-contract-expansion-closure-review.md`
