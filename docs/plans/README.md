@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-08（Production Acceptance 完结 + Rust CALLS endpoint integrity fix + Rust graph contract tests，Rust 线质量门对齐 Cangjie）
+最后更新：2026-05-08（Production Acceptance 完结 + Rust CALLS endpoint integrity fix + Rust graph contract tests + Rust enum constructor resolution，Rust resolution rate 62.4%）
 
 ## 用途
 
@@ -448,4 +448,12 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
 	   - Graph 产出：16 nodes, 25 edges, 0 dup, 0 dangling, 确定性输出
 	   - 全部测试通过（cangjie_inspect 18/18, project_model_graph_emit 10/10, project_model_graph_contract 8/8）
 	   - Closure Review: `docs/plans/2026-05-08-rust-graph-contract-closure-review.md`
-	37. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
+	37. **Rust Enum Constructor Resolution** ✅ 完成（2026-05-08）：
+		   - 将 stdlib enum variant constructor（Some/Ok/Err/None）从过滤改为解析
+		   - 新增 `CallKnownEnumConstructor` reason + `resolve_known_enum_constructor()` 函数
+		   - 改进：+305 resolved calls，resolution rate 53.7% → 62.4%（+8.7pp）
+		   - 更新 call-enum-filter + c11-receiver-type golden fixtures
+		   - 全部测试通过（cangjie_inspect 18/18, graph_contract 24/24, project_model_graph_contract 8/8, call comparison 19/19 fixtures pass）
+		   - Commit: `d9f5997`
+		   - Closure Review: `docs/plans/2026-05-08-rust-enum-constructor-resolution-closure-review.md`
+		38. Priority 2/4/5 — 后续 Rust/Cangjie bounded slices（需 preflight）
