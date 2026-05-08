@@ -174,6 +174,6 @@
 - ✅ Dead code 已清理 (~100 lines removed)
 - ✅ Warnings 已清理 (zero new Rust warnings)
 - ✅ Closure review 完成
-- ⏳ Commit + push（进行中）
+- ✅ Commit + push（`f355d2c` → gitcode master）
 
 **Hardening 状态：** ✅ 完成
