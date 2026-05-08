@@ -177,8 +177,8 @@ pub fn convert_rust_graph(
         .unwrap_or("v0.3")
         .to_string();
 
-    // 从 nodes 按 label 分类提取
-    let (repo_node, packages, source_files, symbols) = partition_rust_nodes(nodes)?;
+    // 从 nodes 按 label 分类提取（传入 edges 用于解析 package_id）
+    let (repo_node, packages, source_files, symbols) = partition_rust_nodes(nodes, edges)?;
 
     // 构建 repository 信息
     let repository = BridgeRepository {
@@ -219,9 +219,11 @@ pub fn convert_rust_graph(
     })
 }
 
-/// 从 Rust nodes 按 label 分类
+/// 从 Rust nodes 按 label 分类。
+/// edges 用于解析 source-file → package 关系（OWNS_SOURCE + HAS_TARGET 两跳）。
 fn partition_rust_nodes(
     nodes: &[Value],
+    edges: &[Value],
 ) -> Result<
     (
         Value,
@@ -237,6 +239,28 @@ fn partition_rust_nodes(
     let mut symbols = Vec::new();
 
     let mut pkg_name_by_id: HashMap<String, String> = HashMap::new();
+
+    // 构建 edge 查找表：target → package（HAS_TARGET: package → target）
+    let target_to_pkg: HashMap<&str, &str> = edges
+        .iter()
+        .filter(|e| e.get("type").and_then(|v| v.as_str()) == Some("HAS_TARGET"))
+        .filter_map(|e| {
+            let source = e.get("source").and_then(|v| v.as_str())?;
+            let target = e.get("target").and_then(|v| v.as_str())?;
+            Some((target, source))
+        })
+        .collect();
+
+    // 构建 edge 查找表：source-file → target（OWNS_SOURCE: target → source-file）
+    let sf_to_target: HashMap<&str, &str> = edges
+        .iter()
+        .filter(|e| e.get("type").and_then(|v| v.as_str()) == Some("OWNS_SOURCE"))
+        .filter_map(|e| {
+            let source = e.get("source").and_then(|v| v.as_str())?;
+            let target = e.get("target").and_then(|v| v.as_str())?;
+            Some((target, source))
+        })
+        .collect();
 
     for node in nodes {
         let label = node
@@ -281,8 +305,11 @@ fn partition_rust_nodes(
                     .unwrap_or("")
                     .to_string();
 
-                // package_id: 尝试从 node id 推断（Rust source-file id 格式: "sf:<pkg_id>:<path>"）
-                let package_id = extract_package_id_from_node_id(&id);
+                // package_id 解析：source-file → target（OWNS_SOURCE）→ package（HAS_TARGET）
+                let package_id = sf_to_target
+                    .get(id.as_str())
+                    .and_then(|target_id| target_to_pkg.get(target_id))
+                    .map(|pkg_id| pkg_id.to_string());
 
                 source_files.push(BridgeSourceFile {
                     id,
@@ -354,14 +381,6 @@ fn partition_rust_nodes(
         source_files,
         symbols,
     ))
-}
-
-/// 从 node ID 提取 package_id
-/// Rust source-file node ID 格式: "sf:<sourceFilePath>" 或类似
-fn extract_package_id_from_node_id(_node_id: &str) -> Option<String> {
-    // source-file node ID 不直接包含 package_id，暂时返回 None
-    // 未来可从 OWNS_SOURCE edge 反向查找
-    None
 }
 
 /// 转换 Rust edges：归一化端点字段 + 按类型分组
@@ -777,6 +796,37 @@ mod tests {
         let result = convert_rust_graph(&bad_input, "rust", "/test", "");
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("nodes"));
+    }
+
+    #[test]
+    fn rust_source_file_gets_package_id_from_edges() {
+        // 验证通过 OWNS_SOURCE + HAS_TARGET edges 解析 package_id
+        let input = serde_json::json!({
+            "schemaVersion": "v0.3",
+            "generatedAt": "2026-05-09T00:00:00Z",
+            "nodes": [
+                {"id": "repo:test", "label": "repository", "properties": {"name": "test-repo"}},
+                {"id": "pkg:Cargo.toml", "label": "package", "properties": {"name": "test-pkg", "manifestPath": "Cargo.toml"}},
+                {"id": "target:test::lib", "label": "target", "properties": {"name": "test"}},
+                {"id": "file:src/lib.rs", "label": "source-file", "properties": {"path": "src/lib.rs"}},
+                {"id": "sym:test::func", "label": "symbol", "properties": {"name": "func", "kind": "function"}}
+            ],
+            "edges": [
+                {"type": "HAS_TARGET", "source": "pkg:Cargo.toml", "target": "target:test::lib"},
+                {"type": "OWNS_SOURCE", "source": "target:test::lib", "target": "file:src/lib.rs"},
+                {"type": "DEFINES", "source": "file:src/lib.rs", "target": "sym:test::func"}
+            ],
+            "diagnostics": [],
+            "stats": {"nodeCount": 5, "edgeCount": 3, "symbolCount": 1}
+        });
+        let result = convert_rust_graph(&input, "rust", "/test", "").unwrap();
+
+        assert_eq!(result.source_files.len(), 1);
+        assert_eq!(
+            result.source_files[0].package_id,
+            Some("pkg:Cargo.toml".to_string()),
+            "source-file 的 package_id 应通过 edges 解析为 pkg:Cargo.toml"
+        );
     }
 
     #[test]
