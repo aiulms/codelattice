@@ -3,7 +3,7 @@
 > **日期：** 2026-05-09
 > **版本：** v1.0.0
 > **状态：** Closed — 5/5 priorities 完成
-> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter）
+> **关联 commits：** `d016b5d`（Unified CLI），`5363eb8`（Bridge Adapter），`9ddf3c7`（Bridge CLI tests + closure），`0b8ed5f`（symbol 分类修复），`9528000`（package_id 解析修复）
 
 ---
 
@@ -110,11 +110,12 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 
 | Gap | 级别 | 说明 |
 |-----|------|------|
-| Bridge format symbol 分类过宽 | LOW | module/workspace node 被计入 symbols（实际统计应从 properties.kind 过滤） |
-| Bridge format 无 package_id 实体化 | LOW | Rust source-file 与 package 关系未通过 OWNS_SOURCE edge 追踪 |
+| Bridge format symbol 分类过宽 | ~~LOW~~ → **已修复（`0b8ed5f`）** | diagnostic/workspace/module node 不再误计入 symbols；仅匹配 label="symbol" |
+| Bridge format 无 package_id 实体化 | ~~LOW~~ → **已修复（`9528000`）** | source-file→target→package 两跳 edge traversal 已实现；31/54 source files 获得 package_id |
 | `--language auto` 不做深度检测 | LOW | 仅检查 manifest 文件存在性，不做 language heuristics |
 | 非 JSON 格式不支持 | BY DESIGN | 第一版仅做 JSON stdout |
 | Bridge format CLI integration tests 仅覆盖 analyze | LOW | quality/summary 命令未支持 --format gitnexus-rc |
+| 无本地构建脚本 | LOW（新增 gap） | 非 Rust 开发者试用门槛高 → **本轮（Slice: local-trial-packaging）处理** |
 
 ---
 
@@ -147,9 +148,10 @@ Rust 和 Cangjie 分别实现，被统一顶层 wrapper 包住。
 ## 六、下一步建议
 
 ### 短期（可在 Rust-core 内闭环）
-1. **Bridge format 分类精准化**：修复 partition_rust_nodes 中 module/workspace node 误分类
-2. **Local trial packaging**：单二进制构建 + 安装脚本，方便非 Rust 开发者试用
-3. **Bridge format 扩展**：quality/summary 命令也支持 `--format gitnexus-rc`
+1. ~~**Bridge format 分类精准化**~~ ✅ 已修复（`0b8ed5f`）：partition_rust_nodes 仅匹配 label="symbol"
+2. ~~**Bridge format package_id**~~ ✅ 已修复（`9528000`）：edge traversal 两跳查找
+3. **Local trial packaging** ✅ 完成（`scripts/build.sh` + `scripts/smoke.sh`）：一键构建 + 快速验证
+4. **Bridge format 扩展**：quality/summary 命令也支持 `--format gitnexus-rc`
 
 ### 中期（需跨仓协商）
 4. **前端消费准备**：与 GitNexus-RC 维护者协商 schema 版本迁移路径

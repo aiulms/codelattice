@@ -149,6 +149,41 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
 - 节点按 kind 显式分类，边按类型分组
 - Stop-line：不修改 GitNexus-RC 代码，不做 production replacement
 
+### Local Trial（本地试用）
+
+**一键构建 + 验证：**
+
+```bash
+# 构建 release 二进制（含 Cangjie 特性）
+./scripts/build.sh
+
+# 快速 smoke 验证（跳过测试，仅 CLI）
+./scripts/smoke.sh --quick
+
+# 完整 smoke 验证（含 cargo test）
+./scripts/smoke.sh
+```
+
+**构建选项：**
+
+```bash
+./scripts/build.sh --debug        # debug 构建（更快编译）
+./scripts/build.sh --no-cangjie   # 不含 Cangjie 语言支持
+```
+
+**构建后直接使用二进制：**
+
+```bash
+# 二进制位置
+target/release/gitnexus-rust-core-cli --help
+
+# Rust 项目分析
+target/release/gitnexus-rust-core-cli analyze --root /path/to/rust/project --format json
+
+# Cangjie 项目分析（需 --no-cangjie 未指定）
+target/release/gitnexus-rust-core-cli analyze --root /path/to/cangjie/project --format json
+```
+
 ---
 
 ## Verification

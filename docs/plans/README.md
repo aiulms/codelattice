@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Productization Phase: Unified CLI + Bridge Adapter + Smoke Config）
+最后更新：2026-05-09（Productization Phase: Unified CLI + Bridge Adapter + Smoke Config + Local Trial Packaging）
 
 ## 用途
 
@@ -36,11 +36,12 @@
 - ✅ Bridge Preflight：docs/architecture/bridge-preflight.md（差异矩阵 + stop-line）
 - ✅ 15 integration tests + 7 bridge unit tests
 - ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
+- ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
 
 ## 当前推荐下一篇计划
 
 **Productization 下一步：**
-- Local trial packaging（单二进制 + 安装脚本）
+- Bridge format 扩展：quality/summary 命令支持 --format gitnexus-rc
 - 前端消费准备（与 GitNexus-RC 维护者协商 schema 对齐）
 - Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture）
 
@@ -649,3 +650,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
    - 全部测试通过：no-feature ~200 pass、feature ~330 pass、Cangjie fixture smoke 4/4 PASS、Cangjie graph contract 24/24、Rust graph contract 58/58
    - 0 duplicate, 0 dangling, deterministic for both Rust and Cangjie
    - cargo fmt --check + git diff --check clean
+
+57. **Local Trial Packaging** ✅ 完成（2026-05-09）：
+    - 新增 `scripts/build.sh`：一键构建 release binary（含 Cangjie 特性），支持 --debug / --no-cangjie
+    - 新增 `scripts/smoke.sh`：8 步快速 smoke 验证（fmt + test + Rust/Cangjie CLI + quality + self-smoke）
+    - README.md 新增 Local Trial 章节
+    - 产品化 closure review 更新：residual gaps 状态刷新（2 个已修复标注，1 个新增 gap 已处理）
+    - 零新增依赖，不改 GitNexus-RC / Tool / live repo
+    - Preflight: `docs/plans/2026-05-09-local-trial-packaging-preflight.md`
