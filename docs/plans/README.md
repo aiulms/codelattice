@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Productization Phase 收尾: Docs Consolidation）
+最后更新：2026-05-09（Cross-repo Consumer Dry-run Closure）
 
 ## 用途
 
@@ -38,13 +38,18 @@
 - ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
 - ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
 - ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
+- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（11 文件），Bridge 兼容性报告，2 个 bridge adapter 修复（symbol kind + edge confidence），4 个 consumer shape 测试
 
 ## 当前推荐下一篇计划
 
-**Productization 下一步：**
+**Consumer Dry-run 下一步：**
+- 请求 GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径（触发 stop-line，需用户授权）
+- 前端 NodeLabel/EdgeType 扩展协商：Rust EnumVariant/ImplBlock + Cangjie Init/CallableSource
+- Bridge adapter 分离：将 bridge_format.rs 中的 Rust/Cangjie 特定逻辑提取为 language-specific modules
+
+**Productization 维护：**
 - 前端消费准备（与 GitNexus-RC 维护者协商 schema 对齐）
 - Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture）
-- ~~Bridge format 扩展~~（quality/summary 无 graph 输出，--format gitnexus-rc 语义不适配）
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
@@ -676,3 +681,14 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - smoke.sh Step 4/6：改用 `analyze --strict`（exit code 检查 + JSON 验证）
     - 零新增依赖，不改 GitNexus-RC / Tool / live repo
     - Preflight: `docs/plans/2026-05-09-docs-consolidation-preflight.md`
+
+60. **Cross-repo Consumer Dry-run** ✅ 完成（2026-05-09）：
+    - P1: GitNexus-RC 消费侧只读审计（11 个核心文件，覆盖全消费链）
+    - P2: Bridge Compatibility Report：`docs/architecture/gitnexus-rc-consumer-dry-run.md`（~416 行）
+    - P3: 4 个 consumer shape 测试（2 Rust + 2 Cangjie）：symbol kind 具体性 + edge confidence/reason
+    - P4: 2 个 bridge adapter 修复：
+      - Symbol `kind` 字段填入具体类型（非通用 "symbol"），从 Rust `symbolKind` 属性提取
+      - BridgeEdge 新增 `confidence: Option<f64>` + `reason: Option<String>` 顶层字段
+    - bridge_roundtrip: 20 tests pass（10 Rust + 10 Cangjie），productization_commands: 19 tests pass
+    - 不改 GitNexus-RC / Tool / live repo，零新增依赖
+    - Closure Review: `docs/plans/2026-05-09-gitnexus-rc-consumer-dry-run-closure-review.md`
