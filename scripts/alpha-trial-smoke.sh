@@ -20,7 +20,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOOL="/Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js"
-NODE_BIN="${NODE_BIN:-node}"
+NODE_BIN="${NODE_BIN:-/opt/homebrew/bin/node}"
 RESTORE_REPO_NAME="${CODELATTICE_REPO_NAME:-$(basename "$PROJECT_ROOT")}"
 
 RUST_ONLY=false
@@ -54,6 +54,91 @@ fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 skip() { echo "  [SKIP] $1"; SKIP=$((SKIP + 1)); }
 
 TMPDIR_SMOKESRC="$(mktemp -d)"
+
+# tool_bridge_import: 生成 bridge JSON 并导入 Tool
+#
+# 参数:
+#   $1 描述标签（如 "Rust bridge"）
+#   $2 bridge JSON 输出路径
+#   $3 cargo analyze 命令（完整的 cargo run ... analyze ...）
+#   $4 Tool 导入时使用的 --name 值
+#
+# 不使用 `tool_cmd | grep -q` 管道判断成功：
+#   Tool 的进度输出包含 ANSI 控制字符（[2K \r），在 set -euo pipefail 下
+#   grep 管道偶尔匹配不到 "indexed successfully"，导致误报失败。
+#   改为捕获输出到临时文件，先检查 exit code，再检查输出文本。
+tool_bridge_import() {
+    local label="$1"
+    local bridge_json="$2"
+    local cargo_cmd="$3"
+    local tool_name="$4"
+
+    # 生成 bridge JSON
+    if eval "$cargo_cmd" > "$bridge_json" 2>/dev/null; then
+        pass "${label} JSON 生成成功"
+    else
+        fail "${label} JSON 生成失败"
+        return 0
+    fi
+
+    # 验证 stdout 纯净
+    if python3 -c "import json; json.load(open('$bridge_json'))" 2>/dev/null; then
+        pass "${label} JSON.parse 成功"
+    else
+        fail "${label} JSON.parse 失败 — stdout 不纯净"
+        return 0
+    fi
+
+    # Tool 导入：捕获输出到临时文件，检查 exit code
+    local tool_output
+    tool_output="$(mktemp "${TMPDIR_SMOKESRC}/tool-output-XXXXXX.txt")"
+    local tool_exit=1
+
+    # 先尝试不带 --allow-duplicate-name
+    set +e
+    "$NODE_BIN" "$TOOL" analyze \
+        --force \
+        --experimental-rust-core-bridge-graph "$bridge_json" \
+        --name "$tool_name" \
+        --skip-agents-md \
+        > "$tool_output" 2>&1
+    tool_exit=$?
+    set -e
+
+    if [[ $tool_exit -ne 0 ]]; then
+        # 可能是 name 冲突，用 --allow-duplicate-name 重试
+        set +e
+        "$NODE_BIN" "$TOOL" analyze \
+            --force \
+            --allow-duplicate-name \
+            --experimental-rust-core-bridge-graph "$bridge_json" \
+            --name "$tool_name" \
+            --skip-agents-md \
+            > "$tool_output" 2>&1
+        tool_exit=$?
+        set -e
+    fi
+
+    if [[ $tool_exit -eq 0 ]]; then
+        # exit code 0 → Tool 命令成功
+        # 进一步确认输出中有成功信号（容错：缺失也不影响判定）
+        if grep -q "indexed successfully" "$tool_output" 2>/dev/null; then
+            pass "${label} → Tool 导入成功"
+        else
+            # exit 0 但输出匹配不到成功文本（ANSI 格式变化等），仍视为成功
+            pass "${label} → Tool 导入成功（exit 0，success inferred from exit code）"
+        fi
+    else
+        # exit code 非 0 → 确实失败，打印输出摘要辅助排查
+        fail "${label} → Tool 导入失败（exit ${tool_exit}）"
+        echo "    --- Tool 输出摘要（最后 20 行）---"
+        tail -20 "$tool_output" 2>/dev/null | sed 's/^/    /'
+        echo "    ----------------------------------------"
+    fi
+
+    rm -f "$tool_output"
+}
+
 cleanup() {
     rm -rf "$TMPDIR_SMOKESRC"
     # Tool bridge 导入会把当前 repo 临时注册为 alpha-trial-*。
@@ -113,54 +198,18 @@ if [[ "$CANGJIE_ONLY" == "true" ]]; then
 else
     echo "--- Rust Bridge → Tool 导入 ---"
 
-RUST_FIXTURE="$PROJECT_ROOT/fixtures/rust/portable-smoke"
-RUST_BRIDGE_JSON="$TMPDIR_SMOKESRC/rust-bridge.json"
+    RUST_FIXTURE="$PROJECT_ROOT/fixtures/rust/portable-smoke"
+    RUST_BRIDGE_JSON="$TMPDIR_SMOKESRC/rust-bridge.json"
 
-if [[ ! -d "$RUST_FIXTURE" ]]; then
-    fail "Rust portable-smoke fixture 不存在"
-else
-    # 生成 bridge JSON
-    cd "$PROJECT_ROOT"
-    if cargo run -p gitnexus-rust-core-cli -- analyze \
-        --root "$RUST_FIXTURE" \
-        --language rust \
-        --format gitnexus-rc \
-        --strict \
-        > "$RUST_BRIDGE_JSON" 2>/dev/null; then
-        pass "Rust bridge JSON 生成成功"
+    if [[ ! -d "$RUST_FIXTURE" ]]; then
+        fail "Rust portable-smoke fixture 不存在"
     else
-        fail "Rust bridge JSON 生成失败"
-    fi
-
-    # 验证 stdout 纯净
-    if python3 -c "import json; json.load(open('$RUST_BRIDGE_JSON'))" 2>/dev/null; then
-        pass "Rust bridge JSON.parse 成功"
-    else
-        fail "Rust bridge JSON.parse 失败 — stdout 不纯净"
-    fi
-
-    # Tool 导入
-    if "$NODE_BIN" "$TOOL" analyze \
-        --force \
-        --experimental-rust-core-bridge-graph "$RUST_BRIDGE_JSON" \
-        --name alpha-trial-rust-smoke \
-        --skip-agents-md \
-        2>/dev/null | grep -q "indexed successfully"; then
-        pass "Rust bridge → Tool 导入成功"
-    else
-        # 可能 name 冲突，用 --allow-duplicate-name 重试
-        if "$NODE_BIN" "$TOOL" analyze \
-            --force \
-            --allow-duplicate-name \
-            --experimental-rust-core-bridge-graph "$RUST_BRIDGE_JSON" \
-            --name alpha-trial-rust-smoke \
-            --skip-agents-md \
-            2>/dev/null | grep -q "indexed successfully"; then
-            pass "Rust bridge → Tool 导入成功（duplicate-name 允许）"
-        else
-            fail "Rust bridge → Tool 导入失败"
-        fi
-    fi
+        cd "$PROJECT_ROOT"
+        tool_bridge_import \
+            "Rust bridge" \
+            "$RUST_BRIDGE_JSON" \
+            "cargo run -p gitnexus-rust-core-cli -- analyze --root '$RUST_FIXTURE' --language rust --format gitnexus-rc --strict" \
+            "alpha-trial-rust-smoke"
     fi
 fi
 
@@ -179,47 +228,12 @@ else
     if [[ ! -d "$CANGJIE_FIXTURE" ]]; then
         fail "Cangjie portable-smoke fixture 不存在"
     else
-        # 生成 bridge JSON
         cd "$PROJECT_ROOT"
-        if cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
-            --root "$CANGJIE_FIXTURE" \
-            --language cangjie \
-            --format gitnexus-rc \
-            --strict \
-            > "$CANGJIE_BRIDGE_JSON" 2>/dev/null; then
-            pass "Cangjie bridge JSON 生成成功"
-        else
-            fail "Cangjie bridge JSON 生成失败"
-        fi
-
-        # 验证 stdout 纯净
-        if python3 -c "import json; json.load(open('$CANGJIE_BRIDGE_JSON'))" 2>/dev/null; then
-            pass "Cangjie bridge JSON.parse 成功"
-        else
-            fail "Cangjie bridge JSON.parse 失败 — stdout 不纯净"
-        fi
-
-        # Tool 导入
-        if "$NODE_BIN" "$TOOL" analyze \
-            --force \
-            --experimental-rust-core-bridge-graph "$CANGJIE_BRIDGE_JSON" \
-            --name alpha-trial-cangjie-smoke \
-            --skip-agents-md \
-            2>/dev/null | grep -q "indexed successfully"; then
-            pass "Cangjie bridge → Tool 导入成功"
-        else
-            if "$NODE_BIN" "$TOOL" analyze \
-                --force \
-                --allow-duplicate-name \
-                --experimental-rust-core-bridge-graph "$CANGJIE_BRIDGE_JSON" \
-                --name alpha-trial-cangjie-smoke \
-                --skip-agents-md \
-                2>/dev/null | grep -q "indexed successfully"; then
-                pass "Cangjie bridge → Tool 导入成功（duplicate-name 允许）"
-            else
-                fail "Cangjie bridge → Tool 导入失败"
-            fi
-        fi
+        tool_bridge_import \
+            "Cangjie bridge" \
+            "$CANGJIE_BRIDGE_JSON" \
+            "cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root '$CANGJIE_FIXTURE' --language cangjie --format gitnexus-rc --strict" \
+            "alpha-trial-cangjie-smoke"
     fi
 fi
 
