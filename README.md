@@ -9,12 +9,29 @@
 
 ## Purpose
 
-GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不是 GitNexus-RC（TypeScript 主仓库）的替代发布版，而是独立的 Rust 工具链，提供 Cargo 项目扫描、符号提取、import 解析、call graph 中间输出和图发射能力。
+GitNexus Rust-core 是 GitNexus 项目的 Rust-native 语言分析核心实验线。它不是 GitNexus-RC（TypeScript 主仓库）的替代发布版，而是独立的本地工具链，提供 Rust / Cangjie 项目扫描、符号提取、import/reference/call 解析、graph 发射、质量门检查，以及面向 GitNexus-RC 的 bridge JSON 输出。
 
 **与 GitNexus-RC 的关系：**
 - GitNexus-RC 是治理来源、架构决策记录和 TypeScript adapter 主仓库
-- Rust-core 是 Rust 实现主体，产出可被 GitNexus-RC experimental adapter 消费的 JSON artifacts
+- Rust-core 是 Rust 实现主体，产出可被 GitNexus-RC experimental adapter / bridge consumer 试用的 JSON artifacts
 - 所有语言支持决策、fixture 设计、confidence/reason 策略源自 GitNexus-RC `docs/language-support/`
+- 当前定位是 **local trial / research fork**，不宣称替代 GitNexus-RC production CLI
+
+---
+
+## Current Snapshot
+
+| Area | Current state |
+|------|---------------|
+| Unified CLI | `analyze` / `quality` / `summary`，支持 `--language auto` 和 `analyze --strict` |
+| Rust graph quality | 0 duplicate nodes, 0 duplicate edges, 0 dangling sources, 0 dangling targets, deterministic |
+| Rust graph contract | 58/58 tests on 8 fixtures |
+| Rust CALLS | 2,370/3,609 resolved calls（65.7%，2026-05-09 self-smoke） |
+| Rust graph output | 1,524 nodes, 2,438 edges, 1,054 CALLS edges |
+| Cangjie graph quality | Production Acceptance Stages 1-3 complete；0 synthetic / duplicate / dangling，deterministic |
+| Cangjie contract/smoke | graph_contract 24/24；multi_project_smoke 4/4 fixture + 4 production；cangjie_inspect 18/18 |
+| GitNexus-RC bridge | `--format gitnexus-rc` bridge output + roundtrip smoke in local trial |
+| Packaging | `scripts/build.sh` + `scripts/smoke.sh` local trial workflow |
 
 ---
 
@@ -25,8 +42,10 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
 | 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
 | 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 12 import fixtures |
-| 4. CALLS Intermediate | Call site extraction + 12 resolved call forms + method dispatch + stdlib trait + external crate path + enum constructor + cross-file same-crate + wildcard disambiguation | ✅ Implemented | 22 call fixtures |
-| 5. Graph Emitter v0.3 | ProjectModel → JSON graph (CALLS + DESIGNATION + ACCESSES edges) + external symbol node completion | ✅ Implemented | 6 graph fixtures + portable-smoke |
+| 4. CALLS Intermediate | Call site extraction + method dispatch heuristics + stdlib trait + external crate path + enum/variant constructor + cross-file same-crate + wildcard disambiguation | ✅ Implemented | 24 call fixtures |
+| 5. Graph Emitter v0.3 | ProjectModel → JSON graph (CALLS + DESIGNATION + ACCESSES + HAS_PARENT edges) + external symbol node completion | ✅ Implemented | 8 graph contract fixtures |
+| 6. Unified CLI | `analyze` / `quality` / `summary` + `--strict` + language auto-detect | ✅ Implemented | productization tests |
+| 7. Bridge Format | Rust/Cangjie graph → GitNexus-RC compatible JSON shape | ✅ Local trial | bridge roundtrip smoke |
 
 ### CALLS Resolved Call Forms
 
@@ -46,10 +65,13 @@ GitNexus Rust-core 是 GitNexus 项目的 Rust 语言分析核心实现。它不
 | Stdlib trait method | `x.to_string()`, `y.clone()` | 0.55 |
 | External crate path | `Vec::new()`, `String::from()` | 0.80–0.85 |
 | Enum constructor | `Some(42)`, `Ok(val)`, `Err(e)` | 0.80 |
+| Enum variant constructor | `Event::Click(x)` / tuple variant invocation | 0.80 |
 | Cross-file same-crate (Phase 2e) | `split_last_segment()` from another module | 0.80 |
 | Wildcard-aware disambiguation (Phase 2f) | `helper_func()` via `use calculations::*` | 0.80 |
+| Type-filtered associated function | `CrossFileSymbolIndex::build()` | 0.75 |
+| crate:: associated function | `crate::Parser::new()` when uniquely classified | 0.75 |
 
-**Resolution rate: 65.8%**（2339/3557 calls on gitnexus-rust-core，2026-05-08 Phase 2g associated-function disambiguation）。
+**Resolution rate: 65.7%**（2370/3609 calls on gitnexus-rust-core，2026-05-09 Slice 56 production readiness audit）。The denominator increased after enum variant extraction and graph contract expansion; the current value is the latest self-smoke baseline.
 
 ---
 
@@ -103,12 +125,15 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie gr
 - The `tree-sitter-cangjie` feature enables Cangjie language support via tree-sitter parser
 - Without this feature, the `cangjie` subcommand is not available
 
-**Current Capabilities (Slice 17):**
+**Current Capabilities:**
 - Project model scanning (cjpm.toml, workspace members, source files)
 - Symbol extraction (Function, Class, Struct, Enum, Interface, TypeAlias, Macro)
 - Import resolution (named imports, path dependencies, cjpm tree external deps)
 - Reference extraction (same-file and cross-file type annotations)
-- Graph output (Repository/Package/SourceFile/Symbol nodes + edges)
+- Function call reference extraction and graph CALLS edges
+- Diagnostics runner integration (cjc/cjlint sidecar when SDK is available)
+- Graph output (Repository/Package/SourceFile/Symbol/Diagnostic nodes + edges)
+- `cangjie inspect` / `cangjie graph` with `--strict`
 - Deterministic JSON output to stdout
 
 **Stop-lines for Cangjie:**
@@ -201,6 +226,10 @@ cargo test --features tree-sitter-cangjie \
   --test graph_contract -- --nocapture                # Cangjie contract regression (24)
 cargo test --features tree-sitter-cangjie \
   --test multi_project_smoke -- --nocapture           # Cangjie fixture smoke (4)
+cargo test --test project_model_graph_contract         # Rust graph contract regression (58)
+cargo test --test bridge_roundtrip                     # GitNexus-RC bridge roundtrip
+cargo test --test productization_commands              # analyze / quality / summary CLI tests
+./scripts/smoke.sh --quick                             # local trial smoke
 ```
 
 ---
@@ -240,14 +269,17 @@ gitnexus-rust-core/
         language_detect.rs               # 语言自动检测（NEW）
       tests/
         project_model_inspect.rs         # Integration tests
-        productization_commands.rs        # Productization CLI tests (15)（NEW）
+        bridge_roundtrip.rs               # GitNexus-RC bridge roundtrip tests
+        productization_commands.rs        # Productization CLI tests
   fixtures/
     manifest-scanner/                      # 6 fixtures
     root-resolution/                       # 9 fixtures
     source-ownership/                      # 8 fixtures
     item-extraction/                       # 10 fixtures (with expected-symbols.json)
     import-use/                            # 12 fixtures (with expected-imports.json)
-    call-resolution/                       # 22 fixtures (C1-C14 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
+    call-resolution/                       # 24 fixtures (C1-C16 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
+    rust/                                  # 8 graph contract fixtures
+    cangjie/                               # Cangjie portable and regression fixtures
   docs/
     architecture/                          # Architecture docs (unified-output-contract, bridge-preflight)
     decisions/                             # Decision records
@@ -282,8 +314,8 @@ gitnexus-rust-core/
 | Remote name | `gitcode` |
 | URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
 | Branch | `master` |
-| HEAD | `5363eb8` |
-| Total commits | 150 |
+| HEAD | See GitCode `master` |
+| Commit count | See git history |
 
 ---
 
