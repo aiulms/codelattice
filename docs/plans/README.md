@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（consumer-dry-run v1.4.0 三次审计 + adapter preflight v1.1.0 落地后状态更新 + deterministic 测试修复）
+最后更新：2026-05-09（consumer-dry-run v1.4.0 三次审计 + adapter preflight v1.1.0 落地后状态更新 + bridge-preflight v1.2.0 schema 对齐状态更新 + deterministic 测试修复）
 
 ## 用途
 
