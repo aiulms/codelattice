@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（generatedAt 稳定性修正 + Legacy Naming Compatibility Cleanup preflight 新增）
+最后更新：2026-05-09（consumer-dry-run v1.4.0 三次审计 + adapter preflight v1.1.0 落地后状态更新 + deterministic 测试修复）
 
 ## 用途
 
@@ -38,12 +38,12 @@
 - ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
 - ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
 - ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
-- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（17 文件），Bridge 兼容性报告 v1.3.0（二次审计确认 §8.5），2 个 bridge adapter 修复（symbol kind + edge confidence），bridge_roundtrip 26 tests（13 Rust + 13 Cangjie，含 generatedAt/CallableSource/Option<&str> 映射精度增强）
+- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（16 文件），Bridge 兼容性报告 v1.4.0（三次审计确认 §8.6，bridge adapter 全部 4 文件细节），2 个 bridge adapter 修复（symbol kind + edge confidence），bridge_roundtrip 26 tests（13 Rust + 13 Cangjie）+ deterministic 修复（strip generatedAt）
 - ✅ **Bridge adapter 分离**（2026-05-09）：bridge_format.rs（~890 行）拆分为 rust_bridge.rs + cangjie_bridge.rs + bridge_format.rs（共享类型 + 边分组），零行为变化，纯结构重构
 - ✅ **Consumer Contract 固化**（2026-05-09）：新增 §零 三级字段分类（Stable/Adapter-Required/Intentionally-Unstable）、§五 Rust vs Cangjie 差异表、§六 Node ID 不稳定边界
 - ✅ **Adapter Readiness Test Pack**（2026-05-09）：bridge_roundtrip 22→26 tests，新增 symbol kind 白名单 + packageId 交叉引用验证
 - ✅ **Local Trial Packaging**（2026-05-09）：新增 scripts/verify-bridge.sh 面向 RC adapter 开发者，build.sh 增加 bridge format 示例，README.md 增加 bridge 验证章节
-- ✅ **GitNexus-RC Adapter Preflight**（2026-05-09）：docs/plans/2026-05-09-gitnexus-rc-adapter-preflight.md — 最小 write set（4 文件 ~320 行）、转换边界、风险、11 项验收清单
+- ✅ **GitNexus-RC Adapter Preflight**（2026-05-09，v1.1.0）：docs/plans/2026-05-09-gitnexus-rc-adapter-preflight.md — 已更新为落地后状态：bridge adapter 4 文件 ~921 行（超出预研 ~320 行）、转换边界、风险、11 项验收清单、下一步待做（Tool propagation / 端到端验证 / USES 渲染样式）
 - ✅ **GitNexus-RC Bridge Adapter landed（cross-repo 状态）**：过渡消费端已落地 `rust-core-bridge-adapter/`（GitNexus-RC commit `26a21b5e`，closure `75107091`）。Rust-core 侧仍把该路径视为 legacy compatibility consumer，不作为本项目长期产品身份。
 
 - ✅ **Public Identity Cleanup**（2026-05-09）：README.md / build.sh / verify-bridge.sh 中 GitNexus-RC 特定引用替换为中性表述（"下游消费格式"/"下游消费方"），保持 CLI flag `--format gitnexus-rc` 不变

@@ -1,21 +1,21 @@
 # GitNexus-RC Adapter Preflight — Bridge JSON 接入
 
 > **日期：** 2026-05-09
-> **版本：** v1.0.0
-> **状态：** Preflight（docs-only）
-> **Stop-line：** 本文档为未来接入预研，**当前不执行任何 GitNexus-RC 修改**。
+> **版本：** v1.1.0
+> **状态：** Preflight → **已落地（bridge adapter 已 landed in GitNexus-RC）**
+> **Stop-line：** 本文档记录 bridge adapter 接入预研与落地后的状态。**当前不执行任何 GitNexus-RC 修改。**
 
 ---
 
 ## 目的
 
-为 GitNexus-RC 新增 `loadRustCoreBridgeGraph()` adapter 路径做最小预研，说明：
-1. 未来如果授权修改 GitNexus-RC，最小 write set 是哪些文件
+为 GitNexus-RC 新增 `loadRustCoreBridgeGraph()` adapter 路径做预研，说明：
+1. Bridge adapter 已落地 GitNexus-RC（commit `26a21b5e`，closure `75107091`）
 2. Rust-core bridge JSON → GitNexus-RC KnowledgeGraph 的转换边界
 3. 已知风险与缓解策略
-4. 最小验收标准
+4. 落地后的验证状态
 
-**授权状态：** ⚠️ 需要用户显式授权。当前 loop 不执行任何 GitNexus-RC 修改。
+**授权状态：** ✅ Bridge adapter 已在 GitNexus-RC 落地。Rust-core 侧已就绪。
 
 ---
 
@@ -30,54 +30,44 @@ Rust-core CLI 通过 `--format gitnexus-rc` 产出 bridge JSON：
 - edge `confidence`/`reason` 已提升到顶层（Rust 有值，Cangjie 为 null）
 - 详情见 `docs/architecture/consumer-contract.md`
 
-### 1.2 GitNexus-RC 现有 adapter（已有）
+### 1.2 GitNexus-RC Bridge Adapter（✅ 已落地）
 
-GitNexus-RC 已有 `rust-core-graph-adapter/`，消费 Rust-core **原始** GraphOutput 格式：
-- `validate.ts`：schema version、node/edge label 白名单、duplicate check
-- `map-to-gitnexus.ts`：label→NodeLabel、edge type→RelationshipType、ID 重建、confidence/reason 注入
-- `index.ts`：`loadRustCoreGraph()` 入口
+GitNexus-RC 已有 **两条** adapter 路径：
 
-该 adapter **不消费 bridge JSON**。Bridge JSON 是新格式，需要新增独立 adapter 路径。
+1. **`rust-core-graph-adapter/`**（旧）：消费 Rust-core 原始 GraphOutput（flat `nodes[]` + `edges[]`，`source`/`target` 端点），schema v0.2.0
+
+2. **`rust-core-bridge-adapter/`**（新，✅ 已落地）：消费 `--format gitnexus-rc` bridge JSON，4 个文件：
+   - `types.ts`（185 行）：`BridgeGraphOutput` 接口 + 13 Rust + 9 Cangjie symbol kind 白名单 + 21 edge kind 白名单 + 10 edge 分组名 + 4 metadata-only kind
+   - `validate.ts`（199 行）：10 条验证规则（顶层字段、language、symbol kind 按语言白名单、duplicate ID、dangling 端点、edge kind 白名单、旧字段检测、stats 一致性、最小合理性）
+   - `map-to-gitnexus.ts`（413 行）：6-phase 映射 pipeline，24 kind→NodeLabel 映射，24 kind→RelationshipType 映射（4 个 null=metadata-only），confidence/reason 按语言策略（Rust 透传，Cangjie: structural=1.0, semantic=0.85），ID 重建
+   - `index.ts`（124 行）：`loadRustCoreBridgeGraph()` 入口 — read→parse→check→validate→map→warnings
+
+两条路径独立，互不干扰。Bridge adapter 已落地 GitNexus-RC commit `26a21b5e`（closure `75107091`）。
+
+### 1.3 Rust-core Consumer Dry-run（✅ 已完成）
+
+三次审计（v1.4.0）：完整审计 GitNexus-RC 消费侧 16 个核心文件，确认 bridge JSON 与 KnowledgeGraph 消费链兼容。
 
 ---
 
-## 二、最小 Write Set
+## 二、Write Set（✅ 已实现）
 
-以下为 GitNexus-RC repo 中**建议修改的文件清单**，基于只读审计（dry-run 报告已覆盖 11 个文件）：
+以下为 GitNexus-RC repo 中 bridge adapter 的**实际落地的文件清单**：
 
-### 2.1 必须新建
+### 2.1 新建文件（4 个，~921 行）
 
-| 文件 | 预估行数 | 作用 |
-|------|---------|------|
-| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/types.ts` | ~50 | Bridge JSON 类型定义（BridgeGraphOutput 接口 + bridge edge kind/group 枚举） |
-| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/validate.ts` | ~80 | Bridge JSON 合约验证（顶层字段、symbol kind 白名单、edge kind 白名单、端点完整性、stats 一致性） |
-| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/map-to-gitnexus.ts` | ~150 | Bridge→KnowledgeGraph 映射：ID 重建、kind→NodeLabel、edge kind→RelationshipType、grouped→flat edges |
-| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/index.ts` | ~40 | 入口：`loadRustCoreBridgeGraph()` — JSON → validate → map → KnowledgeGraph |
+| 文件 | 实际行数 | 作用 | 状态 |
+|------|---------|------|------|
+| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/types.ts` | 185 | Bridge JSON 类型定义 + 21 edge kind 白名单 + 10 edge 分组 | ✅ 已落地 |
+| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/validate.ts` | 199 | 10 条验证规则（V1-V10）：顶层字段、symbol kind 按语言白名单、edge kind 白名单、端点完整性、stats 一致性等 | ✅ 已落地 |
+| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/map-to-gitnexus.ts` | 413 | 6-phase 映射 pipeline：24 kind→NodeLabel + 24 kind→RelationshipType 映射、ID 重建、confidence/reason 按语言策略 | ✅ 已落地 |
+| `gitnexus/src/core/ingestion/rust-core-bridge-adapter/index.ts` | 124 | `loadRustCoreBridgeGraph()` 入口：read→parse→check→validate→map→warnings | ✅ 已落地 |
 
-### 2.2 可能需要修改
+### 2.2 总变更量
 
-| 文件 | 变更 | 风险 |
-|------|------|------|
-| `gitnexus-shared/src/graph/types.ts` | 新增 NodeLabel 值：`EnumVariant`（Rust）、`Init`（Cangjie）、`CallableSource`（Cangjie 合成节点，可选） | 低（enum 扩展向后兼容） |
-| `gitnexus-shared/src/graph/types.ts` | 新增 RelationshipType 值：`DESIGNATION`（Rust 专属） | 低（enum 扩展向后兼容） |
-| `gitnexus-shared/src/lbug/schema-constants.ts` | 新增 node/rel 表条目 | 低（追加列表） |
-| `gitnexus-web/src/lib/constants.ts` | 新增 NodeLabel 颜色/大小、EdgeType 样式 | 低（追加映射表，不消费时无效果） |
-| `gitnexus-web/src/lib/graph-adapter.ts` | 无需修改（Sigma.js adapter 仅消费 label/type 字符串，不依赖枚举） | 无 |
-
-### 2.3 不需要修改
-
-| 文件 | 原因 |
-|------|------|
-| `gitnexus/src/core/graph/types.ts` | KnowledgeGraph 接口不变 |
-| `gitnexus/src/core/graph/graph.ts` | KnowledgeGraph 实现不变 |
-| `gitnexus-web/src/core/llm/tools.ts` | LLM tools 动态发现 node/rel 类型，无需硬编码 |
-| `gitnexus/src/core/ingestion/rust-core-graph-adapter/*` | 现有 adapter 路径保留不动，bridge adapter 为独立路径 |
-
-### 2.4 文件变更总数
-
-- **新建：** 4 个文件，~320 行
-- **修改：** 2-3 个文件，~30 行
-- **总变更量：** ~350 行
+- **新建：** 4 个文件，~921 行（超出预研 ~320 行，因为实现了完整的 10 规则验证 + 6-phase 映射 + 按语言 confidence/reason 策略）
+- **共享类型修改：** 无需（`EnumVariant`/`Constructor` 已在 RC `NodeLabel` 中存在；`USES`/`MODIFIES` 已在 RC `RelationshipType` 中存在）
+- **总变更量：** ~921 行（仅新建，无修改已有文件）
 
 ---
 
@@ -215,27 +205,41 @@ GitNexus-RC adapter 接入的最小验收清单：
 
 ---
 
-## 六、授权 Gate
+## 六、授权 Gate（✅ 已完成）
 
-**以下操作需要用户显式授权，当前不执行：**
+**Bridge adapter 已落地 GitNexus-RC，无需再次授权：**
 
-1. 新建或修改 GitNexus-RC `gitnexus/src/core/ingestion/` 下任何文件
-2. 修改 GitNexus-RC `gitnexus-shared/src/graph/types.ts` NodeLabel/RelationshipType 枚举
-3. 修改 GitNexus-RC `gitnexus-web/` 前端常量/适配器
-4. 运行 GitNexus-RC adapter 或 pipeline 测试
+- ✅ GitNexus-RC `rust-core-bridge-adapter/` 已新建（4 个文件，~921 行）
+- ✅ `EnumVariant`/`Constructor` 已在 RC `NodeLabel` 中存在（`gitnexus-shared/src/graph/types.ts`）
+- ✅ `USES`/`MODIFIES`/`IMPORTS` 已在 RC `RelationshipType` 中存在（`gitnexus-shared/src/graph/types.ts`）
+- ✅ Web UI `constants.ts` 已有 `EnumVariant`/`Constructor` 颜色和尺寸定义
+- ✅ bridge adapter 可从 Rust-core bridge JSON fixture 正确消费
 
 **Rust-core 侧已就绪且可独立验证的内容：**
 - ✅ Bridge JSON 输出格式（`--format gitnexus-rc`）
-- ✅ 端点完整性（bridge_roundtrip 26 tests，0 dangling）
-- ✅ Consumer contract 文档（Tier 1/2/3 三级分类）
+- ✅ 端点完整性（bridge_roundtrip 26 tests，0 dangling）+ deterministic（排除 generatedAt）
+- ✅ Consumer contract 文档（Tier 1/2/3 三级分类，v1.2.0）
 - ✅ Adapter readiness tests（symbol kind whitelist, edge kind compatibility, packageId consistency）
 - ✅ Bridge 验证脚本（`scripts/verify-bridge.sh`）
+- ✅ Cross-repo consumer dry-run（v1.4.0，三次审计确认兼容性完整）
 
 ---
 
-## 七、下一步
+## 七、当前状态与后续
 
-1. **用户授权后：** 在 GitNexus-RC 新建 `rust-core-bridge-adapter/` 目录，参考本文档 §二 write set
-2. **实现顺序建议：** types.ts → validate.ts → map-to-gitnexus.ts → index.ts → 测试 → 前端 NodeLabel 扩展
-3. **验收：** 按 §五 验收清单逐项通过
-4. **回滚：** 新建独立 adapter 路径不影响现有 `rust-core-graph-adapter/`，回滚仅需删除新目录 + revert types.ts 枚举扩展
+**已落地（Rust-core 侧）：**
+1. ✅ Bridge JSON 输出稳定、确定性、0 dangling
+2. ✅ 26 bridge_roundtrip tests（13 Rust + 13 Cangjie）
+3. ✅ Bridge 兼容性三次审计（consumer-dry-run.md v1.4.0）
+
+**已落地（GitNexus-RC 侧，commit `26a21b5e`）：**
+1. ✅ `rust-core-bridge-adapter/` 完整实现（4 文件，~921 行）
+2. ✅ 10 验证规则 + 6-phase 映射 pipeline
+3. ✅ 24 kind→NodeLabel + 24 kind→RelationshipType 映射表
+
+**待做（不阻塞 Rust-core alpha trial）：**
+- GitNexus-RC Tool propagation：bridge adapter 集成到 GitNexus-RC Tool CLI
+- 端到端验证：Rust-core bridge JSON → RC adapter → Web UI / LLM Tools 完整链路
+- USES edge Sigma.js 渲染样式补充（`graph-adapter.ts` EDGE_STYLES 目前不含 USES）
+
+**回滚安全性：** bridge adapter 为独立路径，不影响现有 `rust-core-graph-adapter/`
