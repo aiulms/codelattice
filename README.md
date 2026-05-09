@@ -2,27 +2,51 @@
 
 GitNexus Rust Core 是一个用 Rust 编写的本地代码智能分析核心。它的目标是把源码项目转换成结构化的项目模型、符号表、引用关系、调用关系和图数据，让后续的代码理解、影响分析、质量检查、AI 辅助开发可以建立在稳定的数据基础上。
 
+> 当前状态：**Alpha Production Trial Ready**。第一版可投入受控生产试用，适合显式 opt-in 到真实 Rust / Cangjie 项目的本地分析流程；它还不是 Beta / GA，也不会默认替代任何既有生产链路。
+
 当前重点支持两类语言：
 
 - Rust：Cargo 项目扫描、符号提取、import 解析、调用关系、图输出和质量门。
 - Cangjie / 仓颉：cjpm 项目扫描、符号提取、import/reference/call 解析、diagnostics 接入、图输出和质量门。
 
-这个仓库目前处于本地试用和持续演进阶段，已经具备较完整的 CLI、fixture、回归测试和质量门，但输出格式和部分语义策略仍可能继续调整。
+这个仓库已经完成第一轮真实项目 alpha trial：Rust 自分析和 Cangjie cjgui 目标均通过，输出为合法 JSON，0 dangling、0 duplicate，质量门和下游导入验证通过。后续重点是继续积累周期性 trial 证据、稳定输出协议、完善 AI 消费层，而不是短期扩展 UI / Web / 多语言大覆盖。
 
 ## 现在做到哪一步
 
 | 方向 | 当前状态 |
 |------|----------|
+| 生产试用状态 | Alpha Production Trial Ready；Run #001 覆盖 Rust self-analysis + Cangjie cjgui，两个目标全部 PASS |
 | 统一 CLI | 已有 `analyze`、`quality`、`summary` 三个入口，支持 `--language auto` 和 `analyze --strict` |
 | Rust 项目模型 | 支持 Cargo manifest、workspace、target、source ownership |
 | Rust 符号与调用 | 支持函数、方法、结构体、枚举、trait、impl、const、static、宏定义、enum variant 等符号 |
 | Rust 调用解析 | 当前 self-smoke 基线为 2370/3609，解析率 65.7% |
-| Rust 图质量 | 0 duplicate nodes，0 duplicate edges，0 dangling sources，0 dangling targets，输出 deterministic |
+| Rust 图质量 | 真实项目 trial：1700 nodes / 2634 edges，0 duplicate，0 dangling，输出 deterministic |
 | Rust 回归测试 | graph contract 58/58，覆盖 8 个图合同 fixture；call comparison 24/24 fixture |
 | 仓颉项目模型 | 支持 `cjpm.toml`、workspace members、source files、path dependencies、外部依赖信息 |
 | 仓颉符号与关系 | 支持 Function、Class、Struct、Enum、Interface、TypeAlias、Macro、Init，支持 import/reference/call graph |
-| 仓颉质量门 | graph_contract 24/24，multi_project_smoke 4/4 fixture + 4 production targets，cangjie_inspect 18/18 |
-| 本地试用 | 提供 `scripts/build.sh` 和 `scripts/smoke.sh`，可一键构建和 smoke 验证 |
+| 仓颉质量门 | 真实项目 trial：903 nodes / 3252 edges，0 duplicate，0 dangling；graph_contract 24/24，cangjie_inspect 18/18 |
+| 试用脚本 | 提供 `scripts/build.sh`、`scripts/smoke.sh`、`scripts/alpha-trial-smoke.sh` |
+
+## 生产试用边界
+
+Alpha Production Trial 的含义是：可以在真实项目中作为 AI 编程助手的前置本地分析工具使用，但仍需显式 opt-in、按 runbook 运行、记录 trial log，并保留回滚路径。
+
+已经完成：
+
+- Rust 真实 workspace 项目分析通过。
+- Cangjie 真实项目分析通过。
+- 输出 JSON stdout 纯净，不需要额外清洗。
+- 质量门覆盖 duplicate、dangling、deterministic、stats consistency 等关键问题。
+- 下游图谱导入验证通过。
+- 已有 runbook、failure playbook、periodic trial log、beta readiness criteria。
+
+尚未承诺：
+
+- 默认生产引擎。
+- Beta / GA 稳定性。
+- Web UI / MCP 默认消费。
+- 多语言完整替代版。
+- 无人值守长期运行。
 
 ## 能分析出什么
 
@@ -132,17 +156,20 @@ target/release/gitnexus-rust-core-cli
 ./scripts/smoke.sh
 ```
 
-### 下游消费格式验证（bridge format）
+### Alpha 端到端 smoke
 
 ```bash
-# Rust bridge 快速验证
-./scripts/verify-bridge.sh --rust-only
+# Rust + Cangjie 端到端验证
+./scripts/alpha-trial-smoke.sh
 
-# 完整验证（含 Cangjie）
-./scripts/verify-bridge.sh
+# 仅验证 Rust
+./scripts/alpha-trial-smoke.sh --rust-only
+
+# 仅验证 Cangjie
+./scripts/alpha-trial-smoke.sh --cangjie-only
 ```
 
-验证项：结构完整性、端点完整性、统计一致性、symbol kind 具体化、edge confidence/reason、packageId 一致性、输出确定性。
+验证项：结构完整性、端点完整性、统计一致性、stdout JSON purity、下游图谱导入、输出确定性。
 
 ## CLI 用法
 
@@ -287,18 +314,17 @@ gitnexus-rust-core/
 
 短期目标：
 
-- 稳定 Rust / 仓颉统一 CLI
-- 稳定 JSON 输出格式
-- 增强面向上层应用的图数据消费验证
-- 持续补齐 Rust graph contract fixture
-- 持续补齐仓颉真实项目 smoke
+- 持续运行 periodic alpha trial，积累 Run #002 / #003 等真实项目记录
+- 固化 alpha stable 输出字段和中性图谱格式命名
+- 完善 AI-friendly summary / report，让 AI 少读全仓、少猜测
+- 持续维护 Rust / Cangjie quality gates 和真实项目 smoke
 
 中期目标：
 
 - 提升 Rust 调用解析质量
 - 建立更完整的 confidence / reason 矩阵
 - 将仓颉 SDK、LSP、diagnostics 能力更系统地接入
-- 为上层 AI 工具提供稳定的代码图谱输入
+- 建立 MCP / IDE / 下游工具消费层
 
 长期目标：
 
