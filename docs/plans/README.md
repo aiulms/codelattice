@@ -51,6 +51,12 @@
 
 - ✅ **Alpha Trial Bridge Endpoint + Stdout Purity Closure**（2026-05-09）：[`2026-05-09-alpha-trial-bridge-endpoint-stdout-purity-closure-review.md`](2026-05-09-alpha-trial-bridge-endpoint-stdout-purity-closure-review.md) — 修复 Rust workspace dangling edges（workspace→package, diagnostic→symbol 映射）、Cangjie stdout purity（scanner.c fprintf→stderr, main.rs cfg guard）。Rust 自身 bridge JSON 0 dangling → Tool 导入成功（4711 nodes/7000 edges）。Cangjie cjgui bridge JSON stdout 纯净 → Tool 导入成功（4851 nodes/7000 edges）。全量回归通过。**结论：Alpha Production Trial Ready。**
 
+- ✅ **Alpha Production Trial Runbook**（2026-05-09）：[`2026-05-09-alpha-production-trial-runbook.md`](2026-05-09-alpha-production-trial-runbook.md) — 操作手册：适用/不适用范围、标准命令（Rust/Cangjie bridge 生成 + Tool 导入）、成功/失败判定、回滚/清理流程、风险边界、执行 AI 最小 checklist。Explicit opt-in，不替代 TS adapter。
+
+- ✅ **Alpha Trial 端到端 Smoke 脚本**（2026-05-09）：`scripts/alpha-trial-smoke.sh` — 验证 Rust/Cangjie bridge JSON → Tool `--experimental-rust-core-bridge-graph` 导入全链路。使用 portable-smoke fixture，不写 live repo，不自动 commit。
+
+- 📝 **Public Identity and Legacy Command Cleanup Plan**（2026-05-09）：[`2026-05-09-public-identity-and-legacy-command-cleanup-plan.md`](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md) — 记录清理策略，不在本轮执行。必须立即清理项（npx gitnexus、误导性从属措辞）、暂时保留项（--format gitnexus-rc、历史文档）、命名原则、未来执行建议（三阶段：public → internal → CLI flag）。
+
 **Public Identity / Rename 线（Draft，2026-05-09）：**
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
@@ -63,19 +69,24 @@
 
 ## 当前推荐下一篇计划
 
-**Production Trial Acceptance Checklist（已开卡，docs-only）**
+**✅ Alpha Production Trial Ready — explicit opt-in.**
 
-- ✅ **[Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md)** — 固化 alpha production trial 验收清单（命令/字段/smoke targets/质量门/AI 最小消费接口/已知限制/不承诺能力/标 v0.1 前置条件），docs-only，11 节。
-- 下一步：逐项打勾确认当前状态，如有未满足项开最小 execution card 修复。
+技术验证和操作规程均已固化。当前状态：
+- Rust + Cangjie 双链路 Tool 导入成功（见 [Bridge Endpoint Closure](2026-05-09-alpha-trial-bridge-endpoint-stdout-purity-closure-review.md)）
+- 操作手册：[Alpha Production Trial Runbook](2026-05-09-alpha-production-trial-runbook.md)
+- 端到端验证脚本：`scripts/alpha-trial-smoke.sh`
+- 旧名清理计划：[Public Identity Cleanup Plan](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md)
 
-**Public Identity Cleanup 已完成。Rust-core 内可继续推进的是 production trial 收口，而不是继续扩大产品面。**
+**下一阶段 — Alpha Trial Operation：**
 
-**下一阶段 — production trial 收口优先：**
+1. **Trial Operation**：按 runbook 执行定期 smoke（`scripts/alpha-trial-smoke.sh`），记录结果
+2. **Periodic Smoke**：每周或每次 Rust-core 变更后跑 `verify-bridge.sh` + `alpha-trial-smoke.sh`
+3. **Legacy Naming Cleanup**：按 [Public Identity Cleanup Plan](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md) 执行 Phase 1（public-facing docs/scripts）
+4. **Optional GitNexus-RC E2E**：如获授权，可在 GitNexus-RC 侧做 bridge adapter 的端到端集成测试
+5. **不扩产品面**：不扩 UI/Web/MCP/新语言，直到 alpha trial 稳定运行
 
-- 按 **[Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md)** 逐项确认当前状态。
-- 如有未满足项，只开最小 execution card 修复，不扩 UI/Web/MCP/新语言。
-- 旧名治理按 **[Legacy Naming Compatibility Cleanup Preflight](2026-05-09-legacy-naming-compatibility-cleanup-preflight.md)** 执行：先做 public-facing cleanup，runtime/API/CLI 迁移等 alpha trial 稳定后再开。
-- GitNexus-RC bridge adapter 已在过渡消费端落地；后续 Tool propagation / 端到端试用属于跨仓消费验证，不阻塞 Rust-core alpha trial checklist。
+**验收清单参考：**
+- [Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md) — 逐项确认
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
