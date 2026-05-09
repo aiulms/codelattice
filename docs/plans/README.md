@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Production Trial Readiness / Roadmap Pivot preflight 新增）
+最后更新：2026-05-09（generatedAt 稳定性修正 + Legacy Naming Compatibility Cleanup preflight 新增）
 
 ## 用途
 
@@ -44,6 +44,7 @@
 - ✅ **Adapter Readiness Test Pack**（2026-05-09）：bridge_roundtrip 22→26 tests，新增 symbol kind 白名单 + packageId 交叉引用验证
 - ✅ **Local Trial Packaging**（2026-05-09）：新增 scripts/verify-bridge.sh 面向 RC adapter 开发者，build.sh 增加 bridge format 示例，README.md 增加 bridge 验证章节
 - ✅ **GitNexus-RC Adapter Preflight**（2026-05-09）：docs/plans/2026-05-09-gitnexus-rc-adapter-preflight.md — 最小 write set（4 文件 ~320 行）、转换边界、风险、11 项验收清单
+- ✅ **GitNexus-RC Bridge Adapter landed（cross-repo 状态）**：过渡消费端已落地 `rust-core-bridge-adapter/`（GitNexus-RC commit `26a21b5e`，closure `75107091`）。Rust-core 侧仍把该路径视为 legacy compatibility consumer，不作为本项目长期产品身份。
 
 - ✅ **Public Identity Cleanup**（2026-05-09）：README.md / build.sh / verify-bridge.sh 中 GitNexus-RC 特定引用替换为中性表述（"下游消费格式"/"下游消费方"），保持 CLI flag `--format gitnexus-rc` 不变
 - ✅ **Production Trial Acceptance Checklist**（2026-05-09）：docs/plans/2026-05-09-production-trial-acceptance-checklist.md — alpha production trial 验收清单，11 节全覆盖（命令/字段/smoke/质量门/AI 消费接口/已知限制/前置条件）
@@ -55,6 +56,8 @@
 - **Production Trial Readiness and Roadmap Pivot Preflight**：[`2026-05-09-production-trial-readiness-and-roadmap-pivot-preflight.md`](2026-05-09-production-trial-readiness-and-roadmap-pivot-preflight.md)
 - 结论：路线不再以复刻某个现有工具为核心叙事；短期收束为 Rust/Cangjie 本地代码上下文核心的 alpha production trial。
 - 第一版 production trial 不要求 UI/Web/MCP/多语言大覆盖，优先冻结命令、输出字段、quality gates、真实项目 smoke 和 AI 最小消费接口。
+- **Legacy Naming Compatibility Cleanup Preflight**：[`2026-05-09-legacy-naming-compatibility-cleanup-preflight.md`](2026-05-09-legacy-naming-compatibility-cleanup-preflight.md)
+- 结论：旧名清理分两层推进；先清 public-facing 叙事，runtime/API/CLI 旧名后续以 compatibility alias 方式迁移，不能一刀切。
 
 ## 当前推荐下一篇计划
 
@@ -65,13 +68,12 @@
 
 **Public Identity Cleanup 已完成。Rust-core 内可继续推进的是 production trial 收口，而不是继续扩大产品面。**
 
-**下一阶段 — 需跨仓授权（触发 stop-line）：**
+**下一阶段 — production trial 收口优先：**
 
-详见 **[GitNexus-RC Adapter Preflight](2026-05-09-gitnexus-rc-adapter-preflight.md)**
-- GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径（最小 write set：4 个新文件 ~320 行 + 2-3 个修改文件 ~30 行）
-- 前端 NodeLabel/EdgeType 扩展协商：Rust EnumVariant + Cangjie Init/CallableSource（2-3 个新 enum 值）
-- 验收标准：11 项清单，单元级 + 集成级 + 合约级全覆盖
-- **等待用户授权后才能修改 GitNexus-RC**
+- 按 **[Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md)** 逐项确认当前状态。
+- 如有未满足项，只开最小 execution card 修复，不扩 UI/Web/MCP/新语言。
+- 旧名治理按 **[Legacy Naming Compatibility Cleanup Preflight](2026-05-09-legacy-naming-compatibility-cleanup-preflight.md)** 执行：先做 public-facing cleanup，runtime/API/CLI 迁移等 alpha trial 稳定后再开。
+- GitNexus-RC bridge adapter 已在过渡消费端落地；后续 Tool propagation / 端到端试用属于跨仓消费验证，不阻塞 Rust-core alpha trial checklist。
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）

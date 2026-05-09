@@ -134,7 +134,7 @@ Production trial 不要求 schema v1 完全定稿，但需要冻结一组 alpha 
 
 - `schemaName`
 - `toolVersion`
-- `generatedAt` 是否稳定参与比较
+- `generatedAt` 字段存在性与格式稳定；具体值每次运行变化，不参与 deterministic output 严格比较
 - `warnings`
 - `capabilities`
 

@@ -70,7 +70,7 @@
 | `language` | **Stable** | `"rust"` 或 `"cangjie"` |
 | `root` | **Stable** | 项目根目录绝对路径 |
 | `schemaVersion` | **Stable** | 当前 `"0.3.0"` |
-| `generatedAt` | **Stable** | ISO 8601 时间戳 |
+| `generatedAt` | **Stable field / volatile value** | 字段存在性与 ISO 8601 格式稳定；具体值每次运行变化，不能参与 deterministic output 的严格比较 |
 | `summary` | **Stable** | 统计摘要 |
 | `qualityGates` | **Stable** | 质量门结果数组 |
 | `graph` | **Stable** | 图数据（nodes/edges/stats） |
@@ -82,7 +82,7 @@
 | 字段路径 | 稳定性 | 说明 |
 |---------|--------|------|
 | `schemaVersion` | **Stable** | |
-| `generatedAt` | **Stable** | |
+| `generatedAt` | **Stable field / volatile value** | 字段存在性与 ISO 8601 格式稳定；具体值每次运行变化，deterministic 比较必须排除该字段 |
 | `language` | **Stable** | |
 | `root` | **Stable** | |
 | `repository.id` / `repository.path` | **Stable** | |
@@ -95,6 +95,8 @@
 | `diagnostics[]` | **Stable** | 数组结构稳定 |
 
 **Node ID 格式声明：** bridge JSON 的 raw node ID（`repo:`/`package:`/`symbol:`/`file:` 前缀）不保证跨版本稳定。消费侧不应依赖 raw ID 做跨系统互查，应通过 adapter 转换。
+
+**Deterministic output 声明：** deterministic gate 比较的是结构化事实输出，不比较运行时元数据。`generatedAt` 是生成时间戳，验证脚本必须像 `scripts/verify-bridge.sh` 一样在比较前排除它。
 
 ---
 
