@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# GitNexus Rust-core 快速 Smoke 验证脚本
+# CodeLattice 快速 Smoke 验证脚本
 #
 # 用法:
 #   ./scripts/smoke.sh              # 全部检查
@@ -35,7 +35,7 @@ fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 skip() { echo "  [SKIP] $1"; SKIP=$((SKIP + 1)); }
 
 echo "============================================"
-echo " GitNexus Rust-core Smoke 验证"
+echo " CodeLattice Smoke 验证"
 echo " 项目根目录: $PROJECT_ROOT"
 echo " 时间: $(date '+%Y-%m-%d %H:%M:%S')"
 echo "============================================"

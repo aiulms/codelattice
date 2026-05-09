@@ -1,6 +1,8 @@
-# GitNexus Rust Core
+# CodeLattice
 
-GitNexus Rust Core 是一个用 Rust 编写的本地代码智能分析核心。它的目标是把源码项目转换成结构化的项目模型、符号表、引用关系、调用关系和图数据，让后续的代码理解、影响分析、质量检查、AI 辅助开发可以建立在稳定的数据基础上。
+CodeLattice 是一个本地代码图谱分析核心，目前面向 Rust 与 Cangjie 项目提供符号提取、调用关系解析、结构图生成和质量检查能力，并为 AI 编程工具与代码审查工作流提供可验证的本地上下文。其他语言支持正在逐步拓展中。
+
+> 旧工作名：`gitnexus-rust-core`。当前 alpha 阶段的部分 crate、binary、兼容 flag 仍保留旧名，后续会按兼容计划逐步治理。
 
 > 当前状态：**Alpha Production Trial Ready**。第一版可投入受控生产试用，适合显式 opt-in 到真实 Rust / Cangjie 项目的本地分析流程；它还不是 Beta / GA，也不会默认替代任何既有生产链路。
 
@@ -143,6 +145,8 @@ cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli
 ```bash
 target/release/gitnexus-rust-core-cli
 ```
+
+> `gitnexus-rust-core-cli` 是 alpha 阶段保留的兼容 binary 名，不代表当前项目身份。
 
 ### 快速 smoke
 
@@ -288,7 +292,7 @@ cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --nocapt
 ## 项目结构
 
 ```text
-gitnexus-rust-core/
+codelattice/
   Cargo.toml
   crates/
     project-model/       Rust 项目模型、符号、import、calls、graph 输出

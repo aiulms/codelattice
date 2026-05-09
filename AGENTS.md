@@ -3,17 +3,17 @@
 
 Last reviewed: 2026-05-09
 
-**Project:** GitNexus Rust-core · **Environment:** dev · **Governance source:** [GitNexus-RC](https://gitcode.com/aiulms/gitnexus-rc)
+**Project:** CodeLattice · **Environment:** dev · **Governance source:** [GitNexus-RC](https://gitcode.com/aiulms/gitnexus-rc)
 
 ## Purpose
 
-GitNexus Rust-core 是 GitNexus 的 Rust 语言分析核心实现。它不是 GitNexus-RC 的替代发布版，而是独立的 Rust 工具链。
+CodeLattice 是本地代码图谱分析核心，目前面向 Rust 与 Cangjie 项目提供符号提取、调用解析、结构图生成和质量检查能力。它的旧工作名是 `gitnexus-rust-core`；旧名只作为历史事实、兼容 flag/package 名或迁移文档保留。
 
 **治理关系：**
 - GitNexus-RC 是治理来源、架构决策记录和 TypeScript adapter 主仓库
-- Rust-core 是 Rust 实现主体
+- CodeLattice 是 Rust-native / Cangjie-native 实现主体
 - 所有语言支持决策、fixture 设计、confidence/reason 策略源自 GitNexus-RC `docs/language-support/`
-- Rust-core 日常 implementation closure 可在本地记录；跨仓 handoff / milestone 记录到 GitNexus-RC
+- CodeLattice 日常 implementation closure 可在本地记录；跨仓 handoff / milestone 记录到 GitNexus-RC
 
 ## Scope
 
@@ -34,16 +34,16 @@ For multi-step work：
 5. 如涉及跨仓变更，同步记录到 GitNexus-RC
 
 **跨仓操作规则：**
-- 修改 Rust-core 后必须 `cargo fmt --check` + `cargo test` + `git diff --check`
+- 修改 CodeLattice 后必须 `cargo fmt --check` + `cargo test` + `git diff --check`
 - Commit 后 push gitcode master
 - Push 失败时记录错误，继续后续低风险工作
 - 不做 destructive git 操作
 
 ## Stop-lines (MVP)
 
-以下内容是 Rust-core MVP 的明确 stop-line：
+以下内容是 CodeLattice MVP 的明确 stop-line：
 
-- **No production replacement** — Rust-core 不是 GitNexus-RC TypeScript adapter 的替代
+- **No production replacement** — CodeLattice 不是 GitNexus-RC TypeScript adapter 的默认替代
 - **Graph CALLS edge must not be dangling** — schema v0.2 可产 CALLS edge，但 source/target 必须指向已存在 node
 - **Method dispatch remains low-confidence heuristic only** — 允许 blind method-name / explicit receiver-type annotation heuristic；禁止 full receiver type inference / trait solving
 - **External crate support remains bounded** — 允许 std/core/alloc direct path 和 imported stdlib/prelude type 的有限解析；禁止任意 external crate API symbol resolution / sysroot index
@@ -96,7 +96,7 @@ For multi-step work：
 - `crates/project-model/src/calls.rs` 已从 2161 行拆分至 1858 行（2026-05-04 stdlib_tables 提取，-14.0%）。
 - 已提取 `stdlib_tables.rs`（311 行）：prelude type / trait method / type method 映射表 + 辅助函数。
 - Text fallback（~337 行）和 CalleeIndex/ImportBindingTable/CallerIndex（~233 行）暂留 calls.rs，待下一刀。
-- CALLS resolution rate: 65.7%（2338/3557 on gitnexus-rust-core，2026-05-08 Phase 2f wildcard import disambiguation 落地）。
+- CALLS resolution rate: 65.7%（2338/3557 on CodeLattice self-analysis，2026-05-08 Phase 2f wildcard import disambiguation 落地）。
 - 继续新增 CALLS 策略前，需再次评估是否进一步拆分。
 
 质量要求：
@@ -131,5 +131,49 @@ cargo test           # All tests
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-05-09 | 1.2.0 | Renamed public project identity from GitNexus Rust-core to CodeLattice; indexed repo as codelattice. |
 | 2026-05-04 | 1.1.0 | Added active bug gate for graph schema v0.2 dangling CALLS edges; refreshed CALLS/method/external stop-lines to match landed reality. |
 | 2026-05-04 | 1.0.0 | Initial AGENTS.md for Rust-core minimum governance. |
+
+<!-- gitnexus:start -->
+# GitNexus — Code Intelligence
+
+This project is indexed by GitNexus as **codelattice**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+
+> If any GitNexus tool warns the index is stale, run `node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js analyze` in terminal first.
+
+## Always Do
+
+- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
+- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
+- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
+- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
+- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+
+## Never Do
+
+- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
+- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
+- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
+- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+
+## Resources
+
+| Resource | Use for |
+|----------|---------|
+| `gitnexus://repo/codelattice/context` | Codebase overview, check index freshness |
+| `gitnexus://repo/codelattice/clusters` | All functional areas |
+| `gitnexus://repo/codelattice/processes` | All execution flows |
+| `gitnexus://repo/codelattice/process/{name}` | Step-by-step execution trace |
+
+## CLI
+
+Use MCP tools first. If MCP is unavailable, use the Tool CLI absolute path:
+
+```bash
+node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js <command>
+```
+
+Never use `npx gitnexus` for production analyze/status/context/impact/detect-changes.
+
+<!-- gitnexus:end -->

@@ -20,6 +20,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOOL="/Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js"
+NODE_BIN="${NODE_BIN:-node}"
+RESTORE_REPO_NAME="${CODELATTICE_REPO_NAME:-$(basename "$PROJECT_ROOT")}"
 
 RUST_ONLY=false
 CANGJIE_ONLY=false
@@ -52,7 +54,24 @@ fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 skip() { echo "  [SKIP] $1"; SKIP=$((SKIP + 1)); }
 
 TMPDIR_SMOKESRC="$(mktemp -d)"
-cleanup() { rm -rf "$TMPDIR_SMOKESRC"; }
+cleanup() {
+    rm -rf "$TMPDIR_SMOKESRC"
+    # Tool bridge 导入会把当前 repo 临时注册为 alpha-trial-*。
+    # smoke 结束时恢复当前项目索引名，避免后续执行 AI 找不到 codelattice。
+    if [[ "${CODELATTICE_SKIP_INDEX_RESTORE:-0}" != "1" && -f "$TOOL" && -d "$PROJECT_ROOT/.git" ]]; then
+        "$NODE_BIN" "$TOOL" analyze "$PROJECT_ROOT" \
+            --force \
+            --skip-agents-md \
+            --name "$RESTORE_REPO_NAME" \
+            >/dev/null 2>&1 || true
+    fi
+    if [[ -d "$PROJECT_ROOT/.git" ]] && ! git -C "$PROJECT_ROOT" ls-files -- .claude | grep -q .; then
+        rm -rf "$PROJECT_ROOT/.claude"
+    fi
+    if [[ -d "$PROJECT_ROOT/.git" ]] && ! git -C "$PROJECT_ROOT" ls-files -- CLAUDE.md | grep -q .; then
+        rm -f "$PROJECT_ROOT/CLAUDE.md"
+    fi
+}
 trap cleanup EXIT
 
 echo "============================================"
@@ -121,7 +140,7 @@ else
     fi
 
     # Tool 导入
-    if /opt/homebrew/bin/node "$TOOL" analyze \
+    if "$NODE_BIN" "$TOOL" analyze \
         --force \
         --experimental-rust-core-bridge-graph "$RUST_BRIDGE_JSON" \
         --name alpha-trial-rust-smoke \
@@ -130,7 +149,7 @@ else
         pass "Rust bridge → Tool 导入成功"
     else
         # 可能 name 冲突，用 --allow-duplicate-name 重试
-        if /opt/homebrew/bin/node "$TOOL" analyze \
+        if "$NODE_BIN" "$TOOL" analyze \
             --force \
             --allow-duplicate-name \
             --experimental-rust-core-bridge-graph "$RUST_BRIDGE_JSON" \
@@ -181,7 +200,7 @@ else
         fi
 
         # Tool 导入
-        if /opt/homebrew/bin/node "$TOOL" analyze \
+        if "$NODE_BIN" "$TOOL" analyze \
             --force \
             --experimental-rust-core-bridge-graph "$CANGJIE_BRIDGE_JSON" \
             --name alpha-trial-cangjie-smoke \
@@ -189,7 +208,7 @@ else
             2>/dev/null | grep -q "indexed successfully"; then
             pass "Cangjie bridge → Tool 导入成功"
         else
-            if /opt/homebrew/bin/node "$TOOL" analyze \
+            if "$NODE_BIN" "$TOOL" analyze \
                 --force \
                 --allow-duplicate-name \
                 --experimental-rust-core-bridge-graph "$CANGJIE_BRIDGE_JSON" \

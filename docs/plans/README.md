@@ -1,10 +1,10 @@
-# Rust-core Plans Index
+# CodeLattice Plans Index
 
-最后更新：2026-05-09（periodic alpha trial run #001 + beta go/no-go review #001）
+最后更新：2026-05-09（public identity rename to CodeLattice + codelattice index refresh）
 
 ## 用途
 
-本目录存放 Rust-core 的计划文档（preflight / execution card / closure review）。
+本目录存放 CodeLattice 的计划文档（preflight / execution card / closure review）。
 
 日常 implementation closure 可在本地记录，也可记录到 GitNexus-RC `docs/language-support/plans/`。
 跨仓 handoff / milestone 必须记录到 GitNexus-RC。
@@ -69,7 +69,8 @@
 
 - 📝 **Beta Go/No-Go Review #001**（2026-05-09）：[`2026-05-09-beta-readiness-go-no-go-review-001.md`](2026-05-09-beta-readiness-go-no-go-review-001.md) — 第一次 Beta 草评。8 项 criteria：2 PASS + 3 PARTIAL + 3 NOT YET ENOUGH DATA。结论：Alpha 维持，Beta Not yet，需 ≥ 3 轮 trial 积累。无 blocker。
 
-**Public Identity / Rename 线（Draft，2026-05-09）：**
+**Public Identity / Rename 线（Active，2026-05-09）：**
+- ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
 - 本 draft 不冻结最终命名、不改 runtime、不改 CLI/schema，只用于讨论完成度、可改动性和工程量。

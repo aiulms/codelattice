@@ -58,7 +58,7 @@ scripts/alpha-trial-smoke.sh
 **Rust 自身项目：**
 ```bash
 cargo run -- analyze \
-  --root /Users/jiangxuanyang/Desktop/gitnexus-rust-core \
+  --root /Users/jiangxuanyang/Desktop/codelattice \
   --language rust --format gitnexus-rc --strict \
   > /tmp/rust-core-bridge.json
 

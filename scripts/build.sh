@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# GitNexus Rust-core 本地构建脚本
+# CodeLattice 本地构建脚本
 #
 # 用法:
 #   ./scripts/build.sh              # release 构建（含 Cangjie 特性）
@@ -52,7 +52,7 @@ if ! command -v cargo &> /dev/null; then
     exit 1
 fi
 
-echo "==> GitNexus Rust-core 本地构建"
+echo "==> CodeLattice 本地构建"
 echo "    项目根目录: $PROJECT_ROOT"
 echo "    构建模式:   ${PROFILE:-debug}"
 echo "    特性:       ${FEATURES:-(无)}"
