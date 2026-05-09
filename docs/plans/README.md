@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Cross-repo Consumer Dry-run Closure）
+最后更新：2026-05-09（Consumer Dry-run: edge kind compatibility tests landed）
 
 ## 用途
 
@@ -38,18 +38,19 @@
 - ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
 - ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
 - ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
-- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（11 文件），Bridge 兼容性报告，2 个 bridge adapter 修复（symbol kind + edge confidence），4 个 consumer shape 测试
+- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（11 文件），Bridge 兼容性报告，2 个 bridge adapter 修复（symbol kind + edge confidence），6 个 consumer shape 测试（含 edge kind compatibility）
 
 ## 当前推荐下一篇计划
 
-**Consumer Dry-run 下一步：**
-- 请求 GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径（触发 stop-line，需用户授权）
-- 前端 NodeLabel/EdgeType 扩展协商：Rust EnumVariant/ImplBlock + Cangjie Init/CallableSource
-- Bridge adapter 分离：将 bridge_format.rs 中的 Rust/Cangjie 特定逻辑提取为 language-specific modules
+**Consumer Dry-run — Rust-core 内可推进：**
+- Bridge adapter 分离：将 bridge_format.rs 中的 Rust/Cangjie 特定逻辑提取为 language-specific modules（bounded refactoring，无行为变化）
 
-**Productization 维护：**
-- 前端消费准备（与 GitNexus-RC 维护者协商 schema 对齐）
-- Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture）
+**Consumer Dry-run — 需跨仓授权（触发 stop-line）：**
+- GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径
+- 前端 NodeLabel/EdgeType 扩展协商：Rust EnumVariant/ImplBlock + Cangjie Init/CallableSource
+
+**Productization 维护（低优先级）：**
+- Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture，需跨仓协调）
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
@@ -692,3 +693,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - bridge_roundtrip: 20 tests pass（10 Rust + 10 Cangjie），productization_commands: 19 tests pass
     - 不改 GitNexus-RC / Tool / live repo，零新增依赖
     - Closure Review: `docs/plans/2026-05-09-gitnexus-rc-consumer-dry-run-closure-review.md`
+
+61. **Consumer Dry-run follow-up — edge kind compatibility tests** ✅ 完成（2026-05-09）：
+    - 新增 `assert_edge_kind_compatibility()`：GitNexus-RC RelationshipType (24) → bridge edge kind 兼容性对照
+    - 直接兼容表（15 values）+ adapter 映射表（17 bridge→RC type pairs），含 GitNexus-RC 源文件路径引用
+    - 2 个新测试：`bridge_rust_edge_kind_compatibility` + `bridge_cangjie_edge_kind_compatibility`
+    - bridge_roundtrip: 22 tests pass（11 Rust + 11 Cangjie），0 unknown edge kinds detected
+    - README.md 新增 `--format gitnexus-rc` CLI 使用示例
+    - Commit: `7be534b`
