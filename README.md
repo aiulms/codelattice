@@ -178,6 +178,33 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 - 发现 `cjpm.toml`：仓颉
 - 两者同时存在：要求显式指定 `--language`
 
+### Bridge 格式（GitNexus-RC 兼容）
+
+输出 GitNexus-RC 兼容格式，用于前端消费侧和 AI workflow 集成：
+
+```bash
+# Rust bridge
+cargo run -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --format gitnexus-rc \
+  --strict
+
+# Cangjie bridge（需 feature）
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/cangjie/portable-smoke \
+  --language cangjie \
+  --format gitnexus-rc \
+  --strict
+
+# jq 快速验证 bridge 结构
+cargo run -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc 2>/dev/null \
+  | jq '{lang: .language, files: [.sourceFiles[].path], symbols: [.symbols[].name], edgeCount: .stats.edgeCount}'
+```
+
+Bridge 格式输出包含：`repository` / `packages` / `sourceFiles` / `symbols` / `edges`（按类型分组）/ `diagnostics` / `stats`。端点字段使用归一化名称 `sourceId`/`targetId`。详见 `docs/architecture/consumer-contract.md`。
+
 ### 质量门检查
 
 ```bash
