@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Bridge Adapter Readiness + Local Trial Productization 完成）
+最后更新：2026-05-09（Product Positioning / Rename 初稿新增）
 
 ## 用途
 
@@ -45,7 +45,18 @@
 - ✅ **Local Trial Packaging**（2026-05-09）：新增 scripts/verify-bridge.sh 面向 RC adapter 开发者，build.sh 增加 bridge format 示例，README.md 增加 bridge 验证章节
 - ✅ **GitNexus-RC Adapter Preflight**（2026-05-09）：docs/plans/2026-05-09-gitnexus-rc-adapter-preflight.md — 最小 write set（4 文件 ~320 行）、转换边界、风险、11 项验收清单
 
+**Public Identity / Rename 线（Draft，2026-05-09）：**
+- 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
+- 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
+- 本 draft 不冻结最终命名、不改 runtime、不改 CLI/schema，只用于讨论完成度、可改动性和工程量。
+
 ## 当前推荐下一篇计划
+
+**Public Identity Cleanup Execution Card（建议，未开卡）**
+
+- 先清理 README / scripts / public docs 中的 `GitNexus-RC adapter`、`bridge`、`migration` 公开叙事。
+- 新增中性 consumer format 命名方案，但不急于删除 `--format gitnexus-rc`。
+- 目标是让公开仓库先像一个独立开源项目，再进入最终 rename。
 
 **Bridge Adapter Readiness + Local Trial Productization — Rust-core 内已全部完成。**
 
