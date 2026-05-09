@@ -53,9 +53,11 @@
 
 - ✅ **Alpha Production Trial Runbook**（2026-05-09）：[`2026-05-09-alpha-production-trial-runbook.md`](2026-05-09-alpha-production-trial-runbook.md) — 操作手册：适用/不适用范围、标准命令（Rust/Cangjie bridge 生成 + Tool 导入）、成功/失败判定、回滚/清理流程、风险边界、执行 AI 最小 checklist。Explicit opt-in，不替代 TS adapter。
 
-- ✅ **Alpha Trial 端到端 Smoke 脚本**（2026-05-09）：`scripts/alpha-trial-smoke.sh` — 验证 Rust/Cangjie bridge JSON → Tool `--experimental-rust-core-bridge-graph` 导入全链路。使用 portable-smoke fixture，不写 live repo，不自动 commit。
+- ✅ **Alpha Trial 端到端 Smoke 脚本**（2026-05-09）：`scripts/alpha-trial-smoke.sh` — 验证 Rust/Cangjie bridge JSON → Tool `--experimental-rust-core-bridge-graph` 导入全链路。使用 portable-smoke fixture，不写 live repo，不自动 commit。支持 `--rust-only` / `--cangjie-only`。
 
-- 📝 **Public Identity and Legacy Command Cleanup Plan**（2026-05-09）：[`2026-05-09-public-identity-and-legacy-command-cleanup-plan.md`](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md) — 记录清理策略，不在本轮执行。必须立即清理项（npx gitnexus、误导性从属措辞）、暂时保留项（--format gitnexus-rc、历史文档）、命名原则、未来执行建议（三阶段：public → internal → CLI flag）。
+- ✅ **Legacy Naming Cleanup Phase 1**（2026-05-09）：[`2026-05-09-public-identity-and-legacy-command-cleanup-plan.md`](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md) — Phase 1 审查完成：README.md / scripts 已中性化，0 处 npx gitnexus 生产命令，残留 ~109 处 `GitNexus-RC` 均为桥接适配器接口事实描述或历史文档。runbook 适用范围措辞小幅修正。Phase 2/3 暂不执行。
+
+- ✅ **Alpha Trial Maintenance and Failure Playbook**（2026-05-09）：[`2026-05-09-alpha-trial-maintenance-and-failure-playbook.md`](2026-05-09-alpha-trial-maintenance-and-failure-playbook.md) — 维护手册：日常/周期 smoke 推荐、7 类失败分类（stdout purity / dangling / duplicate / deterministic drift / adapter validation / header artifact / command authority）及第一响应动作、试用期记录格式、退出 alpha / 升级 beta 候选条件。
 
 **Public Identity / Rename 线（Draft，2026-05-09）：**
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
@@ -77,13 +79,14 @@
 - 端到端验证脚本：`scripts/alpha-trial-smoke.sh`
 - 旧名清理计划：[Public Identity Cleanup Plan](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md)
 
-**下一阶段 — Alpha Trial Operation：**
+**下一阶段 — Alpha Trial Operation（维护期）：**
 
-1. **Trial Operation**：按 runbook 执行定期 smoke（`scripts/alpha-trial-smoke.sh`），记录结果
-2. **Periodic Smoke**：每周或每次 Rust-core 变更后跑 `verify-bridge.sh` + `alpha-trial-smoke.sh`
-3. **Legacy Naming Cleanup**：按 [Public Identity Cleanup Plan](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md) 执行 Phase 1（public-facing docs/scripts）
-4. **Optional GitNexus-RC E2E**：如获授权，可在 GitNexus-RC 侧做 bridge adapter 的端到端集成测试
-5. **不扩产品面**：不扩 UI/Web/MCP/新语言，直到 alpha trial 稳定运行
+1. **Periodic Smoke**：按 [Maintenance Playbook](2026-05-09-alpha-trial-maintenance-and-failure-playbook.md) 执行定期 smoke（`alpha-trial-smoke.sh` + `verify-bridge.sh`）
+2. **Trial Log**：每次 trial 操作记录日期/target/结果，用于评估 beta 升级条件
+3. **Legacy Cleanup Phase 2**：内部 docs（architecture/）措辞统一 — 低优先级，残留均不影响操作
+4. **Optional E2E**：如获授权，在 GitNexus-RC 侧做 bridge adapter 端到端集成测试
+5. **Beta Criteria Review**：按 playbook §六 评估是否满足 alpha → beta 升级条件
+6. **不扩产品面**：不扩 UI/Web/MCP/新语言，直到 alpha trial 稳定运行
 
 **验收清单参考：**
 - [Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md) — 逐项确认

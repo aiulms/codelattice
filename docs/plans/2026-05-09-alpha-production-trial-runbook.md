@@ -1,9 +1,9 @@
 # Alpha Production Trial Runbook
 
 > **日期：** 2026-05-09
-> **版本：** 1.0.0
+> **版本：** 1.0.1
 > **状态：** Active
-> **适用范围：** Rust workspace/package 项目 + Cangjie 项目 + GitNexus-RC Tool bridge ingestion
+> **适用范围：** Rust workspace/package 项目 + Cangjie 项目 + Tool bridge ingestion（experimental flag）
 
 ---
 
@@ -24,7 +24,7 @@
 |------|----------|
 | Rust workspace / package 项目 bridge JSON 生成 | ✅ |
 | Cangjie 项目 bridge JSON 生成 | ✅ |
-| GitNexus-RC Tool bridge ingestion（experimental flag） | ✅ |
+| Tool bridge ingestion（experimental flag） | ✅ |
 | Quality gates / --strict | ✅ |
 | Deterministic output（排除 generatedAt） | ✅ |
 | Bridge endpoint integrity（0 dangling） | ✅ |

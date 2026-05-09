@@ -5,6 +5,7 @@
 # 用法:
 #   ./scripts/alpha-trial-smoke.sh              # 全部检查
 #   ./scripts/alpha-trial-smoke.sh --rust-only  # 仅 Rust
+#   ./scripts/alpha-trial-smoke.sh --cangjie-only  # 仅 Cangjie
 #   ./scripts/alpha-trial-smoke.sh --help
 #
 # 约束:
@@ -21,17 +22,20 @@ PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 TOOL="/Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js"
 
 RUST_ONLY=false
+CANGJIE_ONLY=false
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --rust-only) RUST_ONLY=true; shift ;;
+        --cangjie-only) CANGJIE_ONLY=true; shift ;;
         --help|-h)
-            echo "用法: $0 [--rust-only]"
-            echo "  --rust-only  仅验证 Rust bridge → Tool 导入"
+            echo "用法: $0 [--rust-only|--cangjie-only]"
+            echo "  --rust-only     仅验证 Rust bridge → Tool 导入"
+            echo "  --cangjie-only  仅验证 Cangjie bridge → Tool 导入"
             echo ""
             echo "环境要求:"
             echo "  - cargo (Rust toolchain)"
-            echo "  - node (GitNexus-RC-Tool)"
+            echo "  - node (Tool CLI)"
             echo "  - python3 (JSON 验证)"
             exit 0
             ;;
@@ -85,7 +89,10 @@ echo ""
 
 # --- Rust Bridge ---
 
-echo "--- Rust Bridge → Tool 导入 ---"
+if [[ "$CANGJIE_ONLY" == "true" ]]; then
+    skip "Rust bridge（--cangjie-only）"
+else
+    echo "--- Rust Bridge → Tool 导入 ---"
 
 RUST_FIXTURE="$PROJECT_ROOT/fixtures/rust/portable-smoke"
 RUST_BRIDGE_JSON="$TMPDIR_SMOKESRC/rust-bridge.json"
@@ -134,6 +141,7 @@ else
         else
             fail "Rust bridge → Tool 导入失败"
         fi
+    fi
     fi
 fi
 
