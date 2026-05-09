@@ -82,7 +82,7 @@ echo ""
 echo "  # Rust 项目分析（Unified JSON）"
 echo "  $BIN_PATH analyze --root fixtures/rust/portable-smoke --format json"
 echo ""
-echo "  # Rust Bridge 格式（GitNexus-RC 兼容）"
+echo "  # Rust 下游消费格式（bridge format）"
 echo "  $BIN_PATH analyze --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc --strict"
 echo ""
 if [[ -n "$FEATURES" ]]; then

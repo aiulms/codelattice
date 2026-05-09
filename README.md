@@ -132,7 +132,7 @@ target/release/gitnexus-rust-core-cli
 ./scripts/smoke.sh
 ```
 
-### Bridge 格式验证（面向 GitNexus-RC adapter 开发者）
+### 下游消费格式验证（bridge format）
 
 ```bash
 # Rust bridge 快速验证

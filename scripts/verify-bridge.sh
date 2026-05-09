@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Bridge Format 验证脚本 — 面向 GitNexus-RC adapter 开发者
+# Bridge Format 验证脚本 — 面向下游消费方（adapter / AI workflow / 脚本）开发者
 #
 # 验证 Rust/Cangjie bridge JSON 输出的：
 # 1. 结构完整性（顶层字段 + 端点归一化）
@@ -290,9 +290,9 @@ echo "  TOTAL: $TOTAL"
 echo ""
 
 if [[ $FAIL -gt 0 ]]; then
-    echo "*** 存在失败项，Bridge 格式可能不符合 GitNexus-RC 消费预期。 ***"
+    echo "*** 存在失败项，Bridge 格式可能不符合下游消费预期。 ***"
     exit 1
 else
-    echo "全部通过 — Bridge 格式可安全用于 GitNexus-RC adapter 接入。"
+    echo "全部通过 — Bridge 格式可安全用于下游消费者接入。"
     exit 0
 fi
