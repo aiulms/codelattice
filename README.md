@@ -336,4 +336,4 @@ gitnexus-rust-core/
 
 ## 许可证
 
-当前 Cargo workspace 声明为 MIT License。后续如补充 LICENSE 文件，以仓库根目录 LICENSE 文件为准。
+本项目采用 MIT License，详见 [LICENSE](LICENSE)。
