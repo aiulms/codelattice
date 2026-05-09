@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Consumer Dry-run: edge kind compatibility tests landed）
+最后更新：2026-05-09（Bridge adapter 分离完成）
 
 ## 用途
 
@@ -39,11 +39,11 @@
 - ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
 - ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
 - ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（11 文件），Bridge 兼容性报告，2 个 bridge adapter 修复（symbol kind + edge confidence），6 个 consumer shape 测试（含 edge kind compatibility）
+- ✅ **Bridge adapter 分离**（2026-05-09）：bridge_format.rs（~890 行）拆分为 rust_bridge.rs + cangjie_bridge.rs + bridge_format.rs（共享类型 + 边分组），零行为变化，纯结构重构
 
 ## 当前推荐下一篇计划
 
-**Consumer Dry-run — Rust-core 内可推进：**
-- Bridge adapter 分离：将 bridge_format.rs 中的 Rust/Cangjie 特定逻辑提取为 language-specific modules（bounded refactoring，无行为变化）
+**Consumer Dry-run — Rust-core 内已全部完成。**
 
 **Consumer Dry-run — 需跨仓授权（触发 stop-line）：**
 - GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径
