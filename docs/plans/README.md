@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Product Positioning / Rename 初稿新增）
+最后更新：2026-05-09（Production Trial Readiness / Roadmap Pivot preflight 新增）
 
 ## 用途
 
@@ -51,10 +51,19 @@
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
 - 本 draft 不冻结最终命名、不改 runtime、不改 CLI/schema，只用于讨论完成度、可改动性和工程量。
+- **Production Trial Readiness and Roadmap Pivot Preflight**：[`2026-05-09-production-trial-readiness-and-roadmap-pivot-preflight.md`](2026-05-09-production-trial-readiness-and-roadmap-pivot-preflight.md)
+- 结论：路线不再以复刻某个现有工具为核心叙事；短期收束为 Rust/Cangjie 本地代码上下文核心的 alpha production trial。
+- 第一版 production trial 不要求 UI/Web/MCP/多语言大覆盖，优先冻结命令、输出字段、quality gates、真实项目 smoke 和 AI 最小消费接口。
 
 ## 当前推荐下一篇计划
 
-**Public Identity Cleanup 已完成。Rust-core 内所有可做的产品化工作已全部收敛。**
+**Production Trial Acceptance Checklist（建议，docs-only，未开卡）**
+
+- 固化 alpha production trial 的验收清单。
+- 明确必须稳定的命令、输出字段、smoke targets、quality gates 和 AI 最小消费接口。
+- 明确 UI/Web/MCP/多语言/正式改名都不进入短期收尾。
+
+**Public Identity Cleanup 已完成。Rust-core 内可继续推进的是 production trial 收口，而不是继续扩大产品面。**
 
 **下一阶段 — 需跨仓授权（触发 stop-line）：**
 
