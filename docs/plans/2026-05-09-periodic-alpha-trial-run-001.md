@@ -12,12 +12,12 @@
 
 - **Date:** 2026-05-09
 - **Executor:** AI session (Sisyphus, OpenCode)
-- **Target repo/path:** /Users/jiangxuanyang/Desktop/gitnexus-rust-core
+- **Target repo/path:** /Users/jiangxuanyang/Desktop/codelattice（旧路径：/Users/jiangxuanyang/Desktop/gitnexus-rust-core）
 - **Language:** rust
-- **Rust-core HEAD:** b65862f
+- **CodeLattice HEAD:** b65862f
 - **Command:**
   ```
-  cargo run -- analyze --root /Users/jiangxuanyang/Desktop/gitnexus-rust-core --language rust --format gitnexus-rc --strict > /tmp/rust-core-trial-XXXXXX.json
+  cargo run -- analyze --root /Users/jiangxuanyang/Desktop/codelattice --language rust --format gitnexus-rc --strict > /tmp/rust-core-trial-XXXXXX.json
   ```
 
 - **Bridge JSON size:** 1,946,760 bytes
@@ -151,7 +151,7 @@
 
 | Item | Rust (#1-A) | Cangjie (#1-B) |
 |------|-------------|----------------|
-| Target | gitnexus-rust-core (self) | cangjie-Index/runtime/cjgui |
+| Target | CodeLattice (self) | cangjie-Index/runtime/cjgui |
 | Language | rust | cangjie |
 | JSON size | 1,946,760 bytes | 1,031,702 bytes |
 | Nodes | 1,700 | 903 |
@@ -174,7 +174,7 @@
 
 | Repo | HEAD | Status |
 |------|------|--------|
-| gitnexus-rust-core | b65862f | Clean (pre-docs) |
+| codelattice | b65862f | Clean (pre-docs) |
 | GitNexus-RC | main | Untracked only (.arts, .codebuddy, .qoder, skills) |
 | cangjie-GitNexus-Index | HEAD (no branch) | Clean |
 | GitNexus-RC-Tool | main | Clean |

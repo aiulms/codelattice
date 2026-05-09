@@ -11,7 +11,7 @@
 ## 一、评估背景
 
 这是第一次基于真实项目 periodic alpha trial 的 Beta Go/No-Go 草评。Trial Run #001 覆盖了两个目标：
-- Rust self-analysis（gitnexus-rust-core 自身，1700 nodes, 2634 edges）
+- Rust self-analysis（CodeLattice 自身，1700 nodes, 2634 edges）
 - Cangjie cjgui（index checkout，903 nodes, 3252 edges）
 
 **重要声明：** 一次 trial 通过不足以宣布 Beta。Beta 条件要求多轮稳定 trial 积累。本评估的目的是记录当前状态、识别 gap、建议后续积累节奏。

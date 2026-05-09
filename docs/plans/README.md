@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-09（public identity rename to CodeLattice + codelattice index refresh）
+最后更新：2026-05-09（CodeLattice rename follow-up closure — 高风险旧名残留已清理）
 
 ## 用途
 
@@ -71,6 +71,8 @@
 
 **Public Identity / Rename 线（Active，2026-05-09）：**
 - ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。
+
+- ✅ **CodeLattice Rename Follow-up Closure**（2026-05-09）：[`2026-05-09-codelattice-rename-followup-closure.md`](2026-05-09-codelattice-rename-followup-closure.md) — rename 后残留扫描：修复 trial run-001 和 beta review-001 中的旧路径/旧名（4 处）；151 处旧名残留分类为兼容保留 / 历史事实 / future cleanup；Tool index 确认为 codelattice；alpha-trial-smoke 副作用已控制。
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
 - 本 draft 不冻结最终命名、不改 runtime、不改 CLI/schema，只用于讨论完成度、可改动性和工程量。
