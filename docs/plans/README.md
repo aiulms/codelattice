@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（alpha smoke reliability fix + periodic trial Run #002 PASS）
+最后更新：2026-05-10（beta readiness evidence board + external AI Run #003 task package prepared）
 
 ## 用途
 
@@ -73,6 +73,14 @@
 
 - ✅ **Periodic Alpha Trial Run #002**（2026-05-10）：[`2026-05-10-periodic-alpha-trial-run-002.md`](2026-05-10-periodic-alpha-trial-run-002.md) — 第二次真实项目 periodic trial。Rust self-analysis（1700 nodes, 2634 edges）+ Cangjie cjgui（903 nodes, 3252 edges）。两个 target 全部 PASS，graph stats 与 Run #001 完全一致，零回归。
 
+- 📝 **Beta Readiness Evidence Board**（2026-05-10）：[`2026-05-10-beta-readiness-evidence-board.md`](2026-05-10-beta-readiness-evidence-board.md) — Beta criteria 进度追踪表（living document）。Run #001/#002 数据汇总，8 项 criteria 当前状态（2 PASS + 3 PARTIAL + 1 not-started + 2 N/A），下一步证据需求。
+
+- 📝 **External AI Run #003 Task Package**（2026-05-10）：[`2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md`](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md) — 自包含外部 AI 独立执行任务包（10 节），含完整命令、workspace 路径、成功标准、禁止操作、trial log 模板。不依赖 chat context，直接交付执行。
+
+- 📝 **Periodic Alpha Trial Run #003 Placeholder**（2026-05-10）：[`2026-05-10-periodic-alpha-trial-run-003-placeholder.md`](2026-05-10-periodic-alpha-trial-run-003-placeholder.md) — Run #003 空白模板，所有字段 TBD，显式标记 NOT RUN。不作为已完成 trial 计数。
+
+- 📝 **Beta Go/No-Go Review #002**（2026-05-10）：[`2026-05-10-beta-readiness-go-no-go-review-002.md`](2026-05-10-beta-readiness-go-no-go-review-002.md) — 第二次 Beta 草评。8 项 criteria：2 PASS + 3 PARTIAL + 3 NOT YET ENOUGH DATA。结论：Alpha 继续健康，Beta Not yet，需外部 AI 执行 + ≥ 3 周日历跨度。无 blocker。
+
 **Public Identity / Rename 线（Active，2026-05-09）：**
 - ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。
 
@@ -88,22 +96,25 @@
 
 ## 当前推荐下一篇计划
 
-**✅ Alpha Production Trial Ready — periodic trial Run #001 & #002 PASS.**
+**✅ Alpha Production Trial Ready — periodic trial Run #001 & #002 PASS. External AI Run #003 task package prepared.**
 
 技术验证和操作规程均已固化。两轮真实项目 trial 均通过：
 - [Trial Run #001](2026-05-09-periodic-alpha-trial-run-001.md) — Rust + Cangjie 双 target PASS
 - [Trial Run #002](2026-05-10-periodic-alpha-trial-run-002.md) — Rust + Cangjie 双 target PASS，graph stats 与 Run #001 完全一致
 - [Beta Go/No-Go Review #001](2026-05-09-beta-readiness-go-no-go-review-001.md) — Not yet Beta, 证据积累中
+- [Beta Go/No-Go Review #002](2026-05-10-beta-readiness-go-no-go-review-002.md) — Alpha continues healthy, Beta Not yet
+- [Beta Readiness Evidence Board](2026-05-10-beta-readiness-evidence-board.md) — living evidence tracker
+- [External AI Run #003 Task Package](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md) — self-contained external AI task
 - 操作手册：[Alpha Production Trial Runbook](2026-05-09-alpha-production-trial-runbook.md)
 - 端到端验证脚本：`scripts/alpha-trial-smoke.sh`（已修复可靠性）
 
-**下一阶段 — Continue Periodic Alpha Trial：**
+**下一阶段 — External AI Trial + Evidence Accumulation：**
 
-1. **Periodic Alpha Trial Run #003**：建议间隔 ≥ 1 周后执行
-2. **积累 Trial Log**：已有 2 条，目标 ≥ 3 条后做正式 Beta 评估
-3. **外部 AI 独立执行**：安排一次外部 AI 按 runbook 操作（Beta criteria #8）
-4. **Beta Go/No-Go Review #002**：≥ 3 轮 trial + ≥ 3 周后正式评估
-5. **Legacy Cleanup Phase 2**：低优先级
+1. **External AI Run #003**：任务包已准备（[`task package`](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md)），交付外部 AI 独立执行（Beta criteria #8）
+2. **Beta Readiness Evidence Board**：living document 已建立（[`evidence board`](2026-05-10-beta-readiness-evidence-board.md)），每次 trial 后更新
+3. **积累 Trial Log**：已有 2 条，Run #003（外部 AI）后将有 3 条
+4. **日历跨度**：Run #001（05-09）→ Run #003（待执行），需 ≥ 3 周后做正式 Beta 评估
+5. **Beta Go/No-Go Review #003**：≥ 5 轮 trial + ≥ 3 周后正式评估
 6. **不扩产品面**：不扩 UI/Web/MCP/新语言
 
 **验收清单参考：**
