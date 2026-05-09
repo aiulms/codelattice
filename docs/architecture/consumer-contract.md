@@ -176,7 +176,7 @@ Rust-core CLI 提供三种 JSON 输出格式，通过 `--format` flag 切换：
   ],
   "edges": {
     "calls": [
-      { "sourceId": "...", "targetId": "...", "kind": "CALLS" }
+      { "sourceId": "...", "targetId": "...", "kind": "CALLS", "confidence": 0.75, "reason": "direct call via import" }
     ],
     "defines": [
       { "sourceId": "...", "targetId": "...", "kind": "DEFINES" }
@@ -398,4 +398,5 @@ cargo run -p gitnexus-rust-core-cli -- summary \
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-09 | 1.1.0 | Cross-repo consumer dry-run：Bridge edge 新增 confidence/reason 顶层字段；symbol kind 填入具体类型（非通用 "symbol"）；新增 `docs/architecture/gitnexus-rc-consumer-dry-run.md` 兼容性报告 |
 | 2026-05-09 | 1.0.0 | 初始版本：三种输出格式定义、字段稳定性、exit codes、使用示例、已知限制、stop-line |
