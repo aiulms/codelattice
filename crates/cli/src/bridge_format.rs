@@ -69,6 +69,12 @@ pub struct BridgeEdge {
     #[serde(rename = "targetId")]
     pub target_id: String,
     pub kind: String,
+    /// 边置信度 (0.0-1.0)，对齐 GitNexus-RC RelationshipType
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// 边解析原因，对齐 GitNexus-RC reason 字段
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
     #[serde(skip_serializing_if = "HashMap::is_empty")]
     pub properties: HashMap<String, Value>,
 }
@@ -320,14 +326,17 @@ fn partition_rust_nodes(
                 });
             }
             "symbol" => {
-                // 显式 symbol 节点：提取 kind 来自 properties.kind
+                // 显式 symbol 节点：提取具体符号类型
+                // Rust graph 使用 symbolKind 字段（非 kind）
+                // Cangjie graph 使用 kind 字段
                 let name = props
                     .get("name")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string();
                 let kind = props
-                    .get("kind")
+                    .get("symbolKind")
+                    .or_else(|| props.get("kind"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("symbol")
                     .to_string();
@@ -406,10 +415,22 @@ fn convert_rust_edges(edges: &[Value]) -> BridgeEdges {
                 .unwrap_or("")
                 .to_string();
 
+            // 提取 confidence 和 reason（对齐 GitNexus-RC GraphRelationship 字段）
+            let confidence = edge
+                .get("properties")
+                .and_then(|p| p.get("confidence"))
+                .and_then(|v| v.as_f64());
+            let reason = edge
+                .get("properties")
+                .and_then(|p| p.get("reason"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+
             let mut properties = HashMap::new();
             if let Some(props) = edge.get("properties").and_then(|v| v.as_object()) {
                 for (k, v) in props {
-                    if k != "type" {
+                    // 跳过已提升到顶层的字段
+                    if k != "type" && k != "confidence" && k != "reason" {
                         properties.insert(k.clone(), v.clone());
                     }
                 }
@@ -419,6 +440,8 @@ fn convert_rust_edges(edges: &[Value]) -> BridgeEdges {
                 source_id,
                 target_id,
                 kind,
+                confidence,
+                reason,
                 properties,
             }
         })
@@ -627,6 +650,8 @@ fn convert_cangjie_edges(edges: &[Value]) -> BridgeEdges {
                 source_id,
                 target_id,
                 kind,
+                confidence: None,
+                reason: None,
                 properties: HashMap::new(),
             }
         })

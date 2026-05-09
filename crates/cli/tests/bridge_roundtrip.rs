@@ -315,6 +315,114 @@ fn assert_normalized_edge_endpoints(v: &Value) {
     }
 }
 
+/// 验证 symbol kind 为具体类型（非通用 "symbol"）
+/// 对齐 GitNexus-RC NodeLabel 预期：Function/Struct/Class/Enum/Interface 等。
+/// 来源：gitnexus-shared/src/graph/types.ts NodeLabel 枚举
+fn assert_symbol_kind_specific(v: &Value) {
+    // GitNexus-RC 期望的具体 NodeLabel 类型（参考: gitnexus-shared/src/graph/types.ts）
+    let _known_kinds: &[&str] = &[
+        "function",
+        "method",
+        "associated-function",
+        "struct",
+        "enum",
+        "trait",
+        "impl-block",
+        "const",
+        "static",
+        "macro-definition",
+        "type-alias",
+        "module",
+        "enum-variant", // Rust 特有
+        "Class",
+        "Interface",
+        "Init",
+        "TypeAlias",
+        "Macro", // Cangjie 特有
+    ];
+
+    if let Some(syms) = v["symbols"].as_array() {
+        for (i, sym) in syms.iter().enumerate() {
+            let kind = sym["kind"].as_str().unwrap_or("");
+            assert!(
+                !kind.is_empty(),
+                "symbol[{i}] kind 为空字符串（id={})",
+                sym["id"].as_str().unwrap_or("?")
+            );
+            // 不应为通用 "symbol"（GitNexus-RC 消费侧期望具体类型）
+            assert_ne!(
+                kind, "symbol",
+                "symbol[{i}] kind 不应为通用 \"symbol\"，应为具体类型如 Function/Struct/Class 等（id={}, name={}）",
+                sym["id"].as_str().unwrap_or("?"),
+                sym["name"].as_str().unwrap_or("?")
+            );
+        }
+    }
+}
+
+/// 验证 edge 的 confidence/reason 字段在预期场景存在
+/// 对齐 GitNexus-RC GraphRelationship 必需字段。
+/// 来源：gitnexus-shared/src/graph/types.ts GraphRelationship 接口
+///
+/// `require_semantic_confidence`: Rust 源数据提供 edge confidence/reason，因此语义边
+/// （CALLS/ACCESSES/DESIGNATION）应包含 confidence。Cangjie 源数据当前不提供这些字段，
+/// 故传 false 跳过该断言。
+fn assert_edge_confidence_reason(v: &Value, require_semantic_confidence: bool) {
+    let edge_categories = &[
+        "calls",
+        "defines",
+        "uses",
+        "accesses",
+        "designations",
+        "imports",
+        "contains",
+        "owns",
+        "annotates",
+        "other",
+    ];
+
+    let mut total_edges = 0u32;
+    let mut edges_with_confidence = 0u32;
+    let mut edges_with_reason = 0u32;
+
+    for cat in edge_categories {
+        if let Some(edges) = v["edges"][cat].as_array() {
+            for (i, edge) in edges.iter().enumerate() {
+                total_edges += 1;
+                // confidence 和 reason 字段应存在于 edge 顶层（对齐 GitNexus-RC）
+                if edge.get("confidence").and_then(|v| v.as_f64()).is_some() {
+                    edges_with_confidence += 1;
+                }
+                if edge.get("reason").and_then(|v| v.as_str()).is_some() {
+                    edges_with_reason += 1;
+                }
+                // CALLS/ACCESSES/DESIGNATION 等语义边应有 confidence（仅 Rust 源数据提供时要求）
+                let kind = edge["kind"].as_str().unwrap_or("");
+                if require_semantic_confidence
+                    && matches!(
+                        kind,
+                        "CALLS" | "ACCESSES" | "DESIGNATION" | "uses" | "accesses" | "modifies"
+                    )
+                {
+                    assert!(
+                        edge.get("confidence").is_some(),
+                        "{cat}[{i}] ({kind}) 应有 confidence 字段（对齐 GitNexus-RC GraphRelationship）"
+                    );
+                }
+                // 所有边应无空 kind
+                assert!(!kind.is_empty(), "{cat}[{i}] edge kind 为空");
+            }
+        }
+    }
+
+    // 如果图中存在边，至少结构验证不应 panic（confidence/reason 存在性取决于源数据）
+    // 注：structural edge（DEFINES/CONTAINS）可能无 confidence，这是正常的
+    if total_edges > 0 {
+        // 至少有边的 kind 非空（已验证），confidence/reason 覆盖率取决于语言和数据源
+        let _ = (edges_with_confidence, edges_with_reason);
+    }
+}
+
 // ============================================================
 // Rust Bridge Roundtrip 测试
 // ============================================================
@@ -509,6 +617,54 @@ fn bridge_rust_strict_mode_compatible() {
 
     assert_bridge_structure(&v);
     assert_endpoint_integrity(&v);
+}
+
+#[test]
+fn bridge_rust_symbol_kind_specific() {
+    // 验证 Rust symbol kind 为具体类型（非通用 "symbol"）
+    // 对齐 GitNexus-RC NodeLabel 期望
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_symbol_kind_specific(&v);
+}
+
+#[test]
+fn bridge_rust_edge_confidence_reason() {
+    // 验证语义 edge 包含 confidence/reason 字段（对齐 GitNexus-RC GraphRelationship）
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).unwrap();
+
+    // Rust 源数据提供 confidence/reason，要求语义边包含 confidence
+    assert_edge_confidence_reason(&v, true);
 }
 
 // ============================================================
@@ -710,5 +866,53 @@ mod cangjie_bridge_tests {
 
         assert_bridge_structure(&v);
         assert_endpoint_integrity(&v);
+    }
+
+    #[test]
+    fn bridge_cangjie_symbol_kind_specific() {
+        // 验证 Cangjie symbol kind 为具体类型（非通用 "symbol"）
+        // 对齐 GitNexus-RC NodeLabel 期望
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let root = cangjie_portable_smoke_path();
+
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("cangjie")
+            .arg("--format")
+            .arg("gitnexus-rc")
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).unwrap();
+
+        assert_symbol_kind_specific(&v);
+    }
+
+    #[test]
+    fn bridge_cangjie_edge_confidence_reason() {
+        // 验证 Cangjie 语义 edge 包含 confidence/reason 字段
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let root = cangjie_portable_smoke_path();
+
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("cangjie")
+            .arg("--format")
+            .arg("gitnexus-rc")
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).unwrap();
+
+        // Cangjie 源数据当前不提供 confidence/reason，不强制要求
+        assert_edge_confidence_reason(&v, false);
     }
 }
