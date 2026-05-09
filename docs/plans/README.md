@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（consumer-dry-run v1.4.0 三次审计 + adapter preflight v1.1.0 落地后状态更新 + bridge-preflight v1.2.0 schema 对齐状态更新 + deterministic 测试修复）
+最后更新：2026-05-09（periodic alpha trial run #001 + beta go/no-go review #001）
 
 ## 用途
 
@@ -65,6 +65,10 @@
 
 - 📝 **Beta Readiness Criteria Preflight**（2026-05-09）：[`2026-05-09-beta-readiness-criteria-preflight.md`](2026-05-09-beta-readiness-criteria-preflight.md) — Alpha → Beta 升级条件：≥ 5 次真实项目 trial + ≥ 3 周无回归 + ≥ 3 条 trial log + 外部 AI 独立执行。Beta 不包含默认引擎切换 / WebUI / MCP / 多语言扩张。Go/No-Go checklist 12 项。
 
+- ✅ **Periodic Alpha Trial Run #001**（2026-05-09）：[`2026-05-09-periodic-alpha-trial-run-001.md`](2026-05-09-periodic-alpha-trial-run-001.md) — 第一次真实项目 periodic trial。Rust self-analysis（1700 nodes, 2634 edges, 0 dangling）+ Cangjie cjgui（903 nodes, 3252 edges, 0 dangling）。两个 target 全部 PASS，Tool 导入成功，stdout purity 通过。
+
+- 📝 **Beta Go/No-Go Review #001**（2026-05-09）：[`2026-05-09-beta-readiness-go-no-go-review-001.md`](2026-05-09-beta-readiness-go-no-go-review-001.md) — 第一次 Beta 草评。8 项 criteria：2 PASS + 3 PARTIAL + 3 NOT YET ENOUGH DATA。结论：Alpha 维持，Beta Not yet，需 ≥ 3 轮 trial 积累。无 blocker。
+
 **Public Identity / Rename 线（Draft，2026-05-09）：**
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
@@ -77,21 +81,21 @@
 
 ## 当前推荐下一篇计划
 
-**✅ Alpha Production Trial Ready — explicit opt-in.**
+**✅ Alpha Production Trial Ready — periodic trial started (Run #001 PASS).**
 
-技术验证和操作规程均已固化。当前状态：
-- Rust + Cangjie 双链路 Tool 导入成功（见 [Bridge Endpoint Closure](2026-05-09-alpha-trial-bridge-endpoint-stdout-purity-closure-review.md)）
+技术验证和操作规程均已固化。第一轮真实项目 trial 已完成：
+- [Trial Run #001](2026-05-09-periodic-alpha-trial-run-001.md) — Rust + Cangjie 双 target PASS
+- [Beta Go/No-Go Review #001](2026-05-09-beta-readiness-go-no-go-review-001.md) — Not yet Beta, 证据积累中
 - 操作手册：[Alpha Production Trial Runbook](2026-05-09-alpha-production-trial-runbook.md)
 - 端到端验证脚本：`scripts/alpha-trial-smoke.sh`
-- 旧名清理计划：[Public Identity Cleanup Plan](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md)
 
-**下一阶段 — Alpha Trial Periodic Operation：**
+**下一阶段 — Continue Periodic Alpha Trial：**
 
-1. **Periodic Alpha Trial**：在 Rust-core 自身 + Cangjie cjgui index checkout 各跑一次完整 trial，使用 [Trial Log Template](2026-05-09-periodic-alpha-trial-log-template.md) 记录结果
-2. **Periodic Smoke**：按 [Maintenance Playbook](2026-05-09-alpha-trial-maintenance-and-failure-playbook.md) 执行定期 smoke（`alpha-trial-smoke.sh` + `verify-bridge.sh`）
-3. **积累 Trial Log**：每次 trial 操作记录到 log template，积累 ≥ 5 次后按 [Beta Criteria](2026-05-09-beta-readiness-criteria-preflight.md) 评估
-4. **Beta Criteria Review**：Go/No-Go checklist 12 项逐项确认
-5. **Legacy Cleanup Phase 2**：内部 docs 措辞统一 — 低优先级，残留均不影响操作
+1. **Periodic Alpha Trial Run #002**：重复 Run #001 流程（建议间隔 ≥ 1 周）
+2. **积累 Trial Log**：目标 ≥ 3 条后做正式 Beta 评估
+3. **外部 AI 独立执行**：安排一次外部 AI 按 runbook 操作（Beta criteria #8）
+4. **Beta Go/No-Go Review #002**：≥ 3 轮 trial + ≥ 3 周后正式评估
+5. **Legacy Cleanup Phase 2**：低优先级
 6. **不扩产品面**：不扩 UI/Web/MCP/新语言
 
 **验收清单参考：**
