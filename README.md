@@ -1,324 +1,312 @@
-# GitNexus Rust-core
+# GitNexus Rust Core
 
-> **Remote:** https://gitcode.com/aiulms/gitnexus-rust-core
-> **Branch:** `master`
-> **Created:** 2026-05-01
-> **Last updated:** 2026-05-09 (Productization Phase complete)
+GitNexus Rust Core 是一个用 Rust 编写的本地代码智能分析核心。它的目标是把源码项目转换成结构化的项目模型、符号表、引用关系、调用关系和图数据，让后续的代码理解、影响分析、质量检查、AI 辅助开发可以建立在稳定的数据基础上。
 
----
+当前重点支持两类语言：
 
-## Purpose
+- Rust：Cargo 项目扫描、符号提取、import 解析、调用关系、图输出和质量门。
+- Cangjie / 仓颉：cjpm 项目扫描、符号提取、import/reference/call 解析、diagnostics 接入、图输出和质量门。
 
-GitNexus Rust-core 是 GitNexus 项目的 Rust-native 语言分析核心实验线。它不是 GitNexus-RC（TypeScript 主仓库）的替代发布版，而是独立的本地工具链，提供 Rust / Cangjie 项目扫描、符号提取、import/reference/call 解析、graph 发射、质量门检查，以及面向 GitNexus-RC 的 bridge JSON 输出。
+这个仓库目前处于本地试用和持续演进阶段，已经具备较完整的 CLI、fixture、回归测试和质量门，但输出格式和部分语义策略仍可能继续调整。
 
-**与 GitNexus-RC 的关系：**
-- GitNexus-RC 是治理来源、架构决策记录和 TypeScript adapter 主仓库
-- Rust-core 是 Rust 实现主体，产出可被 GitNexus-RC experimental adapter / bridge consumer 试用的 JSON artifacts
-- 所有语言支持决策、fixture 设计、confidence/reason 策略源自 GitNexus-RC `docs/language-support/`
-- 当前定位是 **local trial / research fork**，不宣称替代 GitNexus-RC production CLI
+## 现在做到哪一步
 
----
+| 方向 | 当前状态 |
+|------|----------|
+| 统一 CLI | 已有 `analyze`、`quality`、`summary` 三个入口，支持 `--language auto` 和 `analyze --strict` |
+| Rust 项目模型 | 支持 Cargo manifest、workspace、target、source ownership |
+| Rust 符号与调用 | 支持函数、方法、结构体、枚举、trait、impl、const、static、宏定义、enum variant 等符号 |
+| Rust 调用解析 | 当前 self-smoke 基线为 2370/3609，解析率 65.7% |
+| Rust 图质量 | 0 duplicate nodes，0 duplicate edges，0 dangling sources，0 dangling targets，输出 deterministic |
+| Rust 回归测试 | graph contract 58/58，覆盖 8 个图合同 fixture；call comparison 24/24 fixture |
+| 仓颉项目模型 | 支持 `cjpm.toml`、workspace members、source files、path dependencies、外部依赖信息 |
+| 仓颉符号与关系 | 支持 Function、Class、Struct、Enum、Interface、TypeAlias、Macro、Init，支持 import/reference/call graph |
+| 仓颉质量门 | graph_contract 24/24，multi_project_smoke 4/4 fixture + 4 production targets，cangjie_inspect 18/18 |
+| 本地试用 | 提供 `scripts/build.sh` 和 `scripts/smoke.sh`，可一键构建和 smoke 验证 |
 
-## Current Snapshot
+## 能分析出什么
 
-| Area | Current state |
-|------|---------------|
-| Unified CLI | `analyze` / `quality` / `summary`，支持 `--language auto` 和 `analyze --strict` |
-| Rust graph quality | 0 duplicate nodes, 0 duplicate edges, 0 dangling sources, 0 dangling targets, deterministic |
-| Rust graph contract | 58/58 tests on 8 fixtures |
-| Rust CALLS | 2,370/3,609 resolved calls（65.7%，2026-05-09 self-smoke） |
-| Rust graph output | 1,524 nodes, 2,438 edges, 1,054 CALLS edges |
-| Cangjie graph quality | Production Acceptance Stages 1-3 complete；0 synthetic / duplicate / dangling，deterministic |
-| Cangjie contract/smoke | graph_contract 24/24；multi_project_smoke 4/4 fixture + 4 production；cangjie_inspect 18/18 |
-| GitNexus-RC bridge | `--format gitnexus-rc` bridge output + roundtrip smoke in local trial |
-| Packaging | `scripts/build.sh` + `scripts/smoke.sh` local trial workflow |
+### Rust
 
----
+已支持：
 
-## Current Capabilities
+- Cargo package / workspace / target 识别
+- source file ownership 识别
+- Rust 符号提取
+- `use` import 解析
+- `crate::`、`self::`、`super::` 路径解析
+- 同文件、同模块、跨文件 same-crate 的部分调用解析
+- enum constructor / enum variant constructor 解析
+- associated function 的保守解析
+- receiver type 的有限方法调用启发式
+- std/core/alloc 常见外部符号补全
+- graph 节点和边输出
+- graph endpoint integrity 质量门
 
-| Layer | Capability | Status | Fixtures |
-|-------|-----------|--------|----------|
-| 1. ProjectModel | Cargo manifest scan + workspace + target resolution | ✅ Implemented | 14 PM fixtures |
-| 2. Symbol Extraction | tree-sitter + text-level, 10+ symbol kinds | ✅ Implemented | 10 symbol fixtures |
-| 3. Import Resolution | `use` declarations + module-level + symbol-level | ✅ Implemented | 12 import fixtures |
-| 4. CALLS Intermediate | Call site extraction + method dispatch heuristics + stdlib trait + external crate path + enum/variant constructor + cross-file same-crate + wildcard disambiguation | ✅ Implemented | 24 call fixtures |
-| 5. Graph Emitter v0.3 | ProjectModel → JSON graph (CALLS + DESIGNATION + ACCESSES + HAS_PARENT edges) + external symbol node completion | ✅ Implemented | 8 graph contract fixtures |
-| 6. Unified CLI | `analyze` / `quality` / `summary` + `--strict` + language auto-detect | ✅ Implemented | productization tests |
-| 7. Bridge Format | Rust/Cangjie graph → GitNexus-RC compatible JSON shape | ✅ Local trial | bridge roundtrip smoke |
+当前 Rust 调用解析支持的代表形式：
 
-### CALLS Resolved Call Forms
+| 调用形式 | 示例 | 置信度 |
+|----------|------|--------|
+| 同模块函数 | `helper()` | 0.90 |
+| import 绑定 | `use crate::math::add; add()` | 0.85 |
+| `crate::` 路径 | `crate::math::add()` | 0.90 |
+| `self::` 路径 | `self::inner_helper()` | 0.80 |
+| `super::` 路径 | `super::parent_fn()` | 0.80 |
+| associated function | `Config::new()` | 0.75 |
+| enum constructor | `Some(42)`、`Ok(value)`、`Err(error)` | 0.80 |
+| enum variant constructor | `Event::Click(x)` | 0.80 |
+| 跨文件 same-crate 函数 | `split_last_segment()` | 0.80 |
+| wildcard import 消歧 | `helper_func()`，通过 `use calculations::*` 引入 | 0.80 |
+| 有限 receiver method | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
 
-| Call Form | Example | Confidence |
-|-----------|---------|-----------|
-| Same-module free function | `helper()` | 0.90 |
-| Import-resolved binding | `use crate::math::add; add()` | 0.85 |
-| crate:: qualified path | `crate::math::add()` | 0.90 |
-| self:: path | `self::inner_helper()` | 0.80 |
-| super:: path | `super::parent_fn()` | 0.80 |
-| Associated function | `Config::new()` | 0.75 |
-| Same-file unique-name | `helper()` (heuristic) | 0.70 |
-| Bare module path | `math::add()` | 0.85 |
-| Method dispatch (blind name) | `obj.increment()` | 0.65 |
-| Method dispatch (receiver type) | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
-| Method dispatch (constructor chain) | `v.push(1)` where `let v = Vec::new()` | 0.65 |
-| Stdlib trait method | `x.to_string()`, `y.clone()` | 0.55 |
-| External crate path | `Vec::new()`, `String::from()` | 0.80–0.85 |
-| Enum constructor | `Some(42)`, `Ok(val)`, `Err(e)` | 0.80 |
-| Enum variant constructor | `Event::Click(x)` / tuple variant invocation | 0.80 |
-| Cross-file same-crate (Phase 2e) | `split_last_segment()` from another module | 0.80 |
-| Wildcard-aware disambiguation (Phase 2f) | `helper_func()` via `use calculations::*` | 0.80 |
-| Type-filtered associated function | `CrossFileSymbolIndex::build()` | 0.75 |
-| crate:: associated function | `crate::Parser::new()` when uniquely classified | 0.75 |
+当前明确不做：
 
-**Resolution rate: 65.7%**（2370/3609 calls on gitnexus-rust-core，2026-05-09 Slice 56 production readiness audit）。The denominator increased after enum variant extraction and graph contract expansion; the current value is the latest self-smoke baseline.
+- 完整类型推断
+- trait solving
+- proc-macro / build.rs 执行
+- macro expansion
+- 完整 cfg evaluator
+- 任意第三方 crate API 解析
 
----
+### Cangjie / 仓颉
 
-## CLI Usage
+已支持：
 
-### Rust Project Analysis
+- `cjpm.toml` package / workspace 扫描
+- source file 收集
+- Function / Class / Struct / Enum / Interface / TypeAlias / Macro / Init 符号提取
+- named import / alias import / wildcard import / path dependency 解析
+- same-file 和 cross-file reference extraction
+- function call reference extraction
+- `cjc` / `cjlint` diagnostics runner 接入
+- graph 输出
+- `cangjie inspect` / `cangjie graph`
+- `--strict` 质量门
 
-```bash
-# Full project model inspection
-cargo run -p gitnexus-rust-core-cli -- project-model inspect \
-  --root /path/to/rust/project \
-  --format json
-
-# Include specific outputs
-cargo run -p gitnexus-rust-core-cli -- project-model inspect \
-  --root /path/to/rust/project \
-  --format json \
-  --include symbols \
-  --include imports \
-  --include calls \
-  --include graph
-
-# Graph output only
-cargo run -p gitnexus-rust-core-cli -- project-model inspect \
-  --root /path/to/rust/project \
-  --format json \
-  --include graph
-```
-
-`--include calls` automatically triggers `--include symbols` and `--include imports` internally.
-
-### Cangjie Project Analysis (Rust-native Local Trial)
-
-**Note:** Cangjie CLI commands require the `tree-sitter-cangjie` feature to be enabled. This is a **local trial implementation** and is not intended to replace the production GitNexus-RC tool.
+仓颉能力需要开启 feature：
 
 ```bash
-# Enable Cangjie feature
 cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli
-
-# Inspect Cangjie project (outputs graph JSON)
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie inspect \
-  --root /path/to/cangjie/project
-
-# Output Cangjie graph (same as inspect)
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie graph \
-  --root /path/to/cangjie/project
 ```
 
-**Feature Requirements:**
-- `--features tree-sitter-cangjie` must be specified when building and running
-- The `tree-sitter-cangjie` feature enables Cangjie language support via tree-sitter parser
-- Without this feature, the `cangjie` subcommand is not available
+当前明确不做：
 
-**Current Capabilities:**
-- Project model scanning (cjpm.toml, workspace members, source files)
-- Symbol extraction (Function, Class, Struct, Enum, Interface, TypeAlias, Macro)
-- Import resolution (named imports, path dependencies, cjpm tree external deps)
-- Reference extraction (same-file and cross-file type annotations)
-- Function call reference extraction and graph CALLS edges
-- Diagnostics runner integration (cjc/cjlint sidecar when SDK is available)
-- Graph output (Repository/Package/SourceFile/Symbol/Diagnostic nodes + edges)
-- `cangjie inspect` / `cangjie graph` with `--strict`
-- Deterministic JSON output to stdout
+- 完整方法派发
+- 类型推断
+- trait / interface solving
+- macro expansion
+- 完整 cfg evaluator
 
-**Stop-lines for Cangjie:**
-- No full method dispatch (blind name + stdlib trait + receiver type heuristics only)
-- No type inference / trait solving
-- No macro expansion
-- No full cfg evaluator
-- No production replacement for GitNexus-RC tool
+## 快速开始
 
-### Unified Productization CLI（本地试用入口）
-
-面向产品化的统一 CLI 入口，提供 analyze / quality / summary 三个命令和语言自动检测。
+### 构建
 
 ```bash
-# analyze — 完整分析（graph + quality gates）
-cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json
-cargo run -p gitnexus-rust-core-cli -- analyze --root . --language auto --format json
-
-# analyze --strict — CI/CD 模式（质量门失败 → exit 1）
-cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json --strict
-
-# quality — 质量门检查（exit code: 0=pass, 1=fail, 2=ambiguous）
-cargo run -p gitnexus-rust-core-cli -- quality --root fixtures/rust/portable-smoke --language rust
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
-  quality --root fixtures/cangjie/portable-smoke --language cangjie
-
-# summary — 统计摘要（不含完整 graph）
-cargo run -p gitnexus-rust-core-cli -- summary --root fixtures/rust/portable-smoke --language rust --format json
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
-  summary --root fixtures/cangjie/portable-smoke --language cangjie --format json
-```
-
-**语言自动检测（--language auto）：**
-- 存在 `Cargo.toml` → `rust`
-- 存在 `cjpm.toml` → `cangjie`
-- 两者都存在 → 报错，要求显式指定
-
-**Bridge 格式（--format gitnexus-rc）：**
-- 将 Rust/Cangjie graph 转换为 GitNexus-RC 兼容格式
-- 归一化 edge 端点字段（source/target → sourceId/targetId）
-- 节点按 kind 显式分类，边按类型分组
-- Stop-line：不修改 GitNexus-RC 代码，不做 production replacement
-
-### Local Trial（本地试用）
-
-**一键构建 + 验证：**
-
-```bash
-# 构建 release 二进制（含 Cangjie 特性）
 ./scripts/build.sh
+```
 
-# 快速 smoke 验证（跳过测试，仅 CLI）
+默认构建 release 版本，并包含仓颉支持。
+
+可选参数：
+
+```bash
+./scripts/build.sh --debug
+./scripts/build.sh --no-cangjie
+```
+
+构建产物：
+
+```bash
+target/release/gitnexus-rust-core-cli
+```
+
+### 快速 smoke
+
+```bash
 ./scripts/smoke.sh --quick
+```
 
-# 完整 smoke 验证（含 cargo test）
+完整验证：
+
+```bash
 ./scripts/smoke.sh
 ```
 
-**构建选项：**
+## CLI 用法
+
+### 分析 Rust 项目
 
 ```bash
-./scripts/build.sh --debug        # debug 构建（更快编译）
-./scripts/build.sh --no-cangjie   # 不含 Cangjie 语言支持
+cargo run -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --format json
 ```
 
-**构建后直接使用二进制：**
+严格模式：
 
 ```bash
-# 二进制位置
-target/release/gitnexus-rust-core-cli --help
-
-# Rust 项目分析
-target/release/gitnexus-rust-core-cli analyze --root /path/to/rust/project --format json
-
-# Cangjie 项目分析（需 --no-cangjie 未指定）
-target/release/gitnexus-rust-core-cli analyze --root /path/to/cangjie/project --format json
+cargo run -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --format json \
+  --strict
 ```
 
----
-
-## Verification
+### 分析仓颉项目
 
 ```bash
-cargo fmt --check                                     # Formatting check
-cargo test                                            # 200+ tests (no-feature)
-cargo test --features tree-sitter-cangjie             # 330+ tests (with feature)
-cargo test --features tree-sitter-cangjie \
-  --test cangjie_inspect -- --nocapture               # Cangjie CLI tests (18)
-cargo test --features tree-sitter-cangjie \
-  --test graph_contract -- --nocapture                # Cangjie contract regression (24)
-cargo test --features tree-sitter-cangjie \
-  --test multi_project_smoke -- --nocapture           # Cangjie fixture smoke (4)
-cargo test --test project_model_graph_contract         # Rust graph contract regression (58)
-cargo test --test bridge_roundtrip                     # GitNexus-RC bridge roundtrip
-cargo test --test productization_commands              # analyze / quality / summary CLI tests
-./scripts/smoke.sh --quick                             # local trial smoke
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/cangjie/portable-smoke \
+  --language cangjie \
+  --format json \
+  --strict
 ```
 
----
+### 自动检测语言
 
-## Directory Structure
-
+```bash
+cargo run -p gitnexus-rust-core-cli -- analyze \
+  --root /path/to/project \
+  --language auto \
+  --format json
 ```
+
+自动检测规则：
+
+- 发现 `Cargo.toml`：Rust
+- 发现 `cjpm.toml`：仓颉
+- 两者同时存在：要求显式指定 `--language`
+
+### 质量门检查
+
+```bash
+cargo run -p gitnexus-rust-core-cli -- quality \
+  --root fixtures/rust/portable-smoke \
+  --language rust
+```
+
+exit code：
+
+- `0`：质量门通过
+- `1`：质量门失败
+- `2`：项目语言或结构不明确
+
+### 摘要输出
+
+```bash
+cargo run -p gitnexus-rust-core-cli -- summary \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --format json
+```
+
+## 输出内容
+
+`analyze --format json` 会输出统一分析结果，主要包含：
+
+- 项目摘要
+- 质量门结果
+- 语言信息
+- graph 节点和边
+- diagnostics
+- stats
+
+图数据包含的常见节点：
+
+- Repository
+- Package
+- Target
+- SourceFile
+- Symbol
+- Diagnostic
+
+图数据包含的常见关系：
+
+- CONTAINS_PACKAGE
+- HAS_TARGET
+- OWNS_SOURCE
+- DEFINES
+- CALLS
+- ACCESSES
+- DESIGNATION
+- HAS_PARENT
+- ANNOTATES
+
+## 验证命令
+
+```bash
+cargo fmt --check
+cargo test
+cargo test --features tree-sitter-cangjie
+cargo test --test project_model_graph_contract
+cargo test --test productization_commands
+cargo test --features tree-sitter-cangjie --test cangjie_inspect -- --nocapture
+cargo test --features tree-sitter-cangjie --test graph_contract -- --nocapture
+cargo test --features tree-sitter-cangjie --test multi_project_smoke -- --nocapture
+```
+
+## 项目结构
+
+```text
 gitnexus-rust-core/
-  Cargo.toml                              # Cargo workspace root
+  Cargo.toml
   crates/
-    project-model/                         # Core analysis library
-      src/
-        lib.rs                             # Library root
-        model.rs                           # Data models (Symbol, ImportUse, CallSite, etc.)
-        item.rs                            # Symbol extraction (tree-sitter + text)
-        imports.rs                         # Import resolution
-        calls.rs                           # CALLS intermediate output (1858 lines)
-        stdlib_tables.rs                   # Stdlib lookup tables (prelude types, trait methods, type methods)
-        stdlib_index.rs                    # Static stdlib symbol index (~90 entries)
-        graph.rs                           # Graph emitter v0
-        module_path.rs                     # ModulePathMap
-        manifest.rs                        # Cargo.toml scanner
-        root_resolution.rs                 # Root resolution
-        source_ownership.rs                # Source ownership
-        output.rs                          # CLI output formatting
-      tests/
-        project_model_expected_compare.rs  # PM comparison harness
-        project_model_symbol_expected_compare.rs  # Symbol comparison
-        project_model_import_expected_compare.rs   # Import comparison
-        project_model_call_expected_compare.rs     # Call comparison
-        project_model_graph_expected_compare.rs    # Graph comparison
-    cli/
-      src/
-        main.rs                          # CLI entry point
-        bridge_format.rs                 # GitNexus-RC 兼容格式 adapter（NEW）
-        unified_types.rs                 # 统一输出类型定义（NEW）
-        language_detect.rs               # 语言自动检测（NEW）
-      tests/
-        project_model_inspect.rs         # Integration tests
-        bridge_roundtrip.rs               # GitNexus-RC bridge roundtrip tests
-        productization_commands.rs        # Productization CLI tests
+    project-model/       Rust 项目模型、符号、import、calls、graph 输出
+    cangjie/             仓颉项目模型、符号、diagnostics、graph 输出
+    cli/                 命令行入口、统一输出、语言检测、兼容格式
   fixtures/
-    manifest-scanner/                      # 6 fixtures
-    root-resolution/                       # 9 fixtures
-    source-ownership/                      # 8 fixtures
-    item-extraction/                       # 10 fixtures (with expected-symbols.json)
-    import-use/                            # 12 fixtures (with expected-imports.json)
-    call-resolution/                       # 24 fixtures (C1-C16 + SF1-SF6 + call-enum-filter + call-module-path, with expected-calls.json)
-    rust/                                  # 8 graph contract fixtures
-    cangjie/                               # Cangjie portable and regression fixtures
+    call-resolution/     Rust 调用解析 fixture
+    import-use/          Rust import fixture
+    item-extraction/     Rust 符号提取 fixture
+    rust/                Rust graph contract fixture
+    cangjie/             仓颉 fixture
   docs/
-    architecture/                          # Architecture docs (unified-output-contract, bridge-preflight)
-    decisions/                             # Decision records
-    fixtures/                              # Fixture index
-    migration/                             # Migration from GitNexus-RC
-    plans/                                 # Preflight / execution card / closure review
-    smoke-targets-config.md                # Smoke targets list (NEW)
+    architecture/        架构和输出格式说明
+    decisions/           设计决策
+    fixtures/            fixture 索引
+    plans/               preflight / execution / closure 文档
+  scripts/
+    build.sh             本地构建脚本
+    smoke.sh             本地 smoke 验证脚本
 ```
 
----
+## 路线图
 
-## Stop-lines (MVP)
+短期目标：
 
-以下内容是 Rust-core MVP 的明确 stop-line：
+- 稳定 Rust / 仓颉统一 CLI
+- 稳定 JSON 输出格式
+- 增强面向上层应用的图数据消费验证
+- 持续补齐 Rust graph contract fixture
+- 持续补齐仓颉真实项目 smoke
 
-- **No production replacement** — Rust-core 不是 GitNexus-RC TypeScript adapter 的替代
-- **No full method dispatch** — `obj.method()` 支持 blind name + stdlib trait + receiver type heuristics，但不做完整 receiver type inference（stop-line）
-- **No type inference / trait solving** — 不推断变量类型，不做 trait bound satisfaction
-- **No arbitrary external crate resolution** — 仅支持 std/core/alloc direct path（Phase 1），第三方 crate API 不解析（stop-line）
-- **No macro expansion** — `foo!()` 不展开
-- **No full cfg evaluator** — cfg-gated `mod` 只标记 `unknown`
-- **No `cargo metadata` execution`** — 只用 manifest-derived project model
-- **No proc-macro / build.rs** — 不执行
-- **No UI / MCP server / commercial distribution**
+中期目标：
 
----
+- 提升 Rust 调用解析质量
+- 建立更完整的 confidence / reason 矩阵
+- 将仓颉 SDK、LSP、diagnostics 能力更系统地接入
+- 为上层 AI 工具提供稳定的代码图谱输入
 
-## Remote
+长期目标：
 
-| Property | Value |
-|----------|-------|
-| Remote name | `gitcode` |
-| URL | `https://gitcode.com/aiulms/gitnexus-rust-core.git` |
-| Branch | `master` |
-| HEAD | See GitCode `master` |
-| Commit count | See git history |
+- 成为一个可嵌入、可验证、可扩展的多语言代码智能核心
+- 为本地代码理解、影响分析、重构辅助、AI agent 工作流提供基础设施
 
----
+## 当前边界
 
-## License
+这个项目优先追求“结构化、可验证、可回归”的代码智能能力，而不是追求一次性覆盖所有语义。
 
-本项目遵循 GitNexus PolyForm Noncommercial 许可证。参见 GitNexus-RC LICENSE。
+当前不会做：
+
+- 运行用户项目的 `build.rs` / proc-macro
+- 宏展开
+- 完整类型推断
+- 完整 trait solving
+- 任意第三方 crate API 深度解析
+- UI / Web 服务
+- 商业化分发承诺
+
+## 许可证
+
+当前 Cargo workspace 声明为 MIT License。后续如补充 LICENSE 文件，以仓库根目录 LICENSE 文件为准。
