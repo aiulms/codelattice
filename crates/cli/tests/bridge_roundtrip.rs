@@ -423,6 +423,112 @@ fn assert_edge_confidence_reason(v: &Value, require_semantic_confidence: bool) {
     }
 }
 
+/// 验证 bridge 输出的 edge kind 与 GitNexus-RC RelationshipType 兼容性。
+///
+/// 来源：
+/// - gitnexus-shared/src/graph/types.ts RelationshipType 枚举（24 个值）
+/// - gitnexus-shared/src/lbug/schema-constants.ts REL_TYPES（22 个值）
+/// - gitnexus/src/core/ingestion/rust-core-graph-adapter/types.ts（9 个 Rust edge types）
+///
+/// 兼容性分三类：
+/// 1. 直接兼容（case-insensitive match GitNexus-RC RelationshipType）
+/// 2. 已知映射（bridge kind → RC type，需 adapter 层转换）
+/// 3. 未知（不在兼容表中，可能需新增 adapter 映射）
+fn assert_edge_kind_compatibility(v: &Value) {
+    // GitNexus-RC RelationshipType 枚举（来源: gitnexus-shared/src/graph/types.ts）
+    // 注：大写为 RC 内部格式，小写为 bridge 可能输出格式
+    let rc_direct_compatible: &[&str] = &[
+        "CALLS",
+        "calls",
+        "DEFINES",
+        "defines",
+        "USES",
+        "uses",
+        "ACCESSES",
+        "accesses",
+        "IMPORTS",
+        "imports",
+        "ANNOTATES",
+        "annotates",
+        "CONTAINS",  // RC: CONTAINS（含 CONTAINS_PACKAGE/CONTAINS_WORKSPACE/HAS_TARGET）
+        "MEMBER_OF", // RC: MEMBER_OF（bridge: HAS_PARENT → adapter 映射）
+        "MODIFIES",
+        "modifies",
+    ];
+
+    // Bridge → GitNexus-RC adapter 已知映射表
+    // 来源: gitnexus/src/core/ingestion/rust-core-graph-adapter/map-to-gitnexus.ts EDGE_TYPE_MAP
+    let known_adapter_mappings: &[(&str, &str)] = &[
+        ("CALLS", "CALLS"),
+        ("DEFINES", "DEFINES"),
+        ("CONTAINS_PACKAGE", "CONTAINS"),
+        ("CONTAINS_WORKSPACE", "CONTAINS"),
+        ("HAS_TARGET", "CONTAINS"), // RC adapter 映射为 CONTAINS（metadata-only）
+        ("OWNS_SOURCE", "CONTAINS"),
+        ("HAS_PARENT", "MEMBER_OF"),
+        ("RESOLVES_TO", "MEMBER_OF"), // RC adapter 映射为 MEMBER_OF（metadata-only）
+        ("DESIGNATION", "ANNOTATES"), // RC adapter 映射为 ANNOTATES（当前 skip）
+        ("ANNOTATES", "ANNOTATES"),
+        ("containsPackage", "CONTAINS"),
+        ("containsWorkspace", "CONTAINS"),
+        ("hasTarget", "CONTAINS"),
+        ("ownsSource", "CONTAINS"),
+        ("hasParent", "MEMBER_OF"),
+        ("resolvesTo", "MEMBER_OF"),
+        ("annotates", "ANNOTATES"),
+    ];
+
+    let mut unknown_kinds: Vec<String> = Vec::new();
+    let edge_categories = &[
+        "calls",
+        "defines",
+        "uses",
+        "accesses",
+        "designations",
+        "imports",
+        "contains",
+        "owns",
+        "annotates",
+        "other",
+    ];
+
+    for cat in edge_categories {
+        if let Some(edges) = v["edges"][cat].as_array() {
+            for edge in edges {
+                let kind = edge["kind"].as_str().unwrap_or("");
+                if kind.is_empty() {
+                    continue;
+                }
+
+                // 检查是否在直接兼容列表中
+                let direct_match = rc_direct_compatible.iter().any(|&k| k == kind);
+                // 检查是否在已知 adapter 映射表中
+                let adapter_match = known_adapter_mappings
+                    .iter()
+                    .any(|(bridge, _)| *bridge == kind);
+
+                if !direct_match && !adapter_match {
+                    // 去重收集未知 kind
+                    if !unknown_kinds.contains(&kind.to_string()) {
+                        unknown_kinds.push(kind.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    // 未知 edge kind 不是失败条件（新语言/新 edge type 可能在未来出现），
+    // 但应被记录以便 adapter 更新。此处仅在测试失败消息中列出。
+    if !unknown_kinds.is_empty() {
+        // 打印警告而非断言失败 — 未知 kind 可能是合法的未来扩展
+        eprintln!(
+            "INFO: bridge 输出中发现 {} 个未知 edge kind（可能需要 adapter 映射更新）: {:?}",
+            unknown_kinds.len(),
+            unknown_kinds
+        );
+    }
+}
+
 // ============================================================
 // Rust Bridge Roundtrip 测试
 // ============================================================
@@ -665,6 +771,30 @@ fn bridge_rust_edge_confidence_reason() {
 
     // Rust 源数据提供 confidence/reason，要求语义边包含 confidence
     assert_edge_confidence_reason(&v, true);
+}
+
+#[test]
+fn bridge_rust_edge_kind_compatibility() {
+    // 验证 Rust bridge edge kind 与 GitNexus-RC RelationshipType 的兼容性
+    // 来源: gitnexus-shared/src/graph/types.ts RelationshipType (24), REL_TYPES (22)
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_edge_kind_compatibility(&v);
 }
 
 // ============================================================
@@ -914,5 +1044,29 @@ mod cangjie_bridge_tests {
 
         // Cangjie 源数据当前不提供 confidence/reason，不强制要求
         assert_edge_confidence_reason(&v, false);
+    }
+
+    #[test]
+    fn bridge_cangjie_edge_kind_compatibility() {
+        // 验证 Cangjie bridge edge kind 与 GitNexus-RC RelationshipType 的兼容性
+        // 来源: gitnexus-shared/src/graph/types.ts RelationshipType (24)
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let root = cangjie_portable_smoke_path();
+
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("cangjie")
+            .arg("--format")
+            .arg("gitnexus-rc")
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).unwrap();
+
+        assert_edge_kind_compatibility(&v);
     }
 }
