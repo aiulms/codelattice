@@ -1,6 +1,6 @@
 # Rust-core Plans Index
 
-最后更新：2026-05-09（Bridge adapter 分离完成）
+最后更新：2026-05-09（Bridge Adapter Readiness + Local Trial Productization 完成）
 
 ## 用途
 
@@ -40,17 +40,22 @@
 - ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
 - ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（11 文件），Bridge 兼容性报告，2 个 bridge adapter 修复（symbol kind + edge confidence），6 个 consumer shape 测试（含 edge kind compatibility）
 - ✅ **Bridge adapter 分离**（2026-05-09）：bridge_format.rs（~890 行）拆分为 rust_bridge.rs + cangjie_bridge.rs + bridge_format.rs（共享类型 + 边分组），零行为变化，纯结构重构
+- ✅ **Consumer Contract 固化**（2026-05-09）：新增 §零 三级字段分类（Stable/Adapter-Required/Intentionally-Unstable）、§五 Rust vs Cangjie 差异表、§六 Node ID 不稳定边界
+- ✅ **Adapter Readiness Test Pack**（2026-05-09）：bridge_roundtrip 22→26 tests，新增 symbol kind 白名单 + packageId 交叉引用验证
+- ✅ **Local Trial Packaging**（2026-05-09）：新增 scripts/verify-bridge.sh 面向 RC adapter 开发者，build.sh 增加 bridge format 示例，README.md 增加 bridge 验证章节
+- ✅ **GitNexus-RC Adapter Preflight**（2026-05-09）：docs/plans/2026-05-09-gitnexus-rc-adapter-preflight.md — 最小 write set（4 文件 ~320 行）、转换边界、风险、11 项验收清单
 
 ## 当前推荐下一篇计划
 
-**Consumer Dry-run — Rust-core 内已全部完成。**
+**Bridge Adapter Readiness + Local Trial Productization — Rust-core 内已全部完成。**
 
-**Consumer Dry-run — 需跨仓授权（触发 stop-line）：**
-- GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径
-- 前端 NodeLabel/EdgeType 扩展协商：Rust EnumVariant/ImplBlock + Cangjie Init/CallableSource
+**下一阶段 — 需跨仓授权（触发 stop-line）：**
 
-**Productization 维护（低优先级）：**
-- Bridge format roundtrip 验证（用 GitNexus-RC 测试 fixture，需跨仓协调）
+详见 **[GitNexus-RC Adapter Preflight](2026-05-09-gitnexus-rc-adapter-preflight.md)**
+- GitNexus-RC adapter 授权：Bridge JSON 需要新的 `loadRustCoreBridgeGraph()` adapter 路径（最小 write set：4 个新文件 ~320 行 + 2-3 个修改文件 ~30 行）
+- 前端 NodeLabel/EdgeType 扩展协商：Rust EnumVariant + Cangjie Init/CallableSource（2-3 个新 enum 值）
+- 验收标准：11 项清单，单元级 + 集成级 + 合约级全覆盖
+- **等待用户授权后才能修改 GitNexus-RC**
 
 **Rust CALLS 后续（低优先级，大部分在 stop-line 后）：**
 - ~~`crate::` 多段路径分类修复~~ ✅ 完成（Slice 48）
