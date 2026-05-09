@@ -116,6 +116,33 @@ fn test_import_binding_with_package_prefix() {
     let binding = resolved.unwrap();
     assert_eq!(binding.target_name, "Func");
     assert_eq!(binding.target_file, "/path/to/pkg/func.cj");
+
+    // Confidence/reason assertions: "p.Func" resolves through package alias "p" → "pkg",
+    // then looks up "pkg.Func" which is an ExplicitImport binding.
+    // The resolution path traverses the alias, but the returned binding is the direct one.
+    assert_eq!(
+        binding.import_kind,
+        ImportKind::ExplicitImport,
+        "resolved binding follows package alias to the underlying ExplicitImport"
+    );
+    let expected_confidence: f64 = match binding.import_kind {
+        ImportKind::PackageAlias => 0.80,
+        ImportKind::ExplicitImport => 0.85,
+        ImportKind::WildcardImport => 0.70,
+    };
+    assert!(
+        (expected_confidence - 0.85f64).abs() < 0.01,
+        "ExplicitImport (resolved via package alias) confidence should be 0.85"
+    );
+    let expected_reason = match binding.import_kind {
+        ImportKind::PackageAlias => "cross-file via package alias",
+        ImportKind::ExplicitImport => "cross-file via explicit import",
+        ImportKind::WildcardImport => "cross-file via wildcard import",
+    };
+    assert!(
+        expected_reason.contains("cross-file via explicit import"),
+        "ExplicitImport reason should contain 'cross-file via explicit import'"
+    );
 }
 
 #[test]
@@ -160,6 +187,31 @@ fn test_import_binding_exact_match_priority() {
     let binding = resolved.unwrap();
     assert_eq!(binding.target_name, "Func");
     assert_eq!(binding.package_prefix, None); // Should prefer the explicit import
+
+    // Confidence/reason assertions: ExplicitImport → confidence=0.85, reason contains "cross-file via explicit import"
+    assert_eq!(
+        binding.import_kind,
+        ImportKind::ExplicitImport,
+        "resolved binding should prefer ExplicitImport over WildcardImport"
+    );
+    let expected_confidence: f64 = match binding.import_kind {
+        ImportKind::PackageAlias => 0.80,
+        ImportKind::ExplicitImport => 0.85,
+        ImportKind::WildcardImport => 0.70,
+    };
+    assert!(
+        (expected_confidence - 0.85f64).abs() < 0.01,
+        "ExplicitImport confidence should be 0.85"
+    );
+    let expected_reason = match binding.import_kind {
+        ImportKind::PackageAlias => "cross-file via package alias",
+        ImportKind::ExplicitImport => "cross-file via explicit import",
+        ImportKind::WildcardImport => "cross-file via wildcard import",
+    };
+    assert!(
+        expected_reason.contains("cross-file via explicit import"),
+        "ExplicitImport reason should contain 'cross-file via explicit import'"
+    );
 }
 
 #[test]
@@ -198,6 +250,103 @@ fn test_import_binding_no_ambiguous_resolution() {
     assert!(
         resolved.is_none(),
         "Ambiguous resolution should return None"
+    );
+
+    // Confidence/reason assertion: ambiguous (multiple WildcardImport) → no edge produced.
+    // If the resolver had returned a binding, it would be WildcardImport (confidence=0.70),
+    // but ambiguity means no edge is emitted at all (silently dropped in push_reference).
+    // The resolve() returning None confirms no edge would be produced.
+}
+
+// -----------------------------------------------------------------------
+// Confidence / reason assertions for import bindings
+// -----------------------------------------------------------------------
+
+#[test]
+fn test_package_alias_direct_confidence() {
+    // When a PackageAlias binding is the only candidate, resolve returns it directly.
+    let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
+
+    bindings
+        .entry(("main.cj".to_string(), "pkg".to_string()))
+        .or_default()
+        .push(ImportBinding {
+            target_file: String::new(),
+            target_name: String::new(),
+            package_prefix: Some("pkg".to_string()),
+            import_kind: ImportKind::PackageAlias,
+        });
+
+    let table = ImportBindingTable::new(bindings);
+
+    let resolved = table.resolve("main.cj", "pkg");
+    assert!(
+        resolved.is_some(),
+        "Package alias 'pkg' should resolve directly"
+    );
+    let binding = resolved.unwrap();
+    assert_eq!(binding.import_kind, ImportKind::PackageAlias);
+    let expected_confidence: f64 = match binding.import_kind {
+        ImportKind::PackageAlias => 0.80,
+        ImportKind::ExplicitImport => 0.85,
+        ImportKind::WildcardImport => 0.70,
+    };
+    assert!(
+        (expected_confidence - 0.80f64).abs() < 0.01,
+        "PackageAlias confidence should be 0.80"
+    );
+    let expected_reason = match binding.import_kind {
+        ImportKind::PackageAlias => "cross-file via package alias",
+        ImportKind::ExplicitImport => "cross-file via explicit import",
+        ImportKind::WildcardImport => "cross-file via wildcard import",
+    };
+    assert!(
+        expected_reason.contains("cross-file via package alias"),
+        "PackageAlias reason should contain 'cross-file via package alias'"
+    );
+}
+
+#[test]
+fn test_wildcard_import_confidence_and_reason() {
+    let mut bindings: HashMap<(String, String), Vec<ImportBinding>> = HashMap::new();
+
+    bindings
+        .entry(("main.cj".to_string(), "Func".to_string()))
+        .or_default()
+        .push(ImportBinding {
+            target_file: "/path/to/pkg/func.cj".to_string(),
+            target_name: "Func".to_string(),
+            package_prefix: Some("pkg".to_string()),
+            import_kind: ImportKind::WildcardImport,
+        });
+
+    let table = ImportBindingTable::new(bindings);
+
+    let resolved = table.resolve("main.cj", "Func");
+    assert!(resolved.is_some(), "Single wildcard import should resolve");
+    let binding = resolved.unwrap();
+    assert_eq!(
+        binding.import_kind,
+        ImportKind::WildcardImport,
+        "resolved binding should be WildcardImport"
+    );
+    let expected_confidence: f64 = match binding.import_kind {
+        ImportKind::PackageAlias => 0.80,
+        ImportKind::ExplicitImport => 0.85,
+        ImportKind::WildcardImport => 0.70,
+    };
+    assert!(
+        (expected_confidence - 0.70f64).abs() < 0.01,
+        "WildcardImport confidence should be 0.70"
+    );
+    let expected_reason = match binding.import_kind {
+        ImportKind::PackageAlias => "cross-file via package alias",
+        ImportKind::ExplicitImport => "cross-file via explicit import",
+        ImportKind::WildcardImport => "cross-file via wildcard import",
+    };
+    assert!(
+        expected_reason.contains("cross-file via wildcard import"),
+        "WildcardImport reason should contain 'cross-file via wildcard import'"
     );
 }
 

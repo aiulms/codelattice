@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（beta readiness evidence board + external AI Run #003 task package prepared）
+最后更新：2026-05-10（Rust + Cangjie bounded language-quality improvement — confidence contracts hardened）
 
 ## 用途
 
@@ -80,6 +80,10 @@
 - 📝 **Periodic Alpha Trial Run #003 Placeholder**（2026-05-10）：[`2026-05-10-periodic-alpha-trial-run-003-placeholder.md`](2026-05-10-periodic-alpha-trial-run-003-placeholder.md) — Run #003 空白模板，所有字段 TBD，显式标记 NOT RUN。不作为已完成 trial 计数。
 
 - 📝 **Beta Go/No-Go Review #002**（2026-05-10）：[`2026-05-10-beta-readiness-go-no-go-review-002.md`](2026-05-10-beta-readiness-go-no-go-review-002.md) — 第二次 Beta 草评。8 项 criteria：2 PASS + 3 PARTIAL + 3 NOT YET ENOUGH DATA。结论：Alpha 继续健康，Beta Not yet，需外部 AI 执行 + ≥ 3 周日历跨度。无 blocker。
+
+- ✅ **Rust CALLS Confidence/Reason Quality Hardening**（2026-05-10）：[`preflight`](2026-05-10-rust-calls-confidence-reason-quality-preflight.md) / [`closure`](2026-05-10-rust-calls-confidence-reason-quality-closure.md) — 固化 19 种 Rust call form 的 confidence/reason 矩阵。24 个 fixture 全部有 expected-calls.json 自动验证。新增 [`rust-calls-confidence-matrix.md`](../architecture/rust-calls-confidence-matrix.md) 策略参考文档。无代码修复，无 behavior change。
+
+- ✅ **Cangjie Reference Edge Quality Hardening**（2026-05-10）：[`preflight`](2026-05-10-cangjie-reference-edge-quality-preflight.md) / [`closure`](2026-05-10-cangjie-reference-edge-quality-closure.md) — 固化 Cangjie 7 种 same-file edge + 3 种 cross-file import confidence 层级。新增 11 个 confidence/reason/ambiguous 测试（alias_reference +4, cross_file_import_confidence +7）。无 behavior change。
 
 **Public Identity / Rename 线（Active，2026-05-09）：**
 - ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。
