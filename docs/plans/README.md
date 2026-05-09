@@ -46,6 +46,7 @@
 - ✅ **GitNexus-RC Adapter Preflight**（2026-05-09）：docs/plans/2026-05-09-gitnexus-rc-adapter-preflight.md — 最小 write set（4 文件 ~320 行）、转换边界、风险、11 项验收清单
 
 - ✅ **Public Identity Cleanup**（2026-05-09）：README.md / build.sh / verify-bridge.sh 中 GitNexus-RC 特定引用替换为中性表述（"下游消费格式"/"下游消费方"），保持 CLI flag `--format gitnexus-rc` 不变
+- ✅ **Production Trial Acceptance Checklist**（2026-05-09）：docs/plans/2026-05-09-production-trial-acceptance-checklist.md — alpha production trial 验收清单，11 节全覆盖（命令/字段/smoke/质量门/AI 消费接口/已知限制/前置条件）
 
 **Public Identity / Rename 线（Draft，2026-05-09）：**
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
@@ -57,11 +58,10 @@
 
 ## 当前推荐下一篇计划
 
-**Production Trial Acceptance Checklist（建议，docs-only，未开卡）**
+**Production Trial Acceptance Checklist（已开卡，docs-only）**
 
-- 固化 alpha production trial 的验收清单。
-- 明确必须稳定的命令、输出字段、smoke targets、quality gates 和 AI 最小消费接口。
-- 明确 UI/Web/MCP/多语言/正式改名都不进入短期收尾。
+- ✅ **[Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md)** — 固化 alpha production trial 验收清单（命令/字段/smoke targets/质量门/AI 最小消费接口/已知限制/不承诺能力/标 v0.1 前置条件），docs-only，11 节。
+- 下一步：逐项打勾确认当前状态，如有未满足项开最小 execution card 修复。
 
 **Public Identity Cleanup 已完成。Rust-core 内可继续推进的是 production trial 收口，而不是继续扩大产品面。**
 
