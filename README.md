@@ -132,6 +132,18 @@ target/release/gitnexus-rust-core-cli
 ./scripts/smoke.sh
 ```
 
+### Bridge 格式验证（面向 GitNexus-RC adapter 开发者）
+
+```bash
+# Rust bridge 快速验证
+./scripts/verify-bridge.sh --rust-only
+
+# 完整验证（含 Cangjie）
+./scripts/verify-bridge.sh
+```
+
+验证项：结构完整性、端点完整性、统计一致性、symbol kind 具体化、edge confidence/reason、packageId 一致性、输出确定性。
+
 ## CLI 用法
 
 ### 分析 Rust 项目
