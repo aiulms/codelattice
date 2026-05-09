@@ -10,7 +10,9 @@
 //! JSON stdout，human logs stderr。
 
 mod bridge_format;
+mod cangjie_bridge;
 mod language_detect;
+mod rust_bridge;
 mod unified_types;
 
 use clap::{Parser, Subcommand};
