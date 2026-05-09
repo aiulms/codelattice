@@ -100,9 +100,19 @@ fn collect_edges(v: &Value) -> Vec<(String, String, String)> {
 }
 
 /// 验证 bridge 输出顶层结构字段齐全
+/// 对齐 GitNexus-RC bridge adapter 期望的 BridgeGraphOutput 顶层字段
+/// 来源：gitnexus/src/core/ingestion/rust-core-bridge-adapter/types.ts BridgeGraphOutput
 fn assert_bridge_structure(v: &Value) {
     assert!(v["schemaVersion"].is_string(), "缺少 schemaVersion 字段");
+    assert!(
+        v["generatedAt"].is_string(),
+        "缺少 generatedAt 字段（ISO 8601 时间戳，RC adapter 消费）"
+    );
     assert!(v["repository"].is_object(), "缺少 repository 对象");
+    assert!(
+        !v["repository"]["id"].as_str().unwrap_or("").is_empty(),
+        "repository.id 不应为空"
+    );
     assert!(v["packages"].is_array(), "缺少 packages 数组");
     assert!(v["sourceFiles"].is_array(), "缺少 sourceFiles 数组");
     assert!(v["symbols"].is_array(), "缺少 symbols 数组");
@@ -457,25 +467,35 @@ fn assert_edge_kind_compatibility(v: &Value) {
     ];
 
     // Bridge → GitNexus-RC adapter 已知映射表
-    // 来源: gitnexus/src/core/ingestion/rust-core-graph-adapter/map-to-gitnexus.ts EDGE_TYPE_MAP
-    let known_adapter_mappings: &[(&str, &str)] = &[
-        ("CALLS", "CALLS"),
-        ("DEFINES", "DEFINES"),
-        ("CONTAINS_PACKAGE", "CONTAINS"),
-        ("CONTAINS_WORKSPACE", "CONTAINS"),
-        ("HAS_TARGET", "CONTAINS"), // RC adapter 映射为 CONTAINS（metadata-only）
-        ("OWNS_SOURCE", "CONTAINS"),
-        ("HAS_PARENT", "MEMBER_OF"),
-        ("RESOLVES_TO", "MEMBER_OF"), // RC adapter 映射为 MEMBER_OF（metadata-only）
-        ("DESIGNATION", "ANNOTATES"), // RC adapter 映射为 ANNOTATES（当前 skip）
-        ("ANNOTATES", "ANNOTATES"),
-        ("containsPackage", "CONTAINS"),
-        ("containsWorkspace", "CONTAINS"),
-        ("hasTarget", "CONTAINS"),
-        ("ownsSource", "CONTAINS"),
-        ("hasParent", "MEMBER_OF"),
-        ("resolvesTo", "MEMBER_OF"),
-        ("annotates", "ANNOTATES"),
+    // 来源: gitnexus/src/core/ingestion/rust-core-bridge-adapter/map-to-gitnexus.ts EDGE_KIND_TO_TYPE
+    //        + rust-core-bridge-adapter/types.ts METADATA_ONLY_EDGE_KINDS
+    // 注：METADATA_ONLY edges（CONTAINS_WORKSPACE/HAS_TARGET/RESOLVES_TO 及小写变体）不在
+    // KnowledgeGraph 中写入关系，仅参与 stats 统计。映射目标标为 null 表示 adapter 层跳过。
+    let known_adapter_mappings: &[(&str, Option<&str>)] = &[
+        ("CALLS", Some("CALLS")),
+        ("DEFINES", Some("DEFINES")),
+        ("defines", Some("DEFINES")),
+        ("uses", Some("USES")),
+        ("imports", Some("IMPORTS")),
+        ("ACCESSES", Some("ACCESSES")),
+        ("accesses", Some("ACCESSES")),
+        ("modifies", Some("MODIFIES")),
+        ("DESIGNATION", Some("ANNOTATES")),
+        ("ANNOTATES", Some("ANNOTATES")),
+        ("annotates", Some("ANNOTATES")),
+        ("CONTAINS_PACKAGE", Some("CONTAINS")),
+        ("containsPackage", Some("CONTAINS")),
+        ("OWNS_SOURCE", Some("CONTAINS")),
+        ("ownsSource", Some("CONTAINS")),
+        ("HAS_PARENT", Some("MEMBER_OF")),
+        ("hasParent", Some("MEMBER_OF")),
+        // metadata-only edges: adapter 层跳过，不写入 KnowledgeGraph
+        ("CONTAINS_WORKSPACE", None), // workspace→package 层级，仅 stats
+        ("containsWorkspace", None),
+        ("HAS_TARGET", None), // target 目录，仅 stats
+        ("hasTarget", None),
+        ("RESOLVES_TO", None), // import resolution metadata，仅 stats
+        ("resolvesTo", None),
     ];
 
     let mut unknown_kinds: Vec<String> = Vec::new();
@@ -502,7 +522,7 @@ fn assert_edge_kind_compatibility(v: &Value) {
 
                 // 检查是否在直接兼容列表中
                 let direct_match = rc_direct_compatible.iter().any(|&k| k == kind);
-                // 检查是否在已知 adapter 映射表中
+                // 检查是否在已知 adapter 映射表中（含 metadata-only 跳过项）
                 let adapter_match = known_adapter_mappings
                     .iter()
                     .any(|(bridge, _)| *bridge == kind);
@@ -552,6 +572,7 @@ fn assert_symbol_kind_whitelist(v: &Value) {
     ];
 
     // 已知 Cangjie symbol kind 白名单（对齐 cangjie_bridge.rs partition_cangjie_nodes + CangjieSymbolKind）
+    // 来源：gitnexus/src/core/ingestion/rust-core-bridge-adapter/types.ts CANGJIE_SYMBOL_KINDS
     let cangjie_known_kinds: &[&str] = &[
         "Function",
         "Class",
@@ -561,6 +582,7 @@ fn assert_symbol_kind_whitelist(v: &Value) {
         "TypeAlias",
         "Macro",
         "Init",
+        "CallableSource", // 合成调用节点（当前 fixture 不应产出，但作为合法类型保留在白名单中）
     ];
 
     let mut unknown_kinds: Vec<String> = Vec::new();

@@ -38,7 +38,7 @@
 - ✅ Productization Closure Review：docs/plans/2026-05-09-productization-phase-closure-review.md
 - ✅ **Local Trial Packaging**（2026-05-09）：scripts/build.sh + scripts/smoke.sh，一键构建 + 快速验证
 - ✅ **Analyze --strict Flag**（2026-05-09）：analyze 命令新增 --strict flag，质量门失败时 exit non-zero，与 Cangjie inspect --strict 行为对齐
-- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（11 文件），Bridge 兼容性报告，2 个 bridge adapter 修复（symbol kind + edge confidence），6 个 consumer shape 测试（含 edge kind compatibility）
+- ✅ **Cross-repo Consumer Dry-run**（2026-05-09）：GitNexus-RC 消费侧只读审计（17 文件），Bridge 兼容性报告 v1.3.0（二次审计确认 §8.5），2 个 bridge adapter 修复（symbol kind + edge confidence），bridge_roundtrip 26 tests（13 Rust + 13 Cangjie，含 generatedAt/CallableSource/Option<&str> 映射精度增强）
 - ✅ **Bridge adapter 分离**（2026-05-09）：bridge_format.rs（~890 行）拆分为 rust_bridge.rs + cangjie_bridge.rs + bridge_format.rs（共享类型 + 边分组），零行为变化，纯结构重构
 - ✅ **Consumer Contract 固化**（2026-05-09）：新增 §零 三级字段分类（Stable/Adapter-Required/Intentionally-Unstable）、§五 Rust vs Cangjie 差异表、§六 Node ID 不稳定边界
 - ✅ **Adapter Readiness Test Pack**（2026-05-09）：bridge_roundtrip 22→26 tests，新增 symbol kind 白名单 + packageId 交叉引用验证
