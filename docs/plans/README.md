@@ -59,6 +59,12 @@
 
 - ✅ **Alpha Trial Maintenance and Failure Playbook**（2026-05-09）：[`2026-05-09-alpha-trial-maintenance-and-failure-playbook.md`](2026-05-09-alpha-trial-maintenance-and-failure-playbook.md) — 维护手册：日常/周期 smoke 推荐、7 类失败分类（stdout purity / dangling / duplicate / deterministic drift / adapter validation / header artifact / command authority）及第一响应动作、试用期记录格式、退出 alpha / 升级 beta 候选条件。
 
+- ✅ **f97f733 复核通过**（2026-05-09）：复核结论 — commit 无误清兼容名、无误删 bridge compatibility 文档、`--format gitnexus-rc` 和 `--experimental-rust-core-bridge-graph` 均保留、无 `npx gitnexus` 引入、无 generatedAt "值稳定" 描述、无 sed-as-fix 建议。旧名残留扫描确认：0 处必须修复项。
+
+- 📝 **Periodic Alpha Trial Log Template**（2026-05-09）：[`2026-05-09-periodic-alpha-trial-log-template.md`](2026-05-09-periodic-alpha-trial-log-template.md) — 空白试用记录模板（不包含伪造数据）。包含：date / executor / target / command / bridge JSON size / stdout purity / Tool ingestion / stats / quality checks / cleanup / failure classification / rollback / final status / notes。
+
+- 📝 **Beta Readiness Criteria Preflight**（2026-05-09）：[`2026-05-09-beta-readiness-criteria-preflight.md`](2026-05-09-beta-readiness-criteria-preflight.md) — Alpha → Beta 升级条件：≥ 5 次真实项目 trial + ≥ 3 周无回归 + ≥ 3 条 trial log + 外部 AI 独立执行。Beta 不包含默认引擎切换 / WebUI / MCP / 多语言扩张。Go/No-Go checklist 12 项。
+
 **Public Identity / Rename 线（Draft，2026-05-09）：**
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。
@@ -79,14 +85,14 @@
 - 端到端验证脚本：`scripts/alpha-trial-smoke.sh`
 - 旧名清理计划：[Public Identity Cleanup Plan](2026-05-09-public-identity-and-legacy-command-cleanup-plan.md)
 
-**下一阶段 — Alpha Trial Operation（维护期）：**
+**下一阶段 — Alpha Trial Periodic Operation：**
 
-1. **Periodic Smoke**：按 [Maintenance Playbook](2026-05-09-alpha-trial-maintenance-and-failure-playbook.md) 执行定期 smoke（`alpha-trial-smoke.sh` + `verify-bridge.sh`）
-2. **Trial Log**：每次 trial 操作记录日期/target/结果，用于评估 beta 升级条件
-3. **Legacy Cleanup Phase 2**：内部 docs（architecture/）措辞统一 — 低优先级，残留均不影响操作
-4. **Optional E2E**：如获授权，在 GitNexus-RC 侧做 bridge adapter 端到端集成测试
-5. **Beta Criteria Review**：按 playbook §六 评估是否满足 alpha → beta 升级条件
-6. **不扩产品面**：不扩 UI/Web/MCP/新语言，直到 alpha trial 稳定运行
+1. **Periodic Alpha Trial**：在 Rust-core 自身 + Cangjie cjgui index checkout 各跑一次完整 trial，使用 [Trial Log Template](2026-05-09-periodic-alpha-trial-log-template.md) 记录结果
+2. **Periodic Smoke**：按 [Maintenance Playbook](2026-05-09-alpha-trial-maintenance-and-failure-playbook.md) 执行定期 smoke（`alpha-trial-smoke.sh` + `verify-bridge.sh`）
+3. **积累 Trial Log**：每次 trial 操作记录到 log template，积累 ≥ 5 次后按 [Beta Criteria](2026-05-09-beta-readiness-criteria-preflight.md) 评估
+4. **Beta Criteria Review**：Go/No-Go checklist 12 项逐项确认
+5. **Legacy Cleanup Phase 2**：内部 docs 措辞统一 — 低优先级，残留均不影响操作
+6. **不扩产品面**：不扩 UI/Web/MCP/新语言
 
 **验收清单参考：**
 - [Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md) — 逐项确认
