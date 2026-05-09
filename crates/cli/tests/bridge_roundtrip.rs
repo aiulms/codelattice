@@ -275,14 +275,26 @@ fn assert_endpoint_integrity(v: &Value) {
 }
 
 /// 验证：两次运行 bridge 输出确定一致
+/// 排除生成时间戳后比较两次运行的 bridge 输出。
+/// generatedAt 是 volatile 值（ISO 8601 时间戳），每次运行变化，不能参与 deterministic 比较。
+/// 参见 docs/plans/2026-05-09-production-trial-acceptance-checklist.md §3.2
+fn strip_generated_at(v: &Value) -> Value {
+    let mut m = v.as_object().cloned().unwrap_or_default();
+    m.remove("generatedAt");
+    Value::Object(m)
+}
+
 fn assert_deterministic_output(cmd: &mut Command, expected: &Value) {
     let output2 = cmd.assert().success();
     let stdout2 = String::from_utf8(output2.get_output().stdout.clone()).unwrap();
     let v2: Value = serde_json::from_str(&stdout2).expect("第二次运行 stdout 必须是合法 JSON");
 
+    let expected_stripped = strip_generated_at(expected);
+    let v2_stripped = strip_generated_at(&v2);
+
     assert_eq!(
-        *expected, v2,
-        "两次运行 bridge 输出不一致（应为确定性输出）"
+        expected_stripped, v2_stripped,
+        "两次运行 bridge 输出不一致（排除 generatedAt 后应为确定性输出）"
     );
 }
 
