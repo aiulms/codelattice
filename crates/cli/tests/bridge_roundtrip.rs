@@ -529,6 +529,89 @@ fn assert_edge_kind_compatibility(v: &Value) {
     }
 }
 
+/// 验证 symbol kind 集合在已知白名单内
+/// 白名单来源于 GitNexus-RC NodeLabel 枚举（gitnexus-shared/src/graph/types.ts）
+/// 以及 Rust-core 当前支持的符号类型（Rust + Cangjie）。
+/// 未知 kind 不是失败条件，但会发出警告以便 adapter 同步更新。
+fn assert_symbol_kind_whitelist(v: &Value) {
+    // 已知 Rust symbol kind 白名单（对齐 rust_bridge.rs partition_rust_nodes + GitNexus-RC SYMBOL_KIND_TO_LABEL）
+    let rust_known_kinds: &[&str] = &[
+        "function",
+        "method",
+        "associated-function",
+        "struct",
+        "enum",
+        "trait",
+        "impl-block",
+        "const",
+        "static",
+        "macro-definition",
+        "type-alias",
+        "module",
+        "enum-variant",
+    ];
+
+    // 已知 Cangjie symbol kind 白名单（对齐 cangjie_bridge.rs partition_cangjie_nodes + CangjieSymbolKind）
+    let cangjie_known_kinds: &[&str] = &[
+        "Function",
+        "Class",
+        "Struct",
+        "Enum",
+        "Interface",
+        "TypeAlias",
+        "Macro",
+        "Init",
+    ];
+
+    let mut unknown_kinds: Vec<String> = Vec::new();
+
+    if let Some(syms) = v["symbols"].as_array() {
+        for sym in syms {
+            let kind = sym["kind"].as_str().unwrap_or("");
+            if kind.is_empty() {
+                continue;
+            }
+            if !rust_known_kinds.contains(&kind) && !cangjie_known_kinds.contains(&kind) {
+                if !unknown_kinds.contains(&kind.to_string()) {
+                    unknown_kinds.push(kind.to_string());
+                }
+            }
+        }
+    }
+
+    if !unknown_kinds.is_empty() {
+        eprintln!(
+            "INFO: symbol kind 白名单外发现 {} 种未知类型: {:?}（可能需要更新 adapter 映射）",
+            unknown_kinds.len(),
+            unknown_kinds
+        );
+    }
+}
+
+/// 验证 sourceFiles[].packageId（存在时）引用的 package ID 确实在 packages[] 中
+fn assert_package_id_consistency(v: &Value) {
+    let pkg_ids: HashSet<String> = v["packages"]
+        .as_array()
+        .map(|pkgs| {
+            pkgs.iter()
+                .filter_map(|p| p["id"].as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if let Some(files) = v["sourceFiles"].as_array() {
+        for (i, file) in files.iter().enumerate() {
+            if let Some(pkg_id) = file["packageId"].as_str() {
+                assert!(
+                    pkg_ids.contains(pkg_id),
+                    "sourceFile[{i}] packageId ({pkg_id}) 不在 packages 数组中（id={})",
+                    file["id"].as_str().unwrap_or("?")
+                );
+            }
+        }
+    }
+}
+
 // ============================================================
 // Rust Bridge Roundtrip 测试
 // ============================================================
@@ -795,6 +878,52 @@ fn bridge_rust_edge_kind_compatibility() {
     let v: Value = serde_json::from_str(&stdout).unwrap();
 
     assert_edge_kind_compatibility(&v);
+}
+
+#[test]
+fn bridge_rust_symbol_kind_whitelist() {
+    // 验证所有 Rust symbol kind 都在已知白名单内
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_symbol_kind_whitelist(&v);
+}
+
+#[test]
+fn bridge_rust_package_id_consistency() {
+    // 验证 sourceFile.packageId 引用的 package ID 确实存在
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("gitnexus-rc")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).unwrap();
+
+    assert_package_id_consistency(&v);
 }
 
 // ============================================================
@@ -1068,5 +1197,51 @@ mod cangjie_bridge_tests {
         let v: Value = serde_json::from_str(&stdout).unwrap();
 
         assert_edge_kind_compatibility(&v);
+    }
+
+    #[test]
+    fn bridge_cangjie_symbol_kind_whitelist() {
+        // 验证所有 Cangjie symbol kind 都在已知白名单内
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let root = cangjie_portable_smoke_path();
+
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("cangjie")
+            .arg("--format")
+            .arg("gitnexus-rc")
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).unwrap();
+
+        assert_symbol_kind_whitelist(&v);
+    }
+
+    #[test]
+    fn bridge_cangjie_package_id_consistency() {
+        // 验证 sourceFile.packageId 引用的 package ID 确实存在
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let root = cangjie_portable_smoke_path();
+
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("cangjie")
+            .arg("--format")
+            .arg("gitnexus-rc")
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).unwrap();
+
+        assert_package_id_consistency(&v);
     }
 }
