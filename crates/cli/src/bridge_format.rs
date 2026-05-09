@@ -299,8 +299,10 @@ fn partition_rust_nodes(
                 });
             }
             "source-file" => {
+                // Rust graph 使用 sourcePath 字段（非 path）
                 let path = props
-                    .get("path")
+                    .get("sourcePath")
+                    .or_else(|| props.get("path"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
