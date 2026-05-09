@@ -824,6 +824,7 @@ fn main() {
                 }
             };
 
+            #[cfg(debug_assertions)]
             eprintln!("分析中... language={lang}, root={root}");
 
             match lang.as_str() {

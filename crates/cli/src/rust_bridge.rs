@@ -224,9 +224,51 @@ fn partition_rust_nodes(
                     properties: extra_props,
                 });
             }
-            // 跳过 diagnostic / workspace / 其他结构节点，不计入 symbol
-            "diagnostic" | "workspace" | "module" => {
-                // 这些是结构/诊断节点，不属于 symbol 列表
+            // 跳过 module / 其他结构节点，不计入 symbol
+            // workspace 节点需要保留作为 CONTAINS_PACKAGE / CONTAINS_WORKSPACE 的端点
+            "module" => {
+                // 模块节点不属于 symbol 列表
+            }
+            // workspace 节点：需要作为 package 列表的一部分输出，
+            // 以便 bridge adapter validator 能解析 CONTAINS_WORKSPACE / CONTAINS_PACKAGE 端点
+            "workspace" => {
+                let manifest_path = props
+                    .get("manifestPath")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                packages.push(BridgePackage {
+                    id,
+                    name: "workspace".to_string(),
+                    manifest_path,
+                });
+            }
+            // diagnostic 节点：需要作为 symbol 列表的一部分输出，
+            // 以便 bridge adapter validator 能解析 ANNOTATES edge 的 source 端点
+            "diagnostic" => {
+                let code = props
+                    .get("code")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("diagnostic")
+                    .to_string();
+                let message = props
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                symbols.push(BridgeSymbol {
+                    id,
+                    name: code,
+                    kind: "Diagnostic".to_string(),
+                    package_id: None,
+                    file_id: None,
+                    parent_id: None,
+                    properties: {
+                        let mut p = HashMap::new();
+                        p.insert("message".to_string(), serde_json::Value::String(message));
+                        p
+                    },
+                });
             }
             _ => {
                 // 未知 label：保守跳过，不计入 symbol

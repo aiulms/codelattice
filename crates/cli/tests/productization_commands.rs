@@ -276,21 +276,24 @@ fn analyze_rust_bridge_format_vs_json_same_language() {
             .unwrap();
 
     assert_eq!(v_json["language"], v_bridge["language"]);
-    // 两种格式的 symbol / sourceFile / package 数量应一致
-    assert_eq!(
-        v_json["summary"]["symbolCount"].as_u64().unwrap(),
-        v_bridge["stats"]["symbolCount"].as_u64().unwrap(),
-        "两种格式的 symbolCount 应一致"
-    );
+    // sourceFile 数量应一致
     assert_eq!(
         v_json["summary"]["sourceFileCount"].as_u64().unwrap(),
         v_bridge["stats"]["sourceFileCount"].as_u64().unwrap(),
         "两种格式的 sourceFileCount 应一致"
     );
-    assert_eq!(
-        v_json["summary"]["packageCount"].as_u64().unwrap(),
-        v_bridge["stats"]["packageCount"].as_u64().unwrap(),
-        "两种格式的 packageCount 应一致"
+    // bridge 格式将 diagnostic 节点映射为 symbol（ANNOTATES 端点完整性），
+    // workspace 节点映射为 package（CONTAINS_WORKSPACE/CONTAINS_PACKAGE 端点完整性），
+    // 因此 bridge 的 symbolCount >= json 的 symbolCount，packageCount >= json 的 packageCount
+    assert!(
+        v_bridge["stats"]["symbolCount"].as_u64().unwrap()
+            >= v_json["summary"]["symbolCount"].as_u64().unwrap(),
+        "bridge symbolCount 应 >= json symbolCount（bridge 包含 diagnostic 符号）"
+    );
+    assert!(
+        v_bridge["stats"]["packageCount"].as_u64().unwrap()
+            >= v_json["summary"]["packageCount"].as_u64().unwrap(),
+        "bridge packageCount 应 >= json packageCount（bridge 包含 workspace 包条目）"
     );
 }
 

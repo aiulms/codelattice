@@ -49,6 +49,8 @@
 - ✅ **Public Identity Cleanup**（2026-05-09）：README.md / build.sh / verify-bridge.sh 中 GitNexus-RC 特定引用替换为中性表述（"下游消费格式"/"下游消费方"），保持 CLI flag `--format gitnexus-rc` 不变
 - ✅ **Production Trial Acceptance Checklist**（2026-05-09）：docs/plans/2026-05-09-production-trial-acceptance-checklist.md — alpha production trial 验收清单，11 节全覆盖（命令/字段/smoke/质量门/AI 消费接口/已知限制/前置条件）
 
+- ✅ **Alpha Trial Bridge Endpoint + Stdout Purity Closure**（2026-05-09）：[`2026-05-09-alpha-trial-bridge-endpoint-stdout-purity-closure-review.md`](2026-05-09-alpha-trial-bridge-endpoint-stdout-purity-closure-review.md) — 修复 Rust workspace dangling edges（workspace→package, diagnostic→symbol 映射）、Cangjie stdout purity（scanner.c fprintf→stderr, main.rs cfg guard）。Rust 自身 bridge JSON 0 dangling → Tool 导入成功（4711 nodes/7000 edges）。Cangjie cjgui bridge JSON stdout 纯净 → Tool 导入成功（4851 nodes/7000 edges）。全量回归通过。**结论：Alpha Production Trial Ready。**
+
 **Public Identity / Rename 线（Draft，2026-05-09）：**
 - 📝 **Product Positioning and Rename Preflight Draft**：[`2026-05-09-product-positioning-and-rename-preflight-draft.md`](2026-05-09-product-positioning-and-rename-preflight-draft.md)
 - 结论初稿：技术底座已成形，产品身份尚未成形；下一刀建议先做 public-facing identity cleanup，而不是直接最终改名。

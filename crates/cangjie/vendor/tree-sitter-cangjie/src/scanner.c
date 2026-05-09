@@ -21,10 +21,10 @@ static FILE* log_file = NULL;
 static void logger(TSLexer* lexer, const char* msg) {
   if (! DEBUG_SCANNER) return;
   if (log_file == NULL) {
-    fprintf(stdout, msg);
+    fprintf(stderr, "%s", msg);
     return;
   }
-  fprintf(log_file, msg);
+  fprintf(log_file, "%s", msg);
   fflush(log_file);
 }
 
