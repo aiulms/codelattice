@@ -50,7 +50,7 @@ else
 fi
 echo ""
 
-# --- Step 2: 测试 ---
+# --- Step 2/3: 测试 ---
 if $QUICK_MODE; then
     skip "cargo test（--quick 模式跳过）"
 else
@@ -71,8 +71,8 @@ else
 fi
 echo ""
 
-# --- Step 3: Rust CLI smoke ---
-echo "--- Step 4: Rust analyze --strict（portable-smoke fixture） ---"
+# --- Step 4: Rust analyze --strict（JSON 格式）---
+echo "--- Step 4: Rust analyze --strict（portable-smoke, JSON） ---"
 RUST_OUTPUT=$(cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --language rust --format json --strict 2>/dev/null) || true
 RUST_EXIT=$?
 if [[ $RUST_EXIT -eq 0 ]] && echo "$RUST_OUTPUT" | python3 -c "
@@ -92,7 +92,38 @@ else
 fi
 
 echo ""
-echo "--- Step 5: Rust quality（exit code 检查） ---"
+
+# --- Step 5: Rust bridge format ---
+echo "--- Step 5: Rust bridge format（--format gitnexus-rc） ---"
+RUST_BRIDGE=$(cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc --strict 2>/dev/null) || true
+RUST_BRIDGE_EXIT=$?
+if [[ $RUST_BRIDGE_EXIT -eq 0 ]] && echo "$RUST_BRIDGE" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+# 结构完整性
+assert d.get('repository'), 'missing repository'
+assert len(d.get('sourceFiles', [])) > 0, 'missing sourceFiles'
+assert len(d.get('symbols', [])) > 0, 'missing symbols'
+assert d.get('edges', {}).get('defines'), 'missing defines edges'
+# 端点完整性
+ids = set()
+if d.get('repository'): ids.add(d['repository']['id'])
+for sf in d.get('sourceFiles', []): ids.add(sf['id'])
+for sym in d.get('symbols', []): ids.add(sym['id'])
+for pkg in d.get('packages', []): ids.add(pkg['id'])
+for cat in ['calls','defines','uses','accesses','designations','imports','contains','owns','annotates','other']:
+    for edge in d['edges'].get(cat, []):
+        assert edge['sourceId'] in ids, f'dangling source: {edge[\"sourceId\"]}'
+        assert edge['targetId'] in ids, f'dangling target: {edge[\"targetId\"]}'
+print(f'  bridge OK: {len(d[\"sourceFiles\"])} files, {len(d[\"symbols\"])} symbols, {d[\"stats\"][\"edgeCount\"]} edges')
+" 2>/dev/null; then
+    pass "Rust bridge format: $(echo "$RUST_BRIDGE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d[\"sourceFiles\"])} files, {len(d[\"symbols\"])} symbols')" 2>/dev/null)"
+else
+    fail "Rust bridge format（exit=$RUST_BRIDGE_EXIT）"
+fi
+
+echo ""
+echo "--- Step 6: Rust quality（exit code 检查） ---"
 if cargo run -p gitnexus-rust-core-cli -- quality --root fixtures/rust/portable-smoke --language rust 2>/dev/null; then
     pass "Rust quality exit code 0 (pass)"
 else
@@ -101,8 +132,8 @@ fi
 
 echo ""
 
-# --- Step 4: Cangjie CLI smoke ---
-echo "--- Step 6: Cangjie analyze --strict（portable-smoke fixture） ---"
+# --- Cangjie CLI smoke ---
+echo "--- Step 7: Cangjie analyze --strict（portable-smoke, JSON） ---"
 CANGJIE_OUTPUT=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format json --strict 2>/dev/null) || true
 CANGJIE_EXIT=$?
 if [[ $CANGJIE_EXIT -eq 0 ]] && echo "$CANGJIE_OUTPUT" | python3 -c "
@@ -122,7 +153,33 @@ else
 fi
 
 echo ""
-echo "--- Step 7: Cangjie quality（exit code 检查） ---"
+echo "--- Step 8: Cangjie bridge format（--format gitnexus-rc） ---"
+CJ_BRIDGE=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format gitnexus-rc --strict 2>/dev/null) || true
+CJ_BRIDGE_EXIT=$?
+if [[ $CJ_BRIDGE_EXIT -eq 0 ]] && echo "$CJ_BRIDGE" | python3 -c "
+import json, sys
+d = json.load(sys.stdin)
+assert d.get('repository'), 'missing repository'
+assert len(d.get('sourceFiles', [])) > 0, 'missing sourceFiles'
+assert len(d.get('symbols', [])) > 0, 'missing symbols'
+ids = set()
+if d.get('repository'): ids.add(d['repository']['id'])
+for sf in d.get('sourceFiles', []): ids.add(sf['id'])
+for sym in d.get('symbols', []): ids.add(sym['id'])
+for pkg in d.get('packages', []): ids.add(pkg['id'])
+for cat in ['calls','defines','uses','accesses','designations','imports','contains','owns','annotates','other']:
+    for edge in d['edges'].get(cat, []):
+        assert edge['sourceId'] in ids, f'dangling source: {edge[\"sourceId\"]}'
+        assert edge['targetId'] in ids, f'dangling target: {edge[\"targetId\"]}'
+print(f'  bridge OK: {len(d[\"sourceFiles\"])} files, {len(d[\"symbols\"])} symbols, {d[\"stats\"][\"edgeCount\"]} edges')
+" 2>/dev/null; then
+    pass "Cangjie bridge format: $(echo "$CJ_BRIDGE" | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'{len(d[\"sourceFiles\"])} files, {len(d[\"symbols\"])} symbols')" 2>/dev/null)"
+else
+    fail "Cangjie bridge format（exit=$CJ_BRIDGE_EXIT）"
+fi
+
+echo ""
+echo "--- Step 9: Cangjie quality（exit code 检查） ---"
 if cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- quality --root fixtures/cangjie/portable-smoke --language cangjie 2>/dev/null; then
     pass "Cangjie quality exit code 0 (pass)"
 else
@@ -131,8 +188,8 @@ fi
 
 echo ""
 
-# --- Step 5: 自身分析 ---
-echo "--- Step 8: 自身 smoke（analyze --language auto） ---"
+# --- 自身分析 ---
+echo "--- Step 10: 自身 smoke（analyze --language auto） ---"
 if cargo run -p gitnexus-rust-core-cli -- analyze --root . --language auto --format json 2>/dev/null | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
