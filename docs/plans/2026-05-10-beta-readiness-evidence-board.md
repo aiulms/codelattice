@@ -1,9 +1,9 @@
 # Beta Readiness Evidence Board
 
 > **日期：** 2026-05-10
-> **版本：** 1.0.0
+> **版本：** 1.1.0
 > **类型：** 持续更新的证据看板（每次 trial 后更新）
-> **关联：** [Beta Criteria Preflight](2026-05-09-beta-readiness-criteria-preflight.md)、[Go/No-Go #001](2026-05-09-beta-readiness-go-no-go-review-001.md)、[Go/No-Go #002](2026-05-10-beta-readiness-go-no-go-review-002.md)
+> **关联：** [Beta Criteria Preflight](2026-05-09-beta-readiness-criteria-preflight.md)、[Go/No-Go #001](2026-05-09-beta-readiness-go-no-go-review-001.md)、[Go/No-Go #002](2026-05-10-beta-readiness-go-no-go-review-002.md)、[Go/No-Go #003](2026-05-10-beta-readiness-go-no-go-review-003.md)
 
 ---
 
@@ -13,8 +13,8 @@
 |------|------|
 | **Alpha Production Trial** | **ACTIVE / PASSING** |
 | **Beta** | **NOT YET** |
-| **Blocker** | **None** |
-| **Main gap** | Evidence accumulation, calendar duration, external independent execution |
+| **Blocker** | **Run #003 baseline verification failed (`cargo fmt --check`)** |
+| **Main gap** | Evidence accumulation, calendar duration, external independent execution PASS, pre-existing format drift |
 
 ---
 
@@ -57,22 +57,44 @@
 
 ---
 
+### Run #003（2026-05-10）— external AI independent run, not counted
+
+| Item | Value |
+|------|-------|
+| Commit | `ad795a6` |
+| Executor | external AI independent run (Codex) |
+| Rust target | CodeLattice self-analysis |
+| Rust bridge result | PASS — 1,702 nodes, 2,635 edges, 0 dangling, 0 duplicate |
+| Rust Tool ingestion | SUCCESS — 5,078 nodes / 7,510 edges / 120 clusters / 157 flows |
+| Cangjie target | cangjie-GitNexus-Index/runtime/cjgui |
+| Cangjie bridge result | PASS — 903 nodes, 3,252 edges, 0 dangling, 0 duplicate |
+| Cangjie Tool ingestion | SUCCESS — 7,219 nodes / 14,314 edges / 75 clusters / 300 flows |
+| Stdout purity | PASS（首字节 `{`，python3 json.tool 通过，无 sed） |
+| Deterministic | PASS（排除 `generatedAt` 后 Rust/Cangjie 二次输出严格相等） |
+| Cleanup | PASS — header artifacts restored, temp JSON deleted, registry restored to `codelattice` |
+| Final verification | **FAIL** — `cargo fmt --check` failed on pre-existing tracked test formatting drift |
+| Failure classification | baseline verification failure; header artifact recovered |
+| Counted for Beta | **No** |
+| Document | [Run #003](2026-05-10-periodic-alpha-trial-run-003.md) |
+
+---
+
 ## Beta Criteria Progress
 
 参照 [Beta Criteria Preflight](2026-05-09-beta-readiness-criteria-preflight.md) §2.1 的 8 项必须条件：
 
 | # | 条件 | 要求 | 当前进度 | 状态 |
 |---|------|------|---------|------|
-| 1 | 多轮 periodic trial 全部 PASS | ≥ 5 次 | **2/5**（Run #001, #002） | ⏳ 2/5 |
-| 2 | Stdout purity 无回归 | 连续 ≥ 3 周无污染 | 2 次通过（2026-05-09/10），时间跨度不足 | ⏳ PASSing but insufficient duration |
-| 3 | Dangling/duplicate/determinism 无回归 | 连续 ≥ 3 周 0 问题 | 2 次通过，0 问题 | ⏳ PASSing but insufficient duration |
-| 4 | Tool ingestion 稳定 | 无 adapter validation failure | 2 次成功 | ⏳ PASSing but insufficient duration |
+| 1 | 多轮 periodic trial 全部 PASS | ≥ 5 次 | **2/5**（Run #001, #002；Run #003 FAIL 不计入） | ⏳ 2/5 |
+| 2 | Stdout purity 无回归 | 连续 ≥ 3 周无污染 | Run #001/#002 PASS；Run #003 purity PASS 但整体不计入 | ⏳ PASSing but insufficient duration |
+| 3 | Dangling/duplicate/determinism 无回归 | 连续 ≥ 3 周 0 问题 | Run #001/#002 PASS；Run #003 endpoint/deterministic PASS 但整体不计入 | ⏳ PASSing but insufficient duration |
+| 4 | Tool ingestion 稳定 | 无 adapter validation failure | Run #001/#002 PASS；Run #003 ingestion PASS 但整体不计入 | ⏳ PASSing but insufficient duration |
 | 5 | Failure playbook 完整 | 7 类分类 + 第一响应 | 已固化 | ✅ PASS |
 | 6 | Legacy naming cleanup Phase 1 | 已完成 | 已完成 | ✅ PASS |
-| 7 | Trial log 实际记录 | ≥ 3 条 | **2/3**（Run #001, #002） | ⏳ 2/3 |
-| 8 | 外部 AI 独立执行 | ≥ 1 次 | **0/1** | ❌ Not started |
+| 7 | Trial log 实际记录 | ≥ 3 条 | **2/3 beta-countable PASS logs**；Run #003 failure log 已记录 | ⏳ 2/3 |
+| 8 | 外部 AI 独立执行 | ≥ 1 次 | **0/1 PASS**；Run #003 attempted but failed baseline | ❌ Attempted, not PASS |
 
-**汇总：** 2 PASS + 3 PASSing-but-duration-insufficient + 1 not-started + 0 FAIL
+**汇总：** 2 PASS + 3 PASSing-but-duration-insufficient + 1 attempted-not-counted + 1 blocker + 0 runtime FAIL
 
 ---
 
@@ -85,16 +107,16 @@
 | Alpha smoke 可靠性已修复 | ✅ exit code + temp file 方案，8/8 PASS |
 | Rename identity 稳定 | ✅ CodeLattice / codelattice 全链路确认 |
 | Deterministic output（排除 generatedAt） | ✅ Run #001 vs #002 graph stats 完全一致 |
+| External AI runbook executability | ⚠️ Run #003 bridge steps executable, but mandatory `cargo fmt --check` blocked PASS |
 
 ---
 
 ## Next Evidence Needed
 
-1. **External AI Independent Run #003** — 最高优先级 gap（条件 #8 当前为 0）
-   - 任务包：[External AI Run #003 Task Package](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md)
-   - 预留记录：[Run #003 Placeholder](2026-05-10-periodic-alpha-trial-run-003-placeholder.md)
-2. **Run #004 / #005** — 建议间隔 ≥ 1 周后执行，积累时间跨度
-3. **每次 run 后更新本 board**
+1. **Resolve or explicitly triage pre-existing `cargo fmt --check` drift** — Run #003 不能计入 Beta 的直接原因。
+2. **External AI independent PASS run** — Run #003 已尝试但未 PASS；条件 #8 仍需 1 次 PASS。
+3. **Run #004 / #005** — 建议间隔 ≥ 1 周后执行，积累时间跨度。
+4. **每次 run 后更新本 board。**
 
 ---
 

@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（dual-line language quality: Rust method/associated call + Cangjie constructor/interface test hardening）
+最后更新：2026-05-10（External AI Periodic Alpha Trial Run #003 failure log + Beta Go/No-Go #003）
 
 ## 用途
 
@@ -73,13 +73,15 @@
 
 - ✅ **Periodic Alpha Trial Run #002**（2026-05-10）：[`2026-05-10-periodic-alpha-trial-run-002.md`](2026-05-10-periodic-alpha-trial-run-002.md) — 第二次真实项目 periodic trial。Rust self-analysis（1700 nodes, 2634 edges）+ Cangjie cjgui（903 nodes, 3252 edges）。两个 target 全部 PASS，graph stats 与 Run #001 完全一致，零回归。
 
-- 📝 **Beta Readiness Evidence Board**（2026-05-10）：[`2026-05-10-beta-readiness-evidence-board.md`](2026-05-10-beta-readiness-evidence-board.md) — Beta criteria 进度追踪表（living document）。Run #001/#002 数据汇总，8 项 criteria 当前状态（2 PASS + 3 PARTIAL + 1 not-started + 2 N/A），下一步证据需求。
+- 📝 **Beta Readiness Evidence Board**（2026-05-10）：[`2026-05-10-beta-readiness-evidence-board.md`](2026-05-10-beta-readiness-evidence-board.md) — Beta criteria 进度追踪表（living document）。Run #001/#002 PASS；Run #003 external AI attempted but not counted due `cargo fmt --check` baseline failure。Beta 仍 NOT YET。
 
 - 📝 **External AI Run #003 Task Package**（2026-05-10）：[`2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md`](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md) — 自包含外部 AI 独立执行任务包（10 节），含完整命令、workspace 路径、成功标准、禁止操作、trial log 模板。不依赖 chat context，直接交付执行。
 
-- 📝 **Periodic Alpha Trial Run #003 Placeholder**（2026-05-10）：[`2026-05-10-periodic-alpha-trial-run-003-placeholder.md`](2026-05-10-periodic-alpha-trial-run-003-placeholder.md) — Run #003 空白模板，所有字段 TBD，显式标记 NOT RUN。不作为已完成 trial 计数。
+- ❌ **Periodic Alpha Trial Run #003**（2026-05-10）：[`2026-05-10-periodic-alpha-trial-run-003.md`](2026-05-10-periodic-alpha-trial-run-003.md) — 外部 AI 独立执行。Rust/Cangjie bridge trial 均 PASS（stdout purity、0 dangling、0 duplicate、deterministic、Tool ingestion、cleanup），但 baseline `cargo fmt --check` 失败，因此整体 FAIL / 不计入 Beta。
 
 - 📝 **Beta Go/No-Go Review #002**（2026-05-10）：[`2026-05-10-beta-readiness-go-no-go-review-002.md`](2026-05-10-beta-readiness-go-no-go-review-002.md) — 第二次 Beta 草评。8 项 criteria：2 PASS + 3 PARTIAL + 3 NOT YET ENOUGH DATA。结论：Alpha 继续健康，Beta Not yet，需外部 AI 执行 + ≥ 3 周日历跨度。无 blocker。
+
+- 📝 **Beta Go/No-Go Review #003**（2026-05-10）：[`2026-05-10-beta-readiness-go-no-go-review-003.md`](2026-05-10-beta-readiness-go-no-go-review-003.md) — 第三次 Beta 草评。Run #003 为 external AI attempted-not-PASS；新增 blocker 为 pre-existing `cargo fmt --check` drift。结论：Beta NO-GO，Alpha 继续 ACTIVE。
 
 - ✅ **Rust CALLS Confidence/Reason Quality Hardening**（2026-05-10）：[`preflight`](2026-05-10-rust-calls-confidence-reason-quality-preflight.md) / [`closure`](2026-05-10-rust-calls-confidence-reason-quality-closure.md) — 固化 19 种 Rust call form 的 confidence/reason 矩阵。24 个 fixture 全部有 expected-calls.json 自动验证。新增 [`rust-calls-confidence-matrix.md`](../architecture/rust-calls-confidence-matrix.md) 策略参考文档。无代码修复，无 behavior change。
 
@@ -104,26 +106,29 @@
 
 ## 当前推荐下一篇计划
 
-**✅ Alpha Production Trial Ready — periodic trial Run #001 & #002 PASS. External AI Run #003 task package prepared.**
+**⚠️ Alpha Production Trial ACTIVE — Run #001/#002 PASS; Run #003 external AI attempted but FAIL / not counted. Beta NOT YET.**
 
-技术验证和操作规程均已固化。两轮真实项目 trial 均通过：
+技术验证和操作规程均已固化。两轮真实项目 trial 通过；第三轮外部 AI 独立执行暴露 baseline verification blocker：
 - [Trial Run #001](2026-05-09-periodic-alpha-trial-run-001.md) — Rust + Cangjie 双 target PASS
 - [Trial Run #002](2026-05-10-periodic-alpha-trial-run-002.md) — Rust + Cangjie 双 target PASS，graph stats 与 Run #001 完全一致
+- [Trial Run #003](2026-05-10-periodic-alpha-trial-run-003.md) — External AI independent run attempted；Rust/Cangjie bridge 子项 PASS，但 `cargo fmt --check` baseline FAIL，整体不计入 Beta
 - [Beta Go/No-Go Review #001](2026-05-09-beta-readiness-go-no-go-review-001.md) — Not yet Beta, 证据积累中
 - [Beta Go/No-Go Review #002](2026-05-10-beta-readiness-go-no-go-review-002.md) — Alpha continues healthy, Beta Not yet
+- [Beta Go/No-Go Review #003](2026-05-10-beta-readiness-go-no-go-review-003.md) — NO-GO for Beta due Run #003 baseline failure + insufficient trial count/calendar span
 - [Beta Readiness Evidence Board](2026-05-10-beta-readiness-evidence-board.md) — living evidence tracker
 - [External AI Run #003 Task Package](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md) — self-contained external AI task
 - 操作手册：[Alpha Production Trial Runbook](2026-05-09-alpha-production-trial-runbook.md)
 - 端到端验证脚本：`scripts/alpha-trial-smoke.sh`（已修复可靠性）
 
-**下一阶段 — External AI Trial + Evidence Accumulation：**
+**下一阶段 — Baseline Fix/Triage + Evidence Accumulation：**
 
-1. **External AI Run #003**：任务包已准备（[`task package`](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md)），交付外部 AI 独立执行（Beta criteria #8）
-2. **Beta Readiness Evidence Board**：living document 已建立（[`evidence board`](2026-05-10-beta-readiness-evidence-board.md)），每次 trial 后更新
-3. **积累 Trial Log**：已有 2 条，Run #003（外部 AI）后将有 3 条
-4. **日历跨度**：Run #001（05-09）→ Run #003（待执行），需 ≥ 3 周后做正式 Beta 评估
-5. **Beta Go/No-Go Review #003**：≥ 5 轮 trial + ≥ 3 周后正式评估
-6. **不扩产品面**：不扩 UI/Web/MCP/新语言
+1. **处理 `cargo fmt --check` drift**：Run #003 不能计入 Beta 的直接原因；需单独 fix/triage，不能在 trial 中隐式改 runtime。
+2. **External AI independent PASS run**：Run #003 已尝试但未 PASS；Beta criteria #8 仍需 1 次 PASS。
+3. **Beta Readiness Evidence Board**：living document 已更新（[`evidence board`](2026-05-10-beta-readiness-evidence-board.md)），每次 trial 后继续更新。
+4. **积累 Trial Log**：已有 2 条 beta-countable PASS log；Run #003 为 failure log。
+5. **日历跨度**：Run #001（05-09）→ Run #003（05-10）仍不足，需 ≥ 3 周后做正式 Beta 评估。
+6. **Run #004/#005**：修复阻断后继续间隔执行。
+7. **不扩产品面**：不扩 UI/Web/MCP/新语言。
 
 **验收清单参考：**
 - [Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md) — 逐项确认
