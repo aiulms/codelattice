@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（Rust + Cangjie bounded language-quality improvement — confidence contracts hardened）
+最后更新：2026-05-10（path portability: stale build cache resolved after CodeLattice rename）
 
 ## 用途
 
@@ -84,6 +84,8 @@
 - ✅ **Rust CALLS Confidence/Reason Quality Hardening**（2026-05-10）：[`preflight`](2026-05-10-rust-calls-confidence-reason-quality-preflight.md) / [`closure`](2026-05-10-rust-calls-confidence-reason-quality-closure.md) — 固化 19 种 Rust call form 的 confidence/reason 矩阵。24 个 fixture 全部有 expected-calls.json 自动验证。新增 [`rust-calls-confidence-matrix.md`](../architecture/rust-calls-confidence-matrix.md) 策略参考文档。无代码修复，无 behavior change。
 
 - ✅ **Cangjie Reference Edge Quality Hardening**（2026-05-10）：[`preflight`](2026-05-10-cangjie-reference-edge-quality-preflight.md) / [`closure`](2026-05-10-cangjie-reference-edge-quality-closure.md) — 固化 Cangjie 7 种 same-file edge + 3 种 cross-file import confidence 层级。新增 11 个 confidence/reason/ambiguous 测试（alias_reference +4, cross_file_import_confidence +7）。无 behavior change。
+
+- ✅ **Path Portability After Rename**（2026-05-10）：[`closure`](2026-05-10-path-portability-after-codelattice-rename-closure.md) — `cargo clean` 清除 stale `env!("CARGO_MANIFEST_DIR")` 缓存。13 个因旧路径失败的测试全部恢复 PASS。源代码路径推导逻辑正确（`CARGO_MANIFEST_DIR` + parent），无需代码修改。
 
 **Public Identity / Rename 线（Active，2026-05-09）：**
 - ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。
