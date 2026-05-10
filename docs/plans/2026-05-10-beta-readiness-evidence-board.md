@@ -1,7 +1,7 @@
 # Beta Readiness Evidence Board
 
 > **日期：** 2026-05-10
-> **版本：** 1.1.0
+> **版本：** 1.2.0
 > **类型：** 持续更新的证据看板（每次 trial 后更新）
 > **关联：** [Beta Criteria Preflight](2026-05-09-beta-readiness-criteria-preflight.md)、[Go/No-Go #001](2026-05-09-beta-readiness-go-no-go-review-001.md)、[Go/No-Go #002](2026-05-10-beta-readiness-go-no-go-review-002.md)、[Go/No-Go #003](2026-05-10-beta-readiness-go-no-go-review-003.md)
 
@@ -13,8 +13,8 @@
 |------|------|
 | **Alpha Production Trial** | **ACTIVE / PASSING** |
 | **Beta** | **NOT YET** |
-| **Blocker** | **Run #003 baseline verification failed (`cargo fmt --check`)** |
-| **Main gap** | Evidence accumulation, calendar duration, external independent execution PASS, pre-existing format drift |
+| **Blocker** | **None**（Run #003 format hygiene blocker 已清除） |
+| **Main gap** | Evidence accumulation, calendar duration, external independent execution PASS |
 
 ---
 
@@ -76,6 +76,7 @@
 | Failure classification | baseline verification failure; header artifact recovered |
 | Counted for Beta | **No** |
 | Document | [Run #003](2026-05-10-periodic-alpha-trial-run-003.md) |
+| **Format hygiene fix** | **2026-05-10：`cargo fmt` applied，2 test files reformatted。Run #003 仍 FAIL / not counted。** [Closure](2026-05-10-run003-format-hygiene-cleanup-closure.md) |
 
 ---
 
@@ -94,7 +95,7 @@
 | 7 | Trial log 实际记录 | ≥ 3 条 | **2/3 beta-countable PASS logs**；Run #003 failure log 已记录 | ⏳ 2/3 |
 | 8 | 外部 AI 独立执行 | ≥ 1 次 | **0/1 PASS**；Run #003 attempted but failed baseline | ❌ Attempted, not PASS |
 
-**汇总：** 2 PASS + 3 PASSing-but-duration-insufficient + 1 attempted-not-counted + 1 blocker + 0 runtime FAIL
+**汇总：** 2 PASS + 3 PASSing-but-duration-insufficient + 1 attempted-not-counted + 0 blocker + 0 runtime FAIL
 
 ---
 
@@ -108,13 +109,14 @@
 | Rename identity 稳定 | ✅ CodeLattice / codelattice 全链路确认 |
 | Deterministic output（排除 generatedAt） | ✅ Run #001 vs #002 graph stats 完全一致 |
 | External AI runbook executability | ⚠️ Run #003 bridge steps executable, but mandatory `cargo fmt --check` blocked PASS |
+| Format hygiene blocker | ✅ Resolved — `cargo fmt` applied, `cargo fmt --check` now passes cleanly |
 
 ---
 
 ## Next Evidence Needed
 
-1. **Resolve or explicitly triage pre-existing `cargo fmt --check` drift** — Run #003 不能计入 Beta 的直接原因。
-2. **External AI independent PASS run** — Run #003 已尝试但未 PASS；条件 #8 仍需 1 次 PASS。
+1. **~~Resolve or explicitly triage pre-existing `cargo fmt --check` drift~~** — ✅ DONE。`cargo fmt` applied (2026-05-10)，blocker cleared。
+2. **External AI independent PASS run** — Run #003 FAIL / not counted；条件 #8 仍需 1 次 PASS。应执行 Run #004。
 3. **Run #004 / #005** — 建议间隔 ≥ 1 周后执行，积累时间跨度。
 4. **每次 run 后更新本 board。**
 

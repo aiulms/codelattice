@@ -555,8 +555,7 @@ fn test_constructor_call_targets_class_symbol_not_init() {
         .nodes
         .iter()
         .filter(|n| {
-            n.kind == NodeKind::Symbol
-                && n.properties.get("kind").map_or(false, |v| v == "Class")
+            n.kind == NodeKind::Symbol && n.properties.get("kind").map_or(false, |v| v == "Class")
         })
         .map(|n| n.id.as_str())
         .collect();
@@ -566,8 +565,7 @@ fn test_constructor_call_targets_class_symbol_not_init() {
         .nodes
         .iter()
         .filter(|n| {
-            n.kind == NodeKind::Symbol
-                && n.properties.get("kind").map_or(false, |v| v == "Init")
+            n.kind == NodeKind::Symbol && n.properties.get("kind").map_or(false, |v| v == "Init")
         })
         .map(|n| n.id.as_str())
         .collect();
@@ -585,9 +583,10 @@ fn test_constructor_call_targets_class_symbol_not_init() {
         if init_ids.contains(edge.target_id.as_str()) {
             // Uses edge target 是 Init symbol — 这可能是 annotation reference，不是 call
             // 检查 source 是否是 CallableSource（如果是，可能是错误的 call→init 映射）
-            let source_is_callable = graph.nodes.iter().any(|n| {
-                n.id == edge.source_id && n.kind == NodeKind::CallableSource
-            });
+            let source_is_callable = graph
+                .nodes
+                .iter()
+                .any(|n| n.id == edge.source_id && n.kind == NodeKind::CallableSource);
             assert!(
                 !source_is_callable,
                 "Uses edge from callable source '{}' should target Class symbol, not Init '{}'",
