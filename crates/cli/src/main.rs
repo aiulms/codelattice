@@ -12,6 +12,7 @@
 mod bridge_format;
 mod cangjie_bridge;
 mod language_detect;
+mod mcp_server;
 mod rust_bridge;
 mod unified_types;
 
@@ -87,6 +88,8 @@ enum Commands {
         #[arg(long, default_value = "json")]
         format: String,
     },
+    /// Start MCP stdio server (JSON-RPC over stdin/stdout)
+    Mcp,
 }
 
 #[derive(Subcommand)]
@@ -1133,6 +1136,14 @@ fn main() {
                 std::process::exit(1);
             });
             println!("{json}");
+        }
+
+        // ===== MCP stdio server =====
+        Commands::Mcp => {
+            if let Err(e) = mcp_server::run_mcp_server() {
+                eprintln!("MCP server error: {e}");
+                std::process::exit(1);
+            }
         }
     }
 }
