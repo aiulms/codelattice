@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（MCP v0.1 Practical AI Layer: 8 tools, 18 tests, dogfood harness, output shaping）
+最后更新：2026-05-10（MCP v0.2 Local Client Integration: sidecar wrapper, client config examples, local smoke, experience report）
 
 ## 用途
 
@@ -102,6 +102,10 @@
 - ✅ **MCP v0 Thin stdio Wrapper**（2026-05-10）：[`preflight`](2026-05-10-mcp-v0-thin-wrapper-preflight.md) / [`contract`](../architecture/mcp-v0-contract.md) / [`closure`](2026-05-10-mcp-v0-thin-wrapper-closure.md) — 新增 MCP stdio server（`gitnexus-rust-core-cli mcp`），4 个工具（analyze/quality/summary/smoke），subprocess-based thin wrapper，无新增依赖，10 个集成测试全部通过。Read-only，path deny list，timeout 保护。
 
 - ✅ **MCP v0.1 Practical AI Layer**（2026-05-10）：[`preflight`](2026-05-10-mcp-v0-1-practical-ai-layer-preflight.md) / [`dogfood`](2026-05-10-mcp-v0-1-dogfood-report.md) / [`closure`](2026-05-10-mcp-v0-1-practical-ai-layer-closure.md) — 新增 4 个 AI 查询工具（graph_overview / unresolved_report / symbol_search / export_bridge），output shaping（compact analyze / failed gates first / smoke hints），统一错误结构（code/message/details/hint），dogfood harness（8/8 pass），18 个集成测试全部通过。无新增依赖。
+
+- ✅ **MCP v0.2 Local Graph Intelligence**（2026-05-10）：[`closure`](2026-05-10-mcp-v0-2-local-graph-intelligence-closure.md) — 新增 8 个本地图谱智能工具（symbol_context / calls_from / calls_to / impact_preview / query_graph / project_overview / repo_registry / rename_preview），共享 GraphView 层，BFS 遍历，27 个集成测试，17/17 dogfood pass。无新增依赖。
+
+- ✅ **MCP Local Client Integration**（2026-05-10）：[`smoke report`](2026-05-10-mcp-local-client-integration-smoke-report.md) — Sidecar startup wrapper（`scripts/codelattice-mcp.sh`）、Client 配置示例（Codex/Claude/opencode，[`setup doc`](../architecture/mcp-local-client-setup.md)）、Local client smoke 7/7 pass、工具体验评估、v0.3 优先级建议。不切默认，不替代 GitNexus MCP。
 
 **Public Identity / Rename 线（Active，2026-05-09）：**
 - ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。

@@ -638,6 +638,8 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 - **Integration**: `crates/cli/src/main.rs` — `Mcp` subcommand
 - **Tests**: `crates/cli/tests/mcp_server.rs`
 - **Start command**: `gitnexus-rust-core-cli mcp`
+- **Sidecar wrapper**: `scripts/codelattice-mcp.sh` — AI client 启动入口（详见 `docs/architecture/mcp-local-client-setup.md`）
+- **Client config**: `docs/architecture/mcp-local-client-setup.md`
 
 ---
 
