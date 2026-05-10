@@ -2,8 +2,7 @@
 # MCP Local Client Integration Smoke — simulates an MCP client using the wrapper.
 #
 # Tests that the wrapper script can start the server, accept JSON-RPC calls,
-# and return valid responses for v0.2 tools using CodeLattice's own source
-# as the analysis target.
+# and return valid responses for v0.3 tools (18 tools including cache).
 #
 # Usage: bash scripts/mcp-local-client-smoke.sh
 #
@@ -117,14 +116,14 @@ fi
 echo "2. tools/list"
 TL_RESP=$(echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | bash "$WRAPPER" 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 16 ]; then
+if [ "$TOOL_COUNT" -ge 18 ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools >= 16)")
+    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools >= 18)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 16, got $TOOL_COUNT)")
-    echo "   → expected >= 16 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 18, got $TOOL_COUNT)")
+    echo "   → expected >= 18 tools, got $TOOL_COUNT"
 fi
 
 # ============================================================
@@ -176,6 +175,19 @@ check_response "rename_preview (helper→assist)" "$RESP" \
 # ============================================================
 echo "8. codelattice_project_overview (self-analysis) [optional, skipped — ~90s via cargo run]"
 RESULTS+=("SKIP: project_overview (self) — too slow for smoke, fixture test covers this")
+
+# ============================================================
+# 9-10. v0.3 Cache tools
+# ============================================================
+echo "9. codelattice_cache_status"
+RESP=$(call_tool "codelattice_cache_status" "{}")
+check_response "cache_status (empty)" "$RESP" \
+    "data.get('entryCount') is not None and data.get('totalHits') == 0"
+
+echo "10. codelattice_cache_clear"
+RESP=$(call_tool "codelattice_cache_clear" "{}")
+check_response "cache_clear" "$RESP" \
+    "data.get('clearedCount') is not None"
 
 # ============================================================
 # Summary

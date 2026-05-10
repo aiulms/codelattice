@@ -1,9 +1,9 @@
-//! Integration tests for MCP v0.1 stdio server.
+//! Integration tests for MCP v0.3 stdio server.
 //!
 //! Tests start the binary with `mcp` subcommand, communicate via stdin/stdout
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
-//! Covers v0 (4 tools) + v0.1 (4 tools) = 8 tools total.
+//! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools) = 18 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -140,7 +140,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_sixteen_tools() {
+fn mcp_tools_list_returns_eighteen_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -157,7 +157,7 @@ fn mcp_tools_list_returns_sixteen_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 16, "expected 16 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 18, "expected 18 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -226,6 +226,15 @@ fn mcp_tools_list_returns_sixteen_tools() {
     assert!(
         names.contains(&"codelattice_rename_preview"),
         "missing codelattice_rename_preview"
+    );
+    // v0.3 cache tools
+    assert!(
+        names.contains(&"codelattice_cache_status"),
+        "missing codelattice_cache_status"
+    );
+    assert!(
+        names.contains(&"codelattice_cache_clear"),
+        "missing codelattice_cache_clear"
     );
 
     // Verify each tool has inputSchema
@@ -1279,4 +1288,494 @@ fn mcp_impact_preview_nonexistent_symbol() {
     let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(content_text).expect("should be valid JSON");
     assert_eq!(data["risk"], "UNKNOWN");
+}
+
+// ─── v0.3 Cache Tests ───────────────────────────────────────────────────
+
+#[test]
+fn mcp_cache_status_empty() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 301,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 301);
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(content_text).expect("should be valid JSON");
+    assert_eq!(data["entryCount"], 0);
+    assert_eq!(data["totalHits"], 0);
+    assert_eq!(data["totalMisses"], 0);
+}
+
+#[test]
+fn mcp_cache_status_after_analyze() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First: run analyze to populate cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 302,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Then: check cache status
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 303,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 303);
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(content_text).expect("should be valid JSON");
+    assert_eq!(data["entryCount"], 1);
+    assert_eq!(data["totalMisses"], 1);
+}
+
+#[test]
+fn mcp_cache_hit_on_second_analyze() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First call — cache miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 304,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp1 = session.recv();
+    let text1 = resp1["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data1: serde_json::Value = serde_json::from_str(text1).expect("valid JSON");
+    assert_eq!(data1["cacheHit"], false, "first call should be cache miss");
+    assert!(
+        data1["analysisDurationMs"].as_u64().unwrap_or(0) > 0,
+        "miss should report analysisDurationMs"
+    );
+
+    // Second call — cache hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 305,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp2 = session.recv();
+    let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
+    assert_eq!(data2["cacheHit"], true, "second call should be cache hit");
+}
+
+#[test]
+fn mcp_cache_hit_cross_tool() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First: calls_from (populates cache with strict=false)
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 306,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_calls_from",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "symbol": "main",
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Second: symbol_context (should get cache hit — same root+language+strict=false)
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 307,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "name": "main",
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["cacheHit"], true, "cross-tool call should be cache hit");
+}
+
+#[test]
+fn mcp_cache_clear_empties_cache() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // Populate cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 308,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Clear cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 309,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_clear",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["clearedCount"].as_u64().unwrap_or(0), 1);
+
+    // Verify cache is empty
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 310,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp2 = session.recv();
+    let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
+    assert_eq!(data2["entryCount"], 0, "cache should be empty after clear");
+}
+
+#[test]
+fn mcp_cache_hit_on_calls_from() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First call — miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 311,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_calls_from",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "symbol": "main",
+                "language": "rust"
+            }
+        }
+    }));
+    let resp1 = session.recv();
+    let text1 = resp1["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data1: serde_json::Value = serde_json::from_str(text1).expect("valid JSON");
+    assert_eq!(data1["cacheHit"], false, "first calls_from should be miss");
+
+    // Second call — hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 312,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_calls_from",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "symbol": "main",
+                "language": "rust"
+            }
+        }
+    }));
+    let resp2 = session.recv();
+    let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
+    assert_eq!(data2["cacheHit"], true, "second calls_from should be hit");
+}
+
+#[test]
+fn mcp_cache_hit_on_project_overview() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First call — miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 313,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp1 = session.recv();
+    let text1 = resp1["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data1: serde_json::Value = serde_json::from_str(text1).expect("valid JSON");
+    assert_eq!(data1["cacheHit"], false);
+
+    // Second call — hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 314,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp2 = session.recv();
+    let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
+    assert_eq!(data2["cacheHit"], true);
+}
+
+#[test]
+fn mcp_cache_miss_after_clear_then_re_analyze() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // Populate cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 315,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Clear
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 316,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_clear",
+            "arguments": {}
+        }
+    }));
+    let _ = session.recv();
+
+    // Re-analyze — should be miss again
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 317,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["cacheHit"], false, "should be miss after cache clear");
+    assert!(
+        data["analysisDurationMs"].as_u64().unwrap_or(0) > 0,
+        "re-analyze should report duration"
+    );
+}
+
+#[test]
+fn mcp_cache_status_shows_hit_count() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First analyze — miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 318,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Second analyze — hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 319,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Third analyze — hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 320,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Check status
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 321,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["entryCount"], 1);
+    assert_eq!(data["totalHits"], 2, "should have 2 hits after 3 analyze calls");
+    assert_eq!(data["totalMisses"], 1, "should have 1 miss");
+}
+
+#[test]
+fn mcp_cache_different_roots_are_separate() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root1 = portable_smoke_dir();
+    let root2 = workspace_root()
+        .join("fixtures")
+        .join("rust")
+        .join("portable-smoke");
+
+    // Analyze root1
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 322,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root1.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Analyze root2 — different root, should be miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 323,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root2.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["cacheHit"], false, "different root should be miss");
+
+    // Check status — should have 2 entries
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 324,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp2 = session.recv();
+    let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
+    assert!(data2["entryCount"].as_u64().unwrap_or(0) >= 2, "should have at least 2 cache entries");
 }

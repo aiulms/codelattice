@@ -1,17 +1,20 @@
-//! MCP v0.2 Local Graph Intelligence for CodeLattice CLI
+//! MCP v0.3 Local Graph Intelligence for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 16 tools:
+//! Provides 18 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
 //!   v0.2: codelattice_symbol_context, codelattice_calls_from, codelattice_calls_to,
 //!         codelattice_impact_preview, codelattice_query_graph, codelattice_project_overview,
 //!         codelattice_repo_registry, codelattice_rename_preview
+//!   v0.3: codelattice_cache_status, codelattice_cache_clear
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
 //!           and the smoke script for smoke.
+//! Cache: process-local analysis cache — first call runs analyze, subsequent
+//!        calls with same root/language reuse cached result.
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         All tools are read-only.
 
@@ -128,6 +131,173 @@ fn tool_result(data: &Value) -> Value {
     json!({
         "content": [{ "type": "text", "text": serde_json::to_string(data).unwrap_or_default() }]
     })
+}
+
+/// Like tool_result but injects cache hit/miss signal.
+#[allow(dead_code)]
+fn tool_result_cached(data: &Value, cache_hit: bool, duration_ms: u64) -> Value {
+    let mut enriched = data.clone();
+    inject_cache_meta(&mut enriched, cache_hit, duration_ms);
+    tool_result(&enriched)
+}
+
+/// Helper: inject cache hit/miss signal into a tool result Value.
+fn inject_cache_meta(data: &mut Value, cache_hit: bool, duration_ms: u64) {
+    if let Some(obj) = data.as_object_mut() {
+        obj.insert("cacheHit".to_string(), json!(cache_hit));
+        if !cache_hit {
+            obj.insert("analysisDurationMs".to_string(), json!(duration_ms));
+        }
+    }
+}
+
+// ============================================================
+// Process-Local Analysis Cache (v0.3)
+// ============================================================
+
+
+/// Merge cache_meta into a json output and wrap in tool_result.
+fn merge_cache_and_result(data: &Value, cache_meta: &Value) -> Value {
+    let mut enriched = data.clone();
+    if let (Some(obj), Some(meta)) = (enriched.as_object_mut(), cache_meta.as_object()) {
+        for (k, v) in meta {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+    tool_result(&enriched)
+}
+
+/// Cache key: uniquely identifies an analysis result.
+#[derive(Hash, Eq, PartialEq, Clone)]
+struct CacheKey {
+    root: String,   // canonical path
+    language: String,
+    strict: bool,
+}
+
+/// A cached analysis result with its pre-built GraphView.
+struct CacheEntry {
+    analyze_result: Value,
+    graph_view: GraphView,
+    created_at: Instant,
+    last_used_at: Instant,
+    hit_count: u64,
+    analysis_duration_ms: u64,
+}
+
+/// Process-local cache for MCP server. Not persisted, not shared across processes.
+struct McpCache {
+    entries: HashMap<CacheKey, CacheEntry>,
+    total_hits: u64,
+    total_misses: u64,
+    server_start: Instant,
+}
+
+impl McpCache {
+    fn new() -> Self {
+        McpCache {
+            entries: HashMap::new(),
+            total_hits: 0,
+            total_misses: 0,
+            server_start: Instant::now(),
+        }
+    }
+
+    /// Get cached analysis or run fresh analyze subprocess.
+    /// Returns (graph_view_clone, analyze_result_clone, cache_meta_json).
+    fn get_or_analyze(
+        &mut self,
+        root: &Path,
+        language: &str,
+        strict: bool,
+    ) -> Result<(GraphView, Value, Value), Value> {
+        let canonical = root
+            .canonicalize()
+            .map_err(|_| mcp_error("path_not_found", &format!("Cannot canonicalize: {}", root.display())))?;
+        let key = CacheKey {
+            root: canonical.to_string_lossy().to_string(),
+            language: language.to_string(),
+            strict,
+        };
+
+        if let Some(entry) = self.entries.get_mut(&key) {
+            entry.hit_count += 1;
+            entry.last_used_at = Instant::now();
+            self.total_hits += 1;
+            let meta = json!({ "cacheHit": true });
+            return Ok((
+                entry.graph_view.clone_shallow(),
+                entry.analyze_result.clone(),
+                meta,
+            ));
+        }
+
+        // Cache miss — run analyze
+        let start = Instant::now();
+        let result = run_analyze_subprocess(root, language, "json", strict)?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+        let graph_view = GraphView::build(&result);
+
+        self.entries.insert(
+            key,
+            CacheEntry {
+                analyze_result: result.clone(),
+                graph_view: graph_view.clone_shallow(),
+                created_at: Instant::now(),
+                last_used_at: Instant::now(),
+                hit_count: 0,
+                analysis_duration_ms: duration_ms,
+            },
+        );
+        self.total_misses += 1;
+
+        let meta = json!({ "cacheHit": false, "analysisDurationMs": duration_ms });
+        Ok((graph_view, result, meta))
+    }
+
+    /// Get cache status, optionally filtered by root/language.
+    fn status(&self, filter_root: Option<&str>, filter_lang: Option<&str>) -> Value {
+        let mut entries = Vec::new();
+        for (key, entry) in &self.entries {
+            if let Some(r) = filter_root {
+                if !key.root.contains(r) { continue; }
+            }
+            if let Some(l) = filter_lang {
+                if key.language != l { continue; }
+            }
+            entries.push(json!({
+                "root": key.root,
+                "language": key.language,
+                "strict": key.strict,
+                "createdAtMs": self.server_start.elapsed().as_millis() as u64,
+                "lastUsedAtMs": self.server_start.elapsed().as_millis() as u64,
+                "hitCount": entry.hit_count,
+                "analysisDurationMs": entry.analysis_duration_ms,
+            }));
+        }
+        json!({
+            "entryCount": entries.len(),
+            "entries": entries,
+            "totalHits": self.total_hits,
+            "totalMisses": self.total_misses,
+        })
+    }
+
+    /// Clear cache entries, optionally filtered by root/language.
+    fn clear(&mut self, filter_root: Option<&str>, filter_lang: Option<&str>) -> (usize, usize) {
+        let before = self.entries.len();
+        self.entries.retain(|key, _| {
+            if let Some(r) = filter_root {
+                if !key.root.contains(r) { return true; }
+            }
+            if let Some(l) = filter_lang {
+                if key.language != l { return true; }
+            }
+            false
+        });
+        let cleared = before - self.entries.len();
+        (cleared, self.entries.len())
+    }
 }
 
 // ============================================================
@@ -343,7 +513,7 @@ fn run_analyze_subprocess(
 // Tool Handlers
 // ============================================================
 
-fn handle_analyze(params: &Value) -> Result<Value, Value> {
+fn handle_analyze(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -355,22 +525,27 @@ fn handle_analyze(params: &Value) -> Result<Value, Value> {
     let strict = params["strict"].as_bool().unwrap_or(true);
     let include_graph = params["includeGraph"].as_bool().unwrap_or(false);
 
-    let result = run_analyze_subprocess(&validated, language, "json", strict)?;
+    let (_gv, result, cache_meta) = cache.get_or_analyze(&validated, language, strict)?;
 
-    // Compact output: strip graph unless includeGraph=true
-    if !include_graph {
-        if let Some(obj) = result.as_object() {
-            let mut filtered = obj.clone();
-            // Remove the full graph, keep summary/stats
-            filtered.remove("graph");
-            return Ok(tool_result(&Value::Object(filtered)));
+    let mut output = result;
+    // Merge cache_meta into output
+    if let (Some(obj), Some(meta)) = (output.as_object_mut(), cache_meta.as_object()) {
+        for (k, v) in meta {
+            obj.insert(k.clone(), v.clone());
         }
     }
 
-    Ok(tool_result(&result))
+    // Compact output: strip graph unless includeGraph=true
+    if !include_graph {
+        if let Some(obj) = output.as_object_mut() {
+            obj.remove("graph");
+        }
+    }
+
+    Ok(tool_result(&output))
 }
 
-fn handle_quality(params: &Value) -> Result<Value, Value> {
+fn handle_quality(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -410,7 +585,7 @@ fn handle_quality(params: &Value) -> Result<Value, Value> {
     Ok(tool_result(&result))
 }
 
-fn handle_summary(params: &Value) -> Result<Value, Value> {
+fn handle_summary(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -434,7 +609,7 @@ fn handle_summary(params: &Value) -> Result<Value, Value> {
     Ok(tool_result(&result))
 }
 
-fn handle_smoke(params: &Value) -> Result<Value, Value> {
+fn handle_smoke(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("full");
 
     let script = {
@@ -541,7 +716,7 @@ fn handle_smoke(params: &Value) -> Result<Value, Value> {
 // v0.1 Tool Handlers
 // ============================================================
 
-fn handle_graph_overview(params: &Value) -> Result<Value, Value> {
+fn handle_graph_overview(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -641,7 +816,7 @@ fn handle_graph_overview(params: &Value) -> Result<Value, Value> {
     })))
 }
 
-fn handle_unresolved_report(params: &Value) -> Result<Value, Value> {
+fn handle_unresolved_report(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -741,7 +916,7 @@ fn handle_unresolved_report(params: &Value) -> Result<Value, Value> {
     })))
 }
 
-fn handle_symbol_search(params: &Value) -> Result<Value, Value> {
+fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -820,7 +995,7 @@ fn handle_symbol_search(params: &Value) -> Result<Value, Value> {
     })))
 }
 
-fn handle_export_bridge(params: &Value) -> Result<Value, Value> {
+fn handle_export_bridge(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -979,6 +1154,20 @@ impl GraphView {
         }
     }
 
+    /// Cheap clone — clones the HashMap/Vec containers but shares the underlying
+    /// Value allocations (serde_json Values are reference-counted internally).
+    fn clone_shallow(&self) -> Self {
+        GraphView {
+            nodes_by_id: self.nodes_by_id.clone(),
+            symbols_by_name: self.symbols_by_name.clone(),
+            outgoing: self.outgoing.clone(),
+            incoming: self.incoming.clone(),
+            diagnostics: self.diagnostics.clone(),
+            language: self.language.clone(),
+            root: self.root.clone(),
+        }
+    }
+
     /// Find symbols by name (case-insensitive substring match).
     /// Returns matching nodes, optionally filtered by kind.
     fn find_symbols(&self, query: &str, kind: Option<&str>, limit: usize) -> Vec<Value> {
@@ -1111,7 +1300,7 @@ fn build_graph_view(root: &Path, language: &str) -> Result<GraphView, Value> {
 // v0.2 Tool Handlers
 // ============================================================
 
-fn handle_symbol_context(params: &Value) -> Result<Value, Value> {
+fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1125,17 +1314,17 @@ fn handle_symbol_context(params: &Value) -> Result<Value, Value> {
     let limit = params["limit"].as_u64().unwrap_or(10).min(50) as usize;
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let matches = gv.find_symbols(name, kind_filter, limit);
 
     if matches.is_empty() {
-        return Ok(tool_result(&json!({
+        return Ok(merge_cache_and_result(&json!({
             "query": name,
             "matchCount": 0,
             "selected": null,
             "note": "No symbols found matching the query"
-        })));
+        }), &cache_meta));
     }
 
     let mut match_summaries = Vec::new();
@@ -1200,17 +1389,17 @@ fn handle_symbol_context(params: &Value) -> Result<Value, Value> {
         match_summaries.first().cloned().unwrap_or(Value::Null)
     };
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "query": name,
         "matchCount": matches.len(),
         "ambiguous": ambiguous,
         "selected": selected,
         "candidates": match_summaries,
         "note": if ambiguous { "Multiple symbols match. Use kind/file parameters to disambiguate." } else { "" }
-    })))
+    }), &cache_meta))
 }
 
-fn handle_calls_from(params: &Value) -> Result<Value, Value> {
+fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1224,18 +1413,18 @@ fn handle_calls_from(params: &Value) -> Result<Value, Value> {
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     // Find source symbols
     let sources = gv.find_symbols(symbol, None, 5);
     if sources.is_empty() {
-        return Ok(tool_result(&json!({
+        return Ok(merge_cache_and_result(&json!({
             "symbol": symbol,
             "sourceCandidates": [],
             "edges": [],
             "truncated": false,
             "note": "No symbols found matching the query"
-        })));
+        }), &cache_meta));
     }
 
     let source_candidates: Vec<Value> = sources
@@ -1291,16 +1480,16 @@ fn handle_calls_from(params: &Value) -> Result<Value, Value> {
 
     let truncated = all_edges.len() >= limit;
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "symbol": symbol,
         "sourceCandidates": source_candidates,
         "edgeCount": all_edges.len(),
         "edges": all_edges,
         "truncated": truncated
-    })))
+    }), &cache_meta))
 }
 
-fn handle_calls_to(params: &Value) -> Result<Value, Value> {
+fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1314,17 +1503,17 @@ fn handle_calls_to(params: &Value) -> Result<Value, Value> {
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let targets = gv.find_symbols(symbol, None, 5);
     if targets.is_empty() {
-        return Ok(tool_result(&json!({
+        return Ok(merge_cache_and_result(&json!({
             "symbol": symbol,
             "targetCandidates": [],
             "edges": [],
             "truncated": false,
             "note": "No symbols found matching the query"
-        })));
+        }), &cache_meta));
     }
 
     let target_candidates: Vec<Value> = targets
@@ -1380,16 +1569,16 @@ fn handle_calls_to(params: &Value) -> Result<Value, Value> {
 
     let truncated = all_edges.len() >= limit;
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "symbol": symbol,
         "targetCandidates": target_candidates,
         "edgeCount": all_edges.len(),
         "edges": all_edges,
         "truncated": truncated
-    })))
+    }), &cache_meta))
 }
 
-fn handle_impact_preview(params: &Value) -> Result<Value, Value> {
+fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1404,21 +1593,21 @@ fn handle_impact_preview(params: &Value) -> Result<Value, Value> {
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let targets = gv.find_symbols(symbol, None, 5);
     if targets.is_empty() {
-        return Ok(tool_result(&json!({
+        return Ok(merge_cache_and_result(&json!({
             "symbol": symbol,
             "risk": "UNKNOWN",
             "reasons": ["Symbol not found in graph"],
             "impactedNodes": [],
             "impactedEdges": []
-        })));
+        }), &cache_meta));
     }
 
     if targets.len() > 1 {
-        return Ok(tool_result(&json!({
+        return Ok(merge_cache_and_result(&json!({
             "symbol": symbol,
             "risk": "UNKNOWN",
             "reasons": [format!("Ambiguous: {} candidates found. Use kind/file to disambiguate.", targets.len())],
@@ -1429,7 +1618,7 @@ fn handle_impact_preview(params: &Value) -> Result<Value, Value> {
             })).collect::<Vec<_>>(),
             "impactedNodes": [],
             "impactedEdges": []
-        })));
+        }), &cache_meta));
     }
 
     let target = &targets[0];
@@ -1568,7 +1757,7 @@ fn handle_impact_preview(params: &Value) -> Result<Value, Value> {
         .map(|(f, c)| json!({ "file": f, "impactedNodeCount": c }))
         .collect();
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "symbol": symbol,
         "targetId": target_id,
         "direction": direction,
@@ -1580,10 +1769,10 @@ fn handle_impact_preview(params: &Value) -> Result<Value, Value> {
         "topImpactedFiles": top_files,
         "previewOnly": true,
         "noWrites": true
-    })))
+    }), &cache_meta))
 }
 
-fn handle_query_graph(params: &Value) -> Result<Value, Value> {
+fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1593,7 +1782,7 @@ fn handle_query_graph(params: &Value) -> Result<Value, Value> {
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let node_kind = params["nodeKind"].as_str();
     let edge_kind = params["edgeKind"].as_str();
@@ -1679,16 +1868,16 @@ fn handle_query_graph(params: &Value) -> Result<Value, Value> {
 
     let truncated = matched_nodes.len() >= limit || matched_edges.len() >= limit;
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "matchedNodeCount": matched_nodes.len(),
         "matchedEdgeCount": matched_edges.len(),
         "matchedNodes": matched_nodes,
         "matchedEdges": matched_edges,
         "truncated": truncated
-    })))
+    }), &cache_meta))
 }
 
-fn handle_project_overview(params: &Value) -> Result<Value, Value> {
+fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1697,7 +1886,7 @@ fn handle_project_overview(params: &Value) -> Result<Value, Value> {
     let language = params["language"].as_str().unwrap_or("auto");
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let (node_count, edge_count, symbol_count) = gv.stats();
 
     // Top node kinds
@@ -1818,7 +2007,7 @@ fn handle_project_overview(params: &Value) -> Result<Value, Value> {
         .map(|(k, v)| (k, json!(v)))
         .collect();
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "language": gv.language,
         "root": gv.root,
         "nodeCount": node_count,
@@ -1835,10 +2024,10 @@ fn handle_project_overview(params: &Value) -> Result<Value, Value> {
         },
         "hotspots": hotspots,
         "denseFiles": dense_files
-    })))
+    }), &cache_meta))
 }
 
-fn handle_repo_registry(params: &Value) -> Result<Value, Value> {
+fn handle_repo_registry(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let action = params["action"].as_str().unwrap_or("status");
 
     let root = params["root"].as_str();
@@ -1854,9 +2043,9 @@ fn handle_repo_registry(params: &Value) -> Result<Value, Value> {
             if let Some(r) = root {
                 let validated = validate_root_path(r)?;
                 let language = params["language"].as_str().unwrap_or("auto");
-                let gv = build_graph_view(&validated, language)?;
+                let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
                 let (nc, ec, sc) = gv.stats();
-                Ok(tool_result(&json!({
+                Ok(merge_cache_and_result(&json!({
                     "action": "status",
                     "root": validated.to_string_lossy(),
                     "language": gv.language,
@@ -1864,7 +2053,7 @@ fn handle_repo_registry(params: &Value) -> Result<Value, Value> {
                     "edgeCount": ec,
                     "symbolCount": sc,
                     "indexed": true
-                })))
+                }), &cache_meta))
             } else {
                 Ok(tool_result(&json!({
                     "action": "status",
@@ -1882,7 +2071,7 @@ fn handle_repo_registry(params: &Value) -> Result<Value, Value> {
     }
 }
 
-fn handle_rename_preview(params: &Value) -> Result<Value, Value> {
+fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -1897,17 +2086,17 @@ fn handle_rename_preview(params: &Value) -> Result<Value, Value> {
     let language = params["language"].as_str().unwrap_or("auto");
     check_cangjie_feature(language)?;
 
-    let gv = build_graph_view(&validated, language)?;
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let matches = gv.find_symbols(symbol, params["kind"].as_str(), 5);
     if matches.is_empty() {
-        return Ok(tool_result(&json!({
+        return Ok(merge_cache_and_result(&json!({
             "symbol": symbol,
             "newName": new_name,
             "candidates": [],
             "applySupported": false,
             "note": "No symbols found matching the query"
-        })));
+        }), &cache_meta));
     }
 
     let ambiguous = matches.len() > 1;
@@ -1960,7 +2149,7 @@ fn handle_rename_preview(params: &Value) -> Result<Value, Value> {
         warnings.push("High incoming call count — rename would touch many files.".to_string());
     }
 
-    Ok(tool_result(&json!({
+    Ok(merge_cache_and_result(&json!({
         "symbol": symbol,
         "newName": new_name,
         "ambiguous": ambiguous,
@@ -1968,6 +2157,27 @@ fn handle_rename_preview(params: &Value) -> Result<Value, Value> {
         "applySupported": false,
         "warnings": warnings,
         "note": "This is a read-only preview. CodeLattice does not perform AST-safe renames. Use IDE or language server for actual rename operations."
+     }), &cache_meta))
+}
+
+// ============================================================
+// v0.3 Cache Management Tools
+// ============================================================
+
+fn handle_cache_status(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let filter_root = params["root"].as_str();
+    let filter_lang = params["language"].as_str();
+    let status = cache.status(filter_root, filter_lang);
+    Ok(tool_result(&status))
+}
+
+fn handle_cache_clear(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let filter_root = params["root"].as_str();
+    let filter_lang = params["language"].as_str();
+    let (cleared, remaining) = cache.clear(filter_root, filter_lang);
+    Ok(tool_result(&json!({
+        "clearedCount": cleared,
+        "remainingCount": remaining,
     })))
 }
 
@@ -2193,9 +2403,31 @@ fn tools_list() -> Value {
                         "newName": { "type": "string", "description": "Proposed new name" },
                         "kind": { "type": "string", "description": "Symbol kind to disambiguate" }
                     },
-                    "required": ["root", "symbol", "newName"]
+                     "required": ["root", "symbol", "newName"]
+                 }
+            },
+            {
+                "name": "codelattice_cache_status",
+                "description": "Query the process-local analysis cache status. Shows cached entries, hit/miss counts. Does not trigger analysis.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Filter by root path (substring match)" },
+                        "language": { "type": "string", "description": "Filter by language" }
+                    }
                 }
-            }
+            },
+            {
+                "name": "codelattice_cache_clear",
+                "description": "Clear the process-local analysis cache. Does not delete disk files or affect Tool registry. Only clears cache in the current MCP server process.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Filter by root path (substring match). Omit to clear all." },
+                        "language": { "type": "string", "description": "Filter by language. Omit to clear all." }
+                    }
+                }
+             }
         ]
     })
 }
@@ -2223,7 +2455,7 @@ fn make_error_response(id: &Value, code: i64, message: &str) -> Value {
     })
 }
 
-fn handle_request(request: &Value) -> Option<Value> {
+fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
     let method = request["method"].as_str().unwrap_or("");
     let id = request.get("id").cloned().unwrap_or(Value::Null);
     let params = request.get("params").cloned().unwrap_or(json!({}));
@@ -2248,7 +2480,7 @@ fn handle_request(request: &Value) -> Option<Value> {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "codelattice", "version": "0.1.0" }
+                "serverInfo": { "name": "codelattice", "version": "0.3.0" }
             }),
         )),
 
@@ -2260,22 +2492,24 @@ fn handle_request(request: &Value) -> Option<Value> {
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
 
             let result = match tool_name {
-                "codelattice_analyze" => handle_analyze(&arguments),
-                "codelattice_quality" => handle_quality(&arguments),
-                "codelattice_summary" => handle_summary(&arguments),
-                "codelattice_smoke" => handle_smoke(&arguments),
-                "codelattice_graph_overview" => handle_graph_overview(&arguments),
-                "codelattice_unresolved_report" => handle_unresolved_report(&arguments),
-                "codelattice_symbol_search" => handle_symbol_search(&arguments),
-                "codelattice_export_bridge" => handle_export_bridge(&arguments),
-                "codelattice_symbol_context" => handle_symbol_context(&arguments),
-                "codelattice_calls_from" => handle_calls_from(&arguments),
-                "codelattice_calls_to" => handle_calls_to(&arguments),
-                "codelattice_impact_preview" => handle_impact_preview(&arguments),
-                "codelattice_query_graph" => handle_query_graph(&arguments),
-                "codelattice_project_overview" => handle_project_overview(&arguments),
-                "codelattice_repo_registry" => handle_repo_registry(&arguments),
-                "codelattice_rename_preview" => handle_rename_preview(&arguments),
+                "codelattice_analyze" => handle_analyze(cache, &arguments),
+                "codelattice_quality" => handle_quality(cache, &arguments),
+                "codelattice_summary" => handle_summary(cache, &arguments),
+                "codelattice_smoke" => handle_smoke(cache, &arguments),
+                "codelattice_graph_overview" => handle_graph_overview(cache, &arguments),
+                "codelattice_unresolved_report" => handle_unresolved_report(cache, &arguments),
+                "codelattice_symbol_search" => handle_symbol_search(cache, &arguments),
+                "codelattice_export_bridge" => handle_export_bridge(cache, &arguments),
+                "codelattice_symbol_context" => handle_symbol_context(cache, &arguments),
+                "codelattice_calls_from" => handle_calls_from(cache, &arguments),
+                "codelattice_calls_to" => handle_calls_to(cache, &arguments),
+                "codelattice_impact_preview" => handle_impact_preview(cache, &arguments),
+                "codelattice_query_graph" => handle_query_graph(cache, &arguments),
+                "codelattice_project_overview" => handle_project_overview(cache, &arguments),
+                "codelattice_repo_registry" => handle_repo_registry(cache, &arguments),
+                "codelattice_rename_preview" => handle_rename_preview(cache, &arguments),
+                "codelattice_cache_status" => handle_cache_status(cache, &arguments),
+                "codelattice_cache_clear" => handle_cache_clear(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -2312,8 +2546,9 @@ fn handle_request(request: &Value) -> Option<Value> {
 // ============================================================
 
 pub fn run_mcp_server() -> Result<(), String> {
-    eprintln!("[mcp] CodeLattice MCP v0 server starting on stdin/stdout");
+    eprintln!("[mcp] CodeLattice MCP v0.3 server starting on stdin/stdout");
 
+    let mut cache = McpCache::new();
     let stdin = std::io::stdin();
     let mut stdout = std::io::stdout();
     let mut line = String::new();
@@ -2358,7 +2593,7 @@ pub fn run_mcp_server() -> Result<(), String> {
 
         eprintln!("[mcp] -> {}", request["method"].as_str().unwrap_or("?"));
 
-        if let Some(response) = handle_request(&request) {
+        if let Some(response) = handle_request(&request, &mut cache) {
             let response_str = serde_json::to_string(&response).unwrap_or_default();
             let _ = writeln!(stdout, "{}", response_str);
             let _ = stdout.flush();

@@ -1,9 +1,9 @@
 # MCP Contract — CodeLattice AI Layer
 
-> **日期：** 2026-05-10
-> **版本：** v0.2.0
-> **状态：** Active (MCP v0.2)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能能力
+> **日期：** 2026-05-11
+> **版本：** v0.3.0
+> **状态：** Active (MCP v0.3)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存能力
 
 ---
 
@@ -568,6 +568,60 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 }
 ```
 
+### 3.17 `codelattice_cache_status` *(v0.3)*
+
+查询进程内分析缓存的当前状态。可选按 root/language 过滤。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "可选：按根路径过滤" },
+    "language": { "type": "string", "description": "可选：按语言过滤" }
+  }
+}
+```
+
+**Output (success):**
+```json
+{
+  "entryCount": 2,
+  "entries": [
+    { "root": "/path/to/project", "language": "rust", "strict": false, "hitCount": 3, "analysisDurationMs": 58 }
+  ],
+  "totalHits": 5,
+  "totalMisses": 2
+}
+```
+
+### 3.18 `codelattice_cache_clear` *(v0.3)*
+
+清空进程内分析缓存。可选按 root/language 过滤（不清除匹配外的条目）。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "可选：只清除指定根路径的缓存" },
+    "language": { "type": "string", "description": "可选：只清除指定语言的缓存" }
+  }
+}
+```
+
+**Output (success):**
+```json
+{
+  "clearedCount": 1,
+  "remainingCount": 0
+}
+```
+
+---
+
+> **v0.3 Cache Signal**: All v0.2+ tools (3.9–3.16) now include `cacheHit` (boolean) and `analysisDurationMs` (u64, only on miss) in their output JSON. First call for a given root+language+strict is always a cache miss; subsequent calls return `cacheHit: true` without re-running the analyze subprocess. The `codelattice_analyze` (3.1) tool also includes these signals.
+
 ---
 
 ## 四、错误格式
@@ -643,10 +697,10 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ---
 
-## 八、Known Limitations (v0.2)
+## 八、Known Limitations (v0.3)
 
 - No streaming / partial results
-- No graph persistence between calls (each tool call runs fresh analyze subprocess)
+- No graph persistence between MCP server restarts (cache is process-local only)
 - No multi-project awareness (single root per call)
 - Cangjie requires `--features tree-sitter-cangjie` compile flag
 - Smoke test paths are workspace-relative (not portable across machines)
@@ -658,6 +712,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 - `impact_preview` risk heuristic is simple (node/edge count thresholds), not context-aware
 - `repo_registry` does not maintain persistent state — defers to GitNexus-RC Tool for full registry
 - BFS traversal for calls_from/calls_to/impact_preview limited to max depth 3
+- Cache key does NOT include `strict` for v0.2 tools (always false), but analyze defaults strict=true — cross-tool cache reuse only between tools with same strict value
 
 ---
 
@@ -668,3 +723,4 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 | 2026-05-10 | v0.1.0 | 初始版本 — 4 tools, stdio JSON-RPC, subprocess approach |
 | 2026-05-10 | v0.1.0+1 | v0.1 — 4 new tools (graph_overview, unresolved_report, symbol_search, export_bridge), output shaping, unified error structure, dogfood harness |
 | 2026-05-10 | v0.2.0 | v0.2 — 8 new tools (symbol_context, calls_from, calls_to, impact_preview, query_graph, project_overview, repo_registry, rename_preview), shared GraphView layer, BFS traversal, read-only graph intelligence |
+| 2026-05-11 | v0.3.0 | v0.3 — 2 new tools (cache_status, cache_clear), process-local analysis cache, cacheHit/analysisDurationMs signals in all tool outputs, 18 tools total |

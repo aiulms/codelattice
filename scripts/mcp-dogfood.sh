@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MCP v0.2 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 16 tools and reports pass/fail per tool.
+# MCP v0.3 Dogfood — real stdio JSON-RPC against the MCP server.
+# Exercises all 18 tools and reports pass/fail per tool.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -15,7 +15,7 @@ echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/gitnexus-rust-core-cli"
 
-echo "--- MCP v0.2 Dogfood ---"
+echo "--- MCP v0.3 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
 echo ""
@@ -114,14 +114,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" = "16" ]; then
+if [ "$TOOL_COUNT" = "18" ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list (16 tools)")
-    echo "   → 16 tools listed"
+    RESULTS+=("PASS: tools/list (18 tools)")
+    echo "   → 18 tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected 16, got $TOOL_COUNT)")
-    echo "   → expected 16 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected 18, got $TOOL_COUNT)")
+    echo "   → expected 18 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -164,7 +164,7 @@ check_tool "codelattice_export_bridge" \
     "data.get('schemaVersion') is not None and data.get('symbols', 0) > 0"
 
 # ============================================================
-# v0.2: Local Graph Intelligence (tools 10-16)
+# v0.2: Local Graph Intelligence (tools 10-17)
 # ============================================================
 
 echo "10. codelattice_symbol_context"
@@ -208,11 +208,55 @@ check_tool "codelattice_rename_preview" \
     "data.get('symbol') == 'helper' and data.get('applySupported') == False"
 
 # ============================================================
+# v0.3: Process-Local Cache (tools 18-19, plus cache hit verification)
+# ============================================================
+
+echo "18. codelattice_cache_status (empty)"
+check_tool "codelattice_cache_status" \
+    "{}" \
+    "data.get('entryCount') == 0 and data.get('totalHits') == 0"
+
+echo "19. codelattice_cache_clear"
+check_tool "codelattice_cache_clear" \
+    "{}" \
+    "data.get('clearedCount') == 0"
+
+# ============================================================
+# v0.3: Cache hit verification (multi-request session)
+# ============================================================
+echo "20. cache hit verification (analyze x2 in one session)"
+CACHE_SESSION_REQ=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_analyze","arguments":{"root":"%s","language":"rust"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codelattice_analyze","arguments":{"root":"%s","language":"rust"}}}\n' "$FIXTURE_ABS" "$FIXTURE_ABS")
+CACHE_SESSION_RESP=$(echo "$CACHE_SESSION_REQ" | "$BIN" mcp 2>/dev/null)
+CACHE_HIT_RESULT=$(echo "$CACHE_SESSION_RESP" | python3 -c "
+import json, sys
+lines = sys.stdin.read().strip().split('\n')
+if len(lines) >= 2:
+    d1 = json.loads(lines[0])
+    d2 = json.loads(lines[1])
+    t1 = json.loads(d1['result']['content'][0]['text'])
+    t2 = json.loads(d2['result']['content'][0]['text'])
+    miss = t1.get('cacheHit') == False
+    hit = t2.get('cacheHit') == True
+    print('PASS' if (miss and hit) else 'FAIL')
+else:
+    print('FAIL')
+" 2>/dev/null || echo "FAIL")
+if [ "$CACHE_HIT_RESULT" = "PASS" ]; then
+    PASS=$((PASS + 1))
+    RESULTS+=("PASS: cache hit verification (miss→hit)")
+    echo "   → first call: miss, second call: hit ✓"
+else
+    FAIL=$((FAIL + 1))
+    RESULTS+=("FAIL: cache hit verification")
+    echo "   → cache hit not detected"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.2 Dogfood Results"
+echo " MCP v0.3 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"
@@ -223,7 +267,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.2 dogfood successful."
+    echo "All checks passed — MCP v0.3 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."
