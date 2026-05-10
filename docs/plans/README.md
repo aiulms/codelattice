@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（External AI Periodic Alpha Trial Run #004 PASS + Beta Go/No-Go #004）
+最后更新：2026-05-10（Local Default Replacement Preflight added; no default switch enabled）
 
 ## 用途
 
@@ -97,6 +97,8 @@
 
 - 📝 **Beta Go/No-Go Review #004**（2026-05-10）：[`2026-05-10-beta-readiness-go-no-go-review-004.md`](2026-05-10-beta-readiness-go-no-go-review-004.md) — 第四次 Beta 草评。External AI criterion 升级为 PASS；技术 blocker none；Beta 仍 NOT YET，剩余 trial count + calendar span。
 
+- 📝 **Local Default Replacement Preflight**（2026-05-10）：[`2026-05-10-local-default-replacement-preflight.md`](2026-05-10-local-default-replacement-preflight.md) — 本机默认替换调查，仅文档，不启用。结论：推荐下一步在用户批准后实现 language-aware switch script；Rust/Cangjie analyze generation 可优先 CodeLattice，GitNexus-RC 必须继续作为 Tool/MCP/WebUI/query/refactor/fallback。
+
 **Public Identity / Rename 线（Active，2026-05-09）：**
 - ✅ **CodeLattice Local Path + Index Refresh**：本地目录从 `/Users/jiangxuanyang/Desktop/gitnexus-rust-core` 改为 `/Users/jiangxuanyang/Desktop/codelattice`；GitCode remote 改为 `https://gitcode.com/aiulms/codelattice.git`；Tool index 已刷新为 repo `codelattice`（4104 symbols / 7170 relationships / 157 flows）。旧名 `gitnexus-rust-core` 仅作为历史事实、兼容 binary/package/flag 名保留。
 
@@ -112,7 +114,7 @@
 
 ## 当前推荐下一篇计划
 
-**✅ Alpha Production Trial ACTIVE — Run #001/#002/#004 PASS; Run #003 attempted but FAIL / not counted. External AI independent run PASS. Beta NOT YET.**
+**✅ Alpha Production Trial ACTIVE — Run #001/#002/#004 PASS; Run #003 attempted but FAIL / not counted. External AI independent run PASS. Beta NOT YET. Local default replacement remains preflight-only and is NOT enabled.**
 
 技术验证和操作规程均已固化。Run #004 外部 AI 独立 retry 已通过并计入 Beta：
 - [Trial Run #001](2026-05-09-periodic-alpha-trial-run-001.md) — Rust + Cangjie 双 target PASS
@@ -125,6 +127,7 @@
 - [Beta Go/No-Go Review #004](2026-05-10-beta-readiness-go-no-go-review-004.md) — NO-GO for Beta, but external AI criterion PASS
 - [Beta Readiness Evidence Board](2026-05-10-beta-readiness-evidence-board.md) — living evidence tracker
 - [External AI Run #003 Task Package](2026-05-10-external-ai-periodic-alpha-trial-run-003-task-package.md) — self-contained external AI task
+- [Local Default Replacement Preflight](2026-05-10-local-default-replacement-preflight.md) — investigation-only; no default switch enabled; switch script implementation requires explicit user approval
 - 操作手册：[Alpha Production Trial Runbook](2026-05-09-alpha-production-trial-runbook.md)
 - 端到端验证脚本：`scripts/alpha-trial-smoke.sh`（已修复可靠性）
 
@@ -134,6 +137,7 @@
 2. **日历跨度**：Run #001（05-09）→ Run #004（05-10）仍不足，需 ≥ 3 周后做正式 Beta 评估。
 3. **Beta Readiness Evidence Board**：living document 已更新（[`evidence board`](2026-05-10-beta-readiness-evidence-board.md)），每次 trial 后继续更新。
 4. **不扩产品面**：不扩 UI/Web/MCP/新语言。
+5. **Local default replacement**：仅 preflight，不启用；下一步必须先获得用户批准，再实现 `scripts/local-default-switch.sh`。
 
 **验收清单参考：**
 - [Production Trial Acceptance Checklist](2026-05-09-production-trial-acceptance-checklist.md) — 逐项确认
