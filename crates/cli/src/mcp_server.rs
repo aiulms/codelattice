@@ -1,17 +1,22 @@
-//! MCP v0.1 Practical AI Layer for CodeLattice CLI
+//! MCP v0.2 Local Graph Intelligence for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 8 tools:
+//! Provides 16 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
+//!   v0.2: codelattice_symbol_context, codelattice_calls_from, codelattice_calls_to,
+//!         codelattice_impact_preview, codelattice_query_graph, codelattice_project_overview,
+//!         codelattice_repo_registry, codelattice_rename_preview
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
 //!           and the smoke script for smoke.
 //! Safety: path deny list, output path restrictions (/tmp only for export).
+//!         All tools are read-only.
 
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -884,6 +889,1089 @@ fn handle_export_bridge(params: &Value) -> Result<Value, Value> {
 }
 
 // ============================================================
+// v0.2 Shared Graph Query Layer
+// ============================================================
+
+/// In-memory graph view built from a single analyze output.
+/// Provides efficient lookup without repeated parsing.
+struct GraphView {
+    /// All nodes indexed by id
+    nodes_by_id: HashMap<String, Value>,
+    /// Symbol nodes indexed by lowercase name
+    symbols_by_name: HashMap<String, Vec<Value>>,
+    /// Outgoing edges grouped by source node id
+    outgoing: HashMap<String, Vec<Value>>,
+    /// Incoming edges grouped by target node id
+    incoming: HashMap<String, Vec<Value>>,
+    /// Diagnostics
+    diagnostics: Vec<Value>,
+    /// Raw analyze result metadata
+    language: String,
+    root: String,
+}
+
+impl GraphView {
+    fn build(analyze_result: &Value) -> Self {
+        let graph = analyze_result.get("graph").unwrap_or(&Value::Null);
+        let nodes = graph
+            .get("nodes")
+            .and_then(|n| n.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let edges = graph
+            .get("edges")
+            .and_then(|e| e.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let diags = graph
+            .get("diagnostics")
+            .and_then(|d| d.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        let mut nodes_by_id = HashMap::new();
+        let mut symbols_by_name: HashMap<String, Vec<Value>> = HashMap::new();
+        let mut outgoing: HashMap<String, Vec<Value>> = HashMap::new();
+        let mut incoming: HashMap<String, Vec<Value>> = HashMap::new();
+
+        for node in &nodes {
+            if let Some(id) = node["id"].as_str() {
+                nodes_by_id.insert(id.to_string(), node.clone());
+
+                // Index symbols by name
+                if node["label"].as_str() == Some("symbol") {
+                    if let Some(name) = node["properties"]["name"].as_str() {
+                        symbols_by_name
+                            .entry(name.to_lowercase())
+                            .or_default()
+                            .push(node.clone());
+                    }
+                }
+            }
+        }
+
+        for edge in &edges {
+            if let Some(src) = edge["source"].as_str() {
+                outgoing
+                    .entry(src.to_string())
+                    .or_default()
+                    .push(edge.clone());
+            }
+            if let Some(tgt) = edge["target"].as_str() {
+                incoming
+                    .entry(tgt.to_string())
+                    .or_default()
+                    .push(edge.clone());
+            }
+        }
+
+        GraphView {
+            nodes_by_id,
+            symbols_by_name,
+            outgoing,
+            incoming,
+            diagnostics: diags,
+            language: analyze_result["language"]
+                .as_str()
+                .unwrap_or("unknown")
+                .to_string(),
+            root: analyze_result["root"].as_str().unwrap_or("").to_string(),
+        }
+    }
+
+    /// Find symbols by name (case-insensitive substring match).
+    /// Returns matching nodes, optionally filtered by kind.
+    fn find_symbols(&self, query: &str, kind: Option<&str>, limit: usize) -> Vec<Value> {
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+
+        // Exact name match first
+        if let Some(exact) = self.symbols_by_name.get(&query_lower) {
+            for sym in exact {
+                if results.len() >= limit {
+                    break;
+                }
+                if let Some(k) = kind {
+                    let sym_kind = sym["properties"]["symbolKind"].as_str().unwrap_or("");
+                    if sym_kind.to_lowercase() != k.to_lowercase() {
+                        continue;
+                    }
+                }
+                results.push(sym.clone());
+            }
+        }
+
+        // Substring match
+        if results.len() < limit {
+            for (name_lower, syms) in &self.symbols_by_name {
+                if name_lower.contains(&query_lower)
+                    && !self.symbols_by_name.contains_key(&query_lower)
+                {
+                    // Skip exact matches (already handled)
+                }
+                if name_lower.contains(&query_lower) {
+                    for sym in syms {
+                        if results.len() >= limit {
+                            break;
+                        }
+                        if let Some(k) = kind {
+                            let sym_kind = sym["properties"]["symbolKind"].as_str().unwrap_or("");
+                            if sym_kind.to_lowercase() != k.to_lowercase() {
+                                continue;
+                            }
+                        }
+                        // Avoid duplicates
+                        let id = sym["id"].as_str().unwrap_or("");
+                        if !results.iter().any(|r| r["id"].as_str() == Some(id)) {
+                            results.push(sym.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        results
+    }
+
+    /// Get edges from a node, optionally filtered by edge type
+    fn edges_from(&self, node_id: &str, edge_type: Option<&str>) -> Vec<Value> {
+        self.outgoing
+            .get(node_id)
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|e| {
+                        edge_type
+                            .map(|t| e["type"].as_str() == Some(t))
+                            .unwrap_or(true)
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Get edges to a node, optionally filtered by edge type
+    fn edges_to(&self, node_id: &str, edge_type: Option<&str>) -> Vec<Value> {
+        self.incoming
+            .get(node_id)
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|e| {
+                        edge_type
+                            .map(|t| e["type"].as_str() == Some(t))
+                            .unwrap_or(true)
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Count total nodes, edges, symbols
+    fn stats(&self) -> (usize, usize, usize) {
+        let node_count = self.nodes_by_id.len();
+        let edge_count: usize = self.outgoing.values().map(|v| v.len()).sum();
+        let symbol_count = self
+            .nodes_by_id
+            .values()
+            .filter(|n| n["label"].as_str() == Some("symbol"))
+            .count();
+        (node_count, edge_count, symbol_count)
+    }
+
+    /// Get diagnostics for a specific symbol/file
+    fn diagnostics_for(&self, node_id: &str) -> Vec<Value> {
+        self.diagnostics
+            .iter()
+            .filter(|d| {
+                // Check if diagnostic references this node
+                d["properties"]["symbolId"]
+                    .as_str()
+                    .map(|s| s == node_id)
+                    .unwrap_or(false)
+                    || d["id"]
+                        .as_str()
+                        .map(|id| id.contains(node_id.split("::").last().unwrap_or("")))
+                        .unwrap_or(false)
+            })
+            .cloned()
+            .collect()
+    }
+}
+
+/// Build a GraphView by running analyze and parsing the result.
+fn build_graph_view(root: &Path, language: &str) -> Result<GraphView, Value> {
+    let result = run_analyze_subprocess(root, language, "json", false)?;
+    Ok(GraphView::build(&result))
+}
+
+// ============================================================
+// v0.2 Tool Handlers
+// ============================================================
+
+fn handle_symbol_context(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let name = params["name"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: name"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let kind_filter = params["kind"].as_str();
+    let limit = params["limit"].as_u64().unwrap_or(10).min(50) as usize;
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+
+    let matches = gv.find_symbols(name, kind_filter, limit);
+
+    if matches.is_empty() {
+        return Ok(tool_result(&json!({
+            "query": name,
+            "matchCount": 0,
+            "selected": null,
+            "note": "No symbols found matching the query"
+        })));
+    }
+
+    let mut match_summaries = Vec::new();
+    for sym in &matches {
+        let id = sym["id"].as_str().unwrap_or("");
+        let out_edges = gv.edges_from(id, None);
+        let in_edges = gv.edges_to(id, None);
+        let diags = gv.diagnostics_for(id);
+
+        // Group outgoing by type
+        let mut out_by_kind: HashMap<String, u64> = HashMap::new();
+        for e in &out_edges {
+            let t = e["type"].as_str().unwrap_or("unknown");
+            *out_by_kind.entry(t.to_string()).or_insert(0) += 1;
+        }
+        let mut in_by_kind: HashMap<String, u64> = HashMap::new();
+        for e in &in_edges {
+            let t = e["type"].as_str().unwrap_or("unknown");
+            *in_by_kind.entry(t.to_string()).or_insert(0) += 1;
+        }
+
+        // Collect confidence/reason samples from CALLS edges
+        let confidence_samples: Vec<Value> = out_edges
+            .iter()
+            .chain(in_edges.iter())
+            .filter(|e| e["type"].as_str() == Some("CALLS"))
+            .take(3)
+            .map(|e| {
+                json!({
+                    "confidence": e["properties"]["confidence"],
+                    "reason": e["properties"]["reason"]
+                })
+            })
+            .collect();
+
+        let out_map: serde_json::Map<String, Value> = out_by_kind
+            .into_iter()
+            .map(|(k, v)| (k, json!(v)))
+            .collect();
+        let in_map: serde_json::Map<String, Value> =
+            in_by_kind.into_iter().map(|(k, v)| (k, json!(v))).collect();
+
+        match_summaries.push(json!({
+            "id": id,
+            "name": sym["properties"]["name"],
+            "kind": sym["properties"]["symbolKind"],
+            "file": sym["properties"]["sourcePath"],
+            "line": sym["properties"]["lineStart"],
+            "lineEnd": sym["properties"]["lineEnd"],
+            "visibility": sym["properties"]["visibility"],
+            "outgoingEdges": Value::Object(out_map),
+            "incomingEdges": Value::Object(in_map),
+            "relatedDiagnostics": diags.len(),
+            "confidenceSamples": confidence_samples
+        }));
+    }
+
+    let ambiguous = matches.len() > 1;
+    let selected = if ambiguous {
+        Value::Null
+    } else {
+        match_summaries.first().cloned().unwrap_or(Value::Null)
+    };
+
+    Ok(tool_result(&json!({
+        "query": name,
+        "matchCount": matches.len(),
+        "ambiguous": ambiguous,
+        "selected": selected,
+        "candidates": match_summaries,
+        "note": if ambiguous { "Multiple symbols match. Use kind/file parameters to disambiguate." } else { "" }
+    })))
+}
+
+fn handle_calls_from(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let symbol = params["symbol"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: symbol"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
+    let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+
+    // Find source symbols
+    let sources = gv.find_symbols(symbol, None, 5);
+    if sources.is_empty() {
+        return Ok(tool_result(&json!({
+            "symbol": symbol,
+            "sourceCandidates": [],
+            "edges": [],
+            "truncated": false,
+            "note": "No symbols found matching the query"
+        })));
+    }
+
+    let source_candidates: Vec<Value> = sources
+        .iter()
+        .map(|s| {
+            json!({
+                "id": s["id"],
+                "name": s["properties"]["name"],
+                "kind": s["properties"]["symbolKind"],
+                "file": s["properties"]["sourcePath"]
+            })
+        })
+        .collect();
+
+    // BFS traversal from source(s)
+    let mut all_edges = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut queue: Vec<(String, usize)> = sources
+        .iter()
+        .filter_map(|s| s["id"].as_str().map(|id| (id.to_string(), 0)))
+        .collect();
+
+    while let Some((node_id, current_depth)) = queue.pop() {
+        if visited.contains(&node_id) || current_depth >= depth {
+            continue;
+        }
+        visited.insert(node_id.clone());
+
+        let edges = gv.edges_from(&node_id, None);
+        for edge in edges {
+            if all_edges.len() >= limit {
+                break;
+            }
+            let target_id = edge["target"].as_str().unwrap_or("");
+            let target_node = gv.nodes_by_id.get(target_id);
+
+            all_edges.push(json!({
+                "source": edge["source"],
+                "target": target_id,
+                "type": edge["type"],
+                "depth": current_depth + 1,
+                "confidence": edge["properties"]["confidence"],
+                "reason": edge["properties"]["reason"],
+                "targetName": target_node.and_then(|n| n["properties"]["name"].as_str()),
+                "targetKind": target_node.and_then(|n| n["properties"]["symbolKind"].as_str())
+            }));
+
+            if current_depth + 1 < depth && !visited.contains(target_id) {
+                queue.push((target_id.to_string(), current_depth + 1));
+            }
+        }
+    }
+
+    let truncated = all_edges.len() >= limit;
+
+    Ok(tool_result(&json!({
+        "symbol": symbol,
+        "sourceCandidates": source_candidates,
+        "edgeCount": all_edges.len(),
+        "edges": all_edges,
+        "truncated": truncated
+    })))
+}
+
+fn handle_calls_to(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let symbol = params["symbol"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: symbol"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
+    let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+
+    let targets = gv.find_symbols(symbol, None, 5);
+    if targets.is_empty() {
+        return Ok(tool_result(&json!({
+            "symbol": symbol,
+            "targetCandidates": [],
+            "edges": [],
+            "truncated": false,
+            "note": "No symbols found matching the query"
+        })));
+    }
+
+    let target_candidates: Vec<Value> = targets
+        .iter()
+        .map(|s| {
+            json!({
+                "id": s["id"],
+                "name": s["properties"]["name"],
+                "kind": s["properties"]["symbolKind"],
+                "file": s["properties"]["sourcePath"]
+            })
+        })
+        .collect();
+
+    // BFS traversal backwards from target(s)
+    let mut all_edges = Vec::new();
+    let mut visited = std::collections::HashSet::new();
+    let mut queue: Vec<(String, usize)> = targets
+        .iter()
+        .filter_map(|s| s["id"].as_str().map(|id| (id.to_string(), 0)))
+        .collect();
+
+    while let Some((node_id, current_depth)) = queue.pop() {
+        if visited.contains(&node_id) || current_depth >= depth {
+            continue;
+        }
+        visited.insert(node_id.clone());
+
+        let edges = gv.edges_to(&node_id, None);
+        for edge in edges {
+            if all_edges.len() >= limit {
+                break;
+            }
+            let src_id = edge["source"].as_str().unwrap_or("");
+            let src_node = gv.nodes_by_id.get(src_id);
+
+            all_edges.push(json!({
+                "source": src_id,
+                "target": edge["target"],
+                "type": edge["type"],
+                "depth": current_depth + 1,
+                "confidence": edge["properties"]["confidence"],
+                "reason": edge["properties"]["reason"],
+                "sourceName": src_node.and_then(|n| n["properties"]["name"].as_str()),
+                "sourceKind": src_node.and_then(|n| n["properties"]["symbolKind"].as_str())
+            }));
+
+            if current_depth + 1 < depth && !visited.contains(src_id) {
+                queue.push((src_id.to_string(), current_depth + 1));
+            }
+        }
+    }
+
+    let truncated = all_edges.len() >= limit;
+
+    Ok(tool_result(&json!({
+        "symbol": symbol,
+        "targetCandidates": target_candidates,
+        "edgeCount": all_edges.len(),
+        "edges": all_edges,
+        "truncated": truncated
+    })))
+}
+
+fn handle_impact_preview(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let symbol = params["symbol"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: symbol"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let direction = params["direction"].as_str().unwrap_or("both"); // upstream/downstream/both
+    let depth = params["depth"].as_u64().unwrap_or(2).min(3) as usize;
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+
+    let targets = gv.find_symbols(symbol, None, 5);
+    if targets.is_empty() {
+        return Ok(tool_result(&json!({
+            "symbol": symbol,
+            "risk": "UNKNOWN",
+            "reasons": ["Symbol not found in graph"],
+            "impactedNodes": [],
+            "impactedEdges": []
+        })));
+    }
+
+    if targets.len() > 1 {
+        return Ok(tool_result(&json!({
+            "symbol": symbol,
+            "risk": "UNKNOWN",
+            "reasons": [format!("Ambiguous: {} candidates found. Use kind/file to disambiguate.", targets.len())],
+            "candidates": targets.iter().map(|t| json!({
+                "id": t["id"],
+                "name": t["properties"]["name"],
+                "kind": t["properties"]["symbolKind"]
+            })).collect::<Vec<_>>(),
+            "impactedNodes": [],
+            "impactedEdges": []
+        })));
+    }
+
+    let target = &targets[0];
+    let target_id = target["id"].as_str().unwrap_or("");
+
+    // Traverse graph in requested direction(s)
+    let mut impacted_nodes: HashMap<String, Value> = HashMap::new();
+    let mut impacted_edge_types: HashMap<String, u64> = HashMap::new();
+
+    // Add the target itself
+    impacted_nodes.insert(target_id.to_string(), target.clone());
+
+    // Downstream (outgoing)
+    if direction == "downstream" || direction == "both" {
+        let mut queue = vec![(target_id.to_string(), 0usize)];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(target_id.to_string());
+        while let Some((nid, d)) = queue.pop() {
+            if d >= depth {
+                continue;
+            }
+            for edge in gv.edges_from(&nid, None) {
+                if impacted_nodes.len() + impacted_edge_types.values().sum::<u64>() as usize > limit
+                {
+                    break;
+                }
+                let tgt = edge["target"].as_str().unwrap_or("");
+                *impacted_edge_types
+                    .entry(edge["type"].as_str().unwrap_or("unknown").to_string())
+                    .or_insert(0) += 1;
+                if !visited.contains(tgt) {
+                    visited.insert(tgt.to_string());
+                    if let Some(node) = gv.nodes_by_id.get(tgt) {
+                        impacted_nodes.insert(tgt.to_string(), node.clone());
+                        queue.push((tgt.to_string(), d + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    // Upstream (incoming)
+    if direction == "upstream" || direction == "both" {
+        let mut queue = vec![(target_id.to_string(), 0usize)];
+        let mut visited = std::collections::HashSet::new();
+        visited.insert(target_id.to_string());
+        while let Some((nid, d)) = queue.pop() {
+            if d >= depth {
+                continue;
+            }
+            for edge in gv.edges_to(&nid, None) {
+                if impacted_nodes.len() + impacted_edge_types.values().sum::<u64>() as usize > limit
+                {
+                    break;
+                }
+                let src = edge["source"].as_str().unwrap_or("");
+                *impacted_edge_types
+                    .entry(edge["type"].as_str().unwrap_or("unknown").to_string())
+                    .or_insert(0) += 1;
+                if !visited.contains(src) {
+                    visited.insert(src.to_string());
+                    if let Some(node) = gv.nodes_by_id.get(src) {
+                        impacted_nodes.insert(src.to_string(), node.clone());
+                        queue.push((src.to_string(), d + 1));
+                    }
+                }
+            }
+        }
+    }
+
+    // Group impacted nodes by kind
+    let mut nodes_by_kind: HashMap<String, u64> = HashMap::new();
+    for node in impacted_nodes.values() {
+        let kind = if node["label"].as_str() == Some("symbol") {
+            node["properties"]["symbolKind"]
+                .as_str()
+                .unwrap_or("symbol")
+                .to_string()
+        } else {
+            node["label"].as_str().unwrap_or("unknown").to_string()
+        };
+        *nodes_by_kind.entry(kind).or_insert(0) += 1;
+    }
+
+    // Risk heuristic
+    let total_impacted = impacted_nodes.len();
+    let caller_count = impacted_edge_types.get("CALLS").copied().unwrap_or(0);
+
+    let (risk, reasons) = if total_impacted <= 3 && caller_count <= 2 {
+        (
+            "LOW".to_string(),
+            vec!["Small blast radius, few callers".to_string()],
+        )
+    } else if total_impacted <= 15 && caller_count <= 10 {
+        (
+            "MEDIUM".to_string(),
+            vec![format!(
+                "Moderate fanout: {} impacted nodes, {} CALLS edges",
+                total_impacted, caller_count
+            )],
+        )
+    } else {
+        (
+            "HIGH".to_string(),
+            vec![format!(
+                "High fanout: {} impacted nodes, {} CALLS edges — change requires careful review",
+                total_impacted, caller_count
+            )],
+        )
+    };
+
+    let node_kind_map: serde_json::Map<String, Value> = nodes_by_kind
+        .into_iter()
+        .map(|(k, v)| (k, json!(v)))
+        .collect();
+    let edge_kind_map: serde_json::Map<String, Value> = impacted_edge_types
+        .into_iter()
+        .map(|(k, v)| (k, json!(v)))
+        .collect();
+
+    // Top impacted files
+    let mut file_counts: HashMap<String, u64> = HashMap::new();
+    for node in impacted_nodes.values() {
+        if let Some(f) = node["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| node["properties"]["manifestPath"].as_str())
+        {
+            *file_counts.entry(f.to_string()).or_insert(0) += 1;
+        }
+    }
+    let mut top_files: Vec<(String, u64)> = file_counts.into_iter().collect();
+    top_files.sort_by(|a, b| b.1.cmp(&a.1));
+    let top_files: Vec<Value> = top_files
+        .into_iter()
+        .take(10)
+        .map(|(f, c)| json!({ "file": f, "impactedNodeCount": c }))
+        .collect();
+
+    Ok(tool_result(&json!({
+        "symbol": symbol,
+        "targetId": target_id,
+        "direction": direction,
+        "risk": risk,
+        "reasons": reasons,
+        "impactedNodeCount": total_impacted,
+        "impactedNodesByKind": Value::Object(node_kind_map),
+        "impactedEdgesByKind": Value::Object(edge_kind_map),
+        "topImpactedFiles": top_files,
+        "previewOnly": true,
+        "noWrites": true
+    })))
+}
+
+fn handle_query_graph(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+
+    let node_kind = params["nodeKind"].as_str();
+    let edge_kind = params["edgeKind"].as_str();
+    let name_contains = params["nameContains"].as_str();
+    let file_contains = params["fileContains"].as_str();
+
+    // Match nodes
+    let mut matched_nodes = Vec::new();
+    for node in gv.nodes_by_id.values() {
+        if matched_nodes.len() >= limit {
+            break;
+        }
+
+        // Node kind filter
+        if let Some(nk) = node_kind {
+            let actual_kind = if node["label"].as_str() == Some("symbol") {
+                node["properties"]["symbolKind"].as_str().unwrap_or("")
+            } else {
+                node["label"].as_str().unwrap_or("")
+            };
+            if actual_kind.to_lowercase() != nk.to_lowercase() {
+                continue;
+            }
+        }
+
+        // Name contains filter
+        if let Some(nq) = name_contains {
+            let name = node["properties"]["name"]
+                .as_str()
+                .or_else(|| node["id"].as_str())
+                .unwrap_or("");
+            if !name.to_lowercase().contains(&nq.to_lowercase()) {
+                continue;
+            }
+        }
+
+        // File contains filter
+        if let Some(fq) = file_contains {
+            let file = node["properties"]["sourcePath"]
+                .as_str()
+                .or_else(|| node["properties"]["manifestPath"].as_str())
+                .unwrap_or("");
+            if !file.to_lowercase().contains(&fq.to_lowercase()) {
+                continue;
+            }
+        }
+
+        matched_nodes.push(json!({
+            "id": node["id"],
+            "label": node["label"],
+            "name": node["properties"]["name"],
+            "kind": node["properties"]["symbolKind"].as_str().or_else(|| node["label"].as_str()),
+            "file": node["properties"]["sourcePath"].as_str().or_else(|| node["properties"]["manifestPath"].as_str())
+        }));
+    }
+
+    // Match edges
+    let mut matched_edges = Vec::new();
+    if edge_kind.is_some() {
+        for edges in gv.outgoing.values() {
+            if matched_edges.len() >= limit {
+                break;
+            }
+            for edge in edges {
+                if matched_edges.len() >= limit {
+                    break;
+                }
+                if let Some(ek) = edge_kind {
+                    if edge["type"].as_str().unwrap_or("").to_lowercase() != ek.to_lowercase() {
+                        continue;
+                    }
+                }
+                matched_edges.push(json!({
+                    "source": edge["source"],
+                    "target": edge["target"],
+                    "type": edge["type"],
+                    "confidence": edge["properties"]["confidence"],
+                    "reason": edge["properties"]["reason"]
+                }));
+            }
+        }
+    }
+
+    let truncated = matched_nodes.len() >= limit || matched_edges.len() >= limit;
+
+    Ok(tool_result(&json!({
+        "matchedNodeCount": matched_nodes.len(),
+        "matchedEdgeCount": matched_edges.len(),
+        "matchedNodes": matched_nodes,
+        "matchedEdges": matched_edges,
+        "truncated": truncated
+    })))
+}
+
+fn handle_project_overview(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+    let (node_count, edge_count, symbol_count) = gv.stats();
+
+    // Top node kinds
+    let mut node_kinds: HashMap<String, u64> = HashMap::new();
+    for node in gv.nodes_by_id.values() {
+        let kind = if node["label"].as_str() == Some("symbol") {
+            node["properties"]["symbolKind"]
+                .as_str()
+                .unwrap_or("symbol")
+                .to_string()
+        } else {
+            node["label"].as_str().unwrap_or("unknown").to_string()
+        };
+        *node_kinds.entry(kind).or_insert(0) += 1;
+    }
+
+    // Top edge kinds
+    let mut edge_kinds: HashMap<String, u64> = HashMap::new();
+    for edges in gv.outgoing.values() {
+        for edge in edges {
+            let t = edge["type"].as_str().unwrap_or("unknown");
+            *edge_kinds.entry(t.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    // Package count
+    let package_count = gv
+        .nodes_by_id
+        .values()
+        .filter(|n| n["label"].as_str() == Some("package"))
+        .count();
+
+    // File count
+    let file_count = gv
+        .nodes_by_id
+        .values()
+        .filter(|n| n["label"].as_str() == Some("source-file"))
+        .count();
+
+    // Quality summary (from summary command)
+    let summary_result = {
+        let root_str = validated.to_string_lossy().to_string();
+        let args = vec![
+            "summary",
+            "--root",
+            &root_str,
+            "--language",
+            language,
+            "--format",
+            "json",
+        ];
+        run_subcommand_with_timeout(&args, Duration::from_secs(60)).ok()
+    };
+
+    let quality_summary = summary_result
+        .as_ref()
+        .map(|s| s["qualitySummary"].clone())
+        .unwrap_or(json!({}));
+
+    // Diagnostics summary
+    let diag_by_severity: HashMap<String, u64> =
+        gv.diagnostics.iter().fold(HashMap::new(), |mut acc, d| {
+            let sev = d["properties"]["severity"].as_str().unwrap_or("unknown");
+            *acc.entry(sev.to_string()).or_insert(0) += 1;
+            acc
+        });
+
+    // Notable hotspots: high fanout nodes
+    let mut fanout: Vec<(String, usize)> = gv
+        .outgoing
+        .iter()
+        .filter(|(id, _)| id.starts_with("symbol:"))
+        .map(|(id, edges)| (id.clone(), edges.len()))
+        .filter(|(_, c)| *c >= 3)
+        .collect();
+    fanout.sort_by(|a, b| b.1.cmp(&a.1));
+    let hotspots: Vec<Value> = fanout
+        .iter()
+        .take(10)
+        .map(|(id, count)| {
+            let node = gv.nodes_by_id.get(id);
+            json!({
+                "id": id,
+                "name": node.and_then(|n| n["properties"]["name"].as_str()),
+                "kind": node.and_then(|n| n["properties"]["symbolKind"].as_str()),
+                "outgoingEdgeCount": count
+            })
+        })
+        .collect();
+
+    // Files with many symbols
+    let mut file_symbols: HashMap<String, u64> = HashMap::new();
+    for node in gv.nodes_by_id.values() {
+        if node["label"].as_str() == Some("symbol") {
+            if let Some(f) = node["properties"]["sourcePath"].as_str() {
+                *file_symbols.entry(f.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut dense_files_vec: Vec<(&String, &u64)> = file_symbols.iter().collect();
+    dense_files_vec.sort_by(|a, b| b.1.cmp(a.1));
+    let dense_files: Vec<Value> = dense_files_vec
+        .into_iter()
+        .take(10)
+        .map(|(f, c)| json!({ "file": f, "symbolCount": c }))
+        .collect();
+
+    let mut nk_sorted: Vec<(String, u64)> = node_kinds.into_iter().collect();
+    nk_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    let node_kind_map: serde_json::Map<String, Value> =
+        nk_sorted.into_iter().map(|(k, v)| (k, json!(v))).collect();
+    let mut ek_sorted: Vec<(String, u64)> = edge_kinds.into_iter().collect();
+    ek_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+    let edge_kind_map: serde_json::Map<String, Value> =
+        ek_sorted.into_iter().map(|(k, v)| (k, json!(v))).collect();
+    let sev_map: serde_json::Map<String, Value> = diag_by_severity
+        .into_iter()
+        .map(|(k, v)| (k, json!(v)))
+        .collect();
+
+    Ok(tool_result(&json!({
+        "language": gv.language,
+        "root": gv.root,
+        "nodeCount": node_count,
+        "edgeCount": edge_count,
+        "symbolCount": symbol_count,
+        "packageCount": package_count,
+        "sourceFileCount": file_count,
+        "topNodeKinds": Value::Object(node_kind_map),
+        "topEdgeKinds": Value::Object(edge_kind_map),
+        "qualitySummary": quality_summary,
+        "diagnosticsSummary": {
+            "total": gv.diagnostics.len(),
+            "bySeverity": Value::Object(sev_map)
+        },
+        "hotspots": hotspots,
+        "denseFiles": dense_files
+    })))
+}
+
+fn handle_repo_registry(params: &Value) -> Result<Value, Value> {
+    let action = params["action"].as_str().unwrap_or("status");
+
+    let root = params["root"].as_str();
+
+    match action {
+        "list" => Ok(tool_result(&json!({
+            "action": "list",
+            "knownRepos": [],
+            "note": "CodeLattice MCP does not maintain a persistent repo registry. Each tool call analyzes the provided root. Use GitNexus-RC Tool for full repo registry management.",
+            "currentRoot": root
+        }))),
+        "status" => {
+            if let Some(r) = root {
+                let validated = validate_root_path(r)?;
+                let language = params["language"].as_str().unwrap_or("auto");
+                let gv = build_graph_view(&validated, language)?;
+                let (nc, ec, sc) = gv.stats();
+                Ok(tool_result(&json!({
+                    "action": "status",
+                    "root": validated.to_string_lossy(),
+                    "language": gv.language,
+                    "nodeCount": nc,
+                    "edgeCount": ec,
+                    "symbolCount": sc,
+                    "indexed": true
+                })))
+            } else {
+                Ok(tool_result(&json!({
+                    "action": "status",
+                    "root": null,
+                    "indexed": false,
+                    "note": "Provide root parameter to check status"
+                })))
+            }
+        }
+        _ => Err(mcp_error_detail(
+            "invalid_action",
+            &format!("Unknown action: {action}"),
+            "Supported actions: list, status",
+        )),
+    }
+}
+
+fn handle_rename_preview(params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let symbol = params["symbol"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: symbol"))?;
+    let new_name = params["newName"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: newName"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_cangjie_feature(language)?;
+
+    let gv = build_graph_view(&validated, language)?;
+
+    let matches = gv.find_symbols(symbol, params["kind"].as_str(), 5);
+    if matches.is_empty() {
+        return Ok(tool_result(&json!({
+            "symbol": symbol,
+            "newName": new_name,
+            "candidates": [],
+            "applySupported": false,
+            "note": "No symbols found matching the query"
+        })));
+    }
+
+    let ambiguous = matches.len() > 1;
+
+    let candidates: Vec<Value> = matches
+        .iter()
+        .map(|sym| {
+            let id = sym["id"].as_str().unwrap_or("");
+            let out_calls = gv.edges_from(id, Some("CALLS"));
+            let in_calls = gv.edges_to(id, Some("CALLS"));
+            let _defines = gv.edges_to(id, Some("DEFINES"));
+
+            // Files that reference this symbol
+            let mut files = std::collections::HashSet::new();
+            if let Some(f) = sym["properties"]["sourcePath"].as_str() {
+                files.insert(f.to_string());
+            }
+            for e in out_calls.iter().chain(in_calls.iter()) {
+                if let Some(src_file) = gv
+                    .nodes_by_id
+                    .get(e["source"].as_str().unwrap_or(""))
+                    .and_then(|n| n["properties"]["sourcePath"].as_str())
+                {
+                    files.insert(src_file.to_string());
+                }
+            }
+
+            json!({
+                "id": id,
+                "name": sym["properties"]["name"],
+                "kind": sym["properties"]["symbolKind"],
+                "file": sym["properties"]["sourcePath"],
+                "line": sym["properties"]["lineStart"],
+                "outgoingCallCount": out_calls.len(),
+                "incomingCallCount": in_calls.len(),
+                "filesNeedingReview": files,
+                "confidence": if ambiguous { "LOW" } else if in_calls.len() > 20 { "MEDIUM" } else { "HIGH" }
+            })
+        })
+        .collect();
+
+    let mut warnings = Vec::new();
+    if ambiguous {
+        warnings.push("Multiple candidates found. Disambiguate before proceeding.".to_string());
+    }
+    if candidates
+        .iter()
+        .any(|c| c["incomingCallCount"].as_u64().unwrap_or(0) > 10)
+    {
+        warnings.push("High incoming call count — rename would touch many files.".to_string());
+    }
+
+    Ok(tool_result(&json!({
+        "symbol": symbol,
+        "newName": new_name,
+        "ambiguous": ambiguous,
+        "candidates": candidates,
+        "applySupported": false,
+        "warnings": warnings,
+        "note": "This is a read-only preview. CodeLattice does not perform AST-safe renames. Use IDE or language server for actual rename operations."
+    })))
+}
+
+// ============================================================
 // Tools List
 // ============================================================
 
@@ -990,6 +2078,123 @@ fn tools_list() -> Value {
                     },
                     "required": ["root", "language"]
                 }
+            },
+            {
+                "name": "codelattice_symbol_context",
+                "description": "Get rich context for a symbol: definition, outgoing/incoming edges grouped by kind, related diagnostics, confidence samples. Returns ambiguous candidates if multiple symbols match.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "name": { "type": "string", "description": "Symbol name to look up" },
+                        "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, etc)" },
+                        "limit": { "type": "integer", "default": 10, "maximum": 50 }
+                    },
+                    "required": ["root", "name"]
+                }
+            },
+            {
+                "name": "codelattice_calls_from",
+                "description": "Trace outgoing calls from a symbol. Returns call tree up to specified depth with confidence/reason per edge. BFS traversal.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "symbol": { "type": "string", "description": "Source symbol name" },
+                        "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+                        "limit": { "type": "integer", "default": 20, "maximum": 100 }
+                    },
+                    "required": ["root", "symbol"]
+                }
+            },
+            {
+                "name": "codelattice_calls_to",
+                "description": "Trace incoming callers/referrers to a symbol. Returns reverse call tree up to specified depth. Useful for understanding who depends on a symbol.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "symbol": { "type": "string", "description": "Target symbol name" },
+                        "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+                        "limit": { "type": "integer", "default": 20, "maximum": 100 }
+                    },
+                    "required": ["root", "symbol"]
+                }
+            },
+            {
+                "name": "codelattice_impact_preview",
+                "description": "Preview the blast radius of changing a symbol. Returns impacted nodes/edges grouped by kind, approximate risk level (LOW/MEDIUM/HIGH), and top affected files. Read-only, no writes.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "symbol": { "type": "string", "description": "Symbol name to analyze impact for" },
+                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
+                        "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 }
+                    },
+                    "required": ["root", "symbol"]
+                }
+            },
+            {
+                "name": "codelattice_query_graph",
+                "description": "Query the graph by node kind, edge kind, name pattern, or file pattern. Safe parameterized query — no arbitrary query strings accepted.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "nodeKind": { "type": "string", "description": "Filter nodes by kind (function, struct, class, package, etc)" },
+                        "edgeKind": { "type": "string", "description": "Filter edges by type (CALLS, DEFINES, IMPORTS, etc)" },
+                        "nameContains": { "type": "string", "description": "Filter nodes by name (case-insensitive substring)" },
+                        "fileContains": { "type": "string", "description": "Filter nodes by file path (case-insensitive substring)" },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_project_overview",
+                "description": "Get a comprehensive project overview: identity, stats, top kinds, quality, diagnostics, hotspots (high fanout), dense files. Ideal first call when opening a project.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_repo_registry",
+                "description": "List known repos or check current root status. CodeLattice does not maintain a persistent registry — each call analyzes fresh. Use GitNexus-RC Tool for full registry management.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
+                        "root": { "type": "string", "description": "Project root (required for status action)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+                    }
+                }
+            },
+            {
+                "name": "codelattice_rename_preview",
+                "description": "Preview a rename operation: find definition, reference edges, affected files. Read-only — no AST-safe rewrite. Returns applySupported=false. Use IDE/language server for actual renames.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "symbol": { "type": "string", "description": "Current symbol name" },
+                        "newName": { "type": "string", "description": "Proposed new name" },
+                        "kind": { "type": "string", "description": "Symbol kind to disambiguate" }
+                    },
+                    "required": ["root", "symbol", "newName"]
+                }
             }
         ]
     })
@@ -1063,6 +2268,14 @@ fn handle_request(request: &Value) -> Option<Value> {
                 "codelattice_unresolved_report" => handle_unresolved_report(&arguments),
                 "codelattice_symbol_search" => handle_symbol_search(&arguments),
                 "codelattice_export_bridge" => handle_export_bridge(&arguments),
+                "codelattice_symbol_context" => handle_symbol_context(&arguments),
+                "codelattice_calls_from" => handle_calls_from(&arguments),
+                "codelattice_calls_to" => handle_calls_to(&arguments),
+                "codelattice_impact_preview" => handle_impact_preview(&arguments),
+                "codelattice_query_graph" => handle_query_graph(&arguments),
+                "codelattice_project_overview" => handle_project_overview(&arguments),
+                "codelattice_repo_registry" => handle_repo_registry(&arguments),
+                "codelattice_rename_preview" => handle_rename_preview(&arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

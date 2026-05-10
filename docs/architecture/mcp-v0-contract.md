@@ -1,9 +1,9 @@
-# MCP v0.1 Contract — CodeLattice Practical AI Layer
+# MCP Contract — CodeLattice AI Layer
 
 > **日期：** 2026-05-10
-> **版本：** v0.1.0
-> **状态：** Active (MCP v0.1)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出能力
+> **版本：** v0.2.0
+> **状态：** Active (MCP v0.2)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能能力
 
 ---
 
@@ -16,7 +16,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 - **Not GitNexus-RC replacement** — 不替代 GitNexus-RC MCP server
 - **Not default tool switch** — 显式 opt-in
 - **No persistence** — 不做 graph 存储、repo 注册、embeddings
-- **No impact/cypher** — 不做 impact analysis、Cypher 查询
+- **No Cypher parser** — query_graph 仅支持参数化查询，不接受任意查询字符串
+- **No rename apply** — rename_preview 只预览，不写文件
+- **No cross-repo** — 不做跨仓库语义边
 
 ---
 
@@ -295,6 +297,279 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ---
 
+### 3.9 `codelattice_symbol_context` *(v0.2)*
+
+获取符号的丰富上下文：定义位置、出边/入边（按 kind 分组）、相关诊断、confidence 样本。若匹配多个符号则返回候选列表。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "name": { "type": "string", "description": "符号名称" },
+    "kind": { "type": "string", "description": "按符号类型过滤" },
+    "limit": { "type": "integer", "default": 10, "maximum": 50 }
+  },
+  "required": ["root", "name"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "query": "helper",
+  "ambiguous": false,
+  "selected": true,
+  "matchCount": 1,
+  "candidates": [
+    {
+      "id": "symbol:c1-same-module::crate::helper",
+      "name": "helper",
+      "kind": "function",
+      "file": "src/lib.rs",
+      "line": 1,
+      "lineEnd": 3,
+      "visibility": "public",
+      "outgoingEdges": { "CALLS": 0 },
+      "incomingEdges": { "CALLS": 1, "DEFINES": 1 },
+      "relatedDiagnostics": 0,
+      "confidenceSamples": [ { "confidence": 0.9, "reason": "call-same-module-resolved" } ]
+    }
+  ],
+  "note": "Single match selected automatically"
+}
+```
+
+### 3.10 `codelattice_calls_from` *(v0.2)*
+
+追踪符号的出边调用链（BFS）。返回调用树，每条边带 confidence/reason。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "symbol": { "type": "string", "description": "源符号名称" },
+    "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+    "limit": { "type": "integer", "default": 20, "maximum": 100 }
+  },
+  "required": ["root", "symbol"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "symbol": "main_fn",
+  "direction": "outgoing",
+  "depth": 1,
+  "callCount": 1,
+  "calls": [
+    { "target": "helper", "targetId": "symbol:c1-same-module::crate::helper", "edgeKind": "CALLS", "confidence": 0.9, "reason": "call-same-module-resolved" }
+  ]
+}
+```
+
+### 3.11 `codelattice_calls_to` *(v0.2)*
+
+追踪符号的入边调用者（反向 BFS）。了解谁依赖该符号。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "symbol": { "type": "string", "description": "目标符号名称" },
+    "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+    "limit": { "type": "integer", "default": 20, "maximum": 100 }
+  },
+  "required": ["root", "symbol"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "symbol": "helper",
+  "direction": "incoming",
+  "depth": 1,
+  "callerCount": 1,
+  "callers": [
+    { "source": "main_fn", "sourceId": "symbol:c1-same-module::crate::main_fn", "edgeKind": "CALLS", "confidence": 0.9, "reason": "call-same-module-resolved" }
+  ]
+}
+```
+
+### 3.12 `codelattice_impact_preview` *(v0.2)*
+
+预览符号变更的影响范围：受影响的节点/边、风险等级、高影响文件。只读，不写。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "symbol": { "type": "string", "description": "要分析影响范围的符号名称" },
+    "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
+    "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
+    "limit": { "type": "integer", "default": 50, "maximum": 200 }
+  },
+  "required": ["root", "symbol"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "symbol": "helper",
+  "risk": "LOW",
+  "direction": "both",
+  "depth": 2,
+  "impactedNodeCount": 2,
+  "impactedEdgeCount": 1,
+  "topFiles": [ { "file": "src/lib.rs", "impactCount": 2 } ],
+  "impactedNodes": [ { "id": "...", "name": "helper", "kind": "function" } ],
+  "previewOnly": true,
+  "noWrites": true
+}
+```
+
+### 3.13 `codelattice_query_graph` *(v0.2)*
+
+参数化图查询：按 nodeKind/edgeKind/nameContains/fileContains 过滤。不接受任意查询字符串。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "nodeKind": { "type": "string", "description": "按节点类型过滤（function, struct, class, package 等）" },
+    "edgeKind": { "type": "string", "description": "按边类型过滤（CALLS, DEFINES, IMPORTS 等）" },
+    "nameContains": { "type": "string", "description": "按名称过滤（大小写不敏感子串）" },
+    "fileContains": { "type": "string", "description": "按文件路径过滤（大小写不敏感子串）" },
+    "limit": { "type": "integer", "default": 50, "maximum": 200 }
+  },
+  "required": ["root"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "nodeCount": 2,
+  "edgeCount": 0,
+  "nodes": [ { "id": "...", "name": "helper", "kind": "function", "file": "src/lib.rs" } ],
+  "matchedEdges": [],
+  "truncated": false
+}
+```
+
+### 3.14 `codelattice_project_overview` *(v0.2)*
+
+项目综合概览：身份、统计、top kinds、质量、诊断、hotspots（高扇出）、dense files。适合打开项目时首次调用。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+  },
+  "required": ["root"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "language": "rust",
+  "root": "/path/to/project",
+  "nodeCount": 7,
+  "symbolCount": 2,
+  "sourceFileCount": 1,
+  "packageCount": 2,
+  "topNodeKinds": [ { "kind": "symbol", "count": 2 }, { "kind": "package", "count": 1 } ],
+  "qualitySummary": { "total": 7, "passed": 7, "failed": 0 },
+  "diagnosticsSummary": { "total": 1, "bySeverity": { "info": 1 } },
+  "hotspots": [],
+  "denseFiles": []
+}
+```
+
+### 3.15 `codelattice_repo_registry` *(v0.2)*
+
+列出已知 repo 或检查当前 root 状态。CodeLattice 不维护持久化 registry，每次调用重新分析。完整 registry 管理请使用 GitNexus-RC Tool。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
+    "root": { "type": "string", "description": "项目根路径（status action 必填）" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+  }
+}
+```
+
+**Output (status, success):**
+```json
+{
+  "action": "status",
+  "root": "/path/to/project",
+  "indexed": true,
+  "nodeCount": 7,
+  "symbolCount": 2,
+  "language": "rust",
+  "note": "CodeLattice does not maintain a persistent registry. Each call analyzes fresh."
+}
+```
+
+### 3.16 `codelattice_rename_preview` *(v0.2)*
+
+预览重命名操作：查找定义、引用边、受影响文件。只读，不做 AST 安全校验。返回 `applySupported: false`。实际重命名请使用 IDE/language server。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "symbol": { "type": "string", "description": "当前符号名称" },
+    "newName": { "type": "string", "description": "建议的新名称" },
+    "kind": { "type": "string", "description": "符号类型（用于消歧）" }
+  },
+  "required": ["root", "symbol", "newName"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "symbol": "helper",
+  "newName": "assist",
+  "applySupported": false,
+  "candidates": [
+    { "id": "...", "name": "helper", "kind": "function", "file": "src/lib.rs", "line": 1, "referenceCount": 1, "affectedFiles": ["src/lib.rs"] }
+  ],
+  "note": "Preview only. Use IDE/language server for safe AST-aware renames."
+}
+```
+
+---
+
 ## 四、错误格式
 
 所有错误通过 MCP `isError: true` 返回：
@@ -366,17 +641,21 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ---
 
-## 八、Known Limitations (v0.1)
+## 八、Known Limitations (v0.2)
 
 - No streaming / partial results
-- No graph persistence between calls
-- No impact analysis / Cypher query support
-- No multi-project awareness
+- No graph persistence between calls (each tool call runs fresh analyze subprocess)
+- No multi-project awareness (single root per call)
 - Cangjie requires `--features tree-sitter-cangjie` compile flag
 - Smoke test paths are workspace-relative (not portable across machines)
-- `symbol_search` uses simple substring match, no fuzzy/search index
+- `symbol_search` / `find_symbols` uses simple substring match, no fuzzy/search index
 - `unresolved_report` for Cangjie returns supported=false (no CALLS confidence classification)
 - `export_bridge` output restricted to /tmp only
+- `rename_preview` does not perform AST-safe rewrite — use IDE/language server for actual renames
+- `query_graph` only matches edges if `edgeKind` parameter is provided; node-only queries return empty `matchedEdges`
+- `impact_preview` risk heuristic is simple (node/edge count thresholds), not context-aware
+- `repo_registry` does not maintain persistent state — defers to GitNexus-RC Tool for full registry
+- BFS traversal for calls_from/calls_to/impact_preview limited to max depth 3
 
 ---
 
@@ -386,3 +665,4 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 |------|------|------|
 | 2026-05-10 | v0.1.0 | 初始版本 — 4 tools, stdio JSON-RPC, subprocess approach |
 | 2026-05-10 | v0.1.0+1 | v0.1 — 4 new tools (graph_overview, unresolved_report, symbol_search, export_bridge), output shaping, unified error structure, dogfood harness |
+| 2026-05-10 | v0.2.0 | v0.2 — 8 new tools (symbol_context, calls_from, calls_to, impact_preview, query_graph, project_overview, repo_registry, rename_preview), shared GraphView layer, BFS traversal, read-only graph intelligence |

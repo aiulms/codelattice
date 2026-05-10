@@ -28,7 +28,7 @@ CodeLattice 是一个本地代码图谱分析核心，目前面向 Rust 与 Cang
 | 仓颉符号与关系 | 支持 Function、Class、Struct、Enum、Interface、TypeAlias、Macro、Init，支持 import/reference/call graph |
 | 仓颉质量门 | 真实项目 trial：903 nodes / 3252 edges，0 duplicate，0 dangling；graph_contract 24/24，cangjie_inspect 18/18 |
 | 试用脚本 | 提供 `scripts/build.sh`、`scripts/smoke.sh`、`scripts/alpha-trial-smoke.sh`、`scripts/mcp-dogfood.sh` |
-| MCP stdio | 8 个 MCP 工具（analyze/quality/summary/smoke + graph_overview/unresolved_report/symbol_search/export_bridge），JSON-RPC over stdio，18 个集成测试 |
+| MCP stdio | 16 个 MCP 工具（analyze/quality/summary/smoke + graph_overview/unresolved_report/symbol_search/export_bridge + symbol_context/calls_from/calls_to/impact_preview/query_graph/project_overview/repo_registry/rename_preview），JSON-RPC over stdio，27 个集成测试 |
 
 ## 生产试用边界
 

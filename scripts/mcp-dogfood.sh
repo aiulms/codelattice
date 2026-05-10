@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MCP v0.1 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 8 tools and reports pass/fail per tool.
+# MCP v0.2 Dogfood — real stdio JSON-RPC against the MCP server.
+# Exercises all 16 tools and reports pass/fail per tool.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -15,7 +15,7 @@ echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/gitnexus-rust-core-cli"
 
-echo "--- MCP v0.1 Dogfood ---"
+echo "--- MCP v0.2 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
 echo ""
@@ -114,14 +114,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" = "8" ]; then
+if [ "$TOOL_COUNT" = "16" ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list (8 tools)")
-    echo "   → 8 tools listed"
+    RESULTS+=("PASS: tools/list (16 tools)")
+    echo "   → 16 tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected 8, got $TOOL_COUNT)")
-    echo "   → expected 8 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected 16, got $TOOL_COUNT)")
+    echo "   → expected 16 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -158,12 +158,61 @@ check_tool "codelattice_unresolved_report" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\"}" \
     "data.get('supported') == True"
 
+echo "9. codelattice_export_bridge"
+check_tool "codelattice_export_bridge" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\"}" \
+    "data.get('schemaVersion') is not None and data.get('symbols', 0) > 0"
+
+# ============================================================
+# v0.2: Local Graph Intelligence (tools 10-16)
+# ============================================================
+
+echo "10. codelattice_symbol_context"
+check_tool "codelattice_symbol_context" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"name\":\"helper\"}" \
+    "data.get('matchCount', 0) > 0 and len(data.get('candidates', [])) > 0 and data['candidates'][0].get('name') == 'helper'"
+
+echo "11. codelattice_calls_from"
+check_tool "codelattice_calls_from" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"symbol\":\"main_fn\",\"depth\":1}" \
+    "data.get('symbol') == 'main_fn' and data.get('callCount', 0) >= 0"
+
+echo "12. codelattice_calls_to"
+check_tool "codelattice_calls_to" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"symbol\":\"helper\",\"depth\":1}" \
+    "data.get('symbol') == 'helper' and data.get('callerCount', 0) >= 0"
+
+echo "13. codelattice_impact_preview"
+check_tool "codelattice_impact_preview" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"symbol\":\"helper\",\"depth\":1}" \
+    "data.get('symbol') == 'helper' and data.get('risk') in ['LOW','MEDIUM','HIGH']"
+
+echo "14. codelattice_query_graph"
+check_tool "codelattice_query_graph" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"nodeKind\":\"function\"}" \
+    "data.get('nodeCount', 0) >= 0"
+
+echo "15. codelattice_project_overview"
+check_tool "codelattice_project_overview" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\"}" \
+    "data.get('language') == 'rust' and data.get('nodeCount', 0) > 0"
+
+echo "16. codelattice_repo_registry"
+check_tool "codelattice_repo_registry" \
+    "{\"action\":\"status\",\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\"}" \
+    "data.get('action') == 'status' and data.get('indexed') == True"
+
+echo "17. codelattice_rename_preview"
+check_tool "codelattice_rename_preview" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"symbol\":\"helper\",\"newName\":\"assist\"}" \
+    "data.get('symbol') == 'helper' and data.get('applySupported') == False"
+
 # ============================================================
 # Summary
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.1 Dogfood Results"
+echo " MCP v0.2 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"
@@ -174,7 +223,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.1 dogfood successful."
+    echo "All checks passed — MCP v0.2 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."
