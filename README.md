@@ -27,7 +27,8 @@ CodeLattice 是一个本地代码图谱分析核心，目前面向 Rust 与 Cang
 | 仓颉项目模型 | 支持 `cjpm.toml`、workspace members、source files、path dependencies、外部依赖信息 |
 | 仓颉符号与关系 | 支持 Function、Class、Struct、Enum、Interface、TypeAlias、Macro、Init，支持 import/reference/call graph |
 | 仓颉质量门 | 真实项目 trial：903 nodes / 3252 edges，0 duplicate，0 dangling；graph_contract 24/24，cangjie_inspect 18/18 |
-| 试用脚本 | 提供 `scripts/build.sh`、`scripts/smoke.sh`、`scripts/alpha-trial-smoke.sh` |
+| 试用脚本 | 提供 `scripts/build.sh`、`scripts/smoke.sh`、`scripts/alpha-trial-smoke.sh`、`scripts/mcp-dogfood.sh` |
+| MCP stdio | 8 个 MCP 工具（analyze/quality/summary/smoke + graph_overview/unresolved_report/symbol_search/export_bridge），JSON-RPC over stdio，18 个集成测试 |
 
 ## 生产试用边界
 
@@ -243,6 +244,32 @@ cargo run -p gitnexus-rust-core-cli -- summary \
   --language rust \
   --format json
 ```
+
+### MCP stdio server
+
+CodeLattice 提供 MCP JSON-RPC stdio server，允许 AI agent 通过标准协议调用分析能力。
+
+```bash
+# 启动 MCP server
+cargo run -p gitnexus-rust-core-cli -- mcp
+```
+
+可用工具（8 个）：
+
+| 工具 | 用途 |
+|------|------|
+| `codelattice_analyze` | 分析项目，返回 graph summary + quality gates（默认 compact） |
+| `codelattice_quality` | 质量门检查（failed gates 排前面） |
+| `codelattice_summary` | 紧凑概要（stats + quality，无 graph） |
+| `codelattice_smoke` | 端到端 smoke 测试 |
+| `codelattice_graph_overview` | 图规模概览（node/edge/symbol counts + kind breakdowns） |
+| `codelattice_unresolved_report` | 未解析调用报告（Rust only; Cangjie returns supported=false） |
+| `codelattice_symbol_search` | 按名称搜索符号（case-insensitive substring） |
+| `codelattice_export_bridge` | 导出 bridge JSON 到 /tmp（GitNexus-RC 兼容格式） |
+
+Safety: path deny list 阻止 live repo 访问；export_bridge 仅写 /tmp；默认 read-only。详见 `docs/architecture/mcp-v0-contract.md`。
+
+Dogfood 验证：`bash scripts/mcp-dogfood.sh`（8/8 pass）。
 
 ## 输出内容
 

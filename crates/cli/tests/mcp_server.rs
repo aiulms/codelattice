@@ -1,7 +1,9 @@
-//! Integration tests for MCP v0 stdio server.
+//! Integration tests for MCP v0.1 stdio server.
 //!
 //! Tests start the binary with `mcp` subcommand, communicate via stdin/stdout
 //! using newline-delimited JSON-RPC, and verify responses.
+//!
+//! Covers v0 (4 tools) + v0.1 (4 tools) = 8 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -24,6 +26,7 @@ fn portable_smoke_dir() -> std::path::PathBuf {
         .join("c1-same-module")
 }
 
+#[allow(dead_code)]
 fn cangjie_portable_smoke_dir() -> std::path::PathBuf {
     workspace_root()
         .join("fixtures")
@@ -137,7 +140,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_four_tools() {
+fn mcp_tools_list_returns_eight_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -154,9 +157,10 @@ fn mcp_tools_list_returns_four_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 4, "expected 4 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 8, "expected 8 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    // v0 tools
     assert!(
         names.contains(&"codelattice_analyze"),
         "missing codelattice_analyze"
@@ -172,6 +176,23 @@ fn mcp_tools_list_returns_four_tools() {
     assert!(
         names.contains(&"codelattice_smoke"),
         "missing codelattice_smoke"
+    );
+    // v0.1 tools
+    assert!(
+        names.contains(&"codelattice_graph_overview"),
+        "missing codelattice_graph_overview"
+    );
+    assert!(
+        names.contains(&"codelattice_unresolved_report"),
+        "missing codelattice_unresolved_report"
+    );
+    assert!(
+        names.contains(&"codelattice_symbol_search"),
+        "missing codelattice_symbol_search"
+    );
+    assert!(
+        names.contains(&"codelattice_export_bridge"),
+        "missing codelattice_export_bridge"
     );
 
     // Verify each tool has inputSchema
@@ -464,4 +485,372 @@ fn mcp_json_rpc_id_matching() {
 
     let resp = session.recv();
     assert_eq!(resp["id"], 99, "response id should match request id");
+}
+
+// ============================================================
+// v0.1 Tool Tests
+// ============================================================
+
+#[test]
+fn mcp_graph_overview_rust() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 100,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_graph_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 100);
+    assert!(
+        !resp
+            .get("result")
+            .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+        "graph_overview should succeed, got: {:?}",
+        resp
+    );
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("graph_overview output should be valid JSON");
+
+    assert_eq!(data["language"], "rust");
+    assert!(
+        data["nodeCount"].as_u64().unwrap_or(0) > 0,
+        "should have nodes"
+    );
+    assert!(
+        data["edgeCount"].as_u64().unwrap_or(0) > 0,
+        "should have edges"
+    );
+    assert!(
+        data["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "should have symbols"
+    );
+    assert!(data["nodeKindCounts"].is_object());
+    assert!(data["edgeKindCounts"].is_object());
+    assert!(data["qualitySummary"].is_object());
+    assert!(data["diagnosticsSummary"].is_object());
+}
+
+#[test]
+fn mcp_symbol_search_finds_helper() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 110,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "query": "helper"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 110);
+    assert!(
+        !resp
+            .get("result")
+            .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+        "symbol_search should succeed, got: {:?}",
+        resp
+    );
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("symbol_search output should be valid JSON");
+
+    assert_eq!(data["language"], "rust");
+    assert!(
+        data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "should find 'helper' symbol"
+    );
+    let matches = data["matches"].as_array().expect("matches should be array");
+    let names: Vec<&str> = matches.iter().filter_map(|m| m["name"].as_str()).collect();
+    assert!(
+        names.iter().any(|n| n.contains("helper")),
+        "should find symbol containing 'helper', got: {:?}",
+        names
+    );
+}
+
+#[test]
+fn mcp_symbol_search_finds_main() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 115,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "query": "main"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 115);
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("symbol_search output should be valid JSON");
+
+    assert!(
+        data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "should find 'main' symbol"
+    );
+}
+
+#[test]
+fn mcp_unresolved_report_rust() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 120,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_unresolved_report",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 120);
+    assert!(
+        !resp
+            .get("result")
+            .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+        "unresolved_report should succeed, got: {:?}",
+        resp
+    );
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("unresolved_report output should be valid JSON");
+
+    assert_eq!(data["language"], "rust");
+    assert_eq!(data["supported"], true);
+    // This small fixture may have 0 unresolved, that's fine
+    assert!(data["total"].is_number());
+    assert!(data["unresolvedEdges"].is_number());
+    assert!(data["reasonBreakdown"].is_object());
+    assert!(
+        data["stopLineNote"].is_string(),
+        "should include stop-line note"
+    );
+}
+
+#[test]
+fn mcp_export_bridge_writes_to_tmp() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    let output_path = format!(
+        "/tmp/codelattice-mcp-test-bridge-{}.json",
+        std::process::id()
+    );
+    // Cleanup from previous runs
+    let _ = std::fs::remove_file(&output_path);
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 130,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_export_bridge",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "outputPath": output_path
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 130);
+    assert!(
+        !resp
+            .get("result")
+            .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+        "export_bridge should succeed, got: {:?}",
+        resp
+    );
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("export_bridge output should be valid JSON");
+
+    assert_eq!(data["stdoutPurity"], true);
+    assert!(data["bytes"].as_u64().unwrap_or(0) > 0, "should have bytes");
+    assert!(data["schemaVersion"].is_string());
+    assert!(data["packages"].as_u64().unwrap_or(0) > 0);
+    assert!(data["symbols"].as_u64().unwrap_or(0) > 0);
+
+    // Verify file was actually written and is valid JSON
+    let file_contents = std::fs::read_to_string(&output_path).expect("bridge file should exist");
+    let file_json: serde_json::Value =
+        serde_json::from_str(&file_contents).expect("bridge file should be valid JSON");
+    assert!(
+        file_json["schemaVersion"].is_string(),
+        "bridge file should have schemaVersion"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_file(&output_path);
+}
+
+#[test]
+fn mcp_export_bridge_rejects_non_tmp_path() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 140,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_export_bridge",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "outputPath": "/Users/jiangxuanyang/Desktop/evil-output.json"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 140);
+
+    let is_error = resp["result"]["isError"].as_bool().unwrap_or(false);
+    assert!(is_error, "non-/tmp path should be rejected");
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let error_data: serde_json::Value = serde_json::from_str(content_text).unwrap_or_default();
+    assert_eq!(error_data["error"], "output_path_denied");
+    assert!(
+        error_data["hint"].is_string(),
+        "should include helpful hint"
+    );
+}
+
+#[test]
+fn mcp_analyze_compact_excludes_graph() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // Default includeGraph=false should not include graph
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 150,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "strict": false,
+                "includeGraph": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 150);
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("analyze output should be valid JSON");
+
+    // Compact mode: graph should not be present
+    assert!(
+        data.get("graph").is_none() || data["graph"].is_null(),
+        "compact mode should not include graph, got keys: {:?}",
+        data.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+    // But should have summary and qualityGates
+    assert!(data["summary"].is_object());
+    assert!(data["qualityGates"].is_array());
+}
+
+#[test]
+fn mcp_analyze_include_graph_returns_graph() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 155,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "strict": false,
+                "includeGraph": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 155);
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("analyze output should be valid JSON");
+
+    // With includeGraph=true, graph should be present
+    assert!(
+        data["graph"].is_object(),
+        "should include graph when includeGraph=true"
+    );
+    assert!(
+        data["graph"]["nodes"]
+            .as_array()
+            .map(|a| a.len())
+            .unwrap_or(0)
+            > 0,
+        "graph should have nodes"
+    );
 }

@@ -1,9 +1,9 @@
-# MCP v0 Contract — CodeLattice Thin stdio Wrapper
+# MCP v0.1 Contract — CodeLattice Practical AI Layer
 
 > **日期：** 2026-05-10
 > **版本：** v0.1.0
-> **状态：** Active (MCP v0)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke 能力
+> **状态：** Active (MCP v0.1)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出能力
 
 ---
 
@@ -95,11 +95,12 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 {
   "language": "rust",
   "root": "/path/to/project",
-  "allPassed": true,
-  "exitCode": 0,
+  "overall": "pass",
   "gates": [ { "gateName": "duplicate_nodes", "passed": true, "detail": "..." } ]
 }
 ```
+
+> **v0.1 变更**: failed gates 现在排在 passed gates 前面，便于 AI 快速定位问题。
 
 ### 3.3 `codelattice_summary`
 
@@ -123,7 +124,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "language": "rust",
   "root": "/path/to/project",
   "graphSummary": { "nodeCount": 1524, "edgeCount": 2438, "symbolCount": 838, "sourceFileCount": 50, "packageCount": 3, "diagnosticCount": 0, "callEdgeCount": 1054 },
-  "qualitySummary": { "allPassed": true, "totalGates": 7, "passedGates": 7, "failedGates": 0 }
+  "qualitySummary": { "total": 7, "passed": 7, "failed": 0 }
 }
 ```
 
@@ -153,6 +154,145 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 }
 ```
 
+> **v0.1 变更**: 失败时额外返回 `hint` 字段，指导排查。
+
+### 3.5 `codelattice_graph_overview` *(v0.1)*
+
+获取图概览：节点/边/符号/包计数，按 kind 分组，质量和诊断摘要。不含完整 graph，适合 AI 快速评估项目。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+  },
+  "required": ["root"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "language": "rust",
+  "root": "/path/to/project",
+  "nodeCount": 7,
+  "edgeCount": 6,
+  "symbolCount": 2,
+  "packageCount": 2,
+  "sourceFileCount": 1,
+  "nodeKindCounts": { "symbol": 2, "package": 1, "source-file": 1, "repository": 1, "target": 1, "diagnostic": 1 },
+  "edgeKindCounts": { "CALLS": 1, "DEFINES": 2, "CONTAINS_PACKAGE": 1, "HAS_TARGET": 1, "OWNS_SOURCE": 1 },
+  "qualitySummary": { "total": 7, "passed": 7, "failed": 0 },
+  "diagnosticsSummary": { "total": 1, "bySeverity": { "info": 1 } }
+}
+```
+
+### 3.6 `codelattice_unresolved_report` *(v0.1)*
+
+报告未解析调用和诊断。Rust: 展示低 confidence 或 unresolved reason 的 CALLS 边，按 reason 分组。Cangjie: 返回 supported=false。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+  },
+  "required": ["root"]
+}
+```
+
+**Output (Rust, success):**
+```json
+{
+  "language": "rust",
+  "supported": true,
+  "total": 3,
+  "unresolvedEdges": 2,
+  "unresolvedDiagnostics": 1,
+  "reasonBreakdown": { "call-cross-crate-unresolved": 2 },
+  "topItems": [ { "source": "...", "target": "...", "confidence": 0.3, "reason": "call-cross-crate-unresolved", "callKind": "method" } ],
+  "diagnosticItems": [ { "code": "use-path-unresolved", "message": "...", "severity": "info", "path": "src/main.rs" } ],
+  "stopLineNote": "Items near Rust stop-line..."
+}
+```
+
+**Output (Cangjie):**
+```json
+{
+  "language": "cangjie",
+  "supported": false,
+  "reason": "Cangjie does not track unresolved calls in v0.1",
+  "total": 0,
+  "items": []
+}
+```
+
+### 3.7 `codelattice_symbol_search` *(v0.1)*
+
+按名称搜索符号（大小写不敏感子串匹配）。可选按 kind 过滤。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "query": { "type": "string", "description": "搜索查询（大小写不敏感子串匹配）" },
+    "kind": { "type": "string", "description": "按符号类型过滤（function, struct, class 等）" },
+    "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
+  },
+  "required": ["root", "query"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "language": "rust",
+  "query": "helper",
+  "matchCount": 1,
+  "matches": [ { "id": "symbol:c1-same-module::crate::helper", "name": "helper", "kind": "function", "file": "src/lib.rs", "line": 1, "label": "symbol" } ]
+}
+```
+
+### 3.8 `codelattice_export_bridge` *(v0.1)*
+
+导出 GitNexus-RC bridge JSON 到 /tmp。仅导出，不做 Tool import。输出路径必须位于 /tmp。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "项目根目录绝对路径" },
+    "language": { "type": "string", "enum": ["rust", "cangjie"], "description": "必须显式指定语言" },
+    "outputPath": { "type": "string", "description": "输出文件路径（必须在 /tmp 下）。默认自动生成" }
+  },
+  "required": ["root", "language"]
+}
+```
+
+**Output (success):**
+```json
+{
+  "outputPath": "/tmp/codelattice-bridge-1715328000000.json",
+  "bytes": 12345,
+  "schemaVersion": "0.3.0",
+  "language": "rust",
+  "packages": 2,
+  "files": 1,
+  "symbols": 3,
+  "relationships": 6,
+  "stdoutPurity": true
+}
+```
+
 ---
 
 ## 四、错误格式
@@ -161,10 +301,12 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ```json
 {
-  "content": [{ "type": "text", "text": "{\"error\": \"<code>\", \"message\": \"<human-readable>\"}" }],
+  "content": [{ "type": "text", "text": "{\"error\": \"<code>\", \"message\": \"<human-readable>\", \"details\": \"<optional>\", \"hint\": \"<optional>\"}" }],
   "isError": true
 }
 ```
+
+> **v0.1 变更**: 错误结构新增 `details` 和 `hint` 字段。
 
 ### 4.1 错误码
 
@@ -173,10 +315,13 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 | `path_denied` | Root path is on the deny list (live repo) |
 | `path_not_found` | Root path does not exist |
 | `path_not_directory` | Root path is not a directory |
+| `output_path_denied` *(v0.1)* | Export output path not under /tmp |
 | `command_failed` | Subprocess exited non-zero |
 | `timeout` | Subprocess exceeded time limit |
 | `json_parse_failed` | Subprocess output not valid JSON |
-| `unsupported_language` | Language not rust/cangjie/auto |
+| `json_serialize_failed` *(v0.1)* | Failed to serialize bridge JSON |
+| `write_failed` *(v0.1)* | Failed to write export file |
+| `missing_parameter` *(v0.1)* | Required parameter missing |
 | `cangjie_disabled` | Cangjie requested but feature not compiled |
 | `smoke_failed` | Smoke script reported failure |
 | `unknown_tool` | Tool name not recognized |
@@ -185,8 +330,8 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ## 五、Safety Rules
 
-1. **No live repo writes** — MCP v0 只读项目源码，不修改任何文件
-2. **Temp files only** — 临时输出（如 bridge JSON）用后即删
+1. **No live repo writes** — MCP v0.1 只读项目源码，不修改任何文件
+2. **Temp files only** — export_bridge 仅写入 /tmp，路径校验拒绝非 /tmp 路径
 3. **No default switch** — MCP server 不修改任何默认工具配置
 4. **No generatedAt strict comparison** — generatedAt 不参与 deterministic compare
 5. **Path deny list** — `/Users/jiangxuanyang/Desktop/cangjie` 等生产 live repo 默认拒绝
@@ -221,16 +366,17 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ---
 
-## 八、Known Limitations (v0)
+## 八、Known Limitations (v0.1)
 
 - No streaming / partial results
 - No graph persistence between calls
-- No symbol lookup / search
-- No impact analysis
-- No Cypher/query support
+- No impact analysis / Cypher query support
 - No multi-project awareness
 - Cangjie requires `--features tree-sitter-cangjie` compile flag
 - Smoke test paths are workspace-relative (not portable across machines)
+- `symbol_search` uses simple substring match, no fuzzy/search index
+- `unresolved_report` for Cangjie returns supported=false (no CALLS confidence classification)
+- `export_bridge` output restricted to /tmp only
 
 ---
 
@@ -239,3 +385,4 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 | 日期 | 版本 | 变更 |
 |------|------|------|
 | 2026-05-10 | v0.1.0 | 初始版本 — 4 tools, stdio JSON-RPC, subprocess approach |
+| 2026-05-10 | v0.1.0+1 | v0.1 — 4 new tools (graph_overview, unresolved_report, symbol_search, export_bridge), output shaping, unified error structure, dogfood harness |
