@@ -537,3 +537,125 @@ fn test_endpoint_integrity_zero_dangling_on_constructor_fixture() {
             .collect::<Vec<_>>()
     );
 }
+
+/// 验证 constructor call 的 Uses edge target 指向 Class symbol（而非 Init symbol）。
+/// 设计合同：没有完整类型推断时，构造函数调用无法区分重载 init，
+/// 因此 Uses edge 的 target 是 Class（唯一无歧义的目标）。
+#[test]
+fn test_constructor_call_targets_class_symbol_not_init() {
+    let root = constructor_basic_dir();
+    if !root.exists() {
+        return;
+    }
+
+    let graph = inspect_cangjie_project(&root).expect("inspect should succeed");
+
+    // 收集 Class symbol IDs
+    let class_ids: HashSet<_> = graph
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.kind == NodeKind::Symbol
+                && n.properties.get("kind").map_or(false, |v| v == "Class")
+        })
+        .map(|n| n.id.as_str())
+        .collect();
+
+    // 收集 Init symbol IDs
+    let init_ids: HashSet<_> = graph
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.kind == NodeKind::Symbol
+                && n.properties.get("kind").map_or(false, |v| v == "Init")
+        })
+        .map(|n| n.id.as_str())
+        .collect();
+
+    // 查找所有 Uses edges
+    let uses_edges: Vec<_> = graph
+        .edges
+        .iter()
+        .filter(|e| e.kind == gitnexus_cangjie::graph::EdgeKind::Uses)
+        .collect();
+
+    // constructor call Uses edges 不应 target Init symbols
+    // （Init symbols 是被 Defines 定义的节点，不是 call target）
+    for edge in &uses_edges {
+        if init_ids.contains(edge.target_id.as_str()) {
+            // Uses edge target 是 Init symbol — 这可能是 annotation reference，不是 call
+            // 检查 source 是否是 CallableSource（如果是，可能是错误的 call→init 映射）
+            let source_is_callable = graph.nodes.iter().any(|n| {
+                n.id == edge.source_id && n.kind == NodeKind::CallableSource
+            });
+            assert!(
+                !source_is_callable,
+                "Uses edge from callable source '{}' should target Class symbol, not Init '{}'",
+                edge.source_id, edge.target_id
+            );
+        }
+    }
+
+    // 验证至少存在 Class symbols 作为 Uses edge targets（证明 constructor call 有正确的 target）
+    let uses_to_class = uses_edges
+        .iter()
+        .filter(|e| class_ids.contains(e.target_id.as_str()))
+        .count();
+    assert!(
+        uses_to_class > 0,
+        "expected at least one Uses edge targeting a Class symbol (constructor calls), got 0"
+    );
+}
+
+/// 验证 Init symbol 的 Defines edge 存在且 source 是 SourceFile。
+/// 设计合同：Init symbols 通过 Defines edge 从 SourceFile 定义，不是从 Class 定义。
+#[test]
+fn test_init_symbols_defined_from_source_file() {
+    let root = constructor_basic_dir();
+    if !root.exists() {
+        return;
+    }
+
+    let graph = inspect_cangjie_project(&root).expect("inspect should succeed");
+
+    // 查找 Init symbol nodes
+    let init_nodes: Vec<_> = graph
+        .nodes
+        .iter()
+        .filter(|n| {
+            n.kind == NodeKind::Symbol && n.properties.get("kind").map_or(false, |v| v == "Init")
+        })
+        .collect();
+
+    assert!(!init_nodes.is_empty(), "expected at least one Init symbol");
+
+    // 每个 Init symbol 应有 Defines edge，且 source 应是 SourceFile node
+    for init in &init_nodes {
+        let defines_edges: Vec<_> = graph
+            .edges
+            .iter()
+            .filter(|e| {
+                e.kind == gitnexus_cangjie::graph::EdgeKind::Defines && e.target_id == init.id
+            })
+            .collect();
+
+        assert!(
+            !defines_edges.is_empty(),
+            "Init symbol '{}' should have at least one Defines edge",
+            init.id
+        );
+
+        // 验证至少一个 Defines edge 的 source 是 SourceFile
+        let has_source_file_defines = defines_edges.iter().any(|e| {
+            graph
+                .nodes
+                .iter()
+                .any(|n| n.id == e.source_id && n.kind == NodeKind::SourceFile)
+        });
+        assert!(
+            has_source_file_defines,
+            "Init symbol '{}' should be Defined from a SourceFile node",
+            init.id
+        );
+    }
+}

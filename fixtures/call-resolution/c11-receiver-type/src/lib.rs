@@ -43,7 +43,7 @@ pub fn no_type_annotation() {
     v.push(4); // unresolved: no type annotation on let binding
 }
 
-// Function parameter — not supported in Phase 2
+// Function parameter with type annotation → resolved via receiver type method
 pub fn param_method(name: &str) {
-    name.len(); // unresolved: name is a parameter, not let binding
+    name.len(); // resolved at 0.65 via call-receiver-type-method-resolved
 }

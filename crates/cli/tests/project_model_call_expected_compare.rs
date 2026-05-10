@@ -490,6 +490,155 @@ fn calls_auto_triggers_symbols_and_imports() {
     );
 }
 
+/// 验证 c11 receiver-type method resolution 的关键 confidence/reason 合同：
+/// - Vec 类型注解的方法调用 → confidence=0.65, reason=call-receiver-type-method-resolved
+/// - str 类型注解的方法调用 → confidence=0.65, reason=call-receiver-type-method-resolved
+/// - 函数参数类型注解的方法调用 → confidence=0.65, reason=call-receiver-type-method-resolved
+/// - 无类型注解的方法调用 → confidence=0.00 (unresolved)
+#[test]
+fn receiver_type_method_confidence_contract() {
+    let raw = inspect_calls("c11-receiver-type");
+    let calls = raw["calls"].as_array().expect("calls should be array");
+
+    // Vec::new() → 0.80 external crate path (not receiver type, but validates chain start)
+    let vec_new = calls.iter().find(|c| c["rawText"].as_str() == Some("Vec::new()"))
+        .expect("Vec::new() call should exist");
+    assert_eq!(vec_new["callKind"].as_str(), Some("associated-function"));
+    assert!(vec_new["confidence"].as_f64().unwrap_or(0.0) >= 0.75,
+        "Vec::new() confidence should be >= 0.75, got {}", vec_new["confidence"]);
+
+    // v.push(1) → 0.65 receiver type method
+    let v_push = calls.iter().find(|c| c["rawText"].as_str() == Some("v.push(1)"))
+        .expect("v.push(1) call should exist");
+    assert_eq!(v_push["reason"].as_str(), Some("call-receiver-type-method-resolved"),
+        "v.push(1) reason should be call-receiver-type-method-resolved");
+    let conf = v_push["confidence"].as_f64().unwrap_or(0.0);
+    assert!((conf - 0.65).abs() < 0.05, "v.push(1) confidence should be ~0.65, got {:.2}", conf);
+
+    // v.len() → 0.65 receiver type method
+    let v_len = calls.iter().find(|c| c["rawText"].as_str() == Some("v.len()"))
+        .expect("v.len() call should exist");
+    assert_eq!(v_len["reason"].as_str(), Some("call-receiver-type-method-resolved"));
+    let conf = v_len["confidence"].as_f64().unwrap_or(0.0);
+    assert!((conf - 0.65).abs() < 0.05, "v.len() confidence should be ~0.65, got {:.2}", conf);
+
+    // name.len() from function parameter → 0.65 receiver type method
+    let name_len = calls.iter().find(|c| c["rawText"].as_str() == Some("name.len()"))
+        .expect("name.len() call should exist");
+    assert_eq!(name_len["reason"].as_str(), Some("call-receiver-type-method-resolved"),
+        "name.len() from function parameter should be resolved via receiver type");
+    let conf = name_len["confidence"].as_f64().unwrap_or(0.0);
+    assert!((conf - 0.65).abs() < 0.05, "name.len() confidence should be ~0.65, got {:.2}", conf);
+
+    // Unresolved calls should have confidence 0.00
+    let unresolved: Vec<_> = calls.iter()
+        .filter(|c| c["reason"].as_str() == Some("call-target-unresolved"))
+        .collect();
+    for u in &unresolved {
+        let conf = u["confidence"].as_f64().unwrap_or(-1.0);
+        assert!((conf - 0.0).abs() < 0.01,
+            "unresolved call '{}' should have confidence ~0.0, got {:.2}",
+            u["rawText"].as_str().unwrap_or("?"), conf);
+    }
+}
+
+/// 验证 c12 let-constructor chain inference 的 confidence/reason 合同：
+/// - Vec::new() 在 let 绑定中 → 后续 v.push/v.len/v.is_empty 都通过 receiver type 解析
+/// - String::from() → 后续 s.len 通过 receiver type 解析
+/// - HashMap::new() → 后续 map.insert/len 通过 receiver type 解析
+#[test]
+fn constructor_chain_inference_confidence_contract() {
+    let raw = inspect_calls("c12-let-constructor-method");
+    let calls = raw["calls"].as_array().expect("calls should be array");
+
+    // Vec::new() → associated function, confidence >= 0.75
+    let vec_new = calls.iter().find(|c| c["rawText"].as_str() == Some("Vec::new()"))
+        .expect("Vec::new() should exist in c12");
+    assert_eq!(vec_new["callKind"].as_str(), Some("associated-function"));
+    assert!(vec_new["confidence"].as_f64().unwrap_or(0.0) >= 0.75);
+
+    // v.push(1) → receiver type method resolved via constructor chain
+    let v_push = calls.iter().find(|c| c["rawText"].as_str() == Some("v.push(1)"))
+        .expect("v.push(1) should exist in c12");
+    assert_eq!(v_push["reason"].as_str(), Some("call-receiver-type-method-resolved"));
+    let conf = v_push["confidence"].as_f64().unwrap_or(0.0);
+    assert!((conf - 0.65).abs() < 0.05, "v.push(1) confidence should be ~0.65, got {:.2}", conf);
+
+    // HashMap::new() → associated function
+    let hm_new = calls.iter().find(|c| c["rawText"].as_str() == Some("HashMap::new()"))
+        .expect("HashMap::new() should exist in c12");
+    assert_eq!(hm_new["callKind"].as_str(), Some("associated-function"));
+
+    // map.insert → receiver type method via constructor chain
+    let map_insert = calls.iter().find(|c| {
+        c["calleeName"].as_str() == Some("insert") && c["reason"].as_str() == Some("call-receiver-type-method-resolved")
+    }).expect("map.insert should be resolved via receiver type");
+    let conf = map_insert["confidence"].as_f64().unwrap_or(0.0);
+    assert!((conf - 0.65).abs() < 0.05, "map.insert confidence should be ~0.65, got {:.2}", conf);
+
+    // All receiver-type-resolved calls should have resolvedSymbolId containing the type
+    let receiver_resolved: Vec<_> = calls.iter()
+        .filter(|c| c["reason"].as_str() == Some("call-receiver-type-method-resolved"))
+        .collect();
+    assert!(receiver_resolved.len() >= 6,
+        "c12 should have at least 6 receiver-type-resolved calls, got {}", receiver_resolved.len());
+    for r in &receiver_resolved {
+        let resolved = r["resolvedSymbolId"].as_str().unwrap_or("");
+        assert!(!resolved.is_empty(),
+            "receiver-type-resolved call '{}' should have non-empty resolvedSymbolId",
+            r["rawText"].as_str().unwrap_or("?"));
+    }
+}
+
+/// 验证 c6 associated function 的 confidence 合同：
+/// - Config::new (local crate) → confidence >= 0.75, reason=call-associated-fn-resolved
+/// - name.to_string (stdlib trait) → confidence >= 0.55
+#[test]
+fn associated_fn_confidence_contract() {
+    let raw = inspect_calls("c6-associated-fn");
+    let calls = raw["calls"].as_array().expect("calls should be array");
+
+    // Config::new → associated fn resolved
+    let config_new = calls.iter().find(|c| c["calleeName"].as_str() == Some("new"))
+        .expect("Config::new should exist in c6");
+    assert_eq!(config_new["reason"].as_str(), Some("call-associated-fn-resolved"));
+    let conf = config_new["confidence"].as_f64().unwrap_or(0.0);
+    assert!(conf >= 0.70, "Config::new confidence should be >= 0.70, got {:.2}", conf);
+
+    // to_string → stdlib trait method
+    let to_string = calls.iter().find(|c| c["calleeName"].as_str() == Some("to_string"))
+        .expect("to_string should exist in c6");
+    assert_eq!(to_string["reason"].as_str(), Some("call-stdlib-trait-method-resolved"));
+    let conf = to_string["confidence"].as_f64().unwrap_or(0.0);
+    assert!((conf - 0.55).abs() < 0.05, "to_string confidence should be ~0.55, got {:.2}", conf);
+}
+
+/// 验证 c15 associated function disambiguation：
+/// - DataProcessor::build 和 RequestHandler::build 各自解析到正确的 impl target
+/// - confidence >= 0.70
+#[test]
+fn associated_fn_disambiguation_contract() {
+    let raw = inspect_calls("c15-associated-function-disambiguation");
+    let calls = raw["calls"].as_array().expect("calls should be array");
+
+    let build_calls: Vec<_> = calls.iter()
+        .filter(|c| c["calleeName"].as_str() == Some("build"))
+        .collect();
+    assert!(build_calls.len() >= 2,
+        "c15 should have at least 2 build() calls, got {}", build_calls.len());
+
+    for b in &build_calls {
+        let conf = b["confidence"].as_f64().unwrap_or(0.0);
+        assert!(conf >= 0.70,
+            "disambiguated build() confidence should be >= 0.70, got {:.2}", conf);
+        assert_eq!(b["reason"].as_str(), Some("call-associated-fn-resolved"),
+            "disambiguated build() should have reason call-associated-fn-resolved");
+        let resolved = b["resolvedSymbolId"].as_str().unwrap_or("");
+        assert!(!resolved.is_empty(),
+            "disambiguated build() should have resolved target");
+    }
+}
+
 /// 验证 external crate call stats 非硬编码为 0
 /// c10-external-crate fixture 有 8 个 calls，其中 3 个 callKind="external-crate" + knownCrate="std"
 #[test]
