@@ -2,7 +2,54 @@
 
 > **日期：** 2026-05-11
 > **版本：** v0.6.0
-> **状态：** Complete
+> **状态：** Complete (补核验 2026-05-11)
+
+---
+
+## 〇、补核验结果（2026-05-11）
+
+### 1. opencode 新会话真实 tool discovery
+
+- ✅ MCP tools/list 返回 21 个 `codelattice_*` tools
+- ✅ 在 opencode session 内直接调用 `codelattice_cache_status`、`codelattice_project_overview`、`codelattice_symbol_search`（Rust）均成功
+- ⚠️ 当前 session 的 MCP server binary 缺少 `tree-sitter-cangjie` feature — Cangjie 调用需重启 opencode session 才能生效（binary 已在 CLI 层面验证通过）
+
+### 2. Cangjie symbol_search(init) 修复结果
+
+- ✅ 修复前：`query=init` 在 `cjgui` 项目上返回 0 结果（`label == "symbol"` 过滤排除了所有 Cangjie 符号）
+- ✅ 修复后：`query=init` 返回 **20** 个结果
+- Top 5 results:
+  - `CjguiInternalActionHandoffAcceptance.init` / Init / `sym:src/action_handoff.cj:Init:CjguiInternalActionHandoffAcceptance.init#5` / `src/action_handoff.cj` / line 42
+  - `CjguiInternalActionHandoffConsumer.init` / Init / `sym:src/action_handoff.cj:Init:CjguiInternalActionHandoffConsumer.init#5` / `src/action_handoff.cj` / line 18
+  - `CjguiInternalActionHandoffReceipt.init` / Init / `sym:src/action_handoff.cj:Init:CjguiInternalActionHandoffReceipt.init#4` / `src/action_handoff.cj` / line 65
+  - `CjguiInternalActionHandoffQueueAdmission.init` / Init / `sym:src/action_handoff_queue.cj:...` / `src/action_handoff_queue.cj` / line 20
+  - `CjguiInternalActionHandoffQueueCandidate.init` / Init / `sym:src/action_handoff_queue.cj:...` / `src/action_handoff_queue.cj` / line 72
+- ✅ `query=Owner` 返回 10 结果
+- ✅ `query=CjguiInternalActionHandoffAcceptance.init` 返回 1 精确匹配
+- ✅ Rust `symbol_search(handle_analyze)` 无回归：1 匹配，`function`, `mcp_server.rs:716`
+
+### 3. 补充修复：GraphView symbols_by_name 索引
+
+核验发现 `symbol_context`/`calls_from`/`calls_to`/`impact_preview`/`rename_preview`/`production_assist` 对 Cangjie 均返回 0 匹配。
+
+根因：`GraphView::new()` 的 `symbols_by_name` 索引用 `label == "symbol"` 过滤 + `properties.name` 取名，排除了所有 Cangjie 节点。
+
+修复：
+1. `symbols_by_name` 索引改用 kind-based 过滤 + 级联名称提取（与 `handle_symbol_search` 一致）
+2. `find_symbols` 的 kind 过滤加 `properties.kind` 回退
+3. `handle_symbol_context` 输出格式化加级联提取（name/kind/file/line）
+
+修复后 `symbol_context(CjguiInternalActionHandoffAcceptance.init)` 正确返回 name/kind/file/line。
+
+### 4. cache_prewarm 行为
+
+单进程 MCP 会话验证：
+- ✅ 首次 prewarm: `warmed=True, cacheHit=False, durationMs=1528`
+- ✅ 后续 project_overview: `cacheHit=True, durationMs=1528`
+- ✅ 后续 symbol_context: `cacheHit=True, durationMs=1528`
+- ✅ 第二次 prewarm: `cacheHit=True`（mtime-valid）
+- ✅ cache_clear 后 prewarm: `cacheHit=False`（重新 miss）
+- ✅ re-prewarm 后 project_overview: `cacheHit=True`
 
 ---
 

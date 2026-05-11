@@ -1381,9 +1381,50 @@ impl GraphView {
             if let Some(id) = node["id"].as_str() {
                 nodes_by_id.insert(id.to_string(), node.clone());
 
-                // Index symbols by name
-                if node["label"].as_str() == Some("symbol") {
-                    if let Some(name) = node["properties"]["name"].as_str() {
+                // Index symbols by name (supports both Rust and Cangjie nodes)
+                let kind = node["kind"].as_str().unwrap_or("");
+                let label = node["label"].as_str().unwrap_or("");
+                let is_searchable = kind == "symbol"
+                    || kind == "function"
+                    || kind == "method"
+                    || kind == "associated-function"
+                    || kind == "class"
+                    || kind == "struct"
+                    || kind == "enum"
+                    || kind == "trait"
+                    || kind == "const"
+                    || kind == "static"
+                    || label == "symbol";
+                if is_searchable {
+                    // Name extraction cascade: properties.name → label (Cangjie) → id parsing
+                    let name = node["properties"]["name"]
+                        .as_str()
+                        .or_else(|| {
+                            // Cangjie nodes: label holds display name
+                            if kind == "symbol" && !label.is_empty() && !label.contains('/') {
+                                Some(label)
+                            } else {
+                                None
+                            }
+                        })
+                        .or_else(|| {
+                            // Parse from id: Rust "::", Cangjie ":" with "#arity" suffix
+                            node["id"].as_str().and_then(|nid| {
+                                if let Some(rust_name) = nid.split("::").last() {
+                                    if !rust_name.is_empty() {
+                                        return Some(rust_name);
+                                    }
+                                }
+                                let without_arity = nid.split('#').next().unwrap_or(nid);
+                                if let Some(cj_name) = without_arity.rsplit(':').next() {
+                                    if !cj_name.is_empty() {
+                                        return Some(cj_name);
+                                    }
+                                }
+                                None
+                            })
+                        });
+                    if let Some(name) = name {
                         symbols_by_name
                             .entry(name.to_lowercase())
                             .or_default()
@@ -1449,7 +1490,10 @@ impl GraphView {
                     break;
                 }
                 if let Some(k) = kind {
-                    let sym_kind = sym["properties"]["symbolKind"].as_str().unwrap_or("");
+                    let sym_kind = sym["properties"]["symbolKind"]
+                        .as_str()
+                        .or_else(|| sym["properties"]["kind"].as_str())
+                        .unwrap_or("");
                     if sym_kind.to_lowercase() != k.to_lowercase() {
                         continue;
                     }
@@ -1472,7 +1516,10 @@ impl GraphView {
                             break;
                         }
                         if let Some(k) = kind {
-                            let sym_kind = sym["properties"]["symbolKind"].as_str().unwrap_or("");
+                            let sym_kind = sym["properties"]["symbolKind"]
+                                .as_str()
+                                .or_else(|| sym["properties"]["kind"].as_str())
+                                .unwrap_or("");
                             if sym_kind.to_lowercase() != k.to_lowercase() {
                                 continue;
                             }
@@ -1641,12 +1688,38 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
             in_by_kind.into_iter().map(|(k, v)| (k, json!(v))).collect();
 
         // Read source snippet if requested
+        let file_for_snippet = sym["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| sym["properties"]["manifestPath"].as_str())
+            .or_else(|| {
+                // Cangjie: extract file from id like "sym:src/foo.cj:Function:name#1"
+                sym["id"].as_str().and_then(|sid| {
+                    let parts: Vec<&str> = sid.splitn(4, ':').collect();
+                    if parts.len() >= 3 && parts[0] == "sym" {
+                        Some(parts[1])
+                    } else {
+                        None
+                    }
+                })
+            })
+            .unwrap_or("");
+        let line_start = sym["properties"]["lineStart"]
+            .as_u64()
+            .or_else(|| sym["properties"]["startLine"].as_u64())
+            .unwrap_or(0);
+        let line_end = sym["properties"]["lineEnd"]
+            .as_u64()
+            .or_else(|| sym["properties"]["endLine"].as_u64())
+            .unwrap_or(line_start);
         let snippet = if include_snippet {
-            let file_path = sym["properties"]["sourcePath"].as_str().unwrap_or("");
-            let line_start = sym["properties"]["lineStart"].as_u64().unwrap_or(0);
-            let line_end = sym["properties"]["lineEnd"].as_u64().unwrap_or(line_start);
-            if !file_path.is_empty() {
-                read_source_snippet(&gv.root, file_path, line_start, line_end, snippet_context)
+            if !file_for_snippet.is_empty() {
+                read_source_snippet(
+                    &gv.root,
+                    file_for_snippet,
+                    line_start,
+                    line_end,
+                    snippet_context,
+                )
             } else {
                 json!({ "warning": "No source path available", "lines": Value::Null })
             }
@@ -1654,13 +1727,81 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
             Value::Null
         };
 
+        // Name extraction: cascade properties.name → label (Cangjie) → id parsing
+        let sym_kind_node = sym["kind"].as_str().unwrap_or("");
+        let sym_label = sym["label"].as_str().unwrap_or("");
+        let sym_name = sym["properties"]["name"]
+            .as_str()
+            .or_else(|| {
+                if sym_kind_node == "symbol" && !sym_label.is_empty() && !sym_label.contains('/') {
+                    Some(sym_label)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                sym["id"].as_str().and_then(|sid| {
+                    if let Some(rust_name) = sid.split("::").last() {
+                        if !rust_name.is_empty() {
+                            return Some(rust_name);
+                        }
+                    }
+                    let without_arity = sid.split('#').next().unwrap_or(sid);
+                    if let Some(cj_name) = without_arity.rsplit(':').next() {
+                        if !cj_name.is_empty() {
+                            return Some(cj_name);
+                        }
+                    }
+                    None
+                })
+            })
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null);
+
+        // Kind: cascade properties.symbolKind → properties.kind → node kind
+        let sym_kind = sym["properties"]["symbolKind"]
+            .as_str()
+            .or_else(|| sym["properties"]["kind"].as_str())
+            .or_else(|| Some(sym_kind_node))
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null);
+
+        // File: cascade properties.sourcePath → manifestPath → parse from id
+        let sym_file = sym["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| sym["properties"]["manifestPath"].as_str())
+            .or_else(|| {
+                sym["id"].as_str().and_then(|sid| {
+                    let parts: Vec<&str> = sid.splitn(4, ':').collect();
+                    if parts.len() >= 3 && parts[0] == "sym" {
+                        Some(parts[1])
+                    } else {
+                        None
+                    }
+                })
+            })
+            .map(|s| json!(s))
+            .unwrap_or(Value::Null);
+
+        let sym_line = sym["properties"]["lineStart"]
+            .as_u64()
+            .or_else(|| sym["properties"]["startLine"].as_u64())
+            .map(|v| json!(v))
+            .unwrap_or(Value::Null);
+
+        let sym_line_end = sym["properties"]["lineEnd"]
+            .as_u64()
+            .or_else(|| sym["properties"]["endLine"].as_u64())
+            .map(|v| json!(v))
+            .unwrap_or(Value::Null);
+
         match_summaries.push(json!({
             "id": id,
-            "name": sym["properties"]["name"],
-            "kind": sym["properties"]["symbolKind"],
-            "file": sym["properties"]["sourcePath"],
-            "line": sym["properties"]["lineStart"],
-            "lineEnd": sym["properties"]["lineEnd"],
+            "name": sym_name,
+            "kind": sym_kind,
+            "file": sym_file,
+            "line": sym_line,
+            "lineEnd": sym_line_end,
             "visibility": sym["properties"]["visibility"],
             "sourceSnippet": snippet,
             "outgoingEdges": Value::Object(out_map),
