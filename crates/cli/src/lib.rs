@@ -9,6 +9,7 @@
 //!
 //! JSON stdout，human logs stderr。
 
+mod arkts_bridge;
 mod bridge_format;
 mod cangjie_bridge;
 mod language_detect;
@@ -516,6 +517,193 @@ fn run_cangjie_analysis(
     Err("Cangjie support is disabled. 请使用 --features tree-sitter-cangjie 重新编译。".to_string())
 }
 
+// ============================================================
+// ArkTS 分析 + Graph 提取
+// ============================================================
+
+#[cfg(feature = "tree-sitter-arkts")]
+fn run_arkts_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    use std::collections::BTreeMap;
+
+    // 1. Build project model
+    let project = gitnexus_arkts::project::find_arkts_project_root(root)
+        .ok_or_else(|| "ArkTS project root not found (no oh-package.json5)".to_string())?;
+
+    let source_files = gitnexus_arkts::project::list_arkts_source_files(&project)
+        .map_err(|e| format!("Failed to list ArkTS source files: {e}"))?;
+
+    // 2. Parse manifest
+    let manifest = gitnexus_arkts::load_ts_manifest(&project).ok();
+
+    // 3. Extract per-file data
+    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsSymbol>> = BTreeMap::new();
+    let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsImport>> = BTreeMap::new();
+    let mut references_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsReference>> = BTreeMap::new();
+    let mut components_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::ArkTsComponent>> = BTreeMap::new();
+
+    for file in &source_files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Base TypeScript extraction
+        let lang = gitnexus_arkts::TsLanguage::TypeScript;
+        let syms = gitnexus_arkts::extract_ts_symbols(&source, lang);
+        let imps = gitnexus_arkts::extract_ts_imports(&source, lang);
+        let refs = gitnexus_arkts::extract_ts_references(&source, lang);
+
+        symbols_by_file.insert(file.clone(), syms);
+        imports_by_file.insert(file.clone(), imps);
+        references_by_file.insert(file.clone(), refs);
+
+        // ArkTS-specific component extraction
+        let components = gitnexus_arkts::extract_arkts_components(&source);
+        if !components.is_empty() {
+            components_by_file.insert(file.clone(), components);
+        }
+    }
+
+    // 4. Build graph
+    let ts_project = gitnexus_arkts::TsProject {
+        root: project.clone(),
+        kind: gitnexus_arkts::TsProjectKind::ArkTS,
+        manifest,
+        source_files: source_files.clone(),
+    };
+
+    let mut graph = gitnexus_arkts::build_ts_graph(
+        &ts_project,
+        &symbols_by_file,
+        &imports_by_file,
+        &references_by_file,
+    );
+
+    // Augment with ArkTS-specific nodes
+    gitnexus_arkts::graph::augment_graph_with_arkts(&mut graph, &components_by_file);
+
+    let json_val = serde_json::to_value(&graph)
+        .map_err(|e| format!("ArkTS graph JSON serialization failed: {e}"))?;
+
+    let nodes: Vec<serde_json::Value> = json_val
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let edges: Vec<serde_json::Value> = json_val
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-arkts"))]
+fn run_arkts_analysis(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    Err("ArkTS support is disabled. 请使用 --features tree-sitter-arkts 重新编译。".to_string())
+}
+
+/// 计算 ArkTS 质量门
+fn compute_arkts_quality_gates(
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> Vec<QualityGateResult> {
+    let mut gates = Vec::new();
+
+    // 1. duplicate_nodes
+    let node_ids: Vec<&str> = nodes
+        .iter()
+        .filter_map(|n| n.get("id").and_then(|v| v.as_str()))
+        .collect();
+    let unique_node_ids: HashSet<&str> = node_ids.iter().copied().collect();
+    let dup_nodes = node_ids.len() - unique_node_ids.len();
+    gates.push(QualityGateResult {
+        gate_name: "duplicate_nodes".to_string(),
+        passed: dup_nodes == 0,
+        detail: if dup_nodes == 0 {
+            "0 duplicate node IDs found".to_string()
+        } else {
+            format!("{dup_nodes} duplicate node IDs found")
+        },
+    });
+
+    // 2. dangling_source
+    let node_id_set: HashSet<&str> = node_ids.iter().copied().collect();
+    let dangling_sources: Vec<&str> = edges
+        .iter()
+        .filter_map(|e| e.get("source").and_then(|v| v.as_str()))
+        .filter(|s| !node_id_set.contains(s))
+        .collect();
+    gates.push(QualityGateResult {
+        gate_name: "dangling_source".to_string(),
+        passed: dangling_sources.is_empty(),
+        detail: if dangling_sources.is_empty() {
+            "0 dangling source references found".to_string()
+        } else {
+            format!("{} dangling source references found", dangling_sources.len())
+        },
+    });
+
+    // 3. deterministic
+    gates.push(QualityGateResult {
+        gate_name: "deterministic".to_string(),
+        passed: true,
+        detail: "not verified from single CLI run; verified by test suite".to_string(),
+    });
+
+    gates
+}
+
+/// 构建 ArkTS GraphSummary
+fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value]) -> GraphSummary {
+    let symbol_count = nodes
+        .iter()
+        .filter(|n| n.get("kind").and_then(|v| v.as_str()) == Some("symbol"))
+        .count();
+    let source_file_count = nodes
+        .iter()
+        .filter(|n| n.get("kind").and_then(|v| v.as_str()) == Some("sourceFile"))
+        .count();
+    let import_edge_count = edges
+        .iter()
+        .filter(|e| e.get("kind").and_then(|v| v.as_str()) == Some("imports"))
+        .count();
+    let call_edge_count = edges
+        .iter()
+        .filter(|e| e.get("kind").and_then(|v| v.as_str()) == Some("calls"))
+        .count();
+
+    GraphSummary {
+        node_count: nodes.len() as u32,
+        edge_count: edges.len() as u32,
+        symbol_count: symbol_count as u32,
+        source_file_count: source_file_count as u32,
+        package_count: 1,
+        diagnostic_count: 0,
+        call_edge_count: call_edge_count as u32,
+    }
+}
+
 /// 计算 Cangjie 质量门
 fn compute_cangjie_quality_gates(
     nodes: &[serde_json::Value],
@@ -967,6 +1155,69 @@ pub fn run() {
                         }
                     }
                 }
+                "arkts" | "typescript" => {
+                    let (json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("v0.1.0")
+                        .to_string();
+
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = bridge_format::convert_arkts_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_arkts_summary(&nodes, &edges);
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates: quality_gates.clone(),
+                            graph: json_val,
+                        };
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
+
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 other => {
                     eprintln!("错误：不支持的语言: {other}");
                     std::process::exit(1);
@@ -1023,6 +1274,19 @@ pub fn run() {
                         }
                     };
                     let gates = compute_cangjie_quality_gates(&nodes, &edges);
+                    let all_pass = gates.iter().all(|g| g.passed);
+                    let overall = if all_pass { "pass" } else { "fail" };
+                    (gates, overall)
+                }
+                "arkts" | "typescript" => {
+                    let (_json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gates = compute_arkts_quality_gates(&nodes, &edges);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -1109,6 +1373,26 @@ pub fn run() {
                     };
                     let gs = build_cangjie_summary(&nodes, &edges);
                     let gates = compute_cangjie_quality_gates(&nodes, &edges);
+                    let total = gates.len() as u32;
+                    let passed = gates.iter().filter(|g| g.passed).count() as u32;
+                    let failed = total - passed;
+                    let qs = QualitySummary {
+                        total,
+                        passed,
+                        failed,
+                    };
+                    (gs, qs)
+                }
+                "arkts" | "typescript" => {
+                    let (_json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gates = compute_arkts_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;

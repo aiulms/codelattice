@@ -83,7 +83,7 @@ fn collect_references(
             let line = node.start_position().row + 1;
             // The constructor name is the identifier after "new"
             for i in 0..node.child_count() {
-                let child = node.child(i).unwrap();
+                let child = node.child(i as u32).unwrap();
                 if child.kind() == "identifier" || child.kind() == "member_expression" {
                     let name = source[child.byte_range()].to_string();
                     refs.push(TsReference {
@@ -114,7 +114,7 @@ fn collect_references(
     }
 
     for i in 0..node.child_count() {
-        collect_references(&node.child(i).unwrap(), source, refs);
+        collect_references(&node.child(i as u32).unwrap(), source, refs);
     }
 }
 

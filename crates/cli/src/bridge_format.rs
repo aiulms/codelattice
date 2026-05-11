@@ -12,6 +12,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 // 从语言特定模块重新导出公开 API，保持 `bridge_format::convert_*` 调用路径不变
+pub use crate::arkts_bridge::convert_arkts_graph;
 pub use crate::cangjie_bridge::convert_cangjie_graph;
 pub use crate::rust_bridge::convert_rust_graph;
 

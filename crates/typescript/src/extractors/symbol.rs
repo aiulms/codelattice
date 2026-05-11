@@ -186,7 +186,7 @@ fn collect_symbols(
 
     // Recurse into children
     for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
+        let child = node.child(i as u32).unwrap();
         collect_symbols(&child, source, owner, symbols);
     }
 }
@@ -199,7 +199,7 @@ fn first_child_text<'a>(
     source: &'a str,
 ) -> Option<String> {
     for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
+        let child = node.child(i as u32).unwrap();
         if child.kind() == kind {
             return Some(source[child.byte_range()].to_string());
         }

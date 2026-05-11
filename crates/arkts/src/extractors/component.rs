@@ -61,7 +61,7 @@ pub fn extract_arkts_components(source: &str) -> Vec<ArkTsComponent> {
     let mut components = Vec::new();
 
     for i in 0..root.child_count() {
-        let child = root.child(i).unwrap();
+        let child = root.child(i as u32).unwrap();
         if child.kind() == "ERROR" {
             try_extract_component_from_error(&child, source, &mut components);
         }
@@ -82,7 +82,7 @@ fn try_extract_component_from_error(
     let mut struct_name = None;
 
     for i in 0..error_node.child_count() {
-        let child = error_node.child(i).unwrap();
+        let child = error_node.child(i as u32).unwrap();
 
         if child.kind() == "decorator" {
             let text = source[child.byte_range()].to_string();
@@ -91,9 +91,10 @@ fn try_extract_component_from_error(
 
         if child.kind() == "ERROR" {
             // Inner ERROR containing "struct Name {"
-            let mut inner_iter = child.children(&mut child.walk());
+            let mut cursor = child.walk();
+            let mut inner_iter = child.children(&mut cursor);
             if let Some(first) = inner_iter.next() {
-                if source[first.byte_range()] == "struct" {
+                if &source[first.byte_range()] == "struct" {
                     found_struct = true;
                     if let Some(name_node) = inner_iter.next() {
                         if name_node.kind() == "identifier" {
@@ -133,7 +134,7 @@ fn find_build_method(
         let node = cursor.node();
         if node.kind() == "call_expression" {
             if let Some(func) = node.child(0) {
-                if source[func.byte_range()] == "build" {
+                if &source[func.byte_range()] == "build" {
                     let start_line = node.start_position().row + 1;
                     let end_line = node.end_position().row + 1;
                     // Collect UI calls inside build
@@ -179,7 +180,7 @@ fn collect_ui_calls(
     ui_calls: &mut Vec<String>,
 ) {
     for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
+        let child = node.child(i as u32).unwrap();
         if child.kind() == "call_expression" {
             if let Some(func) = child.child(0) {
                 let name = source[func.byte_range()].to_string();

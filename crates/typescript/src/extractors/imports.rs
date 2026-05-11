@@ -40,7 +40,7 @@ pub fn extract_ts_imports(
     let mut imports = Vec::new();
 
     for i in 0..root.child_count() {
-        let child = root.child(i).unwrap();
+        let child = root.child(i as u32).unwrap();
         if child.kind() == "import_statement" {
             if let Some(imp) = parse_import_node(&child, source) {
                 imports.push(imp);
@@ -65,11 +65,11 @@ fn parse_import_node(node: &tree_sitter::Node, source: &str) -> Option<TsImport>
 
     // Walk children to extract imported names
     for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
+        let child = node.child(i as u32).unwrap();
         match child.kind() {
             "import_clause" => {
                 for j in 0..child.child_count() {
-                    let c = child.child(j).unwrap();
+                    let c = child.child(j as u32).unwrap();
                     match c.kind() {
                         "identifier" => {
                             // Default import: import X from "..."
@@ -85,7 +85,7 @@ fn parse_import_node(node: &tree_sitter::Node, source: &str) -> Option<TsImport>
                             is_namespace = true;
                             // The alias is the identifier after "as"
                             for k in 0..c.child_count() {
-                                let nc = c.child(k).unwrap();
+                                let nc = c.child(k as u32).unwrap();
                                 if nc.kind() == "identifier" {
                                     namespace_alias =
                                         Some(source[nc.byte_range()].to_string());
@@ -114,11 +114,11 @@ fn parse_import_node(node: &tree_sitter::Node, source: &str) -> Option<TsImport>
 #[cfg(feature = "tree-sitter-typescript")]
 fn find_module_path(node: &tree_sitter::Node, source: &str) -> Option<String> {
     for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
+        let child = node.child(i as u32).unwrap();
         if child.kind() == "string" {
             // The string content is inside string_fragment child
             for j in 0..child.child_count() {
-                let c = child.child(j).unwrap();
+                let c = child.child(j as u32).unwrap();
                 if c.kind() == "string_fragment" {
                     return Some(source[c.byte_range()].to_string());
                 }
@@ -135,10 +135,10 @@ fn extract_named_imports(
     names: &mut Vec<String>,
 ) {
     for i in 0..node.child_count() {
-        let child = node.child(i).unwrap();
+        let child = node.child(i as u32).unwrap();
         if child.kind() == "import_specifier" {
             for j in 0..child.child_count() {
-                let c = child.child(j).unwrap();
+                let c = child.child(j as u32).unwrap();
                 if c.kind() == "identifier" {
                     names.push(source[c.byte_range()].to_string());
                     break;

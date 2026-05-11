@@ -6,7 +6,7 @@ license.workspace = true
 
 [features]
 default = []
-tree-sitter-arkts = ["dep:tree-sitter", "dep:tree-sitter-typescript"]
+tree-sitter-arkts = ["dep:tree-sitter", "dep:tree-sitter-typescript", "gitnexus-typescript/tree-sitter-typescript"]
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
