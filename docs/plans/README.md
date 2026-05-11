@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（MCP opencode Real Client Test: pipe-buffer deadlock fix, path deny fix, opencode config）
+最后更新：2026-05-11（Cangjie Live Production Runway: cangjie-live-codelattice registry entry, live deny-list exemption, smoke script）
 
 ## 用途
 
@@ -808,3 +808,14 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - Cangjie 场景测试：903 nodes, 3252 edges, 887 symbols, 分析 ~8s
     - opencode 配置已保留，备份在 `opencode.json.bak-20260511-114701`
     - Report: `docs/plans/2026-05-11-opencode-mcp-real-client-test.md`
+
+63. **Cangjie Live CodeLattice Production Runway** ✅ 完成（2026-05-11）：
+    - 新增 `ALLOWED_DENIED_SUBPATHS` — live repo deny-list 豁免 `runtime/cjgui` 子路径
+    - 新增 `scripts/cangjie-live-codelattice-smoke.sh` — 多模式 smoke（--dry-run/--analyze/--mcp/--tool-ingest/--full）
+    - Live cangjie analyze: 3,046 nodes, 7,693 edges, 2,887 symbols, 157 files, all 6 quality gates pass
+    - Tool registry 新建 `cangjie-live-codelattice`（17,194 nodes, 52,522 edges, 197 clusters, 300 flows）
+    - MCP 7/7 pass（cache_prewarm, project_overview, graph_overview, symbol_search, symbol_context, production_assist, cache_status）
+    - Tool context/detect-changes 验证通过
+    - 命名规范：`cangjie-live-codelattice`（推荐）vs `cjgui-index`（fixture）vs `cjgui`（legacy deprecated）
+    - Plan: `docs/plans/2026-05-11-cangjie-live-codelattice-production-runway.md`
+    - Closure: `docs/plans/2026-05-11-cangjie-live-codelattice-production-runway-closure.md`

@@ -203,11 +203,12 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 ## 八、安全说明
 
 1. **Read-only**: 所有 21 个工具只读项目源码，不修改任何文件
-2. **Live repo deny**: `/Users/jiangxuanyang/Desktop/cangjie` 等生产 live repo 默认拒绝
+2. **Live repo deny with exemptions**: `/Users/jiangxuanyang/Desktop/cangjie` 默认拒绝，但 `runtime/cjgui` 子路径被明确豁免用于只读分析
 3. **No default switch**: CodeLattice MCP 不会修改任何默认工具配置
 4. **Temp files only**: `export_bridge` 仅写入 /tmp
 5. **No rename apply**: `rename_preview` 返回 `applySupported: false`
 6. **No arbitrary queries**: `query_graph` 只接受参数化过滤器
+7. **No source modification to live repos**: 所有 cangjie live 分析均为只读
 
 ---
 
@@ -256,6 +257,24 @@ cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie
 ```bash
 node /path/to/gitnexus/dist/cli/index.js analyze /path/to/project --force --skip-agents-md --name project
 ```
+
+### cangjie-live-codelattice (v0.8 新增)
+
+CodeLattice 产出的 live 仓颉图已注册到 GitNexus-RC-Tool registry，名称为 `cangjie-live-codelattice`：
+
+```bash
+# 查看 registry
+node /path/to/gitnexus/dist/cli/index.js list
+
+# 查询符号
+node /path/to/gitnexus/dist/cli/index.js context init -r cangjie-live-codelattice
+
+# 刷新分析（先产出 bridge JSON，再导入）
+bash scripts/cangjie-live-codelattice-smoke.sh --analyze
+bash scripts/cangjie-live-codelattice-smoke.sh --tool-ingest
+```
+
+**不再推荐使用裸 `cjgui`**。旧 `cjgui` entries 仅保留历史兼容。详见 `docs/plans/2026-05-11-cangjie-live-codelattice-production-runway.md`。
 
 ### old binary name
 

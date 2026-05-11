@@ -32,7 +32,11 @@ use std::time::{Duration, Instant, SystemTime};
 // ============================================================
 
 /// Paths that are explicitly denied for MCP access (live repos).
+/// Subpaths in ALLOWED_DENIED_SUBPATHS are exempted from denial (read-only analysis).
 const DENIED_PATHS: &[&str] = &["/Users/jiangxuanyang/Desktop/cangjie"];
+
+/// Subpaths under denied directories that are explicitly allowed for read-only MCP analysis.
+const ALLOWED_DENIED_SUBPATHS: &[&str] = &["/Users/jiangxuanyang/Desktop/cangjie/runtime/cjgui"];
 
 /// Validate that an output path is within /tmp (or a system temp dir).
 fn validate_output_path(output_path: &str) -> Result<PathBuf, Value> {
@@ -69,8 +73,30 @@ fn validate_root_path(root: &str) -> Result<PathBuf, Value> {
         ));
     }
 
-    // Check deny list
+    // Check deny list — but allow exempted subpaths
     for denied in DENIED_PATHS {
+        // First check if path is in the allow list (exempt from denial)
+        let mut is_allowed = false;
+        for allowed in ALLOWED_DENIED_SUBPATHS {
+            let allowed_canonical = PathBuf::from(allowed).canonicalize().ok();
+            if let Some(ac) = allowed_canonical {
+                if canonical == ac || canonical.starts_with(&ac) {
+                    is_allowed = true;
+                    break;
+                }
+            }
+            // String-prefix fallback for allow list
+            let allowed_with_sep = format!("{}/", allowed.trim_end_matches('/'));
+            let canonical_str = canonical.to_string_lossy();
+            if canonical_str.starts_with(&allowed_with_sep) || canonical_str == *allowed {
+                is_allowed = true;
+                break;
+            }
+        }
+        if is_allowed {
+            continue;
+        }
+
         let denied_canonical = PathBuf::from(denied).canonicalize().ok();
         if let Some(dc) = denied_canonical {
             if canonical == dc {
