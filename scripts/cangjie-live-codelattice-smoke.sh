@@ -143,7 +143,14 @@ PROFILE_RESP=$(echo '{"jsonrpc":"2.0","id":999,"method":"initialize","params":{"
 PROFILE_CJ=$(echo "$PROFILE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
 echo "Profile: cangjieSupport=$PROFILE_CJ"
 if [ "$PROFILE_CJ" != "True" ]; then
-    bail "Binary does not have cangjie support. Rebuild: cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie"
+    echo "Rebuilding with cangjie feature..."
+    cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --quiet 2>/dev/null
+    PROFILE_RESP=$(echo '{"jsonrpc":"2.0","id":999,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1)
+    PROFILE_CJ=$(echo "$PROFILE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    echo "Profile after rebuild: cangjieSupport=$PROFILE_CJ"
+    if [ "$PROFILE_CJ" != "True" ]; then
+        bail "Binary still lacks cangjie support after rebuild. Check build errors."
+    fi
 fi
 
 # Check live root is not modified by us

@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（Cangjie Live Production Runway: cangjie-live-codelattice registry entry, live deny-list exemption, smoke script）
+最后更新：2026-05-11（Production Alias Switch Plan: registry hygiene, stable window check, deprecated cjgui）
 
 ## 用途
 
@@ -819,3 +819,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - 命名规范：`cangjie-live-codelattice`（推荐）vs `cjgui-index`（fixture）vs `cjgui`（legacy deprecated）
     - Plan: `docs/plans/2026-05-11-cangjie-live-codelattice-production-runway.md`
     - Closure: `docs/plans/2026-05-11-cangjie-live-codelattice-production-runway-closure.md`
+
+64. **Cangjie Production Alias & Registry Hygiene** ✅ 完成（2026-05-11）：
+    - Registry audit: 7 repos total, 2 ambiguous `cjgui` entries identified, `cangjie-live-codelattice` confirmed as recommended
+    - New `scripts/cangjie-production-alias-check.sh` — stable window check (--status/--smoke/--full)
+    - Stable window rules: ≤10 dirty = green, 11-50 = yellow, >50 = red
+    - Production Alias Switch Plan: Phase A (docs prohibit bare cjgui) → Phase B (AI defaults) → Phase C (WebUI) → Phase D (cleanup)
+    - Plan: `docs/plans/2026-05-11-cangjie-production-alias-switch-plan.md`
+    - Current window: RED (114 dirty) — Phase A active, Phase B blocked until green

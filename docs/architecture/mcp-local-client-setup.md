@@ -274,7 +274,29 @@ bash scripts/cangjie-live-codelattice-smoke.sh --analyze
 bash scripts/cangjie-live-codelattice-smoke.sh --tool-ingest
 ```
 
-**不再推荐使用裸 `cjgui`**。旧 `cjgui` entries 仅保留历史兼容。详见 `docs/plans/2026-05-11-cangjie-live-codelattice-production-runway.md`。
+**不再推荐使用裸 `cjgui`**。旧 `cjgui` entries 仅保留历史兼容。生产分析推荐 `cangjie-live-codelattice`，测试 fixture 推荐 `cjgui-index`。
+
+### cangjie-production-alias-check.sh (v0.8 新增)
+
+检查 live repo 是否处于 stable window：
+
+```bash
+# 查看状态
+bash scripts/cangjie-production-alias-check.sh --status
+
+# 运行 MCP smoke
+bash scripts/cangjie-production-alias-check.sh --smoke
+
+# 完整生产流水线
+bash scripts/cangjie-production-alias-check.sh --full
+```
+
+Stable window 规则：
+- dirty ≤ 10: **GREEN** — 安全执行 full smoke + 默认切换评估
+- dirty 11-50: **YELLOW** — 只读 analyze/mcp，不建议切默认
+- dirty > 50: **RED** — 建议等待
+
+详见 `docs/plans/2026-05-11-cangjie-production-alias-switch-plan.md`。
 
 ### old binary name
 
