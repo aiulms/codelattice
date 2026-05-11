@@ -210,7 +210,7 @@ JSON
     echo "Notes:"
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - Supports Rust and Cangjie analysis only"
-    echo "  - 20 tools including process-local cache with mtime invalidation"
+    echo "  - 21 tools including process-local cache with mtime invalidation and prewarm"
     echo "  - Read-only — never modifies source code"
 fi
 

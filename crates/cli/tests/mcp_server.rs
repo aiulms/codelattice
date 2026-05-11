@@ -157,7 +157,7 @@ fn mcp_tools_list_returns_twenty_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 20, "expected 20 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 21, "expected 21 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -2393,4 +2393,154 @@ fn mcp_rename_preview_includes_snippet() {
             "snippet should have lines"
         );
     }
+}
+
+// ============================================================
+// v0.6: cache_prewarm + cangjie symbol_search
+// ============================================================
+
+#[test]
+fn mcp_cache_prewarm_warms_cache() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+
+    // Clear cache first
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_clear",
+            "arguments": {}
+        }
+    }));
+    let _ = session.recv();
+
+    // Prewarm
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_prewarm",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 3);
+    let text = resp["result"]["content"][0]["text"].as_str().expect("text");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["warmed"], true, "should be warmed");
+    assert!(
+        data["summary"]["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "summary should have symbols"
+    );
+
+    // Verify subsequent call hits cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp2 = session.recv();
+    let text2 = resp2["result"]["content"][0]["text"]
+        .as_str()
+        .expect("text");
+    let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
+    assert_eq!(data2["cacheHit"], true, "should hit cache after prewarm");
+}
+
+#[test]
+fn mcp_cache_prewarm_returns_hit_if_fresh() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+
+    // Prewarm once
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_prewarm",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Prewarm again — should be cache hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_prewarm",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().expect("text");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["warmed"], true);
+    assert_eq!(data["cacheHit"], true, "second prewarm should be cache hit");
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn mcp_cangjie_symbol_search_finds_init() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = cangjie_portable_smoke_dir();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 2,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "cangjie",
+                "query": "init",
+                "limit": 10
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 2);
+    let text = resp["result"]["content"][0]["text"].as_str().expect("text");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    let count = data["matchCount"].as_u64().unwrap_or(0);
+    assert!(
+        count > 0,
+        "cangjie symbol_search(init) should find at least one match, got {}",
+        count
+    );
 }

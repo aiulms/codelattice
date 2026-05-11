@@ -95,7 +95,7 @@ with open('$TMPFILE') as f:
                 break
         except: pass
 " 2>/dev/null || echo "0")
-check_result "tools/list ($TOOL_COUNT tools)" "$([[ "$TOOL_COUNT" -ge 20 ]] && echo true || echo false)"
+check_result "tools/list ($TOOL_COUNT tools)" "$([[ "$TOOL_COUNT" -ge 21 ]] && echo true || echo false)"
 
 # 3. cache_status (empty)
 CACHE_EMPTY=$(python3 -c "

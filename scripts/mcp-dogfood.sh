@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.5 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 20 tools + source snippet + cache behavior.
+# Exercises all 21 tools + source snippet + cache behavior.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -114,14 +114,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" = "20" ]; then
+if [ "$TOOL_COUNT" -ge 21 ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list (20 tools)")
-    echo "   → 20 tools listed"
+    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
+    echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected 20, got $TOOL_COUNT)")
-    echo "   → expected 20 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 21, got $TOOL_COUNT)")
+    echo "   → expected >= 21 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -252,11 +252,19 @@ else
 fi
 
 # ============================================================
+# v0.6: cache_prewarm
+# ============================================================
+echo "21. codelattice_cache_prewarm"
+check_tool "codelattice_cache_prewarm" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\"}" \
+    "data.get('warmed') == True and isinstance(data.get('summary'), dict)"
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.4 Dogfood Results"
+echo " MCP v0.6 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"
@@ -267,7 +275,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.4 dogfood successful."
+    echo "All checks passed — MCP v0.6 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."

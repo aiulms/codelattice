@@ -1,7 +1,7 @@
 # MCP Local Client Setup — CodeLattice Sidecar Server
 
 > **日期：** 2026-05-11
-> **版本：** v0.5.0
+> **版本：** v0.6.0
 > **状态：** Active
 
 ---
@@ -138,7 +138,7 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 
 ---
 
-## 六、20 个 MCP 工具一览
+## 六、21 个 MCP 工具一览
 
 | # | 工具名 | 用途 | 版本 |
 |---|--------|------|------|
@@ -162,6 +162,7 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 | 18 | `codelattice_cache_clear` | 清空进程内分析缓存 | v0.3 |
 | 19 | `codelattice_production_assist` | 生产就绪检查（dry-run） | v0.5 |
 | 20 | `codelattice_compare_runs` | 对比两次分析结果 | v0.5 |
+| 21 | `codelattice_cache_prewarm` | 预热进程内分析缓存 | v0.6 |
 
 ---
 
@@ -201,7 +202,7 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 
 ## 八、安全说明
 
-1. **Read-only**: 所有 16 个工具只读项目源码，不修改任何文件
+1. **Read-only**: 所有 21 个工具只读项目源码，不修改任何文件
 2. **Live repo deny**: `/Users/jiangxuanyang/Desktop/cangjie` 等生产 live repo 默认拒绝
 3. **No default switch**: CodeLattice MCP 不会修改任何默认工具配置
 4. **Temp files only**: `export_bridge` 仅写入 /tmp
@@ -282,7 +283,7 @@ bash scripts/install-mcp.sh --doctor
 
 该脚本**不会自动修改**任何客户端配置文件。它只输出可复制粘贴的 JSON/TOML 片段。
 
-`--doctor` 检查：binary、wrapper、MCP handshake、tools/list (>= 20)、cache_status (maxEntries)。
+`--doctor` 检查：binary、wrapper、MCP handshake、tools/list (>= 21)、cache_status (maxEntries)。
 
 ### codelattice-mcp.sh --self-test
 
@@ -294,7 +295,7 @@ bash scripts/codelattice-mcp.sh --self-test
 1. CODELATTICE_ROOT 有效
 2. Binary 可找到且可执行
 3. MCP handshake 成功（initialize → 返回 codelattice server info）
-4. tools/list 返回 >= 20 个工具 (v0.5 新增)
+4. tools/list 返回 >= 21 个工具 (v0.6 更新)
 5. cache_status 包含 maxEntries 和 totalEvictions (v0.5 新增)
 
 ### mcp-cache-smoke.sh
@@ -317,7 +318,7 @@ bash scripts/mcp-real-client-dry-run.sh [root_dir]
 
 模拟真实 MCP 客户端调用 10 个高频工具，不修改任何配置：
 1. initialize handshake
-2. tools/list (20 tools)
+2. tools/list (21 tools)
 3. cache_status (empty)
 4. codelattice_analyze (miss)
 5. codelattice_graph_overview

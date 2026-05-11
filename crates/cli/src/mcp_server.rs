@@ -10,6 +10,7 @@
 //!         codelattice_repo_registry, codelattice_rename_preview
 //!   v0.3: codelattice_cache_status, codelattice_cache_clear
 //!   v0.5: codelattice_production_assist, codelattice_compare_runs
+//!   v0.6: codelattice_cache_prewarm
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -1138,9 +1139,24 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
     if let Some(graph) = result.get("graph") {
         if let Some(nodes) = graph["nodes"].as_array() {
             for node in nodes {
-                // Only search symbol and package nodes
+                // Only search symbol-like nodes (covers both Rust and Cangjie naming)
+                let kind = node["kind"].as_str().unwrap_or("");
                 let label = node["label"].as_str().unwrap_or("");
-                if label != "symbol" && label != "package" && label != "source-file" {
+                let is_searchable = kind == "symbol"
+                    || kind == "function"
+                    || kind == "method"
+                    || kind == "associated-function"
+                    || kind == "class"
+                    || kind == "struct"
+                    || kind == "enum"
+                    || kind == "trait"
+                    || kind == "const"
+                    || kind == "static"
+                    || kind == "package"
+                    || kind == "source-file"
+                    || kind == "sourceFile"
+                    || label == "symbol";
+                if !is_searchable {
                     continue;
                 }
 
@@ -1155,29 +1171,82 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
                     }
                 }
 
+                // Name extraction: try properties.name, then label (Cangjie uses label for display name),
+                // then parse from id (Rust uses ::, Cangjie uses :).
                 let name = node["properties"]["name"]
                     .as_str()
-                    .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+                    .or_else(|| {
+                        // For Cangjie nodes, label holds the display name
+                        if kind == "symbol" && !label.is_empty() && !label.contains('/') {
+                            Some(label)
+                        } else {
+                            None
+                        }
+                    })
+                    .or_else(|| {
+                        // Parse from id: Rust uses "::" separator, Cangjie uses ":"
+                        node["id"].as_str().and_then(|id| {
+                            // Try Rust-style "::" first
+                            if let Some(rust_name) = id.split("::").last() {
+                                if !rust_name.is_empty() {
+                                    return Some(rust_name);
+                                }
+                            }
+                            // Try Cangjie-style ":" — take the part before #arity
+                            let without_arity = id.split('#').next().unwrap_or(id);
+                            if let Some(cj_name) = without_arity.rsplit(':').next() {
+                                if !cj_name.is_empty() {
+                                    return Some(cj_name);
+                                }
+                            }
+                            None
+                        })
+                    })
                     .unwrap_or("");
 
                 // Case-insensitive contains match
                 if name.to_lowercase().contains(&query_lower) {
                     if matches.len() < limit {
+                        // File path: try properties.sourcePath, then manifestPath,
+                        // then parse from Cangjie-style id (sym:<file>:Kind:name)
                         let file_val = node["properties"]["sourcePath"]
                             .as_str()
                             .map(|s| json!(s))
-                            .unwrap_or_else(|| {
+                            .or_else(|| {
                                 node["properties"]["manifestPath"]
                                     .as_str()
                                     .map(|s| json!(s))
-                                    .unwrap_or(Value::Null)
-                            });
+                            })
+                            .or_else(|| {
+                                // Cangjie: extract file from id like "sym:src/foo.cj:Function:name#1"
+                                node["id"].as_str().and_then(|id| {
+                                    let parts: Vec<&str> = id.splitn(4, ':').collect();
+                                    if parts.len() >= 3 && parts[0] == "sym" {
+                                        Some(json!(parts[1]))
+                                    } else {
+                                        None
+                                    }
+                                })
+                            })
+                            .unwrap_or(Value::Null);
+
+                        // Line: try properties.lineStart, then startLine (Cangjie)
+                        let line_val = node["properties"]["lineStart"]
+                            .as_u64()
+                            .or_else(|| node["properties"]["startLine"].as_u64());
+
+                        // Kind: try symbolKind, then kind, then label
+                        let kind_val = node["properties"]["symbolKind"]
+                            .as_str()
+                            .or_else(|| node["properties"]["kind"].as_str())
+                            .unwrap_or(label);
+
                         matches.push(json!({
                             "id": node["id"],
                             "name": name,
-                            "kind": node["properties"]["symbolKind"].as_str().or_else(|| node["properties"]["kind"].as_str()).unwrap_or(label),
+                            "kind": kind_val,
                             "file": file_val,
-                            "line": node["properties"]["lineStart"],
+                            "line": line_val,
                             "label": label
                         }));
                     }
@@ -2946,6 +3015,40 @@ fn handle_cache_clear(cache: &mut McpCache, params: &Value) -> Result<Value, Val
     })))
 }
 
+fn handle_cache_prewarm(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_cangjie_feature(language)?;
+    let strict = params["strict"].as_bool().unwrap_or(false);
+
+    let (_gv, result, cache_meta) = cache.get_or_analyze(&validated, language, strict)?;
+
+    // Build compact summary from analysis result
+    let summary = json!({
+        "symbolCount": result.get("summary").and_then(|s| s.get("symbolCount")).unwrap_or(&json!(0)),
+        "nodeCount": result.get("summary").and_then(|s| s.get("nodeCount")).unwrap_or(&json!(0)),
+        "edgeCount": result.get("summary").and_then(|s| s.get("edgeCount")).unwrap_or(&json!(0)),
+        "sourceFileCount": result.get("summary").and_then(|s| s.get("sourceFileCount")).unwrap_or(&json!(0)),
+    });
+
+    let mut output = json!({
+        "warmed": true,
+        "summary": summary,
+    });
+
+    // Merge cache meta
+    if let (Some(obj), Some(meta)) = (output.as_object_mut(), cache_meta.as_object()) {
+        for (k, v) in meta {
+            obj.insert(k.clone(), v.clone());
+        }
+    }
+
+    Ok(tool_result(&output))
+}
+
 // ============================================================
 // Tools List
 // ============================================================
@@ -3223,9 +3326,22 @@ fn tools_list() -> Value {
                         "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file (must be under /tmp)" },
                         "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file (must be under /tmp)" }
                     }
+                 }
+             },
+             {
+                "name": "codelattice_cache_prewarm",
+                "description": "Pre-warm the process-local analysis cache for a project. Runs analysis and stores the result so subsequent tool calls are fast. Returns cache status after warming. If cache is already fresh (mtime-valid), returns cacheHit=true immediately.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "strict": { "type": "boolean", "default": false, "description": "Strict mode (quality gate failures as errors). Default false to match most other tools." }
+                    },
+                    "required": ["root"]
                 }
              }
-        ]
+         ]
     })
 }
 
@@ -3309,6 +3425,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_cache_clear" => handle_cache_clear(cache, &arguments),
                 "codelattice_production_assist" => handle_production_assist(cache, &arguments),
                 "codelattice_compare_runs" => handle_compare_runs(cache, &arguments),
+                "codelattice_cache_prewarm" => handle_cache_prewarm(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

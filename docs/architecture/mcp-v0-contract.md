@@ -672,6 +672,37 @@ Compare two analysis results: nodes/edges/symbols/quality gates/diagnostics diff
 
 ---
 
+### 3.21 `codelattice_cache_prewarm`
+
+Pre-warm the process-local analysis cache for a project. Runs analysis and stores the result so subsequent tool calls hit cache immediately. If cache is already fresh (mtime-valid), returns cacheHit=true immediately.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "Project root directory (absolute path)" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "strict": { "type": "boolean", "default": false, "description": "Strict mode. Default false to match most other tools." }
+  },
+  "required": ["root"]
+}
+```
+
+**Output**: `{ warmed: bool, cacheHit: bool, analysisDurationMs, summary: { symbolCount, nodeCount, edgeCount, sourceFileCount } }`
+
+**Use case**: AI agent opens a project → calls cache_prewarm → all subsequent graph queries return instantly from cache.
+
+---
+
+### 3.22 Cangjie Symbol Search Fix (v0.6)
+
+> **v0.6 Fix**: Cangjie graph nodes use `kind="symbol"` with display name in `label` field, while Rust uses `kind="function"/"method"/...` with `label="symbol"`. The old `symbol_search` filtered by `label == "symbol"`, which excluded all Cangjie symbols.
+>
+> **Fix**: Filter by `kind` (symbol, function, method, class, etc.) instead of `label`. Name extraction now tries `properties.name` → `label` (Cangjie) → `id` parsing (both `::` and `:` separators). File extraction handles Cangjie `id` format `sym:<file>:<Kind>:<name>#<arity>`.
+
+---
+
 ### 3.x Cache Evolution (v0.5)
 
 > **v0.5 Cache Enhancements**:
@@ -792,3 +823,4 @@ Compare two analysis results: nodes/edges/symbols/quality gates/diagnostics diff
 | 2026-05-11 | v0.3.0 | v0.3 — 2 new tools (cache_status, cache_clear), process-local analysis cache, cacheHit/analysisDurationMs signals in all tool outputs, 18 tools total |
 | 2026-05-11 | v0.4.0 | v0.4 — source snippets in symbol_context (includeSnippet, snippetContext, sourceSnippet field), install-mcp.sh, wrapper --self-test, cache smoke script, real client readiness |
 | 2026-05-11 | v0.5.0 | v0.5 — Daily-use candidate: mtime-based cache invalidation, LRU eviction (max 16), snippet expansion to calls_from/to/impact/query/rename, 2 new tools (production_assist, compare_runs), install --doctor, real-client-dry-run.sh, 20 tools total |
+| 2026-05-11 | v0.6.0 | v0.6 — opencode real client verified, cangjie symbol_search fix (kind-based filtering, id parsing, label fallback), pipe-buffer deadlock fix, path-deny false positive fix, 1 new tool (cache_prewarm), 21 tools total |
