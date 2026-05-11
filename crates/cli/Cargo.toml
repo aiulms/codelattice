@@ -16,6 +16,7 @@ path = "src/bin/gitnexus-rust-core-cli.rs"
 default = ["tree-sitter-extraction"]
 tree-sitter-extraction = ["gitnexus-project-model/tree-sitter-extraction"]
 tree-sitter-cangjie = ["gitnexus-cangjie/tree-sitter-cangjie"]
+tree-sitter-arkts = ["dep:gitnexus-arkts", "gitnexus-arkts/tree-sitter-arkts"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -23,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 gitnexus-project-model = { path = "../project-model" }
 gitnexus-cangjie = { path = "../cangjie", optional = true }
+gitnexus-arkts = { path = "../arkts", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"

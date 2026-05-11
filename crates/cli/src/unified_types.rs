@@ -111,7 +111,11 @@ pub struct SummaryCommandOutput {
 pub enum DetectedLanguage {
     Rust,
     Cangjie,
-    /// 两种清单都存在，需要用户显式指定
+    /// ArkTS project (oh-package.json5 detected)
+    ArkTS,
+    /// TypeScript project (tsconfig.json / package.json with .ts/.tsx files)
+    TypeScript,
+    /// 多种清单存在，需要用户显式指定
     Ambiguous,
     /// 没有可识别的清单文件
     Unknown,
@@ -123,6 +127,8 @@ impl DetectedLanguage {
         match self {
             DetectedLanguage::Rust => "rust",
             DetectedLanguage::Cangjie => "cangjie",
+            DetectedLanguage::ArkTS => "arkts",
+            DetectedLanguage::TypeScript => "typescript",
             DetectedLanguage::Ambiguous => "ambiguous",
             DetectedLanguage::Unknown => "unknown",
         }

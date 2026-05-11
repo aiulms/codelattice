@@ -719,9 +719,9 @@ fn run_script_with_timeout(
 // Language helpers
 // ============================================================
 
-/// Check if cangjie language is requested but feature is not compiled.
-/// Returns Err if cangjie requested without feature, Ok(()) otherwise.
-fn check_cangjie_feature(language: &str) -> Result<(), Value> {
+/// Check if cangjie/arkts language is requested but feature is not compiled.
+/// Returns Err if requested without feature, Ok(()) otherwise.
+fn check_language_feature(language: &str) -> Result<(), Value> {
     if language == "cangjie" {
         #[cfg(not(feature = "tree-sitter-cangjie"))]
         {
@@ -730,6 +730,17 @@ fn check_cangjie_feature(language: &str) -> Result<(), Value> {
                 "Cangjie support not compiled",
                 "Cangjie language was requested but tree-sitter-cangjie feature is not enabled",
                 "Rebuild with --features tree-sitter-cangjie",
+            ));
+        }
+    }
+    if language == "arkts" {
+        #[cfg(not(feature = "tree-sitter-arkts"))]
+        {
+            return Err(mcp_error_with_hint(
+                "arkts_disabled",
+                "ArkTS support not compiled",
+                "ArkTS language was requested but tree-sitter-arkts feature is not enabled",
+                "Rebuild with --features tree-sitter-arkts",
             ));
         }
     }
@@ -772,7 +783,7 @@ fn handle_analyze(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let strict = params["strict"].as_bool().unwrap_or(true);
     let include_graph = params["includeGraph"].as_bool().unwrap_or(false);
@@ -805,7 +816,7 @@ fn handle_quality(_cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let validated = validate_root_path(root)?;
     let root_str = validated.to_string_lossy().to_string();
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let args = vec![
         "quality",
@@ -845,7 +856,7 @@ fn handle_summary(_cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let validated = validate_root_path(root)?;
     let root_str = validated.to_string_lossy().to_string();
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let args = vec![
         "summary",
@@ -975,7 +986,7 @@ fn handle_graph_overview(_cache: &mut McpCache, params: &Value) -> Result<Value,
 
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     // Run analyze with json format to get full graph, then extract overview
     let result = run_analyze_subprocess(&validated, language, "json", false)?;
@@ -1076,7 +1087,7 @@ fn handle_unresolved_report(_cache: &mut McpCache, params: &Value) -> Result<Val
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
     let limit = params["limit"].as_u64().unwrap_or(20) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     // Run analyze with json format to get graph
     let result = run_analyze_subprocess(&validated, language, "json", false)?;
@@ -1181,7 +1192,7 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
     let kind_filter = params["kind"].as_str();
     let limit = params["limit"].as_u64().unwrap_or(20) as usize;
     let limit = limit.min(100); // max 100
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let result = run_analyze_subprocess(&validated, language, "json", false)?;
 
@@ -1324,7 +1335,7 @@ fn handle_export_bridge(_cache: &mut McpCache, params: &Value) -> Result<Value, 
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: language"))?;
 
     let validated = validate_root_path(root)?;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     // Determine output path
     let output_path = if let Some(op) = params["outputPath"].as_str() {
@@ -1681,7 +1692,7 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let limit = params["limit"].as_u64().unwrap_or(10).min(50) as usize;
     let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_context = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
@@ -1897,7 +1908,7 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
     let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let root_str = validated.to_string_lossy();
@@ -2023,7 +2034,7 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
     let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let root_str = validated.to_string_lossy();
@@ -2149,7 +2160,7 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
     let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let root_str = validated.to_string_lossy();
@@ -2399,7 +2410,7 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
     let include_snippet = params["includeSnippet"].as_bool().unwrap_or(false);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let root_str = validated.to_string_lossy();
@@ -2524,7 +2535,7 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
 
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let (graph_node_count, graph_edge_count, graph_symbol_count) = gv.stats();
@@ -2775,7 +2786,7 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let language = params["language"].as_str().unwrap_or("auto");
     let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let root_str = validated.to_string_lossy();
@@ -2879,7 +2890,7 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
 
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let (node_count, edge_count, symbol_count) = gv.stats();
@@ -3052,7 +3063,7 @@ fn handle_compare_runs(cache: &mut McpCache, params: &Value) -> Result<Value, Va
     })?;
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
 
     // Get current cached result
     let (_gv, current_result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
@@ -3256,7 +3267,7 @@ fn handle_cache_prewarm(cache: &mut McpCache, params: &Value) -> Result<Value, V
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    check_cangjie_feature(language)?;
+    check_language_feature(language)?;
     let strict = params["strict"].as_bool().unwrap_or(false);
 
     let (_gv, result, cache_meta) = cache.get_or_analyze(&validated, language, strict)?;
@@ -3298,7 +3309,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
                         "strict": { "type": "boolean", "default": true, "description": "Mark quality gate failures as errors" },
                         "includeGraph": { "type": "boolean", "default": false, "description": "Include full graph in output (large, default off)" }
                     },
@@ -3312,7 +3323,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to check" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to check" }
                     },
                     "required": ["root"]
                 }
@@ -3324,7 +3335,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to summarize" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to summarize" }
                     },
                     "required": ["root"]
                 }
@@ -3346,7 +3357,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" }
                     },
                     "required": ["root"]
                 }
@@ -3358,7 +3369,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
                         "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" }
                     },
                     "required": ["root"]
@@ -3371,7 +3382,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to search" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to search" },
                         "query": { "type": "string", "description": "Search query (case-insensitive substring match)" },
                         "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, enum, interface, etc)" },
                         "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" }
@@ -3386,7 +3397,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie"], "description": "Language (must be explicit, not auto)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript"], "description": "Language (must be explicit, not auto)" },
                         "outputPath": { "type": "string", "description": "Output file path (must be under /tmp). Default: auto-generated in /tmp" }
                     },
                     "required": ["root", "language"]
@@ -3399,7 +3410,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "name": { "type": "string", "description": "Symbol name to look up" },
                         "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, etc)" },
                         "limit": { "type": "integer", "default": 10, "maximum": 50 },
@@ -3416,7 +3427,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Source symbol name" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
                         "limit": { "type": "integer", "default": 20, "maximum": 100 }
@@ -3431,7 +3442,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Target symbol name" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
                         "limit": { "type": "integer", "default": 20, "maximum": 100 }
@@ -3446,7 +3457,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Symbol name to analyze impact for" },
                         "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
                         "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
@@ -3462,7 +3473,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "nodeKind": { "type": "string", "description": "Filter nodes by kind (function, struct, class, package, etc)" },
                         "edgeKind": { "type": "string", "description": "Filter edges by type (CALLS, DEFINES, IMPORTS, etc)" },
                         "nameContains": { "type": "string", "description": "Filter nodes by name (case-insensitive substring)" },
@@ -3479,7 +3490,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" }
                     },
                     "required": ["root"]
                 }
@@ -3492,7 +3503,7 @@ fn tools_list() -> Value {
                     "properties": {
                         "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
                         "root": { "type": "string", "description": "Project root (required for status action)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" }
                     }
                 }
             },
@@ -3503,7 +3514,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Current symbol name" },
                         "newName": { "type": "string", "description": "Proposed new name" },
                         "kind": { "type": "string", "description": "Symbol kind to disambiguate" }
@@ -3540,7 +3551,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
                         "changedSymbols": {
                             "type": "array",
                             "items": { "type": "string" },
@@ -3557,7 +3568,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root (compares cached vs fresh if no bridge files provided)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
                         "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file (must be under /tmp)" },
                         "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file (must be under /tmp)" }
                     }
@@ -3570,7 +3581,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
                         "strict": { "type": "boolean", "default": false, "description": "Strict mode (quality gate failures as errors). Default false to match most other tools." }
                     },
                     "required": ["root"]

@@ -133,18 +133,20 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
         match detect_language(root) {
             DetectedLanguage::Rust => Ok("rust".to_string()),
             DetectedLanguage::Cangjie => Ok("cangjie".to_string()),
+            DetectedLanguage::ArkTS => Ok("arkts".to_string()),
+            DetectedLanguage::TypeScript => Ok("typescript".to_string()),
             DetectedLanguage::Ambiguous => Err(
-                "语言检测失败：同时存在 Cargo.toml 和 cjpm.toml，请使用 --language rust|cangjie 显式指定".to_string(),
+                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript 显式指定".to_string(),
             ),
             DetectedLanguage::Unknown => Err(
-                "语言检测失败：未找到 Cargo.toml 或 cjpm.toml，无法自动检测语言".to_string(),
+                "语言检测失败：未找到可识别的清单文件，无法自动检测语言".to_string(),
             ),
         }
-    } else if lang_arg == "rust" || lang_arg == "cangjie" {
+    } else if ["rust", "cangjie", "arkts", "typescript"].contains(&lang_arg) {
         Ok(lang_arg.to_string())
     } else {
         Err(format!(
-            "不支持的语言: {lang_arg}，请使用 rust / cangjie / auto"
+            "不支持的语言: {lang_arg}，请使用 rust / cangjie / arkts / typescript / auto"
         ))
     }
 }
@@ -991,8 +993,8 @@ pub fn run() {
                 }
             };
 
-            if language != "rust" && language != "cangjie" {
-                eprintln!("错误：quality 命令需要显式指定 --language rust|cangjie");
+            if language != "rust" && language != "cangjie" && language != "arkts" && language != "typescript" {
+                eprintln!("错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript");
                 std::process::exit(1);
             }
 

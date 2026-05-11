@@ -177,6 +177,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitnexus-arkts"
+version = "0.1.0"
+dependencies = [
+ "gitnexus-typescript",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-typescript",
+]
+
+[[package]]
 name = "gitnexus-cangjie"
 version = "0.1.0"
 dependencies = [
@@ -206,11 +218,23 @@ version = "0.1.0"
 dependencies = [
  "assert_cmd",
  "clap",
+ "gitnexus-arkts",
  "gitnexus-cangjie",
  "gitnexus-project-model",
  "predicates",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "gitnexus-typescript"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+ "tree-sitter",
+ "tree-sitter-typescript",
 ]
 
 [[package]]
@@ -531,6 +555,16 @@ name = "tree-sitter-rust"
 version = "0.24.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "439e577dbe07423ec2582ac62c7531120dbfccfa6e5f92406f93dd271a120e45"
+dependencies = [
+ "cc",
+ "tree-sitter-language",
+]
+
+[[package]]
+name = "tree-sitter-typescript"
+version = "0.23.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c5f76ed8d947a75cc446d5fccd8b602ebf0cde64ccf2ffa434d873d7a575eff"
 dependencies = [
  "cc",
  "tree-sitter-language",
