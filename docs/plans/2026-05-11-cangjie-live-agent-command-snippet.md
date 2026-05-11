@@ -29,6 +29,13 @@ Commands:
 - `node $TOOL_CLI impact <symbol> --repo cangjie-live-codelattice`
 - `node $TOOL_CLI list`
 
+Impact syntax note:
+- Current Tool CLI expects the impact target as a positional argument.
+- Correct: `node $TOOL_CLI impact <symbol> --repo cangjie-live-codelattice`
+- Wrong: `node $TOOL_CLI impact --target <symbol> --repo cangjie-live-codelattice`
+- If the target is not indexed and the result is UNKNOWN/0, treat it as graph
+  coverage miss and use the fallback strategy below.
+
 ## CodeLattice MCP
 
 Root: `/Users/jiangxuanyang/Desktop/cangjie/runtime/cjgui`, Language: `cangjie`

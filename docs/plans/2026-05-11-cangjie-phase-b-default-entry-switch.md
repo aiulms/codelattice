@@ -40,6 +40,12 @@ node $TOOL_CLI detect-changes --repo cangjie-live-codelattice --scope all
 node $TOOL_CLI impact <symbol> --repo cangjie-live-codelattice
 ```
 
+Current Tool CLI impact syntax uses a positional target. Do **not** use
+`impact --target <symbol>`; that flag is rejected by the installed
+GitNexus-RC-Tool version. If `impact <symbol> --repo cangjie-live-codelattice`
+returns UNKNOWN/0 for a recently added owner/symbol, record it as graph coverage
+miss and use the fallback rules below.
+
 ### CodeLattice MCP (via opencode or any MCP client)
 
 ```
