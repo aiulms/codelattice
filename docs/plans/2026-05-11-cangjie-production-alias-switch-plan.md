@@ -81,7 +81,13 @@ The live `cjgui` entry was indexed at commit `97bde56` (2026-05-01). The working
 
 ## 6. Current Stable Window Status
 
-As of 2026-05-11:
+Updated 2026-05-11 (Phase B activation):
+- Live repo dirty count: **10** → **GREEN** window ✅
+- HEAD: `7759612`
+- Phase B **activated**: [Phase B doc](2026-05-11-cangjie-phase-b-default-entry-switch.md)
+- Agent command snippet: [snippet](2026-05-11-cangjie-live-agent-command-snippet.md)
+- GREEN full smoke pass: analyze 3,073 nodes / 7,745 edges / 2,912 symbols, MCP 7/7, bridge 3MB, Tool ingest 17,377 symbols
+
+Original status (2026-05-11, pre-GREEN):
 - Live repo dirty count: **114** → **RED** window
-- Phase B cannot proceed until dirty ≤ 10
-- Phase A is active: all new work uses `cangjie-live-codelattice`
+- Phase B was blocked until dirty ≤ 10

@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（Production Alias Switch Plan: registry hygiene, stable window check, deprecated cjgui）
+最后更新：2026-05-11（Phase B activated: GREEN window full smoke pass, default live entry guidance）
 
 ## 用途
 
@@ -827,3 +827,12 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - Production Alias Switch Plan: Phase A (docs prohibit bare cjgui) → Phase B (AI defaults) → Phase C (WebUI) → Phase D (cleanup)
     - Plan: `docs/plans/2026-05-11-cangjie-production-alias-switch-plan.md`
     - Current window: RED (114 dirty) — Phase A active, Phase B blocked until green
+
+65. **Cangjie Phase B Default Entry Switch** ✅ 完成（2026-05-11）：
+    - GREEN window confirmed: live cangjie HEAD `7759612`, dirty=10
+    - Full smoke pass: analyze 3,073 nodes / 7,745 edges / 2,912 symbols / 159 files, MCP 7/7, bridge 3MB
+    - Tool registry refreshed: cangjie-live-codelattice 17,377 symbols / 53,092 edges / 194 files
+    - Phase B activated: execution AI defaults to `cangjie-live-codelattice`, bare `cjgui` forbidden
+    - New docs: phase B plan, agent command snippet
+    - Plan: `docs/plans/2026-05-11-cangjie-phase-b-default-entry-switch.md`
+    - Snippet: `docs/plans/2026-05-11-cangjie-live-agent-command-snippet.md`
