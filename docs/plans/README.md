@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-10（MCP v0.2 Local Client Integration: sidecar wrapper, client config examples, local smoke, experience report）
+最后更新：2026-05-11（MCP opencode Real Client Test: pipe-buffer deadlock fix, path deny fix, opencode config）
 
 ## 用途
 
@@ -799,3 +799,12 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - bridge_roundtrip: 22 tests pass（11 Rust + 11 Cangjie），0 unknown edge kinds detected
     - README.md 新增 `--format gitnexus-rc` CLI 使用示例
     - Commit: `7be534b`
+
+62. **MCP opencode Real Client Test** ✅ 完成（2026-05-11）：
+    - 在 opencode 真实客户端中配置 CodeLattice MCP sidecar
+    - 发现并修复 pipe-buffer deadlock（`run_subcommand_with_timeout` + `run_script_with_timeout`）：stdout/stderr 改为后台线程读取，避免 ~64KB OS pipe buffer 满导致子进程死锁
+    - 发现并修复 path deny list 误匹配：`cangjie-GitNexus-Index` 被误判为 `cangjie` 子目录，改用 path-component-aware 匹配
+    - Rust 场景测试：982 symbols, 60 files, 1923 nodes, 分析 ~1.5s
+    - Cangjie 场景测试：903 nodes, 3252 edges, 887 symbols, 分析 ~8s
+    - opencode 配置已保留，备份在 `opencode.json.bak-20260511-114701`
+    - Report: `docs/plans/2026-05-11-opencode-mcp-real-client-test.md`

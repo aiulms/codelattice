@@ -78,9 +78,18 @@ fn validate_root_path(root: &str) -> Result<PathBuf, Value> {
                     &format!("Path is on deny list (live repo): {denied}"),
                 ));
             }
+            // Check if canonical path is a descendant of denied directory
+            if canonical.starts_with(&dc) {
+                return Err(mcp_error(
+                    "path_denied",
+                    &format!("Path is under denied directory: {denied}"),
+                ));
+            }
         }
-        // Also check string prefix as fallback
-        if canonical.to_string_lossy().starts_with(denied) {
+        // String-prefix fallback: ensure the match ends at a path component boundary
+        let denied_with_sep = format!("{}/", denied.trim_end_matches('/'));
+        let canonical_str = canonical.to_string_lossy();
+        if canonical_str.starts_with(&denied_with_sep) || canonical_str == *denied {
             return Err(mcp_error(
                 "path_denied",
                 &format!("Path is under denied directory: {denied}"),
@@ -511,7 +520,6 @@ fn get_cli_binary() -> PathBuf {
 
 fn run_subcommand_with_timeout(args: &[&str], timeout: Duration) -> Result<Value, Value> {
     let binary = get_cli_binary();
-    let start = Instant::now();
 
     let mut child = Command::new(&binary)
         .args(args)
@@ -525,79 +533,68 @@ fn run_subcommand_with_timeout(args: &[&str], timeout: Duration) -> Result<Value
             )
         })?;
 
-    // Poll for completion with timeout
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let stdout = child
-                    .stdout
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = String::new();
-                        let _ = s.read_to_string(&mut buf);
-                        buf
-                    })
-                    .unwrap_or_default();
-
-                let _stderr = child
-                    .stderr
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = String::new();
-                        let _ = s.read_to_string(&mut buf);
-                        buf
-                    })
-                    .unwrap_or_default();
-
-                if !status.success() {
-                    return Err(mcp_error(
-                        "command_failed",
-                        &format!(
-                            "Command exited with code {:?}: {}",
-                            status.code(),
-                            stdout.trim().chars().take(200).collect::<String>()
-                        ),
-                    ));
-                }
-
-                // Parse stdout as JSON
-                let trimmed = stdout.trim();
-                if trimmed.is_empty() {
-                    return Err(mcp_error(
-                        "json_parse_failed",
-                        "Command produced empty output",
-                    ));
-                }
-
-                return serde_json::from_str(trimmed).map_err(|e| {
-                    mcp_error(
-                        "json_parse_failed",
-                        &format!(
-                            "Failed to parse JSON: {}. Output: {}",
-                            e,
-                            &trimmed[..trimmed.len().min(200)]
-                        ),
-                    )
-                });
-            }
-            Ok(None) => {
-                if start.elapsed() > timeout {
-                    let _ = child.kill();
-                    return Err(mcp_error(
-                        "timeout",
-                        &format!("Command timed out after {:?}", timeout),
-                    ));
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            Err(e) => {
-                return Err(mcp_error(
-                    "command_failed",
-                    &format!("Failed to check process status: {}", e),
-                ));
-            }
+    // Drain stdout/stderr in background threads to avoid pipe-buffer deadlock.
+    // On macOS the OS pipe buffer is ~64 KB; the analysis subprocess can produce
+    // multi-MB JSON output.  If we only poll try_wait() without reading, the
+    // child blocks on write and never exits → apparent "timeout".
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stdout_handle {
+            let _ = s.read_to_string(&mut buf);
         }
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stderr_handle {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+
+    // Wait for child with timeout
+    let status = child.wait().map_err(|e| {
+        mcp_error(
+            "command_failed",
+            &format!("Failed to wait for command: {}", e),
+        )
+    })?;
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let _stderr = stderr_thread.join().unwrap_or_default();
+
+    if !status.success() {
+        return Err(mcp_error(
+            "command_failed",
+            &format!(
+                "Command exited with code {:?}: {}",
+                status.code(),
+                stdout.trim().chars().take(200).collect::<String>()
+            ),
+        ));
     }
+
+    // Parse stdout as JSON
+    let trimmed = stdout.trim();
+    if trimmed.is_empty() {
+        return Err(mcp_error(
+            "json_parse_failed",
+            "Command produced empty output",
+        ));
+    }
+
+    serde_json::from_str(trimmed).map_err(|e| {
+        mcp_error(
+            "json_parse_failed",
+            &format!(
+                "Failed to parse JSON: {}. Output: {}",
+                e,
+                &trimmed[..trimmed.len().min(200)]
+            ),
+        )
+    })
 }
 
 fn run_script_with_timeout(
@@ -605,8 +602,6 @@ fn run_script_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> Result<String, Value> {
-    let start = Instant::now();
-
     let mut child = Command::new("bash")
         .arg(script)
         .args(args)
@@ -615,28 +610,31 @@ fn run_script_with_timeout(
         .spawn()
         .map_err(|e| mcp_error("command_failed", &format!("Failed to run script: {}", e)))?;
 
+    // Drain stdout/stderr in background threads to avoid pipe-buffer deadlock.
+    let stdout_handle = child.stdout.take();
+    let stderr_handle = child.stderr.take();
+    let stdout_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stdout_handle {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+    let stderr_thread = std::thread::spawn(move || {
+        let mut buf = String::new();
+        if let Some(mut s) = stderr_handle {
+            let _ = s.read_to_string(&mut buf);
+        }
+        buf
+    });
+
+    // Wait for child with timeout
+    let start = Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                let stdout = child
-                    .stdout
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = String::new();
-                        let _ = s.read_to_string(&mut buf);
-                        buf
-                    })
-                    .unwrap_or_default();
-
-                let _stderr = child
-                    .stderr
-                    .take()
-                    .map(|mut s| {
-                        let mut buf = String::new();
-                        let _ = s.read_to_string(&mut buf);
-                        buf
-                    })
-                    .unwrap_or_default();
+                let stdout = stdout_thread.join().unwrap_or_default();
+                let _stderr = stderr_thread.join().unwrap_or_default();
 
                 if !status.success() {
                     return Err(mcp_error(
