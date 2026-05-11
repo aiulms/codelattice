@@ -8,7 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-- No unreleased entries yet.
+- GitCode Release installer script with checksum verification, stable runtime install, and wrapper self-test.
+- Release install documentation and README download/install path for `v0.1.0`.
 
 ## [0.1.0] - 2026-05-11
 

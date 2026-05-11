@@ -82,6 +82,7 @@ cargo test
 cargo test --features tree-sitter-cangjie
 bash scripts/package-release.sh
 bash scripts/release-smoke.sh
+bash scripts/install-release.sh --dry-run --version v<version> --platform <platform>
 bash scripts/fresh-clone-smoke.sh --skip-tests
 ```
 

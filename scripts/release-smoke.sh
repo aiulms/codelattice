@@ -102,10 +102,11 @@ WRAPPER="$RELEASE_DIR/codelattice-mcp.sh"
 MANIFEST="$RELEASE_DIR/manifest.json"
 CHANGELOG="$RELEASE_DIR/CHANGELOG.md"
 RELEASE_POLICY="$RELEASE_DIR/docs/release-versioning.md"
+RELEASE_INSTALL="$RELEASE_DIR/docs/release-install.md"
 RUST_FIXTURE="$RELEASE_DIR/fixtures/rust/portable-smoke"
 CANGJIE_FIXTURE="$RELEASE_DIR/fixtures/cangjie/portable-smoke"
 
-for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST" "$CHANGELOG" "$RELEASE_POLICY"; do
+for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST" "$CHANGELOG" "$RELEASE_POLICY" "$RELEASE_INSTALL"; do
     if [[ ! -e "$path" ]]; then
         echo "ERROR: expected release file missing: $path" >&2
         exit 1

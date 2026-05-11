@@ -55,6 +55,8 @@ fi
 
 require_file "CHANGELOG.md" "CHANGELOG.md"
 require_file "docs/release-versioning.md" "release versioning policy"
+require_file "docs/release-install.md" "release install guide"
+require_file "scripts/install-release.sh" "release installer script"
 
 require_grep '^## \[Unreleased\]' "CHANGELOG.md" "CHANGELOG has an Unreleased section"
 if [[ -n "$VERSION" ]]; then
@@ -64,10 +66,15 @@ fi
 require_grep 'workspace\.package\.version' "docs/release-versioning.md" "policy names the Cargo workspace version source"
 require_grep 'CHANGELOG\.md' "docs/release-versioning.md" "policy names CHANGELOG.md"
 require_grep 'MCP serverVersion' "docs/release-versioning.md" "policy separates MCP serverVersion from product version"
+require_grep 'install-release\.sh' "README.md" "README includes release installer path"
+require_grep 'install-release\.sh' "docs/getting-started.md" "getting-started includes release installer path"
+require_grep 'install-release\.sh' "docs/release-packaging.md" "release packaging docs include release installer"
 
 require_grep 'CHANGELOG\.md' "scripts/package-release.sh" "package-release includes CHANGELOG.md"
+require_grep 'docs/release-install\.md' "scripts/package-release.sh" "package-release includes release-install.md"
 require_grep 'docs/release-versioning\.md' "scripts/package-release.sh" "package-release includes release-versioning.md"
 require_grep 'CHANGELOG\.md' "scripts/release-smoke.sh" "release smoke checks CHANGELOG.md"
+require_grep 'docs/release-install\.md' "scripts/release-smoke.sh" "release smoke checks release-install.md"
 require_grep 'docs/release-versioning\.md' "scripts/release-smoke.sh" "release smoke checks release-versioning.md"
 require_grep 'check-release-metadata\.sh' "docs/release-packaging.md" "release packaging docs include metadata check"
 

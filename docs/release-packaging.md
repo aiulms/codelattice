@@ -2,6 +2,20 @@
 
 CodeLattice release packaging is intentionally local and scriptable. It does not publish assets, edit AI client configuration, or promote into a user's stable runtime directory.
 
+The current public `v0.1.0` release is available on GitCode with a `darwin-arm64` tarball and checksum. Multi-platform artifacts are planned next.
+
+## Install a Published Release
+
+```bash
+export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
+curl -fsSL https://raw.gitcode.com/aiulms/codelattice/raw/master/scripts/install-release.sh \
+  | bash -s -- --version v0.1.0 --install-dir "$CODELATTICE_TOOL_DIR"
+```
+
+The installer verifies the `.sha256` checksum, installs the stable runtime wrapper, and runs `codelattice-mcp.sh --self-test`.
+
+See [release-install.md](release-install.md) for options and safety behavior.
+
 ## Build a Release Artifact
 
 ```bash
@@ -39,6 +53,7 @@ codelattice-<version>-<platform>/
   LICENSE
   docs/
     getting-started.md
+    release-install.md
     release-versioning.md
     release-packaging.md
     architecture/
@@ -95,6 +110,7 @@ It verifies:
 - executable compatibility binary
 - executable `codelattice-mcp.sh`
 - packaged `CHANGELOG.md`
+- packaged `docs/release-install.md`
 - packaged `docs/release-versioning.md`
 - wrapper `--self-test`
 - MCP `tools/list >= 21`
@@ -113,6 +129,8 @@ The packaging and smoke scripts do not:
 - require a live Cangjie repository
 - require WebUI
 
+`scripts/install-release.sh` follows the same client-config rule: it installs only the stable runtime files and prints the wrapper path for the user to configure separately.
+
 ## Recommended Release Checklist
 
 Before publishing an artifact:
@@ -125,5 +143,6 @@ cargo test
 cargo test --features tree-sitter-cangjie
 bash scripts/package-release.sh
 bash scripts/release-smoke.sh
+bash scripts/install-release.sh --dry-run --version v0.1.0 --platform darwin-arm64
 bash scripts/fresh-clone-smoke.sh --skip-tests
 ```

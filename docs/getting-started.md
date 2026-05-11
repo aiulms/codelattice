@@ -11,6 +11,21 @@ This guide walks through a fresh local setup without WebUI or hosted services.
 
 CodeLattice runs locally and does not upload source code.
 
+## Install from GitCode Release
+
+The current `v0.1.0` published binary targets macOS Apple Silicon (`darwin-arm64`):
+
+```bash
+export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
+curl -fsSL https://raw.gitcode.com/aiulms/codelattice/raw/master/scripts/install-release.sh \
+  | bash -s -- --version v0.1.0 --install-dir "$CODELATTICE_TOOL_DIR"
+"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
+```
+
+The installer downloads the GitCode Release tarball, verifies the `.sha256` file, installs the stable wrapper, and runs self-test. It does not write AI client configuration files.
+
+Linux or other platforms can use the source build path until multi-platform artifacts are published.
+
 ## Clone and Build
 
 ```bash
@@ -133,3 +148,5 @@ If release smoke fails, keep the temp directory for inspection:
 ```bash
 bash scripts/release-smoke.sh --keep-temp
 ```
+
+If release install download fails with 404, the requested release/platform artifact has not been published yet. Use the source build path or pass an available `--platform`.

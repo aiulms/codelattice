@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（Release Versioning + Changelog Pack）
+最后更新：2026-05-11（Release Download + Installer Pack）
 
 ## 用途
 
@@ -22,6 +22,11 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Release Download + Installer Pack（2026-05-11，已完成）：**
+- 📝 [`2026-05-11-release-download-installer-preflight.md`](2026-05-11-release-download-installer-preflight.md) — GitCode Release installer、README download path、checksum/self-test 安装策略。
+- 📝 [`2026-05-11-release-download-installer-execution-card.md`](2026-05-11-release-download-installer-execution-card.md) — write set / forbidden set / verification target。
+- ✅ [`2026-05-11-release-download-installer-closure.md`](2026-05-11-release-download-installer-closure.md) — closure：release installer、download docs、future tarball wiring、真实 GitCode Release install smoke。
 
 **Release Versioning + Changelog Pack（2026-05-11，已完成）：**
 - 📝 [`2026-05-11-release-versioning-changelog-preflight.md`](2026-05-11-release-versioning-changelog-preflight.md) — release version source、MCP serverVersion 边界、CHANGELOG 规则和 metadata checker preflight。

@@ -4,7 +4,7 @@ CodeLattice 是一个本地代码智能引擎，当前面向 Rust 与 Cangjie / 
 
 它不是一个托管服务，也不会上传你的代码。CodeLattice 运行在本机，默认以只读方式分析项目，并通过 CLI 或 MCP stdio server 对外提供能力。
 
-当前状态：**本地 CLI / MCP 工作流已可进入生产使用**。目前缺的是 WebUI 和正式对外发布流程；核心分析链路、release tarball 打包、release smoke 和 MCP sidecar 已经可以用于真实 Rust / Cangjie 项目的日常开发辅助。
+当前状态：**v0.1.0 已发布，本地 CLI / MCP 工作流已可进入生产使用**。核心分析链路、GitCode Release、release tarball、checksum、release smoke、fresh clone smoke 和 MCP sidecar 已经可以用于真实 Rust / Cangjie 项目的日常开发辅助。当前最大体验缺口是 WebUI；非 WebUI 方向后续重点是多平台发行包、自动化 release CI 和外部 beta 试用。
 
 ## 适合谁
 
@@ -27,7 +27,22 @@ CodeLattice 是一个本地代码智能引擎，当前面向 Rust 与 Cangjie / 
 
 ## Quick Start
 
-### 1. Clone 并构建
+### 1. 从 GitCode Release 安装
+
+当前 `v0.1.0` 已发布 macOS Apple Silicon (`darwin-arm64`) 发行包：
+
+```bash
+export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
+curl -fsSL https://raw.gitcode.com/aiulms/codelattice/raw/master/scripts/install-release.sh \
+  | bash -s -- --version v0.1.0 --install-dir "$CODELATTICE_TOOL_DIR"
+"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
+```
+
+这个 installer 会下载 GitCode Release tarball，校验 `.sha256`，安装 stable MCP wrapper，并运行 self-test。它不会修改 Codex / opencode / Claude 配置。
+
+Linux 或其他平台当前可先走源码构建路径；多平台 release artifact 是下一步 packaging 工作。
+
+### 2. Clone 并构建
 
 ```bash
 git clone https://gitcode.com/aiulms/codelattice.git
@@ -45,7 +60,7 @@ target/release/codelattice --version
 
 兼容说明：Cargo package 仍叫 `gitnexus-rust-core-cli`，并继续构建同名兼容 binary；对外命令优先使用 `codelattice`。
 
-### 2. 跑 fresh clone smoke
+### 3. 跑 fresh clone smoke
 
 ```bash
 bash scripts/fresh-clone-smoke.sh --skip-tests
@@ -59,7 +74,7 @@ bash scripts/fresh-clone-smoke.sh --skip-tests
 bash scripts/fresh-clone-smoke.sh
 ```
 
-### 3. 安装稳定 MCP runtime
+### 4. 安装稳定 MCP runtime
 
 AI 客户端建议指向 promoted stable wrapper，而不是开发 checkout 里的脚本。
 
@@ -71,7 +86,7 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 
 如果不传 `--install-dir`，脚本会使用默认目录 `$HOME/Desktop/CodeLattice-Tool`。
 
-### 4. 打包 release tarball
+### 5. 打包 release tarball
 
 ```bash
 bash scripts/check-release-metadata.sh
@@ -88,7 +103,7 @@ dist/codelattice-<version>-<platform>.tar.gz.sha256
 
 版本规则见 `docs/release-versioning.md`，发布记录见 `CHANGELOG.md`。产品版本来自 Cargo `workspace.package.version`；MCP `serverVersion` 是 sidecar tool/profile 版本，两者分开管理。
 
-### 5. 打印 MCP client 配置模板
+### 6. 打印 MCP client 配置模板
 
 ```bash
 bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
@@ -100,7 +115,7 @@ bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
 $CODELATTICE_TOOL_DIR/codelattice-mcp.sh
 ```
 
-### 6. 分析一个 Rust fixture
+### 7. 分析一个 Rust fixture
 
 ```bash
 target/release/codelattice analyze \
