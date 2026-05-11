@@ -13,9 +13,11 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="${CODELATTICE_ROOT:-$DEFAULT_REPO_ROOT}"
+REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BIN_NAME="gitnexus-rust-core-cli"
-DEFAULT_INSTALL_DIR="/Users/jiangxuanyang/Desktop/CodeLattice-Tool"
+DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
 INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
 DRY_RUN=false
 SKIP_BUILD=false
@@ -30,7 +32,7 @@ Usage:
 
 Options:
   --install-dir <path>  Install runtime into this directory
-                        (default: /Users/jiangxuanyang/Desktop/CodeLattice-Tool)
+                        (default: $HOME/Desktop/CodeLattice-Tool)
   --skip-build          Reuse the existing release binary
   --no-doctor           Skip post-install self-test
   --dry-run             Print actions without changing files
@@ -226,7 +228,7 @@ exec "$BIN" mcp
 WRAPPER
     chmod +x "$INSTALL_WRAPPER"
 
-    SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD)"
+    SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     SOURCE_REMOTE="$(git -C "$REPO_ROOT" remote get-url gitcode 2>/dev/null || git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo unknown)"
     INSTALLED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     BINARY_SHA256="$(shasum -a 256 "$INSTALL_BIN" | awk '{print $1}')"
@@ -237,6 +239,7 @@ WRAPPER
     cat > "$INSTALL_MANIFEST" <<JSON
 {
   "name": "CodeLattice-Tool",
+  "layoutVersion": 1,
   "sourceRepo": "$(printf '%s' "$REPO_ROOT" | json_escape)",
   "sourceRemote": "$(printf '%s' "$SOURCE_REMOTE" | json_escape)",
   "sourceCommit": "$(printf '%s' "$SOURCE_COMMIT" | json_escape)",
@@ -245,6 +248,12 @@ WRAPPER
   "compatBinary": "bin/$BIN_NAME",
   "binarySha256": "$BINARY_SHA256",
   "wrapper": "codelattice-mcp.sh",
+  "paths": {
+    "binary": "bin/codelattice-cli",
+    "compatBinary": "bin/$BIN_NAME",
+    "wrapper": "codelattice-mcp.sh",
+    "manifest": "manifest.json"
+  },
   "profile": {
     "serverVersion": "$SERVER_VERSION",
     "cangjieSupport": $CANGJIE_SUPPORT,

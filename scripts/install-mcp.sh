@@ -6,6 +6,7 @@
 # Options:
 #   --build           Build release binary with Rust + Cangjie support (default)
 #   --rust-only       Build release binary with Rust support only
+#   --install-dir PATH Stable runtime directory for printed client config
 #   --print-config    Print configuration snippets for AI clients
 #   --dry-run         Show what would be done without doing it
 #   --doctor          Run health checks on MCP setup
@@ -17,18 +18,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="${CODELATTICE_ROOT:-$DEFAULT_REPO_ROOT}"
+REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BIN_NAME="gitnexus-rust-core-cli"
-WRAPPER="$SCRIPT_DIR/codelattice-mcp.sh"
+WRAPPER="$REPO_ROOT/scripts/codelattice-mcp.sh"
+DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
+INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
 
 ACTION="build"
 DRY_RUN=false
 RUST_ONLY=false
 
-for arg in "$@"; do
-    case "$arg" in
+while [[ $# -gt 0 ]]; do
+    case "$1" in
         --build)        ACTION="build" ;;
         --rust-only)    RUST_ONLY=true ;;
+        --install-dir)
+            INSTALL_DIR="${2:-}"
+            if [[ -z "$INSTALL_DIR" ]]; then
+                echo "ERROR: --install-dir requires a path" >&2
+                exit 1
+            fi
+            shift
+            ;;
         --print-config) ACTION="print_config" ;;
         --dry-run)      DRY_RUN=true ;;
         --doctor)       ACTION="doctor" ;;
@@ -36,11 +49,12 @@ for arg in "$@"; do
             cat <<'HELP'
 install-mcp.sh — Build and configure CodeLattice MCP for local AI clients.
 
-Usage: bash scripts/install-mcp.sh [--build|--rust-only|--print-config|--dry-run|--doctor|--help]
+Usage: bash scripts/install-mcp.sh [--build|--rust-only|--install-dir PATH|--print-config|--dry-run|--doctor|--help]
 
 Options:
   --build           Build release binary with Rust + Cangjie support (default)
   --rust-only       Build release binary with Rust support only (no Cangjie)
+  --install-dir     Stable runtime directory for printed client config
   --print-config    Print MCP client configuration snippets
   --dry-run         Show what would be done
   --doctor          Run health checks on the MCP setup
@@ -57,10 +71,12 @@ HELP
             exit 1
             ;;
     esac
+    shift
 done
 
 echo "=== CodeLattice MCP Installer ==="
 echo "Repo: $REPO_ROOT"
+echo "Install dir: $INSTALL_DIR"
 echo ""
 
 # --- Build ---
@@ -98,31 +114,32 @@ if [[ "$ACTION" == "build" ]]; then
 
     echo ""
     echo "Next steps:"
-    echo "  1. Test:     $WRAPPER --self-test"
-    echo "  2. Configure: bash $0 --print-config"
+    echo "  1. Test dev wrapper: bash $WRAPPER --self-test"
+    echo "  2. Promote stable runtime: bash $REPO_ROOT/scripts/promote-to-local-tool.sh --install-dir \"$INSTALL_DIR\""
+    echo "  3. Configure clients: bash $0 --install-dir \"$INSTALL_DIR\" --print-config"
 fi
 
 # --- Print Config ---
 if [[ "$ACTION" == "print_config" ]]; then
-    STABLE_TOOL_DIR="${CODELATTICE_TOOL_DIR:-/Users/jiangxuanyang/Desktop/CodeLattice-Tool}"
-    STABLE_WRAPPER="$STABLE_TOOL_DIR/codelattice-mcp.sh"
-    if [[ -x "$STABLE_WRAPPER" ]]; then
-        WRAPPER_PATH="$STABLE_WRAPPER"
-        WRAPPER_NOTE="stable runtime wrapper"
-    else
-        WRAPPER_PATH="$WRAPPER"
-        WRAPPER_NOTE="development checkout wrapper (run scripts/promote-to-local-tool.sh for isolation)"
-    fi
+    STABLE_WRAPPER="$INSTALL_DIR/codelattice-mcp.sh"
+    WRAPPER_PATH="$STABLE_WRAPPER"
     BIN_PATH="$REPO_ROOT/target/release/$BIN_NAME"
 
     echo "--- Configuration Snippets ---"
     echo ""
-    echo "IMPORTANT: Always use the wrapper script path, not the binary directly."
+    echo "IMPORTANT: Use the promoted stable wrapper path, not the binary directly."
     echo "Selected wrapper: $WRAPPER_PATH"
-    echo "Wrapper source:   $WRAPPER_NOTE"
+    if [[ -x "$STABLE_WRAPPER" ]]; then
+        echo "Wrapper source:   stable runtime wrapper"
+    else
+        echo "Wrapper source:   stable runtime wrapper (not installed yet)"
+        echo ""
+        echo "Stable runtime not found. Run this first:"
+        echo "  bash $REPO_ROOT/scripts/promote-to-local-tool.sh --install-dir \"$INSTALL_DIR\""
+    fi
     echo ""
-    echo "For daily AI IDE usage, prefer the promoted stable runtime:"
-    echo "  bash $REPO_ROOT/scripts/promote-to-local-tool.sh"
+    echo "Development wrapper for contributor/debug only:"
+    echo "  bash $WRAPPER"
     echo ""
     echo "Copy ONE of these into your AI client config file."
     echo "Do NOT add multiple entries for the same server."
@@ -149,6 +166,7 @@ JSON
     echo ""
     cat <<TOML
 [mcp_servers.codelattice]
+type = "stdio"
 command = "bash"
 args = ["$WRAPPER_PATH"]
 TOML
@@ -191,6 +209,7 @@ JSON
     echo ""
     echo "Notes:"
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
+    echo "  - This script never writes client config; it only prints snippets"
     echo "  - Supports Rust and Cangjie analysis (when built with --features tree-sitter-cangjie)"
     echo "  - 21 tools including process-local cache with mtime invalidation and prewarm"
     echo "  - Read-only — never modifies source code"
@@ -231,11 +250,20 @@ if [[ "$ACTION" == "doctor" ]]; then
 
     # 2. Check wrapper
     if [[ -x "$WRAPPER" ]]; then
-        echo "PASS: wrapper script: $WRAPPER"
+        echo "PASS: development wrapper script: $WRAPPER"
         PASS=$((PASS + 1))
     else
-        echo "FAIL: wrapper not found: $WRAPPER"
+        echo "FAIL: development wrapper not found: $WRAPPER"
         FAIL=$((FAIL + 1))
+    fi
+
+    STABLE_WRAPPER="$INSTALL_DIR/codelattice-mcp.sh"
+    if [[ -x "$STABLE_WRAPPER" ]]; then
+        echo "PASS: stable runtime wrapper: $STABLE_WRAPPER"
+        PASS=$((PASS + 1))
+    else
+        echo "WARN: stable runtime wrapper not found: $STABLE_WRAPPER"
+        echo "      Run: bash $REPO_ROOT/scripts/promote-to-local-tool.sh --install-dir \"$INSTALL_DIR\""
     fi
 
     # 3-6: MCP checks (only if binary exists)
@@ -291,7 +319,7 @@ if [[ "$ACTION" == "doctor" ]]; then
 
         # 7. Cangjie smoke test (only if support is true)
         if [[ "$CANGJIE_SUPPORT" == "True" ]]; then
-            CJGUI_PATH="/Users/jiangxuanyang/Desktop/cangjie-GitNexus-Index/runtime/cjgui"
+            CJGUI_PATH="$REPO_ROOT/fixtures/cangjie/portable-smoke"
             if [[ -d "$CJGUI_PATH" ]]; then
                 CJ_SEARCH=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codelattice_symbol_search","arguments":{"root":"%s","query":"init","language":"cangjie","limit":3}}}\n' "$CJGUI_PATH" | "$BIN_PATH" mcp 2>/dev/null)
                 CJ_COUNT=$(echo "$CJ_SEARCH" | python3 -c "
@@ -315,7 +343,7 @@ for line in sys.stdin:
                     FAIL=$((FAIL + 1))
                 fi
             else
-                echo "SKIP: Cangjie smoke (fixture not found: $CJGUI_PATH)"
+                echo "SKIP: Cangjie fixture smoke (fixture not found: $CJGUI_PATH)"
             fi
         fi
     else

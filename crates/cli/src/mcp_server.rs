@@ -629,11 +629,28 @@ fn run_script_with_timeout(
     args: &[&str],
     timeout: Duration,
 ) -> Result<String, Value> {
-    let mut child = Command::new("bash")
+    // MCP smoke 会触发 cargo run；隔离 target 目录，避免测试/开发主 target
+    // 被 rust-only smoke 重编译成无 Cangjie feature 的 debug binary。
+    let isolated_target_dir = if std::env::var_os("CARGO_TARGET_DIR").is_none() {
+        Some(std::env::temp_dir().join(format!(
+            "codelattice-mcp-smoke-target-{}",
+            std::process::id()
+        )))
+    } else {
+        None
+    };
+
+    let mut command = Command::new("bash");
+    command
         .arg(script)
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    if let Some(dir) = &isolated_target_dir {
+        command.env("CARGO_TARGET_DIR", dir);
+    }
+
+    let mut child = command
         .spawn()
         .map_err(|e| mcp_error("command_failed", &format!("Failed to run script: {}", e)))?;
 
@@ -662,6 +679,9 @@ fn run_script_with_timeout(
             Ok(Some(status)) => {
                 let stdout = stdout_thread.join().unwrap_or_default();
                 let _stderr = stderr_thread.join().unwrap_or_default();
+                if let Some(dir) = &isolated_target_dir {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
 
                 if !status.success() {
                     return Err(mcp_error(
@@ -675,11 +695,17 @@ fn run_script_with_timeout(
             Ok(None) => {
                 if start.elapsed() > timeout {
                     let _ = child.kill();
+                    if let Some(dir) = &isolated_target_dir {
+                        let _ = std::fs::remove_dir_all(dir);
+                    }
                     return Err(mcp_error("timeout", "Smoke script timed out"));
                 }
                 std::thread::sleep(Duration::from_millis(100));
             }
             Err(e) => {
+                if let Some(dir) = &isolated_target_dir {
+                    let _ = std::fs::remove_dir_all(dir);
+                }
                 return Err(mcp_error(
                     "command_failed",
                     &format!("Failed to check script status: {}", e),
@@ -2500,45 +2526,87 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
     let language = params["language"].as_str().unwrap_or("auto");
     check_cangjie_feature(language)?;
 
-    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
-    let (node_count, edge_count, symbol_count) = gv.stats();
+    let (gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let (graph_node_count, graph_edge_count, graph_symbol_count) = gv.stats();
+    let summary = result.get("summary").unwrap_or(&Value::Null);
+    let summary_count = |key: &str| -> Option<usize> {
+        summary
+            .get(key)
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize)
+    };
+    // Cangjie graph nodes/edges use `kind`/`sourceId`/`targetId`; the compact
+    // summary is the language-normalized source of truth for top-level counts.
+    let node_count = summary_count("nodeCount").unwrap_or(graph_node_count);
+    let edge_count = summary_count("edgeCount").unwrap_or(graph_edge_count);
+    let symbol_count = summary_count("symbolCount").unwrap_or(graph_symbol_count);
 
     // Top node kinds
     let mut node_kinds: HashMap<String, u64> = HashMap::new();
     for node in gv.nodes_by_id.values() {
-        let kind = if node["label"].as_str() == Some("symbol") {
+        let node_kind = node["kind"]
+            .as_str()
+            .or_else(|| node["label"].as_str())
+            .unwrap_or("unknown");
+        let is_symbol = node_kind == "symbol" || node["label"].as_str() == Some("symbol");
+        let kind = if is_symbol {
             node["properties"]["symbolKind"]
                 .as_str()
+                .or_else(|| node["properties"]["kind"].as_str())
                 .unwrap_or("symbol")
                 .to_string()
         } else {
-            node["label"].as_str().unwrap_or("unknown").to_string()
+            node_kind.to_string()
         };
         *node_kinds.entry(kind).or_insert(0) += 1;
     }
 
     // Top edge kinds
     let mut edge_kinds: HashMap<String, u64> = HashMap::new();
-    for edges in gv.outgoing.values() {
+    if let Some(edges) = result
+        .get("graph")
+        .and_then(|g| g.get("edges"))
+        .and_then(|e| e.as_array())
+    {
         for edge in edges {
-            let t = edge["type"].as_str().unwrap_or("unknown");
+            let t = edge["type"]
+                .as_str()
+                .or_else(|| edge["kind"].as_str())
+                .unwrap_or("unknown");
             *edge_kinds.entry(t.to_string()).or_insert(0) += 1;
+        }
+    } else {
+        for edges in gv.outgoing.values() {
+            for edge in edges {
+                let t = edge["type"]
+                    .as_str()
+                    .or_else(|| edge["kind"].as_str())
+                    .unwrap_or("unknown");
+                *edge_kinds.entry(t.to_string()).or_insert(0) += 1;
+            }
         }
     }
 
     // Package count
-    let package_count = gv
-        .nodes_by_id
-        .values()
-        .filter(|n| n["label"].as_str() == Some("package"))
-        .count();
+    let package_count = summary_count("packageCount").unwrap_or_else(|| {
+        gv.nodes_by_id
+            .values()
+            .filter(|n| {
+                n["label"].as_str() == Some("package") || n["kind"].as_str() == Some("package")
+            })
+            .count()
+    });
 
     // File count
-    let file_count = gv
-        .nodes_by_id
-        .values()
-        .filter(|n| n["label"].as_str() == Some("source-file"))
-        .count();
+    let file_count = summary_count("sourceFileCount").unwrap_or_else(|| {
+        gv.nodes_by_id
+            .values()
+            .filter(|n| {
+                n["label"].as_str() == Some("source-file")
+                    || n["kind"].as_str() == Some("sourceFile")
+            })
+            .count()
+    });
 
     // Quality summary (from summary command)
     let summary_result = {

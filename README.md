@@ -13,6 +13,54 @@ CodeLattice 是一个面向 Rust 与 Cangjie / 仓颉项目的本地代码图谱
 
 这个仓库已经完成从“语言分析核心”到“可给 AI 日常调用的本地 sidecar”的主要闭环：Rust 自分析和 Cangjie cjgui 真实项目 trial 多轮通过，stdout JSON 纯净，0 dangling、0 duplicate，Tool bridge ingestion 成功，外部 AI 独立 retry 已 PASS 并计入 Beta evidence。当前重点是继续积累 Beta 所需的日历跨度和剩余 trial，而不是短期扩展 Web UI、默认替换或多语言大覆盖。
 
+## Quick Start（外部 fresh clone）
+
+CodeLattice 是 Rust/Cangjie 本地代码智能核心，不是 GitNexus-RC 的替代品。GitNexus-RC 仍是治理来源、跨仓 runtime/adapter/schema 和 Tool/WebUI 主线；CodeLattice 提供本地 Rust/Cangjie 分析、质量门和 MCP sidecar。
+
+当前状态是 **Alpha / daily-use candidate**：本机 production trial 与真实客户端 smoke 已 PASS，但还不是 Beta / GA。支持语言主线是 Rust + Cangjie，其他语言是未来扩展。
+
+```bash
+git clone https://gitcode.com/aiulms/codelattice.git
+cd codelattice
+
+# 构建 release binary（默认 Rust + Cangjie）
+bash scripts/install-mcp.sh --build
+
+# 可选：验证 fresh clone 外部复用路径
+bash scripts/fresh-clone-smoke.sh --skip-tests
+```
+
+把 MCP runtime 推广到稳定目录（AI 客户端应指向这里，而不是开发 checkout）：
+
+```bash
+export CODELATTICE_TOOL_DIR="$HOME/Desktop/CodeLattice-Tool"
+bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
+"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
+```
+
+打印 Codex / opencode / Claude 配置片段：
+
+```bash
+bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
+```
+
+该命令只打印模板，不修改任何真实客户端配置。配置中的 wrapper 应是：
+
+```text
+$CODELATTICE_TOOL_DIR/codelattice-mcp.sh
+```
+
+分析 Rust fixture：
+
+```bash
+cargo run -p gitnexus-rust-core-cli -- analyze \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --format json
+```
+
+> `gitnexus-rust-core-cli` 是旧工作名留下的 Cargo package / binary 兼容名，不影响 CodeLattice 当前项目身份。Cargo bin rename 属于后续兼容迁移计划。
+
 ## 现在做到哪一步
 
 | 方向 | 当前状态 |
@@ -31,7 +79,7 @@ CodeLattice 是一个面向 Rust 与 Cangjie / 仓颉项目的本地代码图谱
 | 试用脚本 | 提供 `scripts/build.sh`、`scripts/smoke.sh`、`scripts/alpha-trial-smoke.sh`、`scripts/mcp-dogfood.sh`、`scripts/codelattice-mcp.sh`、`scripts/install-mcp.sh`、`scripts/promote-to-local-tool.sh`、`scripts/mcp-local-client-smoke.sh`、`scripts/mcp-cache-smoke.sh` |
 | MCP stdio | v0.7+ daily-use candidate：21 个工具，JSON-RPC over stdio，process-local cache、mtime invalidation、LRU、source snippet、production assist、compare runs、cache prewarm |
 | MCP 验证 | MCP tests 52/52、dogfood 22/22、local client smoke 9/9、cache smoke 4/4、real client dry-run 10/10、doctor 7/7 |
-| MCP Sidecar | 开发调试用 `scripts/codelattice-mcp.sh`；AI IDE 日常使用应指向 `/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh` 稳定运行目录；详见 `docs/architecture/mcp-local-client-setup.md` |
+| MCP Sidecar | 开发调试用 `scripts/codelattice-mcp.sh`；AI IDE 日常使用应指向 `$CODELATTICE_TOOL_DIR/codelattice-mcp.sh` 稳定运行目录；详见 `docs/architecture/mcp-local-client-setup.md` |
 | 本机默认替换 | 已完成 preflight；推荐 language-aware wrapper，但尚未启用，仍不切默认工具 |
 
 ## 生产试用边界
@@ -264,8 +312,9 @@ cargo run -p gitnexus-rust-core-cli -- mcp
 bash scripts/codelattice-mcp.sh --self-test
 
 # 推广到 AI IDE 使用的稳定运行目录
-bash scripts/promote-to-local-tool.sh
-/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh --self-test
+export CODELATTICE_TOOL_DIR="$HOME/Desktop/CodeLattice-Tool"
+bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
+"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
 
 可用工具（21 个）：

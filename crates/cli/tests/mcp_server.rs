@@ -1172,13 +1172,66 @@ fn mcp_project_overview_rust() {
 
     assert_eq!(data["language"], "rust");
     assert!(data["nodeCount"].as_u64().unwrap_or(0) > 0);
+    assert!(data["edgeCount"].as_u64().unwrap_or(0) > 0);
     assert!(data["symbolCount"].as_u64().unwrap_or(0) > 0);
+    assert!(data["sourceFileCount"].as_u64().unwrap_or(0) > 0);
     assert!(data["topNodeKinds"].is_object());
     assert!(data["topEdgeKinds"].is_object());
     assert!(data["qualitySummary"].is_object());
     assert!(data["diagnosticsSummary"].is_object());
     assert!(data["hotspots"].is_array());
     assert!(data["denseFiles"].is_array());
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn mcp_project_overview_cangjie_counts_are_nonzero() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = cangjie_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 251,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "cangjie"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 251);
+    assert!(
+        !resp
+            .get("result")
+            .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+        "project_overview should succeed, got: {:?}",
+        resp
+    );
+
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("project_overview output should be valid JSON");
+
+    assert_eq!(data["language"], "cangjie");
+    assert!(data["nodeCount"].as_u64().unwrap_or(0) > 0);
+    assert!(
+        data["edgeCount"].as_u64().unwrap_or(0) > 0,
+        "Cangjie project_overview should report graph edges"
+    );
+    assert!(
+        data["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "Cangjie project_overview should report symbols"
+    );
+    assert!(
+        data["sourceFileCount"].as_u64().unwrap_or(0) > 0,
+        "Cangjie project_overview should report source files"
+    );
 }
 
 #[test]
