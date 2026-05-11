@@ -74,6 +74,7 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 ### 4. 打包 release tarball
 
 ```bash
+bash scripts/check-release-metadata.sh
 bash scripts/package-release.sh
 bash scripts/release-smoke.sh
 ```
@@ -84,6 +85,8 @@ bash scripts/release-smoke.sh
 dist/codelattice-<version>-<platform>.tar.gz
 dist/codelattice-<version>-<platform>.tar.gz.sha256
 ```
+
+版本规则见 `docs/release-versioning.md`，发布记录见 `CHANGELOG.md`。产品版本来自 Cargo `workspace.package.version`；MCP `serverVersion` 是 sidecar tool/profile 版本，两者分开管理。
 
 ### 5. 打印 MCP client 配置模板
 
@@ -224,6 +227,7 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 ```bash
 bash scripts/install-mcp.sh --doctor
 bash scripts/codelattice-mcp.sh --self-test
+bash scripts/check-release-metadata.sh
 bash scripts/mcp-dogfood.sh
 bash scripts/mcp-local-client-smoke.sh
 bash scripts/mcp-real-client-dry-run.sh

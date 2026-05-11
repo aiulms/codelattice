@@ -37,7 +37,8 @@ The package includes:
   codelattice-mcp.sh
   manifest.json
   README.md
-  docs/getting-started.md and docs/release-packaging.md when present
+  CHANGELOG.md
+  docs/getting-started.md, docs/release-versioning.md, and docs/release-packaging.md when present
   portable Rust/Cangjie fixtures for release smoke
 HELP
 }
@@ -171,10 +172,11 @@ cp "$BIN_COMPAT" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
 chmod +x "$STAGE_DIR/bin/codelattice" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
 
 cp "$REPO_ROOT/README.md" "$STAGE_DIR/README.md"
+cp "$REPO_ROOT/CHANGELOG.md" "$STAGE_DIR/CHANGELOG.md"
 if [[ -f "$REPO_ROOT/LICENSE" ]]; then
     cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
 fi
-for doc in docs/getting-started.md docs/release-packaging.md docs/architecture/mcp-local-client-setup.md docs/architecture/mcp-v0-contract.md; do
+for doc in docs/getting-started.md docs/release-versioning.md docs/release-packaging.md docs/architecture/mcp-local-client-setup.md docs/architecture/mcp-v0-contract.md; do
     if [[ -f "$REPO_ROOT/$doc" ]]; then
         mkdir -p "$STAGE_DIR/$(dirname "$doc")"
         cp "$REPO_ROOT/$doc" "$STAGE_DIR/$doc"
@@ -288,6 +290,8 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "compatBinary": "bin/gitnexus-rust-core-cli",
     "wrapper": "codelattice-mcp.sh",
     "manifest": "manifest.json",
+    "changelog": "CHANGELOG.md",
+    "releasePolicy": "docs/release-versioning.md",
     "rustFixture": "fixtures/rust/portable-smoke",
     "cangjieFixture": "fixtures/cangjie/portable-smoke"
   },

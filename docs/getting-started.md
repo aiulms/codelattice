@@ -97,6 +97,7 @@ This command only prints templates. It does not write Codex, opencode, Claude, o
 ## Package a Release Tarball
 
 ```bash
+bash scripts/check-release-metadata.sh
 bash scripts/package-release.sh
 bash scripts/release-smoke.sh
 ```
@@ -107,10 +108,11 @@ The tarball contains:
 - `bin/gitnexus-rust-core-cli`
 - `codelattice-mcp.sh`
 - `manifest.json`
+- `CHANGELOG.md`
 - selected docs
 - portable Rust/Cangjie fixtures for smoke
 
-See [release-packaging.md](release-packaging.md) for artifact details.
+See [release-versioning.md](release-versioning.md) and [release-packaging.md](release-packaging.md) for release rules and artifact details.
 
 ## Troubleshooting
 

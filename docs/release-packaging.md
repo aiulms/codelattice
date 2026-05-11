@@ -35,9 +35,11 @@ codelattice-<version>-<platform>/
   codelattice-mcp.sh
   manifest.json
   README.md
+  CHANGELOG.md
   LICENSE
   docs/
     getting-started.md
+    release-versioning.md
     release-packaging.md
     architecture/
       mcp-local-client-setup.md
@@ -48,6 +50,18 @@ codelattice-<version>-<platform>/
 ```
 
 `bin/codelattice` is the primary public binary. `bin/gitnexus-rust-core-cli` is included as a compatibility binary for older scripts.
+
+## Version and Changelog
+
+The product release version comes from Cargo `workspace.package.version`. MCP `serverVersion` is a separate sidecar tool/profile version and is recorded under the manifest `profile` block.
+
+Before building a release artifact, validate release metadata:
+
+```bash
+bash scripts/check-release-metadata.sh
+```
+
+The release tarball includes `CHANGELOG.md` and `docs/release-versioning.md` so external users can inspect the release rules without the development checkout.
 
 ## Manifest
 
@@ -80,6 +94,8 @@ It verifies:
 - executable `bin/codelattice`
 - executable compatibility binary
 - executable `codelattice-mcp.sh`
+- packaged `CHANGELOG.md`
+- packaged `docs/release-versioning.md`
 - wrapper `--self-test`
 - MCP `tools/list >= 21`
 - Rust portable fixture analyze with nonzero symbols/files/edges
@@ -104,6 +120,7 @@ Before publishing an artifact:
 ```bash
 cargo fmt --check
 git diff --check
+bash scripts/check-release-metadata.sh
 cargo test
 cargo test --features tree-sitter-cangjie
 bash scripts/package-release.sh

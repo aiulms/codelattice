@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（Release Readiness Pack: binary alias + release tarball + release smoke）
+最后更新：2026-05-11（Release Versioning + Changelog Pack）
 
 ## 用途
 
@@ -23,7 +23,12 @@
 
 ## 当前状态总结
 
-**Release Readiness Pack（2026-05-11，本轮进行中）：**
+**Release Versioning + Changelog Pack（2026-05-11，已完成）：**
+- 📝 [`2026-05-11-release-versioning-changelog-preflight.md`](2026-05-11-release-versioning-changelog-preflight.md) — release version source、MCP serverVersion 边界、CHANGELOG 规则和 metadata checker preflight。
+- 📝 [`2026-05-11-release-versioning-changelog-execution-card.md`](2026-05-11-release-versioning-changelog-execution-card.md) — write set / forbidden set / verification target。
+- ✅ [`2026-05-11-release-versioning-changelog-closure.md`](2026-05-11-release-versioning-changelog-closure.md) — closure：CHANGELOG、release-versioning policy、metadata checker、package/smoke wiring、全量验证。
+
+**Release Readiness Pack（2026-05-11，已完成）：**
 - 📝 [`2026-05-11-release-readiness-pack-preflight.md`](2026-05-11-release-readiness-pack-preflight.md) — 非 WebUI 产品化 preflight：`codelattice` binary alias、release tarball、release smoke、getting-started/release docs。
 - 📝 [`2026-05-11-release-readiness-pack-execution-card.md`](2026-05-11-release-readiness-pack-execution-card.md) — TDD execution card：binary alias regression、tarball smoke、packaging script、docs、verification。
 - ✅ [`2026-05-11-release-readiness-pack-closure.md`](2026-05-11-release-readiness-pack-closure.md) — closure：`codelattice` public binary、release tarball、release smoke、active script migration、docs、LOW detect-changes。

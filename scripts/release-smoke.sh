@@ -100,10 +100,12 @@ BIN="$RELEASE_DIR/bin/codelattice"
 COMPAT_BIN="$RELEASE_DIR/bin/gitnexus-rust-core-cli"
 WRAPPER="$RELEASE_DIR/codelattice-mcp.sh"
 MANIFEST="$RELEASE_DIR/manifest.json"
+CHANGELOG="$RELEASE_DIR/CHANGELOG.md"
+RELEASE_POLICY="$RELEASE_DIR/docs/release-versioning.md"
 RUST_FIXTURE="$RELEASE_DIR/fixtures/rust/portable-smoke"
 CANGJIE_FIXTURE="$RELEASE_DIR/fixtures/cangjie/portable-smoke"
 
-for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST"; do
+for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST" "$CHANGELOG" "$RELEASE_POLICY"; do
     if [[ ! -e "$path" ]]; then
         echo "ERROR: expected release file missing: $path" >&2
         exit 1
