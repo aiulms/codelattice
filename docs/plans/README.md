@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（Phase B activated: GREEN window full smoke pass, default live entry guidance）
+最后更新：2026-05-11（Runtime isolation: AI IDE MCP points to CodeLattice-Tool stable runtime）
 
 ## 用途
 
@@ -836,3 +836,10 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - New docs: phase B plan, agent command snippet
     - Plan: `docs/plans/2026-05-11-cangjie-phase-b-default-entry-switch.md`
     - Snippet: `docs/plans/2026-05-11-cangjie-live-agent-command-snippet.md`
+
+66. **CodeLattice Runtime Isolation Pack** ✅ 完成（2026-05-11）：
+    - 新增 `scripts/promote-to-local-tool.sh`：显式构建 Rust+Cangjie release binary，并安装到 `/Users/jiangxuanyang/Desktop/CodeLattice-Tool`
+    - 稳定运行目录：`CodeLattice-Tool/codelattice-mcp.sh` + `bin/codelattice-cli` + `manifest.json`
+    - Codex / opencode 应指向稳定运行目录，不再直接指向开发 checkout wrapper
+    - 目的：开发区源码修改、debug rebuild、wrapper 改动不会影响正在使用的 AI IDE；只有 explicit promote 才更新运行版
+    - Plan: `docs/plans/2026-05-11-codelattice-runtime-isolation-pack.md`

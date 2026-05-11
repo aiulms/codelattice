@@ -104,13 +104,25 @@ fi
 
 # --- Print Config ---
 if [[ "$ACTION" == "print_config" ]]; then
-    WRAPPER_PATH="$WRAPPER"
+    STABLE_TOOL_DIR="${CODELATTICE_TOOL_DIR:-/Users/jiangxuanyang/Desktop/CodeLattice-Tool}"
+    STABLE_WRAPPER="$STABLE_TOOL_DIR/codelattice-mcp.sh"
+    if [[ -x "$STABLE_WRAPPER" ]]; then
+        WRAPPER_PATH="$STABLE_WRAPPER"
+        WRAPPER_NOTE="stable runtime wrapper"
+    else
+        WRAPPER_PATH="$WRAPPER"
+        WRAPPER_NOTE="development checkout wrapper (run scripts/promote-to-local-tool.sh for isolation)"
+    fi
     BIN_PATH="$REPO_ROOT/target/release/$BIN_NAME"
 
     echo "--- Configuration Snippets ---"
     echo ""
     echo "IMPORTANT: Always use the wrapper script path, not the binary directly."
-    echo "The wrapper ensures correct feature detection and profile selection."
+    echo "Selected wrapper: $WRAPPER_PATH"
+    echo "Wrapper source:   $WRAPPER_NOTE"
+    echo ""
+    echo "For daily AI IDE usage, prefer the promoted stable runtime:"
+    echo "  bash $REPO_ROOT/scripts/promote-to-local-tool.sh"
     echo ""
     echo "Copy ONE of these into your AI client config file."
     echo "Do NOT add multiple entries for the same server."
