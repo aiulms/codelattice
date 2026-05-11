@@ -1,9 +1,9 @@
 # MCP Contract — CodeLattice AI Layer
 
 > **日期：** 2026-05-11
-> **版本：** v0.3.0
-> **状态：** Active (MCP v0.3)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存能力
+> **版本：** v0.4.0
+> **状态：** Active (MCP v0.4)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/源码片段能力
 
 ---
 
@@ -297,9 +297,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ---
 
-### 3.9 `codelattice_symbol_context` *(v0.2)*
+### 3.9 `codelattice_symbol_context` *(v0.2, enhanced v0.4)*
 
-获取符号的丰富上下文：定义位置、出边/入边（按 kind 分组）、相关诊断、confidence 样本。若匹配多个符号则返回候选列表。
+获取符号的丰富上下文：定义位置、**源码片段**、出边/入边（按 kind 分组）、相关诊断、confidence 样本。若匹配多个符号则返回候选列表。
 
 **Input Schema:**
 ```json
@@ -310,7 +310,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
     "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
     "name": { "type": "string", "description": "符号名称" },
     "kind": { "type": "string", "description": "按符号类型过滤" },
-    "limit": { "type": "integer", "default": 10, "maximum": 50 }
+    "limit": { "type": "integer", "default": 10, "maximum": 50 },
+    "includeSnippet": { "type": "boolean", "default": true, "description": "是否包含源码片段（v0.4 新增）" },
+    "snippetContext": { "type": "integer", "default": 3, "maximum": 10, "description": "源码片段前后上下文行数（v0.4 新增）" }
   },
   "required": ["root", "name"]
 }
@@ -332,6 +334,12 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
       "line": 1,
       "lineEnd": 3,
       "visibility": "public",
+      "sourceSnippet": {
+        "lines": "pub fn helper() -> i32 {\n    42\n}\n",
+        "startLine": 1,
+        "endLine": 3,
+        "totalLines": 10
+      },
       "outgoingEdges": { "CALLS": 0 },
       "incomingEdges": { "CALLS": 1, "DEFINES": 1 },
       "relatedDiagnostics": 0,
@@ -341,6 +349,8 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "note": "Single match selected automatically"
 }
 ```
+
+> **v0.4 变更**: 每个候选新增 `sourceSnippet` 对象（默认开启，可通过 `includeSnippet: false` 关闭）。文件不存在或读取失败时返回 `{ "warning": "...", "lines": null }` 而非 panic。片段上限 50 行，上下文默认 3 行（最大 10）。
 
 ### 3.10 `codelattice_calls_from` *(v0.2)*
 
@@ -724,3 +734,4 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 | 2026-05-10 | v0.1.0+1 | v0.1 — 4 new tools (graph_overview, unresolved_report, symbol_search, export_bridge), output shaping, unified error structure, dogfood harness |
 | 2026-05-10 | v0.2.0 | v0.2 — 8 new tools (symbol_context, calls_from, calls_to, impact_preview, query_graph, project_overview, repo_registry, rename_preview), shared GraphView layer, BFS traversal, read-only graph intelligence |
 | 2026-05-11 | v0.3.0 | v0.3 — 2 new tools (cache_status, cache_clear), process-local analysis cache, cacheHit/analysisDurationMs signals in all tool outputs, 18 tools total |
+| 2026-05-11 | v0.4.0 | v0.4 — source snippets in symbol_context (includeSnippet, snippetContext, sourceSnippet field), install-mcp.sh, wrapper --self-test, cache smoke script, real client readiness |

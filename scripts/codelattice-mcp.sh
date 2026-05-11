@@ -72,7 +72,7 @@ EOF
 fi
 
 if [[ "${1:-}" == "--version" ]]; then
-    echo "codelattice-mcp-wrapper 0.2.0"
+    echo "codelattice-mcp-wrapper 0.4.0"
     echo "  root: $CODELATTICE_ROOT"
     # Try to get binary version
     if [[ -n "$CODELATTICE_MCP_BIN" && -x "$CODELATTICE_MCP_BIN" ]]; then
@@ -87,7 +87,58 @@ if [[ "${1:-}" == "--version" ]]; then
     exit 0
 fi
 
-# --- Validate root ---
+if [[ "${1:-}" == "--self-test" ]]; then
+    echo "codelattice-mcp self-test"
+    echo "  root: $CODELATTICE_ROOT"
+
+    # Check root validity
+    if [[ ! -d "$CODELATTICE_ROOT" ]]; then
+        echo "FAIL: CODELATTICE_ROOT does not exist: $CODELATTICE_ROOT"
+        exit 1
+    fi
+    if [[ ! -f "$CODELATTICE_ROOT/Cargo.toml" ]]; then
+        echo "FAIL: No Cargo.toml in CODELATTICE_ROOT"
+        exit 1
+    fi
+    echo "  root: OK"
+
+    # Check binary
+    SELF_TEST_BIN=""
+    if [[ -n "$CODELATTICE_MCP_BIN" && -x "$CODELATTICE_MCP_BIN" ]]; then
+        SELF_TEST_BIN="$CODELATTICE_MCP_BIN"
+    elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
+        SELF_TEST_BIN="$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
+    elif [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
+        SELF_TEST_BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
+    fi
+
+    if [[ -n "$SELF_TEST_BIN" ]]; then
+        echo "  bin:  $SELF_TEST_BIN"
+        VER=$("$SELF_TEST_BIN" --version 2>&1 || echo "unknown")
+        echo "  ver:  $VER"
+    else
+        echo "  bin:  (cargo run fallback — no pre-built binary found)"
+        echo "  hint: Run 'cargo build -p gitnexus-rust-core-cli' first, or set CODELATTICE_MCP_BIN"
+    fi
+
+    # Quick MCP handshake test
+    if [[ -n "$SELF_TEST_BIN" ]]; then
+        echo ""
+        echo "  MCP handshake test..."
+        RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}' | "$SELF_TEST_BIN" mcp 2>/dev/null | head -1)
+        if echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='codelattice'" 2>/dev/null; then
+            VER=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
+            echo "  MCP:  OK (server v$VER)"
+        else
+            echo "  MCP:  FAIL — unexpected response"
+            exit 1
+        fi
+    fi
+
+    echo ""
+    echo "Self-test passed."
+    exit 0
+fi
 if [[ ! -d "$CODELATTICE_ROOT" ]]; then
     echo "ERROR: CODELATTICE_ROOT does not exist: $CODELATTICE_ROOT" >&2
     exit 1

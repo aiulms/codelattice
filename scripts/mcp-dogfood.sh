@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MCP v0.3 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 18 tools and reports pass/fail per tool.
+# MCP v0.4 Dogfood — real stdio JSON-RPC against the MCP server.
+# Exercises all 18 tools + source snippet + cache behavior.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -15,7 +15,7 @@ echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/gitnexus-rust-core-cli"
 
-echo "--- MCP v0.3 Dogfood ---"
+echo "--- MCP v0.4 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
 echo ""
@@ -167,10 +167,10 @@ check_tool "codelattice_export_bridge" \
 # v0.2: Local Graph Intelligence (tools 10-17)
 # ============================================================
 
-echo "10. codelattice_symbol_context"
+echo "10. codelattice_symbol_context (with snippet)"
 check_tool "codelattice_symbol_context" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"name\":\"helper\"}" \
-    "data.get('matchCount', 0) > 0 and len(data.get('candidates', [])) > 0 and data['candidates'][0].get('name') == 'helper'"
+    "data.get('matchCount', 0) > 0 and len(data.get('candidates', [])) > 0 and data['candidates'][0].get('name') == 'helper' and data['candidates'][0].get('sourceSnippet', {}).get('lines') is not None"
 
 echo "11. codelattice_calls_from"
 check_tool "codelattice_calls_from" \
@@ -256,7 +256,7 @@ fi
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.3 Dogfood Results"
+echo " MCP v0.4 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"
@@ -267,7 +267,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.3 dogfood successful."
+    echo "All checks passed — MCP v0.4 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."

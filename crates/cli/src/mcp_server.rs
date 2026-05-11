@@ -155,7 +155,6 @@ fn inject_cache_meta(data: &mut Value, cache_hit: bool, duration_ms: u64) {
 // Process-Local Analysis Cache (v0.3)
 // ============================================================
 
-
 /// Merge cache_meta into a json output and wrap in tool_result.
 fn merge_cache_and_result(data: &Value, cache_meta: &Value) -> Value {
     let mut enriched = data.clone();
@@ -167,10 +166,93 @@ fn merge_cache_and_result(data: &Value, cache_meta: &Value) -> Value {
     tool_result(&enriched)
 }
 
+/// Read a source code snippet from a file relative to root.
+/// Returns a JSON object with `lines`, `startLine`, `endLine`, and optional `warning`.
+/// Context lines are added before/after the symbol range (default 3).
+/// Max snippet size: 50 lines to avoid huge outputs.
+fn read_source_snippet(
+    root: &str,
+    relative_path: &str,
+    symbol_start: u64,
+    symbol_end: u64,
+    context_lines: usize,
+) -> Value {
+    let max_lines = 50usize;
+    let ctx = context_lines.min(10); // cap context at 10 lines each side
+
+    let full_path = std::path::Path::new(root).join(relative_path);
+
+    if !full_path.exists() {
+        return json!({
+            "warning": format!("File not found: {}", relative_path),
+            "lines": Value::Null,
+            "startLine": Value::Null,
+            "endLine": Value::Null
+        });
+    }
+
+    let content = match std::fs::read_to_string(&full_path) {
+        Ok(s) => s,
+        Err(e) => {
+            return json!({
+                "warning": format!("Cannot read file {}: {}", relative_path, e),
+                "lines": Value::Null,
+                "startLine": Value::Null,
+                "endLine": Value::Null
+            });
+        }
+    };
+
+    let file_lines: Vec<&str> = content.lines().collect();
+    let total_lines = file_lines.len();
+
+    if total_lines == 0 {
+        return json!({
+            "warning": "Empty file",
+            "lines": "",
+            "startLine": 1,
+            "endLine": 1
+        });
+    }
+
+    // Convert 1-based to 0-based, with bounds checking
+    let sym_start = if symbol_start > 0 {
+        (symbol_start as usize).saturating_sub(1)
+    } else {
+        0
+    };
+    let sym_end = if symbol_end > 0 {
+        (symbol_end as usize).saturating_sub(1)
+    } else {
+        sym_start
+    };
+
+    // Add context, clamped to file bounds
+    let snippet_start = sym_start.saturating_sub(ctx);
+    let snippet_end = (sym_end + ctx + 1).min(total_lines); // +1 because end is inclusive
+
+    // Enforce max_lines
+    let snippet_end = if snippet_end - snippet_start > max_lines {
+        snippet_start + max_lines
+    } else {
+        snippet_end
+    };
+    let snippet_end = snippet_end.min(total_lines);
+
+    let snippet_lines: Vec<&str> = file_lines[snippet_start..snippet_end].to_vec();
+
+    json!({
+        "lines": snippet_lines.join("\n"),
+        "startLine": snippet_start + 1, // back to 1-based
+        "endLine": snippet_end,
+        "totalLines": total_lines
+    })
+}
+
 /// Cache key: uniquely identifies an analysis result.
 #[derive(Hash, Eq, PartialEq, Clone)]
 struct CacheKey {
-    root: String,   // canonical path
+    root: String, // canonical path
     language: String,
     strict: bool,
 }
@@ -211,9 +293,12 @@ impl McpCache {
         language: &str,
         strict: bool,
     ) -> Result<(GraphView, Value, Value), Value> {
-        let canonical = root
-            .canonicalize()
-            .map_err(|_| mcp_error("path_not_found", &format!("Cannot canonicalize: {}", root.display())))?;
+        let canonical = root.canonicalize().map_err(|_| {
+            mcp_error(
+                "path_not_found",
+                &format!("Cannot canonicalize: {}", root.display()),
+            )
+        })?;
         let key = CacheKey {
             root: canonical.to_string_lossy().to_string(),
             language: language.to_string(),
@@ -260,10 +345,14 @@ impl McpCache {
         let mut entries = Vec::new();
         for (key, entry) in &self.entries {
             if let Some(r) = filter_root {
-                if !key.root.contains(r) { continue; }
+                if !key.root.contains(r) {
+                    continue;
+                }
             }
             if let Some(l) = filter_lang {
-                if key.language != l { continue; }
+                if key.language != l {
+                    continue;
+                }
             }
             entries.push(json!({
                 "root": key.root,
@@ -288,10 +377,14 @@ impl McpCache {
         let before = self.entries.len();
         self.entries.retain(|key, _| {
             if let Some(r) = filter_root {
-                if !key.root.contains(r) { return true; }
+                if !key.root.contains(r) {
+                    return true;
+                }
             }
             if let Some(l) = filter_lang {
-                if key.language != l { return true; }
+                if key.language != l {
+                    return true;
+                }
             }
             false
         });
@@ -1312,6 +1405,8 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let language = params["language"].as_str().unwrap_or("auto");
     let kind_filter = params["kind"].as_str();
     let limit = params["limit"].as_u64().unwrap_or(10).min(50) as usize;
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let snippet_context = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
     check_cangjie_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
@@ -1319,12 +1414,15 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let matches = gv.find_symbols(name, kind_filter, limit);
 
     if matches.is_empty() {
-        return Ok(merge_cache_and_result(&json!({
-            "query": name,
-            "matchCount": 0,
-            "selected": null,
-            "note": "No symbols found matching the query"
-        }), &cache_meta));
+        return Ok(merge_cache_and_result(
+            &json!({
+                "query": name,
+                "matchCount": 0,
+                "selected": null,
+                "note": "No symbols found matching the query"
+            }),
+            &cache_meta,
+        ));
     }
 
     let mut match_summaries = Vec::new();
@@ -1367,6 +1465,20 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
         let in_map: serde_json::Map<String, Value> =
             in_by_kind.into_iter().map(|(k, v)| (k, json!(v))).collect();
 
+        // Read source snippet if requested
+        let snippet = if include_snippet {
+            let file_path = sym["properties"]["sourcePath"].as_str().unwrap_or("");
+            let line_start = sym["properties"]["lineStart"].as_u64().unwrap_or(0);
+            let line_end = sym["properties"]["lineEnd"].as_u64().unwrap_or(line_start);
+            if !file_path.is_empty() {
+                read_source_snippet(&gv.root, file_path, line_start, line_end, snippet_context)
+            } else {
+                json!({ "warning": "No source path available", "lines": Value::Null })
+            }
+        } else {
+            Value::Null
+        };
+
         match_summaries.push(json!({
             "id": id,
             "name": sym["properties"]["name"],
@@ -1375,6 +1487,7 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "line": sym["properties"]["lineStart"],
             "lineEnd": sym["properties"]["lineEnd"],
             "visibility": sym["properties"]["visibility"],
+            "sourceSnippet": snippet,
             "outgoingEdges": Value::Object(out_map),
             "incomingEdges": Value::Object(in_map),
             "relatedDiagnostics": diags.len(),
@@ -1389,14 +1502,17 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
         match_summaries.first().cloned().unwrap_or(Value::Null)
     };
 
-    Ok(merge_cache_and_result(&json!({
-        "query": name,
-        "matchCount": matches.len(),
-        "ambiguous": ambiguous,
-        "selected": selected,
-        "candidates": match_summaries,
-        "note": if ambiguous { "Multiple symbols match. Use kind/file parameters to disambiguate." } else { "" }
-    }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+            "query": name,
+            "matchCount": matches.len(),
+            "ambiguous": ambiguous,
+            "selected": selected,
+            "candidates": match_summaries,
+            "note": if ambiguous { "Multiple symbols match. Use kind/file parameters to disambiguate." } else { "" }
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -1418,13 +1534,16 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
     // Find source symbols
     let sources = gv.find_symbols(symbol, None, 5);
     if sources.is_empty() {
-        return Ok(merge_cache_and_result(&json!({
-            "symbol": symbol,
-            "sourceCandidates": [],
-            "edges": [],
-            "truncated": false,
-            "note": "No symbols found matching the query"
-        }), &cache_meta));
+        return Ok(merge_cache_and_result(
+            &json!({
+                "symbol": symbol,
+                "sourceCandidates": [],
+                "edges": [],
+                "truncated": false,
+                "note": "No symbols found matching the query"
+            }),
+            &cache_meta,
+        ));
     }
 
     let source_candidates: Vec<Value> = sources
@@ -1480,13 +1599,16 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
 
     let truncated = all_edges.len() >= limit;
 
-    Ok(merge_cache_and_result(&json!({
-        "symbol": symbol,
-        "sourceCandidates": source_candidates,
-        "edgeCount": all_edges.len(),
-        "edges": all_edges,
-        "truncated": truncated
-    }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+            "symbol": symbol,
+            "sourceCandidates": source_candidates,
+            "edgeCount": all_edges.len(),
+            "edges": all_edges,
+            "truncated": truncated
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -1507,13 +1629,16 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
 
     let targets = gv.find_symbols(symbol, None, 5);
     if targets.is_empty() {
-        return Ok(merge_cache_and_result(&json!({
-            "symbol": symbol,
-            "targetCandidates": [],
-            "edges": [],
-            "truncated": false,
-            "note": "No symbols found matching the query"
-        }), &cache_meta));
+        return Ok(merge_cache_and_result(
+            &json!({
+                "symbol": symbol,
+                "targetCandidates": [],
+                "edges": [],
+                "truncated": false,
+                "note": "No symbols found matching the query"
+            }),
+            &cache_meta,
+        ));
     }
 
     let target_candidates: Vec<Value> = targets
@@ -1569,13 +1694,16 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
 
     let truncated = all_edges.len() >= limit;
 
-    Ok(merge_cache_and_result(&json!({
-        "symbol": symbol,
-        "targetCandidates": target_candidates,
-        "edgeCount": all_edges.len(),
-        "edges": all_edges,
-        "truncated": truncated
-    }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+            "symbol": symbol,
+            "targetCandidates": target_candidates,
+            "edgeCount": all_edges.len(),
+            "edges": all_edges,
+            "truncated": truncated
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -1597,28 +1725,34 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
 
     let targets = gv.find_symbols(symbol, None, 5);
     if targets.is_empty() {
-        return Ok(merge_cache_and_result(&json!({
-            "symbol": symbol,
-            "risk": "UNKNOWN",
-            "reasons": ["Symbol not found in graph"],
-            "impactedNodes": [],
-            "impactedEdges": []
-        }), &cache_meta));
+        return Ok(merge_cache_and_result(
+            &json!({
+                "symbol": symbol,
+                "risk": "UNKNOWN",
+                "reasons": ["Symbol not found in graph"],
+                "impactedNodes": [],
+                "impactedEdges": []
+            }),
+            &cache_meta,
+        ));
     }
 
     if targets.len() > 1 {
-        return Ok(merge_cache_and_result(&json!({
-            "symbol": symbol,
-            "risk": "UNKNOWN",
-            "reasons": [format!("Ambiguous: {} candidates found. Use kind/file to disambiguate.", targets.len())],
-            "candidates": targets.iter().map(|t| json!({
-                "id": t["id"],
-                "name": t["properties"]["name"],
-                "kind": t["properties"]["symbolKind"]
-            })).collect::<Vec<_>>(),
-            "impactedNodes": [],
-            "impactedEdges": []
-        }), &cache_meta));
+        return Ok(merge_cache_and_result(
+            &json!({
+                "symbol": symbol,
+                "risk": "UNKNOWN",
+                "reasons": [format!("Ambiguous: {} candidates found. Use kind/file to disambiguate.", targets.len())],
+                "candidates": targets.iter().map(|t| json!({
+                    "id": t["id"],
+                    "name": t["properties"]["name"],
+                    "kind": t["properties"]["symbolKind"]
+                })).collect::<Vec<_>>(),
+                "impactedNodes": [],
+                "impactedEdges": []
+            }),
+            &cache_meta,
+        ));
     }
 
     let target = &targets[0];
@@ -1757,19 +1891,22 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         .map(|(f, c)| json!({ "file": f, "impactedNodeCount": c }))
         .collect();
 
-    Ok(merge_cache_and_result(&json!({
-        "symbol": symbol,
-        "targetId": target_id,
-        "direction": direction,
-        "risk": risk,
-        "reasons": reasons,
-        "impactedNodeCount": total_impacted,
-        "impactedNodesByKind": Value::Object(node_kind_map),
-        "impactedEdgesByKind": Value::Object(edge_kind_map),
-        "topImpactedFiles": top_files,
-        "previewOnly": true,
-        "noWrites": true
-    }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+            "symbol": symbol,
+            "targetId": target_id,
+            "direction": direction,
+            "risk": risk,
+            "reasons": reasons,
+            "impactedNodeCount": total_impacted,
+            "impactedNodesByKind": Value::Object(node_kind_map),
+            "impactedEdgesByKind": Value::Object(edge_kind_map),
+            "topImpactedFiles": top_files,
+            "previewOnly": true,
+            "noWrites": true
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -1868,13 +2005,16 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
 
     let truncated = matched_nodes.len() >= limit || matched_edges.len() >= limit;
 
-    Ok(merge_cache_and_result(&json!({
-        "matchedNodeCount": matched_nodes.len(),
-        "matchedEdgeCount": matched_edges.len(),
-        "matchedNodes": matched_nodes,
-        "matchedEdges": matched_edges,
-        "truncated": truncated
-    }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+            "matchedNodeCount": matched_nodes.len(),
+            "matchedEdgeCount": matched_edges.len(),
+            "matchedNodes": matched_nodes,
+            "matchedEdges": matched_edges,
+            "truncated": truncated
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -2007,24 +2147,27 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
         .map(|(k, v)| (k, json!(v)))
         .collect();
 
-    Ok(merge_cache_and_result(&json!({
-        "language": gv.language,
-        "root": gv.root,
-        "nodeCount": node_count,
-        "edgeCount": edge_count,
-        "symbolCount": symbol_count,
-        "packageCount": package_count,
-        "sourceFileCount": file_count,
-        "topNodeKinds": Value::Object(node_kind_map),
-        "topEdgeKinds": Value::Object(edge_kind_map),
-        "qualitySummary": quality_summary,
-        "diagnosticsSummary": {
-            "total": gv.diagnostics.len(),
-            "bySeverity": Value::Object(sev_map)
-        },
-        "hotspots": hotspots,
-        "denseFiles": dense_files
-    }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+            "language": gv.language,
+            "root": gv.root,
+            "nodeCount": node_count,
+            "edgeCount": edge_count,
+            "symbolCount": symbol_count,
+            "packageCount": package_count,
+            "sourceFileCount": file_count,
+            "topNodeKinds": Value::Object(node_kind_map),
+            "topEdgeKinds": Value::Object(edge_kind_map),
+            "qualitySummary": quality_summary,
+            "diagnosticsSummary": {
+                "total": gv.diagnostics.len(),
+                "bySeverity": Value::Object(sev_map)
+            },
+            "hotspots": hotspots,
+            "denseFiles": dense_files
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_repo_registry(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -2043,17 +2186,21 @@ fn handle_repo_registry(cache: &mut McpCache, params: &Value) -> Result<Value, V
             if let Some(r) = root {
                 let validated = validate_root_path(r)?;
                 let language = params["language"].as_str().unwrap_or("auto");
-                let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+                let (gv, _result, cache_meta) =
+                    cache.get_or_analyze(&validated, language, false)?;
                 let (nc, ec, sc) = gv.stats();
-                Ok(merge_cache_and_result(&json!({
-                    "action": "status",
-                    "root": validated.to_string_lossy(),
-                    "language": gv.language,
-                    "nodeCount": nc,
-                    "edgeCount": ec,
-                    "symbolCount": sc,
-                    "indexed": true
-                }), &cache_meta))
+                Ok(merge_cache_and_result(
+                    &json!({
+                        "action": "status",
+                        "root": validated.to_string_lossy(),
+                        "language": gv.language,
+                        "nodeCount": nc,
+                        "edgeCount": ec,
+                        "symbolCount": sc,
+                        "indexed": true
+                    }),
+                    &cache_meta,
+                ))
             } else {
                 Ok(tool_result(&json!({
                     "action": "status",
@@ -2090,13 +2237,16 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
 
     let matches = gv.find_symbols(symbol, params["kind"].as_str(), 5);
     if matches.is_empty() {
-        return Ok(merge_cache_and_result(&json!({
-            "symbol": symbol,
-            "newName": new_name,
-            "candidates": [],
-            "applySupported": false,
-            "note": "No symbols found matching the query"
-        }), &cache_meta));
+        return Ok(merge_cache_and_result(
+            &json!({
+                "symbol": symbol,
+                "newName": new_name,
+                "candidates": [],
+                "applySupported": false,
+                "note": "No symbols found matching the query"
+            }),
+            &cache_meta,
+        ));
     }
 
     let ambiguous = matches.len() > 1;
@@ -2149,15 +2299,18 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         warnings.push("High incoming call count — rename would touch many files.".to_string());
     }
 
-    Ok(merge_cache_and_result(&json!({
-        "symbol": symbol,
-        "newName": new_name,
-        "ambiguous": ambiguous,
-        "candidates": candidates,
-        "applySupported": false,
-        "warnings": warnings,
-        "note": "This is a read-only preview. CodeLattice does not perform AST-safe renames. Use IDE or language server for actual rename operations."
-     }), &cache_meta))
+    Ok(merge_cache_and_result(
+        &json!({
+           "symbol": symbol,
+           "newName": new_name,
+           "ambiguous": ambiguous,
+           "candidates": candidates,
+           "applySupported": false,
+           "warnings": warnings,
+           "note": "This is a read-only preview. CodeLattice does not perform AST-safe renames. Use IDE or language server for actual rename operations."
+        }),
+        &cache_meta,
+    ))
 }
 
 // ============================================================
@@ -2291,7 +2444,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_symbol_context",
-                "description": "Get rich context for a symbol: definition, outgoing/incoming edges grouped by kind, related diagnostics, confidence samples. Returns ambiguous candidates if multiple symbols match.",
+                "description": "Get rich context for a symbol: definition, source snippet, outgoing/incoming edges grouped by kind, related diagnostics, confidence samples. Returns ambiguous candidates if multiple symbols match.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -2299,7 +2452,9 @@ fn tools_list() -> Value {
                         "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
                         "name": { "type": "string", "description": "Symbol name to look up" },
                         "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, etc)" },
-                        "limit": { "type": "integer", "default": 10, "maximum": 50 }
+                        "limit": { "type": "integer", "default": 10, "maximum": 50 },
+                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippet in the response" },
+                        "snippetContext": { "type": "integer", "default": 3, "maximum": 10, "description": "Number of context lines before/after the symbol" }
                     },
                     "required": ["root", "name"]
                 }

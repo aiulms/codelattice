@@ -1446,7 +1446,10 @@ fn mcp_cache_hit_cross_tool() {
     let resp = session.recv();
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
-    assert_eq!(data["cacheHit"], true, "cross-tool call should be cache hit");
+    assert_eq!(
+        data["cacheHit"], true,
+        "cross-tool call should be cache hit"
+    );
 }
 
 #[test]
@@ -1715,7 +1718,10 @@ fn mcp_cache_status_shows_hit_count() {
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
     assert_eq!(data["entryCount"], 1);
-    assert_eq!(data["totalHits"], 2, "should have 2 hits after 3 analyze calls");
+    assert_eq!(
+        data["totalHits"], 2,
+        "should have 2 hits after 3 analyze calls"
+    );
     assert_eq!(data["totalMisses"], 1, "should have 1 miss");
 }
 
@@ -1777,5 +1783,210 @@ fn mcp_cache_different_roots_are_separate() {
     let resp2 = session.recv();
     let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
-    assert!(data2["entryCount"].as_u64().unwrap_or(0) >= 2, "should have at least 2 cache entries");
+    assert!(
+        data2["entryCount"].as_u64().unwrap_or(0) >= 2,
+        "should have at least 2 cache entries"
+    );
+}
+
+// ─── v0.4 Source Snippet Tests ──────────────────────────────────────────
+
+#[test]
+fn mcp_symbol_context_includes_source_snippet() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 401,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "helper"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let selected = &data["selected"];
+    assert!(selected.is_object(), "selected should be an object");
+
+    let snippet = &selected["sourceSnippet"];
+    assert!(snippet.is_object(), "sourceSnippet should be present");
+    assert!(
+        snippet["lines"].as_str().unwrap_or("").contains("helper"),
+        "snippet should contain 'helper'"
+    );
+    assert!(snippet["startLine"].as_u64().unwrap_or(0) > 0);
+    assert!(snippet["endLine"].as_u64().unwrap_or(0) > 0);
+    assert!(snippet["totalLines"].as_u64().unwrap_or(0) > 0);
+}
+
+#[test]
+fn mcp_symbol_context_snippet_disabled() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 402,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "helper",
+                "includeSnippet": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let selected = &data["selected"];
+    assert!(selected.is_object());
+    // sourceSnippet should be null when disabled
+    assert!(
+        selected["sourceSnippet"].is_null(),
+        "sourceSnippet should be null when includeSnippet=false"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_snippet_with_cache_hit() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    // First call — miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 403,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "helper"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Second call — hit, snippet should still work
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 404,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "helper"
+            }
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    assert_eq!(data["cacheHit"], true);
+    let snippet = &data["selected"]["sourceSnippet"];
+    assert!(
+        snippet["lines"].as_str().unwrap_or("").contains("helper"),
+        "snippet should work on cache hit"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_custom_snippet_context() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 405,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "helper",
+                "snippetContext": 0
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let snippet = &data["selected"]["sourceSnippet"];
+    assert!(snippet.is_object());
+    // With 0 context, snippet should be just the function itself
+    let lines = snippet["lines"].as_str().unwrap_or("");
+    assert!(
+        lines.contains("helper"),
+        "should contain helper even with 0 context"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_snippet_candidates_all_have_snippets() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 406,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "helper"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let candidates = data["candidates"]
+        .as_array()
+        .expect("candidates should be array");
+    for c in candidates {
+        let snippet = &c["sourceSnippet"];
+        assert!(
+            snippet.is_object(),
+            "every candidate should have sourceSnippet object"
+        );
+        assert!(
+            snippet["lines"].is_string(),
+            "snippet should have lines string"
+        );
+    }
 }

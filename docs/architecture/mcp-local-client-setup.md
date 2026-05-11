@@ -1,7 +1,7 @@
 # MCP Local Client Setup — CodeLattice Sidecar Server
 
 > **日期：** 2026-05-11
-> **版本：** v0.3.0
+> **版本：** v0.4.0
 > **状态：** Active
 
 ---
@@ -237,3 +237,45 @@ node /path/to/gitnexus/dist/cli/index.js analyze /path/to/project --force --skip
 ### old binary name
 
 二进制仍叫 `gitnexus-rust-core-cli`（旧工作名），MCP server 已重命名为 "codelattice"（server name），但 binary 路径未重命名。这是已知遗留，不影响功能。
+
+---
+
+## 十、安装与自检 (v0.4 新增)
+
+### install-mcp.sh
+
+```bash
+# 构建 release binary
+bash scripts/install-mcp.sh --build
+
+# 打印可复制的客户端配置片段
+bash scripts/install-mcp.sh --print-config
+
+# 仅显示会做什么（不实际构建）
+bash scripts/install-mcp.sh --build --dry-run
+```
+
+该脚本**不会自动修改**任何客户端配置文件。它只输出可复制粘贴的 JSON/TOML 片段。
+
+### codelattice-mcp.sh --self-test
+
+```bash
+bash scripts/codelattice-mcp.sh --self-test
+```
+
+验证：
+1. CODELATTICE_ROOT 有效
+2. Binary 可找到且可执行
+3. MCP handshake 成功（initialize → 返回 codelattice server info）
+
+### mcp-cache-smoke.sh
+
+```bash
+bash scripts/mcp-cache-smoke.sh
+```
+
+验证缓存行为：
+1. Miss → Hit（同一工具连续调用）
+2. Cross-tool cache reuse
+3. cache_clear 后重新 miss
+4. 缓存命中时源码片段仍然可用
