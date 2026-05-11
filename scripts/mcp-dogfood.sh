@@ -10,14 +10,22 @@ set -euo pipefail
 FIXTURE="${1:-fixtures/call-resolution/c1-same-module}"
 FIXTURE_ABS="$(cd "$(dirname "$0")/.." && pwd)/$FIXTURE"
 
-# Build the binary first
+# Build the binary first (with cangjie feature for full coverage)
 echo "--- Building ---"
-cargo build -p gitnexus-rust-core-cli --quiet 2>/dev/null
+cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/gitnexus-rust-core-cli"
 
-echo "--- MCP v0.5 Dogfood ---"
+echo "--- MCP v0.7 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
+echo ""
+
+# --- Profile detection ---
+PROFILE_RESP=$(echo '{"jsonrpc":"2.0","id":999,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dogfood","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1)
+PROFILE_VER=$(echo "$PROFILE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
+PROFILE_CJ=$(echo "$PROFILE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+PROFILE_TOOLS=$(echo "$PROFILE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
+echo "Profile: version=$PROFILE_VER cangjie=$PROFILE_CJ tools=$PROFILE_TOOLS"
 echo ""
 
 # Helper: send a JSON-RPC request and read one response line
@@ -260,11 +268,25 @@ check_tool "codelattice_cache_prewarm" \
     "data.get('warmed') == True and isinstance(data.get('summary'), dict)"
 
 # ============================================================
+# v0.7: Profile check
+# ============================================================
+echo "22. profile cangjie support"
+if [[ "$PROFILE_CJ" == "True" ]]; then
+    PASS=$((PASS + 1))
+    RESULTS+=("PASS: cangjieSupport=$PROFILE_CJ")
+    echo "   → cangjieSupport=$PROFILE_CJ ✓"
+else
+    FAIL=$((FAIL + 1))
+    RESULTS+=("FAIL: cangjieSupport=$PROFILE_CJ (expected True)")
+    echo "   → cangjieSupport=$PROFILE_CJ (expected True)"
+fi
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.6 Dogfood Results"
+echo " MCP v0.7 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"
@@ -275,7 +297,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.6 dogfood successful."
+    echo "All checks passed — MCP v0.7 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."

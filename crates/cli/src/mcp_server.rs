@@ -3529,14 +3529,31 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
     }
 
     match method {
-        "initialize" => Some(make_response(
-            &id,
-            json!({
-                "protocolVersion": "2024-11-05",
-                "capabilities": { "tools": {} },
-                "serverInfo": { "name": "codelattice", "version": "0.5.0" }
-            }),
-        )),
+        "initialize" => {
+            let cangjie_support = {
+                #[cfg(feature = "tree-sitter-cangjie")]
+                {
+                    true
+                }
+                #[cfg(not(feature = "tree-sitter-cangjie"))]
+                {
+                    false
+                }
+            };
+            Some(make_response(
+                &id,
+                json!({
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": { "tools": {} },
+                    "serverInfo": {
+                        "name": "codelattice",
+                        "version": "0.7.0",
+                        "cangjieSupport": cangjie_support,
+                        "toolCount": 21
+                    }
+                }),
+            ))
+        }
 
         "tools/list" => Some(make_response(&id, tools_list())),
 

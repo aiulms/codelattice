@@ -703,6 +703,28 @@ Pre-warm the process-local analysis cache for a project. Runs analysis and store
 
 ---
 
+### 3.23 Profile Detection (v0.7)
+
+The `initialize` response now includes profile information:
+
+```json
+{
+  "serverInfo": {
+    "name": "codelattice",
+    "version": "0.7.0",
+    "cangjieSupport": true,
+    "toolCount": 21
+  }
+}
+```
+
+- `cangjieSupport`: `true` if binary compiled with `--features tree-sitter-cangjie`, `false` otherwise
+- `toolCount`: number of tools exposed via `tools/list`
+
+Scripts parse this output to detect the binary's capabilities and warn if Cangjie support is missing.
+
+---
+
 ### 3.x Cache Evolution (v0.5)
 
 > **v0.5 Cache Enhancements**:
@@ -824,3 +846,4 @@ Pre-warm the process-local analysis cache for a project. Runs analysis and store
 | 2026-05-11 | v0.4.0 | v0.4 — source snippets in symbol_context (includeSnippet, snippetContext, sourceSnippet field), install-mcp.sh, wrapper --self-test, cache smoke script, real client readiness |
 | 2026-05-11 | v0.5.0 | v0.5 — Daily-use candidate: mtime-based cache invalidation, LRU eviction (max 16), snippet expansion to calls_from/to/impact/query/rename, 2 new tools (production_assist, compare_runs), install --doctor, real-client-dry-run.sh, 20 tools total |
 | 2026-05-11 | v0.6.0 | v0.6 — opencode real client verified, cangjie symbol_search fix (kind-based filtering, id parsing, label fallback), pipe-buffer deadlock fix, path-deny false positive fix, 1 new tool (cache_prewarm), 21 tools total |
+| 2026-05-11 | v0.7.0 | v0.7 — Install/profile hardening: cangjieSupport in initialize serverInfo, wrapper binary selection prefers cangjie-enabled binaries, install-mcp.sh --build defaults with cangjie feature, --rust-only option, doctor checks cangjie support + cangjie smoke, cargo run fallback includes tree-sitter-cangjie, 21 tools total |

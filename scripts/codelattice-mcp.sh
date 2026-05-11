@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # codelattice-mcp.sh — Stable MCP startup wrapper for AI sidecar integration.
 #
-# Usage: bash scripts/codelattice-mcp.sh [--help|--version]
+# Usage: bash scripts/codelattice-mcp.sh [--help|--version|--self-test]
 #
 # This wrapper provides a single entry point for MCP clients (Codex, Claude,
 # opencode, etc.) to start the CodeLattice MCP server without knowing the
@@ -9,14 +9,14 @@
 #
 # Environment variables:
 #   CODELATTICE_ROOT       Override CodeLattice source root (default: auto-detect)
-#   CODELATTICE_MCP_BIN    Use a pre-built binary instead of cargo run
+#   CODELATTICE_MCP_BIN    Use a pre-built binary instead of auto-detection
 #   CODELATTICE_LOG_LEVEL  Log verbosity (reserved; server does not read this yet)
 #
 # Binary selection order:
 #   1. CODELATTICE_MCP_BIN if set and executable
-#   2. target/release/gitnexus-rust-core-cli if exists and executable
-#   3. target/debug/gitnexus-rust-core-cli if exists and executable
-#   4. cargo run -p gitnexus-rust-core-cli -- mcp (builds on first call)
+#   2. target/release/gitnexus-rust-core-cli if exists
+#   3. target/debug/gitnexus-rust-core-cli if exists
+#   4. cargo run -p gitnexus-rust-core-cli --features tree-sitter-cangjie -- mcp
 #
 # The MCP server speaks newline-delimited JSON-RPC over stdio.
 # Logging goes to stderr only — stdout is pure JSON-RPC.
@@ -31,6 +31,70 @@ CODELATTICE_ROOT="${CODELATTICE_ROOT:-$DEFAULT_ROOT}"
 CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
 
+# --- Helper: get profile info from binary via MCP initialize ---
+# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_TOOLS
+_get_profile() {
+    local bin="$1"
+    local init_resp
+    init_resp=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"profile","version":"1.0"}}}' | "$bin" mcp 2>/dev/null | head -1)
+    _PROFILE_VERSION=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
+    _PROFILE_CANGJIE=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_TOOLS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
+}
+
+# --- Helper: select binary with profile validation ---
+_select_binary() {
+    local candidates=()
+
+    # 1. Explicit override
+    if [[ -n "$CODELATTICE_MCP_BIN" ]]; then
+        if [[ ! -x "$CODELATTICE_MCP_BIN" ]]; then
+            echo "ERROR: CODELATTICE_MCP_BIN not executable: $CODELATTICE_MCP_BIN" >&2
+            exit 1
+        fi
+        SELECTED_BIN="$CODELATTICE_MCP_BIN"
+        SELECTED_SOURCE="CODELATTICE_MCP_BIN"
+        return
+    fi
+
+    # 2. Release binary
+    if [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
+        candidates+=("$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli:release")
+    fi
+
+    # 3. Debug binary
+    if [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
+        candidates+=("$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli:debug")
+    fi
+
+    # Try candidates: prefer ones with cangjie support
+    for entry in "${candidates[@]}"; do
+        local bin="${entry%%:*}"
+        local profile="${entry##*:}"
+        _get_profile "$bin"
+        if [[ "$_PROFILE_CANGJIE" == "True" ]]; then
+            SELECTED_BIN="$bin"
+            SELECTED_SOURCE="$profile (cangjie=true)"
+            return
+        fi
+    done
+
+    # Fall back to first candidate even without cangjie
+    if [[ ${#candidates[@]} -gt 0 ]]; then
+        local entry="${candidates[0]}"
+        local bin="${entry%%:*}"
+        local profile="${entry##*:}"
+        SELECTED_BIN="$bin"
+        _get_profile "$bin"
+        SELECTED_SOURCE="$profile (cangjie=$_PROFILE_CANGJIE)"
+        return
+    fi
+
+    # 4. No pre-built binary — cargo run fallback
+    SELECTED_BIN=""
+    SELECTED_SOURCE="cargo-run-fallback"
+}
+
 # --- CLI flags ---
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
     cat <<'EOF'
@@ -43,19 +107,24 @@ Usage:
   bash scripts/codelattice-mcp.sh [options]
 
 Options:
-  --help, -h     Show this help message
-  --version      Print version info
+  --help, -h      Show this help message
+  --version       Print version and profile info
+  --self-test     Run diagnostic checks
 
 Environment:
   CODELATTICE_ROOT       Source root (auto-detected from script location)
-  CODELATTICE_MCP_BIN    Path to pre-built binary (skips cargo run)
+  CODELATTICE_MCP_BIN    Path to pre-built binary (skips auto-detection)
   CODELATTICE_LOG_LEVEL  Reserved for future log control
 
 Binary selection:
   1. CODELATTICE_MCP_BIN (if set)
-  2. target/release/gitnexus-rust-core-cli (if exists)
-  3. target/debug/gitnexus-rust-core-cli (if exists)
-  4. cargo run (fallback, builds if needed)
+  2. target/release/gitnexus-rust-core-cli (if exists, prefer cangjie-enabled)
+  3. target/debug/gitnexus-rust-core-cli (if exists, prefer cangjie-enabled)
+  4. cargo run --features tree-sitter-cangjie (fallback, builds if needed)
+
+Profile:
+  The wrapper detects cangjieSupport from the binary's MCP initialize response.
+  If no cangjie-enabled binary is found, it warns and suggests rebuild.
 
 Examples:
   # Default startup (from any cwd)
@@ -72,17 +141,19 @@ EOF
 fi
 
 if [[ "${1:-}" == "--version" ]]; then
-    echo "codelattice-mcp-wrapper 0.5.0"
+    _select_binary
+    echo "codelattice-mcp-wrapper 0.7.0"
     echo "  root: $CODELATTICE_ROOT"
-    # Try to get binary version
-    if [[ -n "$CODELATTICE_MCP_BIN" && -x "$CODELATTICE_MCP_BIN" ]]; then
-        echo "  bin:  $CODELATTICE_MCP_BIN"
-    elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
-        echo "  bin:  $CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
-    elif [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
-        echo "  bin:  $CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
+    if [[ -n "$SELECTED_BIN" ]]; then
+        echo "  bin:  $SELECTED_BIN"
+        echo "  source: $SELECTED_SOURCE"
+        _get_profile "$SELECTED_BIN"
+        echo "  serverVersion: $_PROFILE_VERSION"
+        echo "  cangjieSupport: $_PROFILE_CANGJIE"
+        echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback)"
+        echo "  source: cargo-run-fallback (will build with tree-sitter-cangjie)"
     fi
     exit 0
 fi
@@ -103,43 +174,41 @@ if [[ "${1:-}" == "--self-test" ]]; then
     echo "  root: OK"
 
     # Check binary
-    SELF_TEST_BIN=""
-    if [[ -n "$CODELATTICE_MCP_BIN" && -x "$CODELATTICE_MCP_BIN" ]]; then
-        SELF_TEST_BIN="$CODELATTICE_MCP_BIN"
-    elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
-        SELF_TEST_BIN="$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
-    elif [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
-        SELF_TEST_BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
-    fi
-
-    if [[ -n "$SELF_TEST_BIN" ]]; then
-        echo "  bin:  $SELF_TEST_BIN"
-        VER=$("$SELF_TEST_BIN" --version 2>&1 || echo "unknown")
-        echo "  ver:  $VER"
+    _select_binary
+    if [[ -n "$SELECTED_BIN" ]]; then
+        echo "  bin:  $SELECTED_BIN"
+        echo "  source: $SELECTED_SOURCE"
+        _get_profile "$SELECTED_BIN"
+        echo "  serverVersion: $_PROFILE_VERSION"
+        echo "  cangjieSupport: $_PROFILE_CANGJIE"
+        echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback — no pre-built binary found)"
-        echo "  hint: Run 'cargo build -p gitnexus-rust-core-cli' first, or set CODELATTICE_MCP_BIN"
+        echo "  hint: Run 'bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build'"
+        # Can't do MCP checks without binary
+        echo ""
+        echo "Self-test incomplete (no binary)."
+        exit 1
     fi
 
-    # Quick MCP handshake test
-    if [[ -n "$SELF_TEST_BIN" ]]; then
-        echo ""
-        echo "  MCP handshake test..."
-        RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}' | "$SELF_TEST_BIN" mcp 2>/dev/null | head -1)
-        if echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='codelattice'" 2>/dev/null; then
-            VER=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
-            echo "  MCP:  OK (server v$VER)"
-        else
-            echo "  MCP:  FAIL — unexpected response"
-            exit 1
-        fi
+    # MCP handshake test
+    echo ""
+    echo "  MCP handshake test..."
+    RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}' | "$SELECTED_BIN" mcp 2>/dev/null | head -1)
+    if echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='codelattice'" 2>/dev/null; then
+        VER=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
+        echo "  MCP:  OK (server v$VER)"
+    else
+        echo "  MCP:  FAIL — unexpected response"
+        exit 1
+    fi
 
-        # Extended test: tools/list + cache_status
-        echo ""
-        echo "  Extended checks..."
-        MULTI_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$SELF_TEST_BIN" mcp 2>/dev/null)
+    # Extended checks
+    echo ""
+    echo "  Extended checks..."
+    MULTI_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$SELECTED_BIN" mcp 2>/dev/null)
 
-        TOOL_COUNT=$(echo "$MULTI_RESP" | python3 -c "
+    TOOL_COUNT=$(echo "$MULTI_RESP" | python3 -c "
 import json, sys
 for line in sys.stdin:
     line = line.strip()
@@ -151,13 +220,14 @@ for line in sys.stdin:
             break
     except: pass
 " 2>/dev/null || echo "0")
-        if [[ "$TOOL_COUNT" -ge 20 ]]; then
-            echo "  tools/list: OK ($TOOL_COUNT tools)"
-        else
-            echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= 20)"
-        fi
+    if [[ "$TOOL_COUNT" -ge 21 ]]; then
+        echo "  tools/list: OK ($TOOL_COUNT tools)"
+    else
+        echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= 21)"
+        exit 1
+    fi
 
-        CACHE_OK=$(echo "$MULTI_RESP" | python3 -c "
+    CACHE_OK=$(echo "$MULTI_RESP" | python3 -c "
 import json, sys
 for line in sys.stdin:
     line = line.strip()
@@ -170,17 +240,29 @@ for line in sys.stdin:
             break
     except: pass
 " 2>/dev/null || echo "no")
-        if [[ "$CACHE_OK" == "yes" ]]; then
-            echo "  cache_status: OK (has maxEntries, totalEvictions)"
-        else
-            echo "  cache_status: FAIL (missing fields)"
-        fi
+    if [[ "$CACHE_OK" == "yes" ]]; then
+        echo "  cache_status: OK (has maxEntries, totalEvictions)"
+    else
+        echo "  cache_status: FAIL (missing fields)"
+        exit 1
+    fi
+
+    # Cangjie support check
+    if [[ "$_PROFILE_CANGJIE" == "True" ]]; then
+        echo "  cangjieSupport: OK (tree-sitter-cangjie feature compiled)"
+    elif [[ "$_PROFILE_CANGJIE" == "False" ]]; then
+        echo "  cangjieSupport: WARN — Cangjie tools will not work"
+        echo "    Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build"
+    else
+        echo "  cangjieSupport: unknown (could not detect)"
     fi
 
     echo ""
     echo "Self-test passed."
     exit 0
 fi
+
+# --- Normal startup ---
 if [[ ! -d "$CODELATTICE_ROOT" ]]; then
     echo "ERROR: CODELATTICE_ROOT does not exist: $CODELATTICE_ROOT" >&2
     exit 1
@@ -191,23 +273,55 @@ if [[ ! -f "$CODELATTICE_ROOT/Cargo.toml" ]]; then
     exit 1
 fi
 
-# --- Select binary ---
+# --- Select binary with profile awareness ---
 BIN=""
+WARN_CANGJIE=false
+
 if [[ -n "$CODELATTICE_MCP_BIN" ]]; then
     if [[ ! -x "$CODELATTICE_MCP_BIN" ]]; then
         echo "ERROR: CODELATTICE_MCP_BIN not executable: $CODELATTICE_MCP_BIN" >&2
         exit 1
     fi
     BIN="$CODELATTICE_MCP_BIN"
+    # Quick profile check
+    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    if [[ "$_CJ" == "False" ]]; then
+        WARN_CANGJIE=true
+    fi
 elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
     BIN="$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
+    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    if [[ "$_CJ" == "False" ]]; then
+        # Check if debug binary has cangjie — prefer it
+        if [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
+            _DCJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+            if [[ "$_DCJ" == "True" ]]; then
+                BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
+                _CJ="True"
+            fi
+        fi
+        if [[ "$_CJ" == "False" ]]; then
+            WARN_CANGJIE=true
+        fi
+    fi
 elif [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
     BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
+    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    if [[ "$_CJ" == "False" ]]; then
+        WARN_CANGJIE=true
+    fi
+fi
+
+if [[ "$WARN_CANGJIE" == "true" ]]; then
+    echo "[codelattice] WARNING: Cangjie support not compiled in this binary." >&2
+    echo "[codelattice] Cangjie tools will fail. Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build" >&2
 fi
 
 # --- Launch ---
 if [[ -n "$BIN" ]]; then
     exec "$BIN" mcp
 else
-    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --quiet -- mcp
+    # Fallback: cargo run with cangjie feature
+    echo "[codelattice] No pre-built binary found. Using cargo run with tree-sitter-cangjie..." >&2
+    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features tree-sitter-cangjie --quiet -- mcp
 fi

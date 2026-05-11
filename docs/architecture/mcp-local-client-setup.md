@@ -1,7 +1,7 @@
 # MCP Local Client Setup — CodeLattice Sidecar Server
 
 > **日期：** 2026-05-11
-> **版本：** v0.6.0
+> **版本：** v0.7.0
 > **状态：** Active
 
 ---
@@ -283,7 +283,7 @@ bash scripts/install-mcp.sh --doctor
 
 该脚本**不会自动修改**任何客户端配置文件。它只输出可复制粘贴的 JSON/TOML 片段。
 
-`--doctor` 检查：binary、wrapper、MCP handshake、tools/list (>= 21)、cache_status (maxEntries)。
+`--doctor` 检查：binary、wrapper、MCP handshake、tools/list (>= 21)、cache_status、cangjieSupport、Cangjie symbol_search smoke。
 
 ### codelattice-mcp.sh --self-test
 
@@ -297,6 +297,7 @@ bash scripts/codelattice-mcp.sh --self-test
 3. MCP handshake 成功（initialize → 返回 codelattice server info）
 4. tools/list 返回 >= 21 个工具 (v0.6 更新)
 5. cache_status 包含 maxEntries 和 totalEvictions (v0.5 新增)
+6. cangjieSupport 检测 (v0.7 新增)
 
 ### mcp-cache-smoke.sh
 
@@ -327,3 +328,55 @@ bash scripts/mcp-real-client-dry-run.sh [root_dir]
 8. codelattice_impact_preview
 9. codelattice_production_assist
 10. cache_status (populated)
+
+---
+
+## 十一、Profile 与 Cangjie 支持 (v0.7 新增)
+
+### Profile 检测
+
+MCP server 的 `initialize` 响应包含 profile 信息：
+
+```json
+{
+  "serverInfo": {
+    "name": "codelattice",
+    "version": "0.7.0",
+    "cangjieSupport": true,
+    "toolCount": 21
+  }
+}
+```
+
+`codelattice-mcp.sh --version` 会显示当前 binary 的 profile：
+
+```bash
+bash scripts/codelattice-mcp.sh --version
+# codelattice-mcp-wrapper 0.7.0
+#   serverVersion: 0.7.0
+#   cangjieSupport: True
+#   toolCount: 21
+```
+
+### 如何确认当前 binary 支持 Cangjie
+
+1. `bash scripts/codelattice-mcp.sh --self-test` — 会显示 cangjieSupport 状态
+2. `bash scripts/install-mcp.sh --doctor` — 完整健康检查，包括 Cangjie smoke
+3. MCP 客户端调用 `initialize` 后检查 `serverInfo.cangjieSupport`
+
+### 如何 rebuild
+
+```bash
+# 构建 Rust + Cangjie release binary
+bash scripts/install-mcp.sh --build
+
+# 仅 Rust
+bash scripts/install-mcp.sh --build --rust-only
+
+# 手动 cargo build
+cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie
+```
+
+### opencode 重启
+
+修改 binary 后，**必须重启 opencode session** 才会重新加载 MCP server。opencode 不会在 session 内自动重启 MCP 进程。
