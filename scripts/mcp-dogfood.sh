@@ -12,8 +12,8 @@ FIXTURE_ABS="$(cd "$(dirname "$0")/.." && pwd)/$FIXTURE"
 
 # Build the binary first (with cangjie feature for full coverage)
 echo "--- Building ---"
-cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --quiet 2>/dev/null
-BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/gitnexus-rust-core-cli"
+cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins --quiet 2>/dev/null
+BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/codelattice"
 
 echo "--- MCP v0.7 Dogfood ---"
 echo "Binary: $BIN"

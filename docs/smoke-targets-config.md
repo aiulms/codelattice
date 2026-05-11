@@ -57,26 +57,26 @@
 
 ```bash
 # analyze
-cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --format json
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze --root fixtures/rust/portable-smoke --format json
 
 # quality
-cargo run -p gitnexus-rust-core-cli -- quality --root fixtures/rust/portable-smoke --language rust
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- quality --root fixtures/rust/portable-smoke --language rust
 
 # summary
-cargo run -p gitnexus-rust-core-cli -- summary --root fixtures/rust/portable-smoke --language rust
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- summary --root fixtures/rust/portable-smoke --language rust
 
 # 自身 smoke
-cargo run -p gitnexus-rust-core-cli -- analyze --root . --language auto
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze --root . --language auto
 ```
 
 ### Cangjie
 
 ```bash
 # 需要 --features tree-sitter-cangjie
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- \
   analyze --root fixtures/cangjie/portable-smoke --format json
 
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- \
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- \
   quality --root fixtures/cangjie/portable-smoke --language cangjie
 ```
 
@@ -93,19 +93,19 @@ cd "$(dirname "$0")/.."
 echo "=== Rust fixture smoke ==="
 for f in portable-smoke imports-cross-crate multi-module module-hierarchy inline-module self-path enum-variant workspace-member; do
   echo "  $f:"
-  cargo run -p gitnexus-rust-core-cli -- summary --root "fixtures/rust/$f" --language rust --format json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'    nodes={d[\"graphSummary\"][\"nodeCount\"]} edges={d[\"graphSummary\"][\"edgeCount\"]} passed={d[\"qualitySummary\"][\"passed\"]}/{d[\"qualitySummary\"][\"total\"]}')"
+  cargo run -p gitnexus-rust-core-cli --bin codelattice -- summary --root "fixtures/rust/$f" --language rust --format json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'    nodes={d[\"graphSummary\"][\"nodeCount\"]} edges={d[\"graphSummary\"][\"edgeCount\"]} passed={d[\"qualitySummary\"][\"passed\"]}/{d[\"qualitySummary\"][\"total\"]}')"
 done
 
 echo ""
 echo "=== Cangjie fixture smoke ==="
 for f in portable-smoke imports-basic constructor-basic reference-cross-file-basic; do
   echo "  $f:"
-  cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- summary --root "fixtures/cangjie/$f" --language cangjie --format json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'    nodes={d[\"graphSummary\"][\"nodeCount\"]} edges={d[\"graphSummary\"][\"edgeCount\"]} passed={d[\"qualitySummary\"][\"passed\"]}/{d[\"qualitySummary\"][\"total\"]}')"
+  cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- summary --root "fixtures/cangjie/$f" --language cangjie --format json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'    nodes={d[\"graphSummary\"][\"nodeCount\"]} edges={d[\"graphSummary\"][\"edgeCount\"]} passed={d[\"qualitySummary\"][\"passed\"]}/{d[\"qualitySummary\"][\"total\"]}')"
 done
 
 echo ""
 echo "=== GitNexus Rust-core self smoke ==="
-cargo run -p gitnexus-rust-core-cli -- summary --root . --language rust --format json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  nodes={d[\"graphSummary\"][\"nodeCount\"]} edges={d[\"graphSummary\"][\"edgeCount\"]} symbols={d[\"graphSummary\"][\"symbolCount\"]}')"
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- summary --root . --language rust --format json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(f'  nodes={d[\"graphSummary\"][\"nodeCount\"]} edges={d[\"graphSummary\"][\"edgeCount\"]} symbols={d[\"graphSummary\"][\"symbolCount\"]}')"
 
 echo ""
 echo "=== Done ==="

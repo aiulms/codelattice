@@ -4,7 +4,7 @@ CodeLattice 是一个本地代码智能引擎，当前面向 Rust 与 Cangjie / 
 
 它不是一个托管服务，也不会上传你的代码。CodeLattice 运行在本机，默认以只读方式分析项目，并通过 CLI 或 MCP stdio server 对外提供能力。
 
-当前状态：**本地 CLI / MCP 工作流已可进入生产使用**。目前缺的是 WebUI、正式发布包和历史二进制命名清理；核心分析链路和 MCP sidecar 已经可以用于真实 Rust / Cangjie 项目的日常开发辅助。
+当前状态：**本地 CLI / MCP 工作流已可进入生产使用**。目前缺的是 WebUI 和正式对外发布流程；核心分析链路、release tarball 打包、release smoke 和 MCP sidecar 已经可以用于真实 Rust / Cangjie 项目的日常开发辅助。
 
 ## 适合谁
 
@@ -37,7 +37,13 @@ cd codelattice
 bash scripts/install-mcp.sh --build
 ```
 
-> 兼容命名：当前 Cargo package / binary 暂时仍叫 `gitnexus-rust-core-cli`。这是历史内部代号留下的兼容名，不代表对外产品关系；后续会迁移到 `codelattice` 命名。
+构建后优先使用 public binary：
+
+```bash
+target/release/codelattice --version
+```
+
+兼容说明：Cargo package 仍叫 `gitnexus-rust-core-cli`，并继续构建同名兼容 binary；对外命令优先使用 `codelattice`。
 
 ### 2. 跑 fresh clone smoke
 
@@ -65,7 +71,21 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 
 如果不传 `--install-dir`，脚本会使用默认目录 `$HOME/Desktop/CodeLattice-Tool`。
 
-### 4. 打印 MCP client 配置模板
+### 4. 打包 release tarball
+
+```bash
+bash scripts/package-release.sh
+bash scripts/release-smoke.sh
+```
+
+默认产物：
+
+```text
+dist/codelattice-<version>-<platform>.tar.gz
+dist/codelattice-<version>-<platform>.tar.gz.sha256
+```
+
+### 5. 打印 MCP client 配置模板
 
 ```bash
 bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
@@ -77,10 +97,10 @@ bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
 $CODELATTICE_TOOL_DIR/codelattice-mcp.sh
 ```
 
-### 5. 分析一个 Rust fixture
+### 6. 分析一个 Rust fixture
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- analyze \
+target/release/codelattice analyze \
   --root fixtures/rust/portable-smoke \
   --language rust \
   --format json
@@ -91,7 +111,7 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 ### 分析 Rust 项目
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- analyze \
+target/release/codelattice analyze \
   --root /path/to/rust/project \
   --language rust \
   --format json
@@ -100,7 +120,7 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 严格质量门：
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- analyze \
+target/release/codelattice analyze \
   --root /path/to/rust/project \
   --language rust \
   --format json \
@@ -110,7 +130,7 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 ### 分析 Cangjie / 仓颉项目
 
 ```bash
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
+target/release/codelattice analyze \
   --root /path/to/cangjie/project \
   --language cangjie \
   --format json \
@@ -120,7 +140,7 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
 ### 自动检测语言
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- analyze \
+target/release/codelattice analyze \
   --root /path/to/project \
   --language auto \
   --format json
@@ -135,7 +155,7 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 ### 质量门检查
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- quality \
+target/release/codelattice quality \
   --root fixtures/rust/portable-smoke \
   --language rust
 ```
@@ -149,7 +169,7 @@ exit code：
 ### 摘要输出
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- summary \
+target/release/codelattice summary \
   --root fixtures/rust/portable-smoke \
   --language rust \
   --format json
@@ -268,7 +288,7 @@ bash scripts/mcp-real-client-dry-run.sh
 启用 Cangjie feature：
 
 ```bash
-cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli
+cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bins
 ```
 
 当前明确不做：
@@ -327,14 +347,15 @@ cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli
 - Rust / Cangjie 质量门
 - MCP sidecar 21 工具
 - stable runtime promote
+- release tarball packaging + release smoke
 - fresh clone smoke
 - 本地 AI client 接入模板
 
 正在补齐的部分：
 
 - WebUI
-- 正式 release packaging
-- Cargo package / binary 的 CodeLattice 命名迁移
+- 正式发布流程与版本资产发布
+- Cargo package 名称的 CodeLattice 迁移
 - 更多平台和外部环境验证
 - 更丰富的 Rust method dispatch 与 Cangjie diagnostics 能力
 
@@ -365,6 +386,8 @@ cargo test
 cargo test --features tree-sitter-cangjie
 bash scripts/install-mcp.sh --doctor
 bash scripts/codelattice-mcp.sh --self-test
+bash scripts/package-release.sh
+bash scripts/release-smoke.sh
 bash scripts/fresh-clone-smoke.sh --skip-tests
 ```
 
@@ -402,6 +425,8 @@ codelattice/
     codelattice-mcp.sh
     install-mcp.sh
     promote-to-local-tool.sh
+    package-release.sh
+    release-smoke.sh
     fresh-clone-smoke.sh
 ```
 

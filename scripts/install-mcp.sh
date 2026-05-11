@@ -21,7 +21,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="${CODELATTICE_ROOT:-$DEFAULT_REPO_ROOT}"
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
-BIN_NAME="gitnexus-rust-core-cli"
+BIN_NAME="codelattice"
+COMPAT_BIN_NAME="gitnexus-rust-core-cli"
 WRAPPER="$REPO_ROOT/scripts/codelattice-mcp.sh"
 DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
 INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
@@ -83,10 +84,10 @@ echo ""
 if [[ "$ACTION" == "build" ]]; then
     if [[ "$RUST_ONLY" == "true" ]]; then
         echo "--- Building release binary (Rust only) ---"
-        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli"
+        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --bins"
     else
         echo "--- Building release binary (Rust + Cangjie) ---"
-        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie"
+        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins"
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -228,7 +229,9 @@ if [[ "$ACTION" == "doctor" ]]; then
     BIN_PROFILE="unknown"
     for candidate in \
         "$REPO_ROOT/target/release/$BIN_NAME" \
-        "$REPO_ROOT/target/debug/$BIN_NAME"; do
+        "$REPO_ROOT/target/debug/$BIN_NAME" \
+        "$REPO_ROOT/target/release/$COMPAT_BIN_NAME" \
+        "$REPO_ROOT/target/debug/$COMPAT_BIN_NAME"; do
         if [[ -x "$candidate" ]]; then
             BIN_PATH="$candidate"
             if [[ "$candidate" == *"/release/"* ]]; then
@@ -311,7 +314,7 @@ if [[ "$ACTION" == "doctor" ]]; then
         elif [[ "$CANGJIE_SUPPORT" == "False" ]]; then
             echo "FAIL: cangjieSupport=false — Cangjie tools will not work"
             echo "      Fix: bash $0 --build"
-            echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie"
+            echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins"
             FAIL=$((FAIL + 1))
         else
             echo "WARN: cangjieSupport=$CANGJIE_SUPPORT (could not detect)"

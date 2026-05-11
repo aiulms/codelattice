@@ -16,9 +16,11 @@
 #
 # Binary selection order:
 #   1. CODELATTICE_MCP_BIN if set and executable
-#   2. target/release/gitnexus-rust-core-cli if exists
-#   3. target/debug/gitnexus-rust-core-cli if exists
-#   4. cargo run -p gitnexus-rust-core-cli --features tree-sitter-cangjie -- mcp
+#   2. target/release/codelattice if exists
+#   3. target/debug/codelattice if exists
+#   4. target/release/gitnexus-rust-core-cli if exists (compat)
+#   5. target/debug/gitnexus-rust-core-cli if exists (compat)
+#   6. cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- mcp
 #
 # The MCP server speaks newline-delimited JSON-RPC over stdio.
 # Logging goes to stderr only — stdout is pure JSON-RPC.
@@ -60,13 +62,21 @@ _select_binary() {
     fi
 
     # 2. Release binary
-    if [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
-        candidates+=("$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli:release")
+    if [[ -x "$CODELATTICE_ROOT/target/release/codelattice" ]]; then
+        candidates+=("$CODELATTICE_ROOT/target/release/codelattice:release")
     fi
 
     # 3. Debug binary
+    if [[ -x "$CODELATTICE_ROOT/target/debug/codelattice" ]]; then
+        candidates+=("$CODELATTICE_ROOT/target/debug/codelattice:debug")
+    fi
+
+    # 4. Compatibility binaries
+    if [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
+        candidates+=("$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli:release-compat")
+    fi
     if [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
-        candidates+=("$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli:debug")
+        candidates+=("$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli:debug-compat")
     fi
 
     # Try candidates: prefer ones with cangjie support
@@ -120,9 +130,11 @@ Environment:
 
 Binary selection:
   1. CODELATTICE_MCP_BIN (if set)
-  2. target/release/gitnexus-rust-core-cli (if exists, prefer cangjie-enabled)
-  3. target/debug/gitnexus-rust-core-cli (if exists, prefer cangjie-enabled)
-  4. cargo run --features tree-sitter-cangjie (fallback, builds if needed)
+  2. target/release/codelattice (if exists, prefer cangjie-enabled)
+  3. target/debug/codelattice (if exists, prefer cangjie-enabled)
+  4. target/release/gitnexus-rust-core-cli (compat)
+  5. target/debug/gitnexus-rust-core-cli (compat)
+  6. cargo run --features tree-sitter-cangjie --bin codelattice (fallback)
 
 Profile:
   The wrapper detects cangjieSupport from the binary's MCP initialize response.
@@ -137,7 +149,7 @@ Examples:
   bash "$HOME/Desktop/CodeLattice-Tool/codelattice-mcp.sh" --self-test
 
   # With pre-built binary
-  CODELATTICE_MCP_BIN=/usr/local/bin/gitnexus-rust-core-cli \
+  CODELATTICE_MCP_BIN=/usr/local/bin/codelattice \
       bash scripts/codelattice-mcp.sh
 
   # In MCP client config (Codex / Claude / opencode), prefer the promoted wrapper.
@@ -294,21 +306,33 @@ if [[ -n "$CODELATTICE_MCP_BIN" ]]; then
     if [[ "$_CJ" == "False" ]]; then
         WARN_CANGJIE=true
     fi
-elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
-    BIN="$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
+elif [[ -x "$CODELATTICE_ROOT/target/release/codelattice" ]]; then
+    BIN="$CODELATTICE_ROOT/target/release/codelattice"
     _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
     if [[ "$_CJ" == "False" ]]; then
         # Check if debug binary has cangjie — prefer it
-        if [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
-            _DCJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+        if [[ -x "$CODELATTICE_ROOT/target/debug/codelattice" ]]; then
+            _DCJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$CODELATTICE_ROOT/target/debug/codelattice" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
             if [[ "$_DCJ" == "True" ]]; then
-                BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
+                BIN="$CODELATTICE_ROOT/target/debug/codelattice"
                 _CJ="True"
             fi
         fi
         if [[ "$_CJ" == "False" ]]; then
             WARN_CANGJIE=true
         fi
+    fi
+elif [[ -x "$CODELATTICE_ROOT/target/debug/codelattice" ]]; then
+    BIN="$CODELATTICE_ROOT/target/debug/codelattice"
+    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    if [[ "$_CJ" == "False" ]]; then
+        WARN_CANGJIE=true
+    fi
+elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
+    BIN="$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
+    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    if [[ "$_CJ" == "False" ]]; then
+        WARN_CANGJIE=true
     fi
 elif [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
     BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
@@ -329,5 +353,5 @@ if [[ -n "$BIN" ]]; then
 else
     # Fallback: cargo run with cangjie feature
     echo "[codelattice] No pre-built binary found. Using cargo run with tree-sitter-cangjie..." >&2
-    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features tree-sitter-cangjie --quiet -- mcp
+    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bin codelattice --quiet -- mcp
 fi

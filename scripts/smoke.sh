@@ -73,7 +73,7 @@ echo ""
 
 # --- Step 4: Rust analyze --strict（JSON 格式）---
 echo "--- Step 4: Rust analyze --strict（portable-smoke, JSON） ---"
-RUST_OUTPUT=$(cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --language rust --format json --strict 2>/dev/null) || true
+RUST_OUTPUT=$(cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze --root fixtures/rust/portable-smoke --language rust --format json --strict 2>/dev/null) || true
 RUST_EXIT=$?
 if [[ $RUST_EXIT -eq 0 ]] && echo "$RUST_OUTPUT" | python3 -c "
 import json, sys
@@ -95,7 +95,7 @@ echo ""
 
 # --- Step 5: Rust bridge format ---
 echo "--- Step 5: Rust bridge format（--format gitnexus-rc） ---"
-RUST_BRIDGE=$(cargo run -p gitnexus-rust-core-cli -- analyze --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc --strict 2>/dev/null) || true
+RUST_BRIDGE=$(cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc --strict 2>/dev/null) || true
 RUST_BRIDGE_EXIT=$?
 if [[ $RUST_BRIDGE_EXIT -eq 0 ]] && echo "$RUST_BRIDGE" | python3 -c "
 import json, sys
@@ -124,7 +124,7 @@ fi
 
 echo ""
 echo "--- Step 6: Rust quality（exit code 检查） ---"
-if cargo run -p gitnexus-rust-core-cli -- quality --root fixtures/rust/portable-smoke --language rust 2>/dev/null; then
+if cargo run -p gitnexus-rust-core-cli --bin codelattice -- quality --root fixtures/rust/portable-smoke --language rust 2>/dev/null; then
     pass "Rust quality exit code 0 (pass)"
 else
     fail "Rust quality exit code 非 0"
@@ -134,7 +134,7 @@ echo ""
 
 # --- Cangjie CLI smoke ---
 echo "--- Step 7: Cangjie analyze --strict（portable-smoke, JSON） ---"
-CANGJIE_OUTPUT=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format json --strict 2>/dev/null) || true
+CANGJIE_OUTPUT=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format json --strict 2>/dev/null) || true
 CANGJIE_EXIT=$?
 if [[ $CANGJIE_EXIT -eq 0 ]] && echo "$CANGJIE_OUTPUT" | python3 -c "
 import json, sys
@@ -154,7 +154,7 @@ fi
 
 echo ""
 echo "--- Step 8: Cangjie bridge format（--format gitnexus-rc） ---"
-CJ_BRIDGE=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format gitnexus-rc --strict 2>/dev/null) || true
+CJ_BRIDGE=$(cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- analyze --root fixtures/cangjie/portable-smoke --language cangjie --format gitnexus-rc --strict 2>/dev/null) || true
 CJ_BRIDGE_EXIT=$?
 if [[ $CJ_BRIDGE_EXIT -eq 0 ]] && echo "$CJ_BRIDGE" | python3 -c "
 import json, sys
@@ -180,7 +180,7 @@ fi
 
 echo ""
 echo "--- Step 9: Cangjie quality（exit code 检查） ---"
-if cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- quality --root fixtures/cangjie/portable-smoke --language cangjie 2>/dev/null; then
+if cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- quality --root fixtures/cangjie/portable-smoke --language cangjie 2>/dev/null; then
     pass "Cangjie quality exit code 0 (pass)"
 else
     fail "Cangjie quality exit code 非 0"
@@ -190,7 +190,7 @@ echo ""
 
 # --- 自身分析 ---
 echo "--- Step 10: 自身 smoke（analyze --language auto） ---"
-if cargo run -p gitnexus-rust-core-cli -- analyze --root . --language auto --format json 2>/dev/null | python3 -c "
+if cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze --root . --language auto --format json 2>/dev/null | python3 -c "
 import json, sys
 d = json.load(sys.stdin)
 s = d['summary']

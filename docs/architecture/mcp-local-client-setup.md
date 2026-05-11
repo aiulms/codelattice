@@ -281,7 +281,7 @@ ERROR: Cangjie feature not compiled
 
 Cangjie 支持需要编译时启用 feature：
 ```bash
-cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie
+cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins
 ```
 
 ### timeout
@@ -339,9 +339,9 @@ Stable window 规则：
 
 详见 `docs/plans/2026-05-11-cangjie-production-alias-switch-plan.md`。
 
-### old binary name
+### compatibility binary name
 
-二进制仍叫 `gitnexus-rust-core-cli`（旧工作名），MCP server 已重命名为 "codelattice"（server name），但 binary 路径未重命名。这是已知遗留，不影响功能。
+主二进制现在是 `codelattice`。`gitnexus-rust-core-cli` 作为旧工作名兼容 binary 继续构建，旧脚本可逐步迁移。
 
 ---
 
@@ -387,6 +387,7 @@ CodeLattice-Tool/
   codelattice-mcp.sh
   manifest.json
   bin/
+    codelattice
     codelattice-cli
     gitnexus-rust-core-cli
 ```
@@ -483,7 +484,7 @@ bash scripts/install-mcp.sh --build
 bash scripts/install-mcp.sh --build --rust-only
 
 # 手动 cargo build
-cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie
+cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins
 ```
 
 ### opencode 重启

@@ -28,9 +28,9 @@ use unified_types::{
 
 #[derive(Parser)]
 #[command(
-    name = "gitnexus-rust-core",
+    name = "codelattice",
     version,
-    about = "GitNexus Rust-core 复刻 CLI"
+    about = "CodeLattice local code intelligence CLI"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -687,7 +687,7 @@ fn build_cangjie_summary(
 // main
 // ============================================================
 
-fn main() {
+pub fn run() {
     let cli = Cli::parse();
 
     match cli.command {
@@ -751,7 +751,7 @@ fn main() {
                     let _strict = strict;
                     eprintln!("错误：Cangjie support is disabled.");
                     eprintln!("请使用 --features tree-sitter-cangjie 重新编译：");
-                    eprintln!("  cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- cangjie inspect --root <path>");
+                    eprintln!("  cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- cangjie inspect --root <path>");
                     std::process::exit(1);
                 }
 

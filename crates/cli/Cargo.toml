@@ -4,6 +4,14 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "codelattice"
+path = "src/bin/codelattice.rs"
+
+[[bin]]
+name = "gitnexus-rust-core-cli"
+path = "src/bin/gitnexus-rust-core-cli.rs"
+
 [features]
 default = ["tree-sitter-extraction"]
 tree-sitter-extraction = ["gitnexus-project-model/tree-sitter-extraction"]

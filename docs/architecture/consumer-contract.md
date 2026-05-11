@@ -410,18 +410,18 @@ Bridge 格式提供以下结构保证（由 `bridge_roundtrip` 测试套件验�
 ### 6.1 Rust 项目分析（Unified JSON）
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- analyze \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/rust/portable-smoke \
   --language rust \
   --format json
 
 # 用 jq 提取统计
-cargo run -p gitnexus-rust-core-cli -- analyze \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/rust/portable-smoke --language rust --format json 2>/dev/null \
   | jq '{nodes: .summary.nodeCount, symbols: .summary.symbolCount, edges: .summary.edgeCount}'
 
 # strict 模式（CI/CD）
-cargo run -p gitnexus-rust-core-cli -- analyze \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/rust/portable-smoke --language rust --format json --strict
 ```
 
@@ -429,13 +429,13 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 
 ```bash
 # 需要 tree-sitter-cangjie feature
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/cangjie/portable-smoke \
   --language cangjie \
   --format json
 
 # jq 提取 quality gates
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/cangjie/portable-smoke --language cangjie --format json 2>/dev/null \
   | jq '.qualityGates[] | {gate: .gateName, pass: .passed}'
 ```
@@ -444,17 +444,17 @@ cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
 
 ```bash
 # Rust bridge
-cargo run -p gitnexus-rust-core-cli -- analyze \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc 2>/dev/null \
   | jq '{lang: .language, files: .sourceFiles | length, symbols: .symbols | length, edges: .stats.edgeCount}'
 
 # Cangjie bridge
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze \
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/cangjie/portable-smoke --language cangjie --format gitnexus-rc 2>/dev/null \
   | jq '{lang: .language, files: [.sourceFiles[].path], symbols: [.symbols[].name]}'
 
 # 端点完整性验证（jq）
-cargo run -p gitnexus-rust-core-cli -- analyze \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze \
   --root fixtures/rust/portable-smoke --language rust --format gitnexus-rc 2>/dev/null \
   | jq -e '
     ( [.repository.id] + [.packages[].id] + [.sourceFiles[].id] + [.symbols[].id] ) as $ids |
@@ -467,12 +467,12 @@ cargo run -p gitnexus-rust-core-cli -- analyze \
 
 ```bash
 # Rust quality — exit code 0 表示全通过
-cargo run -p gitnexus-rust-core-cli -- quality \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- quality \
   --root fixtures/rust/portable-smoke --language rust
 echo "Exit: $?"
 
 # Cangjie quality
-cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- quality \
+cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- quality \
   --root fixtures/cangjie/portable-smoke --language cangjie
 echo "Exit: $?"
 ```
@@ -480,7 +480,7 @@ echo "Exit: $?"
 ### 6.5 统计摘要
 
 ```bash
-cargo run -p gitnexus-rust-core-cli -- summary \
+cargo run -p gitnexus-rust-core-cli --bin codelattice -- summary \
   --root fixtures/rust/portable-smoke --language rust --format json 2>/dev/null \
   | jq '{lang: .language, nodes: .graphSummary.nodeCount, quality: .qualitySummary}'
 ```

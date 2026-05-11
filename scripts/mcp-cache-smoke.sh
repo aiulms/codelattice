@@ -13,12 +13,18 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIXTURE="${1:-$REPO_ROOT/fixtures/call-resolution/c1-same-module}"
 FIXTURE_ABS="$(cd "$(dirname "$FIXTURE")" && pwd)/$(basename "$FIXTURE")"
 
-BIN="$REPO_ROOT/target/debug/gitnexus-rust-core-cli"
+BIN="$REPO_ROOT/target/debug/codelattice"
+if [[ ! -x "$BIN" ]]; then
+    BIN="$REPO_ROOT/target/release/codelattice"
+fi
+if [[ ! -x "$BIN" ]]; then
+    BIN="$REPO_ROOT/target/debug/gitnexus-rust-core-cli"
+fi
 if [[ ! -x "$BIN" ]]; then
     BIN="$REPO_ROOT/target/release/gitnexus-rust-core-cli"
 fi
 if [[ ! -x "$BIN" ]]; then
-    echo "ERROR: No binary found. Run 'cargo build' first."
+    echo "ERROR: No binary found. Run 'cargo build -p gitnexus-rust-core-cli --bins' first."
     exit 1
 fi
 

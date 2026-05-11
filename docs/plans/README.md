@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（External Reuse Pack: portable MCP install + fresh clone smoke）
+最后更新：2026-05-11（Release Readiness Pack: binary alias + release tarball + release smoke）
 
 ## 用途
 
@@ -23,9 +23,14 @@
 
 ## 当前状态总结
 
-**External Reuse Pack（2026-05-11，本轮进行中）：**
+**Release Readiness Pack（2026-05-11，本轮进行中）：**
+- 📝 [`2026-05-11-release-readiness-pack-preflight.md`](2026-05-11-release-readiness-pack-preflight.md) — 非 WebUI 产品化 preflight：`codelattice` binary alias、release tarball、release smoke、getting-started/release docs。
+- 📝 [`2026-05-11-release-readiness-pack-execution-card.md`](2026-05-11-release-readiness-pack-execution-card.md) — TDD execution card：binary alias regression、tarball smoke、packaging script、docs、verification。
+- ✅ [`2026-05-11-release-readiness-pack-closure.md`](2026-05-11-release-readiness-pack-closure.md) — closure：`codelattice` public binary、release tarball、release smoke、active script migration、docs、LOW detect-changes。
+
+**External Reuse Pack（2026-05-11，已完成）：**
 - 📝 [`2026-05-11-external-reuse-pack-preflight.md`](2026-05-11-external-reuse-pack-preflight.md) — fresh clone 可用性、portable MCP install、文档外部化、Cangjie project_overview compact count regression 的 preflight / execution card。
-- 📝 [`2026-05-11-external-reuse-pack-closure.md`](2026-05-11-external-reuse-pack-closure.md) — 本轮 closure review（完成后填写最终验证和 commit/push 状态）。
+- ✅ [`2026-05-11-external-reuse-pack-closure.md`](2026-05-11-external-reuse-pack-closure.md) — portable install / fresh clone smoke / Cangjie project_overview compact count regression closure。
 
 **Cangjie 线：** Production Acceptance Stages 1-3 ✅ 完成。0 synthetic, 0 duplicate, 0 dangling, deterministic。graph_contract 24/24, multi_project_smoke 4/4 fixture + 4 production, cangjie_inspect 18/18。已稳定为本地生产试用候选。
 

@@ -43,8 +43,8 @@ FAIL=0
 pass() { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 
-BIN_CMD="cargo run -p gitnexus-rust-core-cli --"
-BIN_CMD_CJ="cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --"
+BIN_CMD="cargo run -p gitnexus-rust-core-cli --bin codelattice --"
+BIN_CMD_CJ="cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice --"
 echo "==> 使用 cargo run 运行 CLI"
 
 echo "============================================"

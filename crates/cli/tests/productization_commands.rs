@@ -27,6 +27,42 @@ fn cangjie_portable_smoke_path() -> String {
     format!("{manifest_dir}/../../fixtures/cangjie/portable-smoke")
 }
 
+#[test]
+fn codelattice_binary_alias_runs_analyze() {
+    let mut cmd = Command::cargo_bin("codelattice").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(v["language"], "rust");
+    assert!(
+        v["summary"]["symbolCount"].as_u64().unwrap() > 0,
+        "codelattice alias 应执行同一 analyze 命令并产出符号统计"
+    );
+}
+
+#[test]
+fn codelattice_version_uses_public_name() {
+    let mut cmd = Command::cargo_bin("codelattice").unwrap();
+
+    cmd.arg("--version")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("codelattice"));
+}
+
 // ============================================================
 // analyze 命令 — Rust
 // ============================================================

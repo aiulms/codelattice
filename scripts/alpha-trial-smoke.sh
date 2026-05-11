@@ -208,7 +208,7 @@ else
         tool_bridge_import \
             "Rust bridge" \
             "$RUST_BRIDGE_JSON" \
-            "cargo run -p gitnexus-rust-core-cli -- analyze --root '$RUST_FIXTURE' --language rust --format gitnexus-rc --strict" \
+            "cargo run -p gitnexus-rust-core-cli --bin codelattice -- analyze --root '$RUST_FIXTURE' --language rust --format gitnexus-rc --strict" \
             "alpha-trial-rust-smoke"
     fi
 fi
@@ -232,7 +232,7 @@ else
         tool_bridge_import \
             "Cangjie bridge" \
             "$CANGJIE_BRIDGE_JSON" \
-            "cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli -- analyze --root '$CANGJIE_FIXTURE' --language cangjie --format gitnexus-rc --strict" \
+            "cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- analyze --root '$CANGJIE_FIXTURE' --language cangjie --format gitnexus-rc --strict" \
             "alpha-trial-cangjie-smoke"
     fi
 fi

@@ -15,6 +15,8 @@ ROOT="${1:-$REPO_ROOT/fixtures/call-resolution/c1-same-module}"
 # Find binary
 BIN=""
 for candidate in \
+    "$REPO_ROOT/target/release/codelattice" \
+    "$REPO_ROOT/target/debug/codelattice" \
     "$REPO_ROOT/target/release/gitnexus-rust-core-cli" \
     "$REPO_ROOT/target/debug/gitnexus-rust-core-cli"; do
     if [[ -x "$candidate" ]]; then
@@ -24,7 +26,7 @@ for candidate in \
 done
 
 if [[ -z "$BIN" ]]; then
-    echo "FAIL: no binary found. Run: cargo build -p gitnexus-rust-core-cli"
+    echo "FAIL: no binary found. Run: cargo build -p gitnexus-rust-core-cli --bins"
     exit 1
 fi
 

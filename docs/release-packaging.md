@@ -1,0 +1,112 @@
+# CodeLattice Release Packaging
+
+CodeLattice release packaging is intentionally local and scriptable. It does not publish assets, edit AI client configuration, or promote into a user's stable runtime directory.
+
+## Build a Release Artifact
+
+```bash
+bash scripts/package-release.sh
+```
+
+Default output:
+
+```text
+dist/codelattice-<version>-<platform>.tar.gz
+dist/codelattice-<version>-<platform>.tar.gz.sha256
+```
+
+Options:
+
+```bash
+bash scripts/package-release.sh --version 0.1.0
+bash scripts/package-release.sh --platform darwin-arm64
+bash scripts/package-release.sh --dist-dir /tmp/codelattice-dist
+bash scripts/package-release.sh --skip-build
+bash scripts/package-release.sh --keep-temp
+```
+
+## Artifact Layout
+
+```text
+codelattice-<version>-<platform>/
+  bin/
+    codelattice
+    gitnexus-rust-core-cli
+  codelattice-mcp.sh
+  manifest.json
+  README.md
+  LICENSE
+  docs/
+    getting-started.md
+    release-packaging.md
+    architecture/
+      mcp-local-client-setup.md
+      mcp-v0-contract.md
+  fixtures/
+    rust/portable-smoke/
+    cangjie/portable-smoke/
+```
+
+`bin/codelattice` is the primary public binary. `bin/gitnexus-rust-core-cli` is included as a compatibility binary for older scripts.
+
+## Manifest
+
+`manifest.json` records:
+
+- package version and platform
+- source remote and source commit when available
+- relative artifact paths
+- binary SHA-256 checksums
+- MCP profile: server version, Cangjie support, tool count
+
+The manifest avoids requiring the original development checkout.
+
+## Smoke a Release Artifact
+
+```bash
+bash scripts/release-smoke.sh
+```
+
+The smoke script uses the newest `dist/codelattice-*.tar.gz` unless a tarball is specified:
+
+```bash
+bash scripts/release-smoke.sh --tarball dist/codelattice-0.1.0-darwin-arm64.tar.gz
+```
+
+It verifies:
+
+- `.sha256` checksum when present
+- top-level release directory
+- executable `bin/codelattice`
+- executable compatibility binary
+- executable `codelattice-mcp.sh`
+- wrapper `--self-test`
+- MCP `tools/list >= 21`
+- Rust portable fixture analyze with nonzero symbols/files/edges
+- Cangjie portable fixture analyze when Cangjie support is present
+
+The smoke unpacks into `/tmp` and cleans up by default. Use `--keep-temp` for debugging.
+
+## Safety Guarantees
+
+The packaging and smoke scripts do not:
+
+- write Codex, opencode, Claude, or shell configuration
+- promote into `$HOME/Desktop/CodeLattice-Tool`
+- modify source projects
+- require a live Cangjie repository
+- require WebUI
+
+## Recommended Release Checklist
+
+Before publishing an artifact:
+
+```bash
+cargo fmt --check
+git diff --check
+cargo test
+cargo test --features tree-sitter-cangjie
+bash scripts/package-release.sh
+bash scripts/release-smoke.sh
+bash scripts/fresh-clone-smoke.sh --skip-tests
+```

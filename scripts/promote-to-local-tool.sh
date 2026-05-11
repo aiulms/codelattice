@@ -16,7 +16,8 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPO_ROOT="${CODELATTICE_ROOT:-$DEFAULT_REPO_ROOT}"
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
-BIN_NAME="gitnexus-rust-core-cli"
+BIN_NAME="codelattice"
+COMPAT_BIN_NAME="gitnexus-rust-core-cli"
 DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
 INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
 DRY_RUN=false
@@ -40,6 +41,7 @@ Options:
 
 The promoted runtime is self-contained for MCP startup:
   <install-dir>/codelattice-mcp.sh
+  <install-dir>/bin/codelattice
   <install-dir>/bin/codelattice-cli
   <install-dir>/manifest.json
 
@@ -82,9 +84,11 @@ while [[ $# -gt 0 ]]; do
 done
 
 RELEASE_BIN="$REPO_ROOT/target/release/$BIN_NAME"
+RELEASE_COMPAT_BIN="$REPO_ROOT/target/release/$COMPAT_BIN_NAME"
 INSTALL_BIN_DIR="$INSTALL_DIR/bin"
-INSTALL_BIN="$INSTALL_BIN_DIR/codelattice-cli"
-INSTALL_COMPAT_BIN="$INSTALL_BIN_DIR/$BIN_NAME"
+INSTALL_BIN="$INSTALL_BIN_DIR/codelattice"
+INSTALL_LEGACY_ALIAS_BIN="$INSTALL_BIN_DIR/codelattice-cli"
+INSTALL_COMPAT_BIN="$INSTALL_BIN_DIR/$COMPAT_BIN_NAME"
 INSTALL_WRAPPER="$INSTALL_DIR/codelattice-mcp.sh"
 INSTALL_MANIFEST="$INSTALL_DIR/manifest.json"
 
@@ -109,7 +113,7 @@ echo ""
 
 if [[ "$SKIP_BUILD" != "true" ]]; then
     echo "--- Building release binary (Rust + Cangjie) ---"
-    run cargo build --release -p "$BIN_NAME" --features tree-sitter-cangjie --manifest-path "$REPO_ROOT/Cargo.toml"
+    run cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins --manifest-path "$REPO_ROOT/Cargo.toml"
 else
     echo "--- Build skipped ---"
 fi
@@ -119,13 +123,19 @@ if [[ "$DRY_RUN" != "true" && ! -x "$RELEASE_BIN" ]]; then
     echo "Run without --skip-build first." >&2
     exit 1
 fi
+if [[ "$DRY_RUN" != "true" && ! -x "$RELEASE_COMPAT_BIN" ]]; then
+    echo "ERROR: compatibility binary not found: $RELEASE_COMPAT_BIN" >&2
+    echo "Run without --skip-build first." >&2
+    exit 1
+fi
 
 echo ""
 echo "--- Installing stable runtime ---"
 run mkdir -p "$INSTALL_BIN_DIR"
 run cp "$RELEASE_BIN" "$INSTALL_BIN"
-run cp "$RELEASE_BIN" "$INSTALL_COMPAT_BIN"
-run chmod +x "$INSTALL_BIN" "$INSTALL_COMPAT_BIN"
+run cp "$RELEASE_BIN" "$INSTALL_LEGACY_ALIAS_BIN"
+run cp "$RELEASE_COMPAT_BIN" "$INSTALL_COMPAT_BIN"
+run chmod +x "$INSTALL_BIN" "$INSTALL_LEGACY_ALIAS_BIN" "$INSTALL_COMPAT_BIN"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "DRY-RUN: write $INSTALL_WRAPPER"
@@ -139,7 +149,7 @@ else
 set -euo pipefail
 
 TOOL_DIR="$(cd "$(dirname "$0")" && pwd)"
-BIN="$TOOL_DIR/bin/codelattice-cli"
+BIN="$TOOL_DIR/bin/codelattice"
 MANIFEST="$TOOL_DIR/manifest.json"
 
 if [[ ! -x "$BIN" ]]; then
@@ -244,13 +254,15 @@ WRAPPER
   "sourceRemote": "$(printf '%s' "$SOURCE_REMOTE" | json_escape)",
   "sourceCommit": "$(printf '%s' "$SOURCE_COMMIT" | json_escape)",
   "installedAt": "$INSTALLED_AT",
-  "binary": "bin/codelattice-cli",
-  "compatBinary": "bin/$BIN_NAME",
+  "binary": "bin/codelattice",
+  "legacyAliasBinary": "bin/codelattice-cli",
+  "compatBinary": "bin/$COMPAT_BIN_NAME",
   "binarySha256": "$BINARY_SHA256",
   "wrapper": "codelattice-mcp.sh",
   "paths": {
-    "binary": "bin/codelattice-cli",
-    "compatBinary": "bin/$BIN_NAME",
+    "binary": "bin/codelattice",
+    "legacyAliasBinary": "bin/codelattice-cli",
+    "compatBinary": "bin/$COMPAT_BIN_NAME",
     "wrapper": "codelattice-mcp.sh",
     "manifest": "manifest.json"
   },

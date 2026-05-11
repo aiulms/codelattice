@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --debug       构建 debug 版本（默认 release）"
             echo "  --no-cangjie  不包含 Cangjie 语言支持（默认包含）"
             echo ""
-            echo "输出二进制位置: target/release/gitnexus-rust-core-cli"
+            echo "输出二进制位置: target/release/codelattice"
             exit 0
             ;;
         *)
@@ -61,7 +61,7 @@ echo ""
 # --- 构建 ---
 echo "==> 开始构建..."
 # shellcheck disable=SC2086  # PROFILE/FEATURES 可能为空，需要 word splitting
-cargo build $PROFILE $FEATURES -p gitnexus-rust-core-cli
+cargo build $PROFILE $FEATURES -p gitnexus-rust-core-cli --bins
 
 # --- 确定二进制路径 ---
 if [[ -n "$PROFILE" ]]; then
@@ -69,11 +69,13 @@ if [[ -n "$PROFILE" ]]; then
 else
     BIN_DIR="$PROJECT_ROOT/target/debug"
 fi
-BIN_PATH="$BIN_DIR/gitnexus-rust-core-cli"
+BIN_PATH="$BIN_DIR/codelattice"
+COMPAT_BIN_PATH="$BIN_DIR/gitnexus-rust-core-cli"
 
 echo ""
 echo "==> 构建完成"
 echo "    二进制: $BIN_PATH"
+echo "    兼容名: $COMPAT_BIN_PATH"
 echo ""
 
 # --- 试用提示 ---
