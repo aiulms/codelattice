@@ -20,8 +20,11 @@ Linux users can already clone and build from source. Multi-platform release arti
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
-curl -fsSL https://raw.gitcode.com/aiulms/codelattice/raw/master/scripts/install-release.sh \
-  | bash -s -- --version v0.1.0 --install-dir "$CODELATTICE_TOOL_DIR"
+tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
+git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
+bash "$tmp_dir/scripts/install-release.sh" \
+  --version v0.1.0 \
+  --install-dir "$CODELATTICE_TOOL_DIR"
 ```
 
 Verify:

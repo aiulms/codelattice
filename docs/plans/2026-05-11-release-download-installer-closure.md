@@ -10,7 +10,7 @@ CodeLattice now has a direct GitCode Release install path and the README no long
 
 - Added `scripts/install-release.sh`.
 - Added `docs/release-install.md`.
-- Updated README Quick Start with a `curl | bash` GitCode Release install path for `v0.1.0`.
+- Updated README Quick Start with a clone-based GitCode Release install path for `v0.1.0`.
 - Updated getting-started and release packaging docs with install behavior, options, and platform caveats.
 - Updated release packaging and smoke scripts so future tarballs include and verify `docs/release-install.md`.
 - Updated release metadata check to require installer docs and script wiring.
@@ -34,6 +34,7 @@ Passed:
 - `bash scripts/check-release-metadata.sh`
 - `bash scripts/install-release.sh --dry-run --version v0.1.0 --platform darwin-arm64 --install-dir /tmp/codelattice-release-install-dry`
 - `bash scripts/install-release.sh --version v0.1.0 --platform darwin-arm64 --install-dir /tmp/codelattice-release-install-smoke-*`
+- public clone-based installer smoke from `https://gitcode.com/aiulms/codelattice.git` into `/tmp/codelattice-public-install-*`
 - installed wrapper `--self-test`
 - `cargo fmt --check`
 - `git diff --check`
@@ -43,12 +44,15 @@ Passed:
 - `bash scripts/fresh-clone-smoke.sh --skip-tests`
 - Tool detect-changes: 14 files, 48 symbols, 0 affected processes, LOW risk
 - Tool index refresh: 5,191 nodes, 9,614 edges, 118 clusters, 281 flows
+- Follow-up docs detect-changes: 5 files, 15 symbols, 0 affected processes, LOW risk
+- Follow-up Tool index refresh: 5,192 nodes, 9,614 edges, 119 clusters, 281 flows
 
 Notes:
 
 - Existing compiler warnings are unchanged and unrelated.
 - No real Codex, opencode, Claude, or shell configuration was written.
 - No GitCode Release asset was changed in this pack.
+- `raw.gitcode.com` returned HTTP 403 for raw script URLs during verification, so public install docs use a shallow clone before running `scripts/install-release.sh`.
 
 ## Remaining Non-WebUI Gaps
 
