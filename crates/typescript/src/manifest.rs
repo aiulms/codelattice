@@ -113,7 +113,10 @@ pub fn parse_oh_package_json5(path: &Path) -> Result<TsManifest, TsManifestError
         )
         .to_string();
 
-    let version = parsed.get("version").and_then(|v| v.as_str()).map(String::from);
+    let version = parsed
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let dependencies = extract_dependencies(&parsed);
 
@@ -142,7 +145,10 @@ pub fn parse_package_json(path: &Path) -> Result<TsManifest, TsManifestError> {
         )
         .to_string();
 
-    let version = parsed.get("version").and_then(|v| v.as_str()).map(String::from);
+    let version = parsed
+        .get("version")
+        .and_then(|v| v.as_str())
+        .map(String::from);
 
     let mut deps = Vec::new();
 

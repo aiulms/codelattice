@@ -2,7 +2,6 @@
 //!
 //! Extracts import statements from TypeScript/TSX/ArkTS source files.
 
-
 /// An import statement extracted from a source file.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TsImport {
@@ -24,10 +23,7 @@ pub struct TsImport {
 
 /// Extract all import statements from a TypeScript source string.
 #[cfg(feature = "tree-sitter-typescript")]
-pub fn extract_ts_imports(
-    source: &str,
-    lang: super::TsLanguage,
-) -> Vec<TsImport> {
+pub fn extract_ts_imports(source: &str, lang: super::TsLanguage) -> Vec<TsImport> {
     let mut parser = match super::try_init_ts_parser(lang) {
         Some(p) => p,
         None => return vec![],
@@ -87,8 +83,7 @@ fn parse_import_node(node: &tree_sitter::Node, source: &str) -> Option<TsImport>
                             for k in 0..c.child_count() {
                                 let nc = c.child(k as u32).unwrap();
                                 if nc.kind() == "identifier" {
-                                    namespace_alias =
-                                        Some(source[nc.byte_range()].to_string());
+                                    namespace_alias = Some(source[nc.byte_range()].to_string());
                                 }
                             }
                         }
@@ -129,11 +124,7 @@ fn find_module_path(node: &tree_sitter::Node, source: &str) -> Option<String> {
 }
 
 #[cfg(feature = "tree-sitter-typescript")]
-fn extract_named_imports(
-    node: &tree_sitter::Node,
-    source: &str,
-    names: &mut Vec<String>,
-) {
+fn extract_named_imports(node: &tree_sitter::Node, source: &str, names: &mut Vec<String>) {
     for i in 0..node.child_count() {
         let child = node.child(i as u32).unwrap();
         if child.kind() == "import_specifier" {

@@ -21,14 +21,16 @@ pub mod project;
 
 // Re-export base types from the TypeScript crate (always available)
 pub use gitnexus_typescript::{
-    graph::build_ts_graph, is_ts_parser_available, load_ts_manifest, list_source_files,
-    TsImport, TsManifest, TsManifestError, TsPackageInfo, TsParseError, TsProject,
-    TsProjectKind, TsReference, TsSymbol, TsSymbolKind,
+    graph::build_ts_graph, is_ts_parser_available, list_source_files, load_ts_manifest, TsImport,
+    TsManifest, TsManifestError, TsPackageInfo, TsParseError, TsProject, TsProjectKind,
+    TsReference, TsSymbol, TsSymbolKind,
 };
 
 // Re-export tree-sitter-dependent items when the feature is enabled
 #[cfg(feature = "tree-sitter-arkts")]
-pub use gitnexus_typescript::extractors::{extract_ts_imports, extract_ts_symbols, extract_ts_references, TsLanguage, try_init_ts_parser};
+pub use gitnexus_typescript::extractors::{
+    extract_ts_imports, extract_ts_references, extract_ts_symbols, try_init_ts_parser, TsLanguage,
+};
 
 // Re-export ArkTS-specific types
 pub use extractors::component::ArkTsComponent;

@@ -193,11 +193,7 @@ fn collect_symbols(
 
 /// Get the text of the first child node matching a given kind.
 #[cfg(feature = "tree-sitter-typescript")]
-fn first_child_text<'a>(
-    node: &tree_sitter::Node,
-    kind: &str,
-    source: &'a str,
-) -> Option<String> {
+fn first_child_text<'a>(node: &tree_sitter::Node, kind: &str, source: &'a str) -> Option<String> {
     for i in 0..node.child_count() {
         let child = node.child(i as u32).unwrap();
         if child.kind() == kind {

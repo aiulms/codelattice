@@ -52,10 +52,7 @@ pub fn try_init_ts_parser(lang: TsLanguage) -> Option<tree_sitter::Parser> {
         TsLanguage::TypeScript => tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
         TsLanguage::Tsx => tree_sitter_typescript::LANGUAGE_TSX,
     };
-    if parser
-        .set_language(&language.into())
-        .is_ok()
-    {
+    if parser.set_language(&language.into()).is_ok() {
         Some(parser)
     } else {
         None

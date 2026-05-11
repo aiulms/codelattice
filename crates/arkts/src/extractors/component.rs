@@ -124,10 +124,7 @@ fn try_extract_component_from_error(
 }
 
 #[cfg(feature = "tree-sitter-arkts")]
-fn find_build_method(
-    error_node: &tree_sitter::Node,
-    source: &str,
-) -> Option<BuildMethodInfo> {
+fn find_build_method(error_node: &tree_sitter::Node, source: &str) -> Option<BuildMethodInfo> {
     // Walk all descendants looking for "build" identifier followed by arguments
     let mut cursor = error_node.walk();
     loop {
@@ -161,24 +158,69 @@ fn find_build_method(
 /// Known ArkUI declarative UI components.
 #[cfg(feature = "tree-sitter-arkts")]
 const ARKUI_COMPONENTS: &[&str] = &[
-    "Column", "Row", "Stack", "Flex", "List", "Grid", "Scroll", "Tabs",
-    "Text", "Image", "Button", "TextInput", "Toggle", "Slider", "Progress",
-    "Divider", "Blank", "Navigation", "NavRouter", "NavDestination",
-    "Swiper", "Video", "Web", "Canvas", "Clock", "Calendar",
-    "AlphabetIndexer", "SideBarContainer", "Panel", "AlertDialog",
-    "ActionSheet", "Toast", "LoadingProgress", "Marquee", "RichEditor",
-    "Search", "Select", "Counter", "Rating", "Stepper", "TimePicker",
-    "DatePicker", "TextPicker", "DataPanel", "Gauge", "QRCode",
-    "Shape", "Path", "Circle", "Rect", "Ellipse", "Polyline", "Polygon",
-    "Line", "Arc", "WaterFlow", "RelativeContainer", "GridRow", "GridCol",
+    "Column",
+    "Row",
+    "Stack",
+    "Flex",
+    "List",
+    "Grid",
+    "Scroll",
+    "Tabs",
+    "Text",
+    "Image",
+    "Button",
+    "TextInput",
+    "Toggle",
+    "Slider",
+    "Progress",
+    "Divider",
+    "Blank",
+    "Navigation",
+    "NavRouter",
+    "NavDestination",
+    "Swiper",
+    "Video",
+    "Web",
+    "Canvas",
+    "Clock",
+    "Calendar",
+    "AlphabetIndexer",
+    "SideBarContainer",
+    "Panel",
+    "AlertDialog",
+    "ActionSheet",
+    "Toast",
+    "LoadingProgress",
+    "Marquee",
+    "RichEditor",
+    "Search",
+    "Select",
+    "Counter",
+    "Rating",
+    "Stepper",
+    "TimePicker",
+    "DatePicker",
+    "TextPicker",
+    "DataPanel",
+    "Gauge",
+    "QRCode",
+    "Shape",
+    "Path",
+    "Circle",
+    "Rect",
+    "Ellipse",
+    "Polyline",
+    "Polygon",
+    "Line",
+    "Arc",
+    "WaterFlow",
+    "RelativeContainer",
+    "GridRow",
+    "GridCol",
 ];
 
 #[cfg(feature = "tree-sitter-arkts")]
-fn collect_ui_calls(
-    node: &tree_sitter::Node,
-    source: &str,
-    ui_calls: &mut Vec<String>,
-) {
+fn collect_ui_calls(node: &tree_sitter::Node, source: &str, ui_calls: &mut Vec<String>) {
     for i in 0..node.child_count() {
         let child = node.child(i as u32).unwrap();
         if child.kind() == "call_expression" {
@@ -190,5 +232,107 @@ fn collect_ui_calls(
             }
         }
         collect_ui_calls(&child, source, ui_calls);
+    }
+}
+
+#[cfg(all(test, feature = "tree-sitter-arkts"))]
+mod tests {
+    use super::*;
+
+    const FIXTURE_ENTRY: &str = r#"@Entry
+@ComponentV2
+struct EntryPage {
+  @Local vm: string = "";
+  build() {
+    Column() {
+      Text("hello")
+    }
+  }
+}
+"#;
+
+    const FIXTURE_COMPONENT: &str = r#"@Component
+struct MyList {
+  @State items: string[] = [];
+  build() {
+    List() {
+      ForEach(this.items, (item: string) => {
+        ListItem() {
+          Text(item)
+        }
+      })
+    }
+  }
+}
+"#;
+
+    const FIXTURE_PLAIN_TS: &str = r#"import { foo } from "bar";
+export function hello(): void {
+  foo();
+}
+"#;
+
+    #[test]
+    fn test_extract_entry_component() {
+        let components = extract_arkts_components(FIXTURE_ENTRY);
+        assert_eq!(components.len(), 1, "should find exactly 1 component");
+
+        let c = &components[0];
+        assert_eq!(c.name, "EntryPage");
+        assert!(c.is_entry, "should detect @Entry");
+        assert!(
+            c.decorators.contains(&"@Entry".to_string()),
+            "decorators should include @Entry: {:?}",
+            c.decorators
+        );
+        assert!(
+            c.decorators.contains(&"@ComponentV2".to_string()),
+            "decorators should include @ComponentV2: {:?}",
+            c.decorators
+        );
+        assert!(c.start_line > 0);
+        assert!(c.end_line >= c.start_line);
+    }
+
+    #[test]
+    fn test_extract_non_entry_component() {
+        let components = extract_arkts_components(FIXTURE_COMPONENT);
+        assert_eq!(components.len(), 1);
+
+        let c = &components[0];
+        assert_eq!(c.name, "MyList");
+        assert!(!c.is_entry, "should not be entry");
+        assert!(
+            c.decorators.contains(&"@Component".to_string()),
+            "decorators should include @Component: {:?}",
+            c.decorators
+        );
+    }
+
+    #[test]
+    fn test_no_component_in_plain_ts() {
+        let components = extract_arkts_components(FIXTURE_PLAIN_TS);
+        assert!(
+            components.is_empty(),
+            "plain TS should have 0 components, got {:?}",
+            components.len()
+        );
+    }
+
+    #[test]
+    fn test_empty_source() {
+        let components = extract_arkts_components("");
+        assert!(components.is_empty());
+    }
+
+    #[test]
+    fn test_multiple_components() {
+        let source = format!("{FIXTURE_ENTRY}\n{FIXTURE_COMPONENT}");
+        let components = extract_arkts_components(&source);
+        assert!(
+            components.len() >= 1,
+            "multi-component source should yield >= 1 component, got {}",
+            components.len()
+        );
     }
 }

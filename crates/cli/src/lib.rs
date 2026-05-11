@@ -545,10 +545,14 @@ fn run_arkts_analysis(
     let manifest = gitnexus_arkts::load_ts_manifest(&project).ok();
 
     // 3. Extract per-file data
-    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsSymbol>> = BTreeMap::new();
-    let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsImport>> = BTreeMap::new();
-    let mut references_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsReference>> = BTreeMap::new();
-    let mut components_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::ArkTsComponent>> = BTreeMap::new();
+    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsSymbol>> =
+        BTreeMap::new();
+    let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsImport>> =
+        BTreeMap::new();
+    let mut references_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsReference>> =
+        BTreeMap::new();
+    let mut components_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::ArkTsComponent>> =
+        BTreeMap::new();
 
     for file in &source_files {
         let source = match std::fs::read_to_string(file) {
@@ -623,6 +627,116 @@ fn run_arkts_analysis(
     Err("ArkTS support is disabled. 请使用 --features tree-sitter-arkts 重新编译。".to_string())
 }
 
+// ============================================================
+// TypeScript 分析 + Graph 提取
+// ============================================================
+
+#[cfg(feature = "tree-sitter-arkts")]
+fn run_typescript_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    use std::collections::BTreeMap;
+
+    // 1. Build project model (tsconfig.json / package.json)
+    let project = gitnexus_typescript::project::find_project_root(root).ok_or_else(|| {
+        "TypeScript project root not found (no tsconfig.json or package.json)".to_string()
+    })?;
+
+    let source_files = gitnexus_typescript::project::list_source_files(&project)
+        .map_err(|e| format!("Failed to list TypeScript source files: {e}"))?;
+
+    // 2. Parse manifest
+    let manifest = gitnexus_typescript::load_ts_manifest(&project).ok();
+
+    // 3. Extract per-file data
+    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_typescript::TsSymbol>> =
+        BTreeMap::new();
+    let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_typescript::TsImport>> =
+        BTreeMap::new();
+    let mut references_by_file: BTreeMap<
+        std::path::PathBuf,
+        Vec<gitnexus_typescript::TsReference>,
+    > = BTreeMap::new();
+
+    for file in &source_files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Detect language variant from extension
+        let lang = if file.extension().and_then(|e| e.to_str()) == Some("tsx") {
+            gitnexus_typescript::extractors::TsLanguage::Tsx
+        } else {
+            gitnexus_typescript::extractors::TsLanguage::TypeScript
+        };
+        let syms = gitnexus_typescript::extractors::extract_ts_symbols(&source, lang);
+        let imps = gitnexus_typescript::extractors::extract_ts_imports(&source, lang);
+        let refs = gitnexus_typescript::extractors::extract_ts_references(&source, lang);
+
+        symbols_by_file.insert(file.clone(), syms);
+        imports_by_file.insert(file.clone(), imps);
+        references_by_file.insert(file.clone(), refs);
+    }
+
+    // 4. Build graph
+    let kind = gitnexus_typescript::project::detect_project_kind(&project);
+    let ts_project = gitnexus_typescript::TsProject {
+        root: project,
+        kind,
+        manifest,
+        source_files: source_files.clone(),
+    };
+
+    let graph = gitnexus_typescript::graph::build_ts_graph(
+        &ts_project,
+        &symbols_by_file,
+        &imports_by_file,
+        &references_by_file,
+    );
+
+    let json_val = serde_json::to_value(&graph)
+        .map_err(|e| format!("TypeScript graph JSON serialization failed: {e}"))?;
+
+    let nodes: Vec<serde_json::Value> = json_val
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let edges: Vec<serde_json::Value> = json_val
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-arkts"))]
+fn run_typescript_analysis(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    Err(
+        "TypeScript support is disabled. 请使用 --features tree-sitter-arkts 重新编译。"
+            .to_string(),
+    )
+}
+
 /// 计算 ArkTS 质量门
 fn compute_arkts_quality_gates(
     nodes: &[serde_json::Value],
@@ -660,7 +774,10 @@ fn compute_arkts_quality_gates(
         detail: if dangling_sources.is_empty() {
             "0 dangling source references found".to_string()
         } else {
-            format!("{} dangling source references found", dangling_sources.len())
+            format!(
+                "{} dangling source references found",
+                dangling_sources.len()
+            )
         },
     });
 
@@ -1155,8 +1272,71 @@ pub fn run() {
                         }
                     }
                 }
-                "arkts" | "typescript" => {
+                "arkts" => {
                     let (json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("v0.1.0")
+                        .to_string();
+
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = bridge_format::convert_arkts_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_arkts_summary(&nodes, &edges);
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates: quality_gates.clone(),
+                            graph: json_val,
+                        };
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
+
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
+                "typescript" => {
+                    let (json_val, nodes, edges) = match run_typescript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -1244,8 +1424,14 @@ pub fn run() {
                 }
             };
 
-            if language != "rust" && language != "cangjie" && language != "arkts" && language != "typescript" {
-                eprintln!("错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript");
+            if language != "rust"
+                && language != "cangjie"
+                && language != "arkts"
+                && language != "typescript"
+            {
+                eprintln!(
+                    "错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript"
+                );
                 std::process::exit(1);
             }
 
@@ -1278,8 +1464,21 @@ pub fn run() {
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
                 }
-                "arkts" | "typescript" => {
+                "arkts" => {
                     let (_json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let all_pass = gates.iter().all(|g| g.passed);
+                    let overall = if all_pass { "pass" } else { "fail" };
+                    (gates, overall)
+                }
+                "typescript" => {
+                    let (_json_val, nodes, edges) = match run_typescript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -1383,8 +1582,28 @@ pub fn run() {
                     };
                     (gs, qs)
                 }
-                "arkts" | "typescript" => {
+                "arkts" => {
                     let (_json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let total = gates.len() as u32;
+                    let passed = gates.iter().filter(|g| g.passed).count() as u32;
+                    let failed = total - passed;
+                    let qs = QualitySummary {
+                        total,
+                        passed,
+                        failed,
+                    };
+                    (gs, qs)
+                }
+                "typescript" => {
+                    let (_json_val, nodes, edges) = match run_typescript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");

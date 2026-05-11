@@ -221,6 +221,7 @@ dependencies = [
  "gitnexus-arkts",
  "gitnexus-cangjie",
  "gitnexus-project-model",
+ "gitnexus-typescript",
  "predicates",
  "serde",
  "serde_json",

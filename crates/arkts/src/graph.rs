@@ -37,19 +37,18 @@ pub fn augment_graph_with_arkts(
         for comp in components {
             // Add component node
             let comp_id = format!("arkts:component:{}:{}", file.display(), comp.name);
-            base.nodes
-                .push(gitnexus_typescript::graph::TsGraphNode {
-                    id: comp_id.clone(),
-                    kind: TsNodeKind::Symbol,
-                    label: comp.name.clone(),
-                    properties: serde_json::json!({
-                        "arktsKind": "component",
-                        "decorators": comp.decorators,
-                        "isEntry": comp.is_entry,
-                        "startLine": comp.start_line,
-                        "endLine": comp.end_line,
-                    }),
-                });
+            base.nodes.push(gitnexus_typescript::graph::TsGraphNode {
+                id: comp_id.clone(),
+                kind: TsNodeKind::Symbol,
+                label: comp.name.clone(),
+                properties: serde_json::json!({
+                    "arktsKind": "component",
+                    "decorators": comp.decorators,
+                    "isEntry": comp.is_entry,
+                    "startLine": comp.start_line,
+                    "endLine": comp.end_line,
+                }),
+            });
 
             // Edge: file → component
             base.edges.push(TsGraphEdge {
@@ -67,18 +66,17 @@ pub fn augment_graph_with_arkts(
                     comp.name,
                     build.start_line
                 );
-                base.nodes
-                    .push(gitnexus_typescript::graph::TsGraphNode {
-                        id: build_id.clone(),
-                        kind: TsNodeKind::Symbol,
-                        label: "build".to_string(),
-                        properties: serde_json::json!({
-                            "arktsKind": "buildMethod",
-                            "uiCalls": build.ui_calls,
-                            "startLine": build.start_line,
-                            "endLine": build.end_line,
-                        }),
-                    });
+                base.nodes.push(gitnexus_typescript::graph::TsGraphNode {
+                    id: build_id.clone(),
+                    kind: TsNodeKind::Symbol,
+                    label: "build".to_string(),
+                    properties: serde_json::json!({
+                        "arktsKind": "buildMethod",
+                        "uiCalls": build.ui_calls,
+                        "startLine": build.start_line,
+                        "endLine": build.end_line,
+                    }),
+                });
 
                 // Edge: component → build method
                 base.edges.push(TsGraphEdge {

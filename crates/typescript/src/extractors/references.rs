@@ -40,10 +40,7 @@ pub struct TsReference {
 
 /// Extract references from TypeScript source.
 #[cfg(feature = "tree-sitter-typescript")]
-pub fn extract_ts_references(
-    source: &str,
-    lang: super::TsLanguage,
-) -> Vec<TsReference> {
+pub fn extract_ts_references(source: &str, lang: super::TsLanguage) -> Vec<TsReference> {
     let mut parser = match super::try_init_ts_parser(lang) {
         Some(p) => p,
         None => return vec![],
@@ -59,11 +56,7 @@ pub fn extract_ts_references(
 }
 
 #[cfg(feature = "tree-sitter-typescript")]
-fn collect_references(
-    node: &tree_sitter::Node,
-    source: &str,
-    refs: &mut Vec<TsReference>,
-) {
+fn collect_references(node: &tree_sitter::Node, source: &str, refs: &mut Vec<TsReference>) {
     match node.kind() {
         "call_expression" => {
             let line = node.start_position().row + 1;
@@ -100,7 +93,12 @@ fn collect_references(
             let line = node.start_position().row + 1;
             let name = source[node.byte_range()].to_string();
             // Only track if it looks like a user-defined type (PascalCase heuristic)
-            if name.chars().next().map(|c| c.is_uppercase()).unwrap_or(false) {
+            if name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+            {
                 refs.push(TsReference {
                     kind: TsReferenceKind::TypeUse,
                     name,

@@ -115,8 +115,13 @@ pub fn build_ts_graph(
         // Symbol nodes for this file
         if let Some(syms) = symbols.get(file) {
             for sym in syms {
-                let sym_id =
-                    format!("sym:{}:{}:{}:{}", rel.display(), sym.kind, sym.name, sym.start_line);
+                let sym_id = format!(
+                    "sym:{}:{}:{}:{}",
+                    rel.display(),
+                    sym.kind,
+                    sym.name,
+                    sym.start_line
+                );
                 nodes.push(TsGraphNode {
                     id: sym_id.clone(),
                     kind: TsNodeKind::Symbol,

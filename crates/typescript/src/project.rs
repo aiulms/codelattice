@@ -107,10 +107,7 @@ fn list_source_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(
 
         // Skip hidden directories and common non-source dirs
         if path.is_dir() {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             if name.starts_with('.')
                 || matches!(
                     name,
