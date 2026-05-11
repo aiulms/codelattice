@@ -72,7 +72,7 @@ EOF
 fi
 
 if [[ "${1:-}" == "--version" ]]; then
-    echo "codelattice-mcp-wrapper 0.4.0"
+    echo "codelattice-mcp-wrapper 0.5.0"
     echo "  root: $CODELATTICE_ROOT"
     # Try to get binary version
     if [[ -n "$CODELATTICE_MCP_BIN" && -x "$CODELATTICE_MCP_BIN" ]]; then
@@ -132,6 +132,48 @@ if [[ "${1:-}" == "--self-test" ]]; then
         else
             echo "  MCP:  FAIL — unexpected response"
             exit 1
+        fi
+
+        # Extended test: tools/list + cache_status
+        echo ""
+        echo "  Extended checks..."
+        MULTI_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$SELF_TEST_BIN" mcp 2>/dev/null)
+
+        TOOL_COUNT=$(echo "$MULTI_RESP" | python3 -c "
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        d = json.loads(line)
+        if d.get('id') == 2:
+            print(len(d['result']['tools']))
+            break
+    except: pass
+" 2>/dev/null || echo "0")
+        if [[ "$TOOL_COUNT" -ge 20 ]]; then
+            echo "  tools/list: OK ($TOOL_COUNT tools)"
+        else
+            echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= 20)"
+        fi
+
+        CACHE_OK=$(echo "$MULTI_RESP" | python3 -c "
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    try:
+        d = json.loads(line)
+        if d.get('id') == 3:
+            t = json.loads(d['result']['content'][0]['text'])
+            print('yes' if 'maxEntries' in t and 'totalEvictions' in t else 'no')
+            break
+    except: pass
+" 2>/dev/null || echo "no")
+        if [[ "$CACHE_OK" == "yes" ]]; then
+            echo "  cache_status: OK (has maxEntries, totalEvictions)"
+        else
+            echo "  cache_status: FAIL (missing fields)"
         fi
     fi
 

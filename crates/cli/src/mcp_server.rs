@@ -1,7 +1,7 @@
-//! MCP v0.3 Local Graph Intelligence for CodeLattice CLI
+//! MCP v0.5 Daily-use Candidate Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 18 tools:
+//! Provides 20 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -9,12 +9,13 @@
 //!         codelattice_impact_preview, codelattice_query_graph, codelattice_project_overview,
 //!         codelattice_repo_registry, codelattice_rename_preview
 //!   v0.3: codelattice_cache_status, codelattice_cache_clear
+//!   v0.5: codelattice_production_assist, codelattice_compare_runs
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
 //!           and the smoke script for smoke.
-//! Cache: process-local analysis cache — first call runs analyze, subsequent
-//!        calls with same root/language reuse cached result.
+//! Cache: process-local analysis cache with mtime-based staleness detection
+//!        and LRU eviction (max 16 entries).
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         All tools are read-only.
 
@@ -23,7 +24,7 @@ use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 // ============================================================
 // Path Safety
@@ -265,14 +266,81 @@ struct CacheEntry {
     last_used_at: Instant,
     hit_count: u64,
     analysis_duration_ms: u64,
+    /// File mtimes captured at analysis time, used for staleness detection.
+    /// Maps relative_path → mtime (as duration since UNIX epoch in ms).
+    file_mtimes: HashMap<String, u64>,
+    /// Absolute root path (canonical) used for file resolution.
+    root_canonical: String,
 }
+
+/// Default maximum cache entries (LRU eviction kicks in above this).
+const CACHE_MAX_ENTRIES: usize = 16;
 
 /// Process-local cache for MCP server. Not persisted, not shared across processes.
 struct McpCache {
     entries: HashMap<CacheKey, CacheEntry>,
     total_hits: u64,
     total_misses: u64,
-    server_start: Instant,
+    total_evictions: u64,
+}
+
+/// Scan source files under root and collect their mtimes.
+/// Returns a map of relative_path → mtime_ms.
+/// Only scans common source file extensions (.rs, .cj, .toml, .json).
+fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
+    let mut mtimes = HashMap::new();
+    let extensions = ["rs", "cj", "toml", "json"];
+
+    fn walk_dir(dir: &Path, root: &Path, mtimes: &mut HashMap<String, u64>, extensions: &[&str]) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    // Skip hidden dirs and common non-source dirs
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        if name.starts_with('.') || name == "target" || name == "node_modules" {
+                            continue;
+                        }
+                    }
+                    walk_dir(&path, root, mtimes, extensions);
+                } else {
+                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                    if extensions.contains(&ext) {
+                        if let Ok(meta) = std::fs::metadata(&path) {
+                            if let Ok(modified) = meta.modified() {
+                                let ms = modified
+                                    .duration_since(SystemTime::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis() as u64;
+                                if let Ok(rel) = path.strip_prefix(root) {
+                                    mtimes.insert(rel.to_string_lossy().to_string(), ms);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk_dir(root, root, &mut mtimes, &extensions);
+    mtimes
+}
+
+/// Check if cached mtimes are still fresh by comparing with current filesystem.
+/// Returns true if any file was added, removed, or modified.
+fn mtimes_are_stale(root: &Path, cached_mtimes: &HashMap<String, u64>) -> bool {
+    let current = scan_file_mtimes(root);
+    if current.len() != cached_mtimes.len() {
+        return true; // files added or removed
+    }
+    for (path, mtime) in cached_mtimes {
+        match current.get(path) {
+            Some(current_mtime) if *current_mtime == *mtime => {}
+            _ => return true, // modified or removed
+        }
+    }
+    false
 }
 
 impl McpCache {
@@ -281,7 +349,7 @@ impl McpCache {
             entries: HashMap::new(),
             total_hits: 0,
             total_misses: 0,
-            server_start: Instant::now(),
+            total_evictions: 0,
         }
     }
 
@@ -306,15 +374,41 @@ impl McpCache {
         };
 
         if let Some(entry) = self.entries.get_mut(&key) {
-            entry.hit_count += 1;
-            entry.last_used_at = Instant::now();
-            self.total_hits += 1;
-            let meta = json!({ "cacheHit": true });
-            return Ok((
-                entry.graph_view.clone_shallow(),
-                entry.analyze_result.clone(),
-                meta,
-            ));
+            // Check mtime freshness
+            let root_path = Path::new(&entry.root_canonical);
+            if mtimes_are_stale(root_path, &entry.file_mtimes) {
+                // Invalidate stale entry — remove it and fall through to re-analyze
+                self.entries.remove(&key);
+                // Don't count as hit or miss yet; the re-analyze below will count as miss
+            } else {
+                entry.hit_count += 1;
+                entry.last_used_at = Instant::now();
+                self.total_hits += 1;
+                let meta = json!({
+                    "cacheHit": true,
+                    "cacheKey": format!("{}:{}:{}", key.root, key.language, key.strict),
+                    "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
+                    "analysisDurationMs": entry.analysis_duration_ms,
+                });
+                return Ok((
+                    entry.graph_view.clone_shallow(),
+                    entry.analyze_result.clone(),
+                    meta,
+                ));
+            }
+        }
+
+        // LRU eviction if over limit
+        if self.entries.len() >= CACHE_MAX_ENTRIES {
+            let evict_key = self
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.last_used_at)
+                .map(|(k, _)| k.clone());
+            if let Some(k) = evict_key {
+                self.entries.remove(&k);
+                self.total_evictions += 1;
+            }
         }
 
         // Cache miss — run analyze
@@ -323,6 +417,10 @@ impl McpCache {
         let duration_ms = start.elapsed().as_millis() as u64;
         let graph_view = GraphView::build(&result);
 
+        // Scan file mtimes for future freshness checks
+        let file_mtimes = scan_file_mtimes(&canonical);
+
+        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
         self.entries.insert(
             key,
             CacheEntry {
@@ -332,11 +430,17 @@ impl McpCache {
                 last_used_at: Instant::now(),
                 hit_count: 0,
                 analysis_duration_ms: duration_ms,
+                file_mtimes,
+                root_canonical: canonical.to_string_lossy().to_string(),
             },
         );
         self.total_misses += 1;
 
-        let meta = json!({ "cacheHit": false, "analysisDurationMs": duration_ms });
+        let meta = json!({
+            "cacheHit": false,
+            "cacheKey": cache_key_str,
+            "analysisDurationMs": duration_ms,
+        });
         Ok((graph_view, result, meta))
     }
 
@@ -358,17 +462,21 @@ impl McpCache {
                 "root": key.root,
                 "language": key.language,
                 "strict": key.strict,
-                "createdAtMs": self.server_start.elapsed().as_millis() as u64,
-                "lastUsedAtMs": self.server_start.elapsed().as_millis() as u64,
+                "cacheKey": format!("{}:{}:{}", key.root, key.language, key.strict),
+                "createdAtMs": entry.created_at.elapsed().as_millis() as u64,
+                "lastUsedAtMs": entry.last_used_at.elapsed().as_millis() as u64,
                 "hitCount": entry.hit_count,
                 "analysisDurationMs": entry.analysis_duration_ms,
+                "trackedFiles": entry.file_mtimes.len(),
             }));
         }
         json!({
             "entryCount": entries.len(),
+            "maxEntries": CACHE_MAX_ENTRIES,
             "entries": entries,
             "totalHits": self.total_hits,
             "totalMisses": self.total_misses,
+            "totalEvictions": self.total_evictions,
         })
     }
 
@@ -1527,9 +1635,12 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
     let language = params["language"].as_str().unwrap_or("auto");
     let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
     check_cangjie_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let root_str = validated.to_string_lossy();
 
     // Find source symbols
     let sources = gv.find_symbols(symbol, None, 5);
@@ -1549,12 +1660,24 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
     let source_candidates: Vec<Value> = sources
         .iter()
         .map(|s| {
-            json!({
+            let mut obj = json!({
                 "id": s["id"],
                 "name": s["properties"]["name"],
                 "kind": s["properties"]["symbolKind"],
                 "file": s["properties"]["sourcePath"]
-            })
+            });
+            if include_snippet {
+                if let Some(map) = obj.as_object_mut() {
+                    let file = s["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let start = s["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = s["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    map.insert(
+                        "sourceSnippet".to_string(),
+                        read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                    );
+                }
+            }
+            obj
         })
         .collect();
 
@@ -1580,7 +1703,7 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
             let target_id = edge["target"].as_str().unwrap_or("");
             let target_node = gv.nodes_by_id.get(target_id);
 
-            all_edges.push(json!({
+            let mut edge_obj = json!({
                 "source": edge["source"],
                 "target": target_id,
                 "type": edge["type"],
@@ -1589,7 +1712,22 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
                 "reason": edge["properties"]["reason"],
                 "targetName": target_node.and_then(|n| n["properties"]["name"].as_str()),
                 "targetKind": target_node.and_then(|n| n["properties"]["symbolKind"].as_str())
-            }));
+            });
+            if include_snippet {
+                if let Some(tn) = target_node {
+                    let file = tn["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let start = tn["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = tn["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    if let Some(map) = edge_obj.as_object_mut() {
+                        map.insert(
+                            "targetSnippet".to_string(),
+                            read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                        );
+                    }
+                }
+            }
+
+            all_edges.push(edge_obj);
 
             if current_depth + 1 < depth && !visited.contains(target_id) {
                 queue.push((target_id.to_string(), current_depth + 1));
@@ -1623,9 +1761,12 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let language = params["language"].as_str().unwrap_or("auto");
     let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
     check_cangjie_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let root_str = validated.to_string_lossy();
 
     let targets = gv.find_symbols(symbol, None, 5);
     if targets.is_empty() {
@@ -1644,12 +1785,24 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let target_candidates: Vec<Value> = targets
         .iter()
         .map(|s| {
-            json!({
+            let mut obj = json!({
                 "id": s["id"],
                 "name": s["properties"]["name"],
                 "kind": s["properties"]["symbolKind"],
                 "file": s["properties"]["sourcePath"]
-            })
+            });
+            if include_snippet {
+                if let Some(map) = obj.as_object_mut() {
+                    let file = s["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let start = s["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = s["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    map.insert(
+                        "sourceSnippet".to_string(),
+                        read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                    );
+                }
+            }
+            obj
         })
         .collect();
 
@@ -1675,7 +1828,7 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             let src_id = edge["source"].as_str().unwrap_or("");
             let src_node = gv.nodes_by_id.get(src_id);
 
-            all_edges.push(json!({
+            let mut edge_obj = json!({
                 "source": src_id,
                 "target": edge["target"],
                 "type": edge["type"],
@@ -1684,7 +1837,22 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 "reason": edge["properties"]["reason"],
                 "sourceName": src_node.and_then(|n| n["properties"]["name"].as_str()),
                 "sourceKind": src_node.and_then(|n| n["properties"]["symbolKind"].as_str())
-            }));
+            });
+            if include_snippet {
+                if let Some(sn) = src_node {
+                    let file = sn["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let start = sn["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = sn["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    if let Some(map) = edge_obj.as_object_mut() {
+                        map.insert(
+                            "sourceSnippet".to_string(),
+                            read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                        );
+                    }
+                }
+            }
+
+            all_edges.push(edge_obj);
 
             if current_depth + 1 < depth && !visited.contains(src_id) {
                 queue.push((src_id.to_string(), current_depth + 1));
@@ -1719,9 +1887,12 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let direction = params["direction"].as_str().unwrap_or("both"); // upstream/downstream/both
     let depth = params["depth"].as_u64().unwrap_or(2).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
     check_cangjie_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let root_str = validated.to_string_lossy();
 
     let targets = gv.find_symbols(symbol, None, 5);
     if targets.is_empty() {
@@ -1873,7 +2044,7 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         .map(|(k, v)| (k, json!(v)))
         .collect();
 
-    // Top impacted files
+    // Top impacted files with optional snippets
     let mut file_counts: HashMap<String, u64> = HashMap::new();
     for node in impacted_nodes.values() {
         if let Some(f) = node["properties"]["sourcePath"]
@@ -1888,7 +2059,55 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let top_files: Vec<Value> = top_files
         .into_iter()
         .take(10)
-        .map(|(f, c)| json!({ "file": f, "impactedNodeCount": c }))
+        .map(|(f, c)| {
+            let mut obj = json!({ "file": f, "impactedNodeCount": c });
+            if include_snippet {
+                // Find first impacted symbol in this file for context
+                let first_sym = impacted_nodes.values().find(|n| {
+                    n["properties"]["sourcePath"].as_str() == Some(f.as_str())
+                        || n["properties"]["manifestPath"].as_str() == Some(f.as_str())
+                });
+                if let Some(sym) = first_sym {
+                    let start = sym["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = sym["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    if let Some(map) = obj.as_object_mut() {
+                        map.insert(
+                            "contextSnippet".to_string(),
+                            read_source_snippet(&root_str, &f, start, end, snippet_ctx),
+                        );
+                    }
+                }
+            }
+            obj
+        })
+        .collect();
+
+    // Compact impacted symbol list with optional snippets (top 20)
+    let impacted_symbols: Vec<Value> = impacted_nodes
+        .values()
+        .filter(|n| n["label"].as_str() == Some("symbol"))
+        .take(20)
+        .map(|n| {
+            let mut obj = json!({
+                "id": n["id"],
+                "name": n["properties"]["name"],
+                "kind": n["properties"]["symbolKind"],
+                "file": n["properties"]["sourcePath"],
+                "line": n["properties"]["lineStart"],
+            });
+            if include_snippet {
+                if let Some(map) = obj.as_object_mut() {
+                    let file = n["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let start = n["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = n["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    map.insert(
+                        "sourceSnippet".to_string(),
+                        read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                    );
+                }
+            }
+            obj
+        })
         .collect();
 
     Ok(merge_cache_and_result(
@@ -1899,6 +2118,7 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "risk": risk,
             "reasons": reasons,
             "impactedNodeCount": total_impacted,
+            "impactedSymbols": impacted_symbols,
             "impactedNodesByKind": Value::Object(node_kind_map),
             "impactedEdgesByKind": Value::Object(edge_kind_map),
             "topImpactedFiles": top_files,
@@ -1917,9 +2137,12 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(false);
+    let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
     check_cangjie_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let root_str = validated.to_string_lossy();
 
     let node_kind = params["nodeKind"].as_str();
     let edge_kind = params["edgeKind"].as_str();
@@ -1967,13 +2190,30 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
             }
         }
 
-        matched_nodes.push(json!({
+        let mut node_obj = json!({
             "id": node["id"],
             "label": node["label"],
             "name": node["properties"]["name"],
             "kind": node["properties"]["symbolKind"].as_str().or_else(|| node["label"].as_str()),
             "file": node["properties"]["sourcePath"].as_str().or_else(|| node["properties"]["manifestPath"].as_str())
-        }));
+        });
+        if include_snippet {
+            let file = node["properties"]["sourcePath"]
+                .as_str()
+                .or_else(|| node["properties"]["manifestPath"].as_str())
+                .unwrap_or("");
+            let start = node["properties"]["lineStart"].as_u64().unwrap_or(0);
+            let end = node["properties"]["lineEnd"].as_u64().unwrap_or(start);
+            if !file.is_empty() && start > 0 {
+                if let Some(map) = node_obj.as_object_mut() {
+                    map.insert(
+                        "sourceSnippet".to_string(),
+                        read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                    );
+                }
+            }
+        }
+        matched_nodes.push(node_obj);
     }
 
     // Match edges
@@ -2231,9 +2471,12 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
 
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
     check_cangjie_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let root_str = validated.to_string_lossy();
 
     let matches = gv.find_symbols(symbol, params["kind"].as_str(), 5);
     if matches.is_empty() {
@@ -2283,7 +2526,15 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
                 "outgoingCallCount": out_calls.len(),
                 "incomingCallCount": in_calls.len(),
                 "filesNeedingReview": files,
-                "confidence": if ambiguous { "LOW" } else if in_calls.len() > 20 { "MEDIUM" } else { "HIGH" }
+                "confidence": if ambiguous { "LOW" } else if in_calls.len() > 20 { "MEDIUM" } else { "HIGH" },
+                "sourceSnippet": if include_snippet {
+                    let file = sym["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let start = sym["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let end = sym["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                    read_source_snippet(&root_str, file, start, end, snippet_ctx)
+                } else {
+                    Value::Null
+                }
             })
         })
         .collect();
@@ -2311,6 +2562,369 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         }),
         &cache_meta,
     ))
+}
+
+// ============================================================
+// v0.5 Daily Workflow Tools
+// ============================================================
+
+/// Production assist dry-run: aggregates quality, impact, and symbol info
+/// for a quick project health check. Read-only, no file writes.
+fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_cangjie_feature(language)?;
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let (node_count, edge_count, symbol_count) = gv.stats();
+    let root_str = validated.to_string_lossy();
+
+    // Quality summary from the cached result
+    let quality_gates = _result.get("qualityGates").cloned().unwrap_or(json!([]));
+    let gate_array = quality_gates.as_array().cloned().unwrap_or_default();
+    let passed = gate_array
+        .iter()
+        .filter(|g| g["passed"].as_bool().unwrap_or(false))
+        .count();
+    let failed = gate_array.len() - passed;
+
+    // Unresolved calls
+    let unresolved_count = gv
+        .outgoing
+        .values()
+        .flatten()
+        .filter(|e| {
+            e["type"].as_str() == Some("CALLS")
+                && e["properties"]["confidence"]
+                    .as_f64()
+                    .map(|c| c < 0.5)
+                    .unwrap_or(false)
+        })
+        .count();
+
+    // Diagnostics count
+    let diag_count = gv.diagnostics.len();
+
+    // Risk level
+    let risk = if failed > 0 || unresolved_count > 10 || diag_count > 5 {
+        "HIGH"
+    } else if unresolved_count > 3 || diag_count > 2 {
+        "MEDIUM"
+    } else {
+        "LOW"
+    };
+
+    // Top files by symbol count
+    let mut file_symbols: HashMap<String, u64> = HashMap::new();
+    for node in gv.nodes_by_id.values() {
+        if node["label"].as_str() == Some("symbol") {
+            if let Some(f) = node["properties"]["sourcePath"].as_str() {
+                *file_symbols.entry(f.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut top_files: Vec<(String, u64)> = file_symbols.into_iter().collect();
+    top_files.sort_by(|a, b| b.1.cmp(&a.1));
+    let top_files: Vec<Value> = top_files
+        .into_iter()
+        .take(5)
+        .map(|(f, c)| json!({ "file": f, "symbolCount": c }))
+        .collect();
+
+    // Changed symbols lookup if provided
+    let changed_symbols_info: Vec<Value> =
+        if let Some(symbols) = params["changedSymbols"].as_array() {
+            symbols
+                .iter()
+                .filter_map(|s| s.as_str())
+                .filter_map(|name| {
+                    let found = gv.find_symbols(name, None, 3);
+                    if found.is_empty() {
+                        None
+                    } else {
+                        let sym = &found[0];
+                        let file = sym["properties"]["sourcePath"].as_str().unwrap_or("");
+                        let start = sym["properties"]["lineStart"].as_u64().unwrap_or(0);
+                        let end = sym["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                        let id = sym["id"].as_str().unwrap_or("");
+                        let callers = gv.edges_to(id, Some("CALLS")).len();
+                        Some(json!({
+                            "name": name,
+                            "kind": sym["properties"]["symbolKind"],
+                            "file": file,
+                            "line": start,
+                            "callerCount": callers,
+                            "sourceSnippet": read_source_snippet(&root_str, file, start, end, 3),
+                        }))
+                    }
+                })
+                .collect()
+        } else {
+            vec![]
+        };
+
+    let mut recommendations = Vec::new();
+    if failed > 0 {
+        recommendations.push(format!(
+            "Run codelattice_quality to review {} failed gate(s)",
+            failed
+        ));
+    }
+    if unresolved_count > 0 {
+        recommendations.push(format!(
+            "Run codelattice_unresolved_report to investigate {} unresolved calls",
+            unresolved_count
+        ));
+    }
+    if !changed_symbols_info.is_empty() {
+        recommendations.push(
+            "Run codelattice_impact_preview on changed symbols to assess blast radius".to_string(),
+        );
+    }
+
+    Ok(merge_cache_and_result(
+        &json!({
+            "root": root,
+            "language": gv.language,
+            "qualityGatesPassed": passed,
+            "qualityGatesFailed": failed,
+            "nodeCount": node_count,
+            "edgeCount": edge_count,
+            "symbolCount": symbol_count,
+            "unresolvedCalls": unresolved_count,
+            "diagnostics": diag_count,
+            "risk": risk,
+            "topFiles": top_files,
+            "changedSymbols": changed_symbols_info,
+            "recommendations": recommendations,
+            "dryRun": true,
+            "noWrites": true,
+        }),
+        &cache_meta,
+    ))
+}
+
+/// Compare two analysis runs: either two bridge JSON files or the same root.
+/// Returns differences in nodes, edges, symbols, diagnostics, quality gates.
+fn handle_compare_runs(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    // Mode 1: Two bridge JSON file paths provided
+    let before_path = params["beforeBridgeJson"].as_str();
+    let after_path = params["afterBridgeJson"].as_str();
+
+    if let (Some(bp), Some(ap)) = (before_path, after_path) {
+        let before = std::fs::read_to_string(bp).map_err(|e| {
+            mcp_error(
+                "file_read_error",
+                &format!("Cannot read before file: {}", e),
+            )
+        })?;
+        let after = std::fs::read_to_string(ap)
+            .map_err(|e| mcp_error("file_read_error", &format!("Cannot read after file: {}", e)))?;
+
+        let before_json: Value = serde_json::from_str(&before).map_err(|e| {
+            mcp_error(
+                "json_error",
+                &format!("Before file is not valid JSON: {}", e),
+            )
+        })?;
+        let after_json: Value = serde_json::from_str(&after).map_err(|e| {
+            mcp_error(
+                "json_error",
+                &format!("After file is not valid JSON: {}", e),
+            )
+        })?;
+
+        return compare_bridge_jsons(&before_json, &after_json);
+    }
+
+    // Mode 2: Same root, analyze fresh and compare with cached
+    let root = params["root"].as_str().ok_or_else(|| {
+        mcp_error(
+            "missing_parameter",
+            "Provide root, or beforeBridgeJson+afterBridgeJson",
+        )
+    })?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_cangjie_feature(language)?;
+
+    // Get current cached result
+    let (_gv, current_result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // Clear cache and re-analyze to get fresh result
+    let canonical = validated.canonicalize().map_err(|_| {
+        mcp_error(
+            "path_not_found",
+            &format!("Cannot canonicalize: {}", validated.display()),
+        )
+    })?;
+    let key = CacheKey {
+        root: canonical.to_string_lossy().to_string(),
+        language: language.to_string(),
+        strict: false,
+    };
+    cache.entries.remove(&key);
+
+    let (_gv2, fresh_result, _fresh_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let diff = compare_bridge_jsons(&current_result, &fresh_result)?;
+    Ok(merge_cache_and_result(&diff, &cache_meta))
+}
+
+/// Compare two bridge JSON results and return a structured diff.
+fn compare_bridge_jsons(before: &Value, after: &Value) -> Result<Value, Value> {
+    let before_graph = before.get("graph").unwrap_or(&Value::Null);
+    let after_graph = after.get("graph").unwrap_or(&Value::Null);
+
+    let before_nodes = before_graph
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let after_nodes = after_graph
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let before_edges = before_graph
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let after_edges = after_graph
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    // Index by id for diff
+    let before_node_ids: std::collections::HashSet<String> = before_nodes
+        .iter()
+        .filter_map(|n| n["id"].as_str().map(|s| s.to_string()))
+        .collect();
+    let after_node_ids: std::collections::HashSet<String> = after_nodes
+        .iter()
+        .filter_map(|n| n["id"].as_str().map(|s| s.to_string()))
+        .collect();
+
+    let added_nodes: Vec<String> = after_node_ids
+        .difference(&before_node_ids)
+        .cloned()
+        .collect();
+    let removed_nodes: Vec<String> = before_node_ids
+        .difference(&after_node_ids)
+        .cloned()
+        .collect();
+
+    // Edge diff by source+target+type composite key
+    fn edge_key(e: &Value) -> String {
+        format!(
+            "{}→{}:{}",
+            e["source"].as_str().unwrap_or(""),
+            e["target"].as_str().unwrap_or(""),
+            e["type"].as_str().unwrap_or("")
+        )
+    }
+    let before_edge_keys: std::collections::HashSet<String> =
+        before_edges.iter().map(edge_key).collect();
+    let after_edge_keys: std::collections::HashSet<String> =
+        after_edges.iter().map(edge_key).collect();
+
+    let added_edges: Vec<String> = after_edge_keys
+        .difference(&before_edge_keys)
+        .cloned()
+        .collect();
+    let removed_edges: Vec<String> = before_edge_keys
+        .difference(&after_edge_keys)
+        .cloned()
+        .collect();
+
+    // Quality gates diff
+    let before_gates = before
+        .get("qualityGates")
+        .and_then(|g| g.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let after_gates = after
+        .get("qualityGates")
+        .and_then(|g| g.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let before_passed = before_gates
+        .iter()
+        .filter(|g| g["passed"].as_bool().unwrap_or(false))
+        .count();
+    let after_passed = after_gates
+        .iter()
+        .filter(|g| g["passed"].as_bool().unwrap_or(false))
+        .count();
+
+    // Symbol count diff
+    let before_symbols = before_nodes
+        .iter()
+        .filter(|n| n["label"].as_str() == Some("symbol"))
+        .count();
+    let after_symbols = after_nodes
+        .iter()
+        .filter(|n| n["label"].as_str() == Some("symbol"))
+        .count();
+
+    // Diagnostics diff
+    let before_diags = before_graph
+        .get("diagnostics")
+        .and_then(|d| d.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    let after_diags = after_graph
+        .get("diagnostics")
+        .and_then(|d| d.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    Ok(tool_result(&json!({
+        "beforeNodes": before_nodes.len(),
+        "afterNodes": after_nodes.len(),
+        "nodeDelta": after_nodes.len() as i64 - before_nodes.len() as i64,
+        "addedNodes": added_nodes.len(),
+        "removedNodes": removed_nodes.len(),
+        "addedNodeSamples": added_nodes.iter().take(10).cloned().collect::<Vec<_>>(),
+        "removedNodeSamples": removed_nodes.iter().take(10).cloned().collect::<Vec<_>>(),
+
+        "beforeEdges": before_edges.len(),
+        "afterEdges": after_edges.len(),
+        "edgeDelta": after_edges.len() as i64 - before_edges.len() as i64,
+        "addedEdges": added_edges.len(),
+        "removedEdges": removed_edges.len(),
+        "addedEdgeSamples": added_edges.iter().take(10).cloned().collect::<Vec<_>>(),
+        "removedEdgeSamples": removed_edges.iter().take(10).cloned().collect::<Vec<_>>(),
+
+        "beforeSymbols": before_symbols,
+        "afterSymbols": after_symbols,
+        "symbolDelta": after_symbols as i64 - before_symbols as i64,
+
+        "beforeDiagnostics": before_diags,
+        "afterDiagnostics": after_diags,
+        "diagnosticDelta": after_diags as i64 - before_diags as i64,
+
+        "beforeQualityGatesPassed": before_passed,
+        "afterQualityGatesPassed": after_passed,
+        "qualityGateDelta": after_passed as i64 - before_passed as i64,
+
+        "summary": format!(
+            "Nodes: {}→{} ({:+}), Edges: {}→{} ({:+}), Symbols: {}→{} ({:+}), Diags: {}→{} ({:+}), Gates: {}→{} ({:+})",
+            before_nodes.len(), after_nodes.len(), after_nodes.len() as i64 - before_nodes.len() as i64,
+            before_edges.len(), after_edges.len(), after_edges.len() as i64 - before_edges.len() as i64,
+            before_symbols, after_symbols, after_symbols as i64 - before_symbols as i64,
+            before_diags, after_diags, after_diags as i64 - before_diags as i64,
+            before_passed, after_passed, after_passed as i64 - before_passed as i64,
+        ),
+        "note": "generatedAt is excluded from deterministic comparison"
+    })))
 }
 
 // ============================================================
@@ -2582,6 +3196,36 @@ fn tools_list() -> Value {
                         "language": { "type": "string", "description": "Filter by language. Omit to clear all." }
                     }
                 }
+             },
+             {
+                "name": "codelattice_production_assist",
+                "description": "Dry-run production readiness assistant. Aggregates quality gates, unresolved calls, diagnostics, and changed symbol impact for a quick project health check. Read-only, no file writes. Ideal for AI agents to assess change safety before committing.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "changedSymbols": {
+                            "type": "array",
+                            "items": { "type": "string" },
+                            "description": "Optional list of symbol names you changed, to get their caller counts and snippets"
+                        }
+                    },
+                    "required": ["root"]
+                }
+             },
+             {
+                "name": "codelattice_compare_runs",
+                "description": "Compare two analysis results to find differences in nodes, edges, symbols, quality gates, and diagnostics. Provide beforeBridgeJson+afterBridgeJson file paths, or just root to compare cached vs fresh analysis. Useful for CI checks and verifying change impact.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root (compares cached vs fresh if no bridge files provided)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file (must be under /tmp)" },
+                        "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file (must be under /tmp)" }
+                    }
+                }
              }
         ]
     })
@@ -2635,7 +3279,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
             json!({
                 "protocolVersion": "2024-11-05",
                 "capabilities": { "tools": {} },
-                "serverInfo": { "name": "codelattice", "version": "0.3.0" }
+                "serverInfo": { "name": "codelattice", "version": "0.5.0" }
             }),
         )),
 
@@ -2665,6 +3309,8 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_rename_preview" => handle_rename_preview(cache, &arguments),
                 "codelattice_cache_status" => handle_cache_status(cache, &arguments),
                 "codelattice_cache_clear" => handle_cache_clear(cache, &arguments),
+                "codelattice_production_assist" => handle_production_assist(cache, &arguments),
+                "codelattice_compare_runs" => handle_compare_runs(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

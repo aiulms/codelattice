@@ -140,7 +140,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_eighteen_tools() {
+fn mcp_tools_list_returns_twenty_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -157,7 +157,7 @@ fn mcp_tools_list_returns_eighteen_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 18, "expected 18 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 20, "expected 20 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -1987,6 +1987,410 @@ fn mcp_symbol_context_snippet_candidates_all_have_snippets() {
         assert!(
             snippet["lines"].is_string(),
             "snippet should have lines string"
+        );
+    }
+}
+
+// ============================================================
+// v0.5 Cache Correctness Tests
+// ============================================================
+
+#[test]
+fn mcp_cache_mtime_invalidation() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+
+    // First call — check cache empty
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 500,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 500);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["entryCount"], 0, "should start empty");
+
+    // Trigger analyze to populate cache (uses codelattice_analyze which goes through cache)
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 501,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 501);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["cacheHit"], false, "first call should be miss");
+
+    // Second call — should hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 502,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 502);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["cacheHit"], true, "second call should hit");
+
+    // Check cache_status has maxEntries and totalEvictions
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 503,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 503);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["entryCount"], 1);
+    assert!(data["maxEntries"].is_number(), "should have maxEntries");
+    assert!(
+        data["totalEvictions"].is_number(),
+        "should have totalEvictions"
+    );
+    assert!(data["totalHits"].is_number(), "should have totalHits");
+}
+
+#[test]
+fn mcp_cache_clear_then_miss() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+
+    // Populate cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 510,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Clear cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 511,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_clear",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 511);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert!(
+        data["clearedCount"].as_u64().unwrap_or(0) >= 1,
+        "should clear at least 1"
+    );
+
+    // Next call should be miss
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 512,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 512);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["cacheHit"], false, "after clear should be miss");
+}
+
+// ============================================================
+// v0.5 Daily Workflow Tool Tests
+// ============================================================
+
+#[test]
+fn mcp_production_assist_basic() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 600,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 600);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    assert!(data["symbolCount"].is_number(), "should have symbolCount");
+    assert!(data["nodeCount"].is_number(), "should have nodeCount");
+    assert!(data["edgeCount"].is_number(), "should have edgeCount");
+    assert!(data["risk"].is_string(), "should have risk level");
+    assert!(
+        data["qualityGatesPassed"].is_number(),
+        "should have qualityGatesPassed"
+    );
+    assert!(
+        data["qualityGatesFailed"].is_number(),
+        "should have qualityGatesFailed"
+    );
+    assert!(
+        data["unresolvedCalls"].is_number(),
+        "should have unresolvedCalls"
+    );
+    assert!(data["diagnostics"].is_number(), "should have diagnostics");
+    assert!(data["dryRun"].is_boolean(), "should have dryRun=true");
+    assert!(data["topFiles"].is_array(), "should have topFiles");
+    assert!(
+        data["recommendations"].is_array(),
+        "should have recommendations"
+    );
+}
+
+#[test]
+fn mcp_production_assist_with_changed_symbols() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 601,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "changedSymbols": ["helper", "main"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 601);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let changed = data["changedSymbols"]
+        .as_array()
+        .expect("should have changedSymbols array");
+    assert!(
+        changed.len() >= 1,
+        "should find at least one changed symbol"
+    );
+    let first = &changed[0];
+    assert!(first["name"].is_string(), "should have name");
+    assert!(first["callerCount"].is_number(), "should have callerCount");
+    assert!(
+        first["sourceSnippet"].is_object(),
+        "should have sourceSnippet"
+    );
+}
+
+#[test]
+fn mcp_compare_runs_bridge_files() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Create two temp bridge JSON files
+    let before = serde_json::json!({
+        "graph": {
+            "nodes": [
+                {"id": "n1", "label": "symbol", "properties": {"name": "foo", "symbolKind": "Function", "sourcePath": "a.rs"}},
+                {"id": "n2", "label": "symbol", "properties": {"name": "bar", "symbolKind": "Function", "sourcePath": "b.rs"}}
+            ],
+            "edges": [
+                {"source": "n1", "target": "n2", "type": "CALLS", "properties": {}}
+            ]
+        },
+        "qualityGates": [{"name": "test", "passed": true}]
+    });
+    let after = serde_json::json!({
+        "graph": {
+            "nodes": [
+                {"id": "n1", "label": "symbol", "properties": {"name": "foo", "symbolKind": "Function", "sourcePath": "a.rs"}},
+                {"id": "n3", "label": "symbol", "properties": {"name": "baz", "symbolKind": "Function", "sourcePath": "c.rs"}}
+            ],
+            "edges": [
+                {"source": "n1", "target": "n3", "type": "CALLS", "properties": {}}
+            ]
+        },
+        "qualityGates": [{"name": "test", "passed": false}]
+    });
+
+    let before_path = format!(
+        "/tmp/codelattice-compare-before-{}.json",
+        std::process::id()
+    );
+    let after_path = format!("/tmp/codelattice-compare-after-{}.json", std::process::id());
+    std::fs::write(&before_path, serde_json::to_string(&before).unwrap()).unwrap();
+    std::fs::write(&after_path, serde_json::to_string(&after).unwrap()).unwrap();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 610,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_compare_runs",
+            "arguments": {
+                "beforeBridgeJson": before_path,
+                "afterBridgeJson": after_path
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 610);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    assert_eq!(data["beforeNodes"], 2);
+    assert_eq!(data["afterNodes"], 2);
+    assert!(data["addedNodes"].is_number(), "should have addedNodes");
+    assert!(data["removedNodes"].is_number(), "should have removedNodes");
+    assert!(data["summary"].is_string(), "should have summary");
+    assert!(
+        data["note"].is_string(),
+        "should have note about generatedAt"
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_file(&before_path);
+    let _ = std::fs::remove_file(&after_path);
+}
+
+#[test]
+fn mcp_calls_from_includes_snippet() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 620,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_calls_from",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symbol": "main",
+                "includeSnippet": true,
+                "snippetContext": 2
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 620);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let candidates = data["sourceCandidates"]
+        .as_array()
+        .expect("should have sourceCandidates");
+    if !candidates.is_empty() {
+        let first = &candidates[0];
+        assert!(
+            first["sourceSnippet"].is_object(),
+            "candidates should have sourceSnippet"
+        );
+    }
+}
+
+#[test]
+fn mcp_rename_preview_includes_snippet() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 630,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_rename_preview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "newName": "assist",
+                "includeSnippet": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 630);
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+
+    let candidates = data["candidates"]
+        .as_array()
+        .expect("should have candidates");
+    if !candidates.is_empty() {
+        let first = &candidates[0];
+        assert!(
+            first["sourceSnippet"].is_object(),
+            "rename candidates should have sourceSnippet"
+        );
+        assert!(
+            first["sourceSnippet"]["lines"].is_string(),
+            "snippet should have lines"
         );
     }
 }

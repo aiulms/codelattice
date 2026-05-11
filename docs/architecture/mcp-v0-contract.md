@@ -1,9 +1,9 @@
 # MCP Contract — CodeLattice AI Layer
 
 > **日期：** 2026-05-11
-> **版本：** v0.4.0
-> **状态：** Active (MCP v0.4)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/源码片段能力
+> **版本：** v0.5.0
+> **状态：** Active (MCP v0.5 Daily-use Candidate)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/mtime invalidation/LRU/源码片段/production assist/compare runs 能力
 
 ---
 
@@ -632,6 +632,62 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 > **v0.3 Cache Signal**: All v0.2+ tools (3.9–3.16) now include `cacheHit` (boolean) and `analysisDurationMs` (u64, only on miss) in their output JSON. First call for a given root+language+strict is always a cache miss; subsequent calls return `cacheHit: true` without re-running the analyze subprocess. The `codelattice_analyze` (3.1) tool also includes these signals.
 
+### 3.19 `codelattice_production_assist`
+
+Dry-run production readiness assistant。Aggregates quality gates、unresolved calls、diagnostics、changed symbol impact。Read-only。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Optional list of symbol names you changed" }
+  },
+  "required": ["root"]
+}
+```
+
+**Output**: `{ symbolCount, nodeCount, edgeCount, qualityGatesPassed, qualityGatesFailed, unresolvedCalls, diagnostics, risk, topFiles, changedSymbols (with sourceSnippet), recommendations, dryRun: true }`
+
+### 3.20 `codelattice_compare_runs`
+
+Compare two analysis results: nodes/edges/symbols/quality gates/diagnostics diff。
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "Compare cached vs fresh (if no bridge files)" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file" },
+    "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file" }
+  }
+}
+```
+
+**Output**: `{ beforeNodes, afterNodes, nodeDelta, addedNodes, removedNodes, beforeEdges, afterEdges, edgeDelta, addedEdges, removedEdges, beforeSymbols, afterSymbols, symbolDelta, beforeDiagnostics, afterDiagnostics, summary, note }`
+
+---
+
+### 3.x Cache Evolution (v0.5)
+
+> **v0.5 Cache Enhancements**:
+> - **mtime-based invalidation**: Cache entries track source file mtimes. On next call, if any file was added/removed/modified, cache automatically invalidates and re-analyzes.
+> - **LRU eviction**: Max 16 cache entries. When over limit, least-recently-used entry is evicted.
+> - **Enhanced cache_status**: Now includes `maxEntries`, `totalEvictions`, `cacheKey`, `trackedFiles`.
+> - **cache_clear** supports filtering by root/language (unchanged from v0.3).
+
+### 3.x Snippet Expansion (v0.5)
+
+> **v0.5 Source Snippet Expansion**:
+> - `calls_from` / `calls_to`: source candidates and edges now include `sourceSnippet`/`targetSnippet` (controlled by `includeSnippet` param, default true).
+> - `impact_preview`: now includes `impactedSymbols` array with snippets and `contextSnippet` in top files.
+> - `query_graph`: matched nodes can include `sourceSnippet` (controlled by `includeSnippet`, default false for compact output).
+> - `rename_preview`: candidates now include `sourceSnippet` by default.
+
 ---
 
 ## 四、错误格式
@@ -735,3 +791,4 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 | 2026-05-10 | v0.2.0 | v0.2 — 8 new tools (symbol_context, calls_from, calls_to, impact_preview, query_graph, project_overview, repo_registry, rename_preview), shared GraphView layer, BFS traversal, read-only graph intelligence |
 | 2026-05-11 | v0.3.0 | v0.3 — 2 new tools (cache_status, cache_clear), process-local analysis cache, cacheHit/analysisDurationMs signals in all tool outputs, 18 tools total |
 | 2026-05-11 | v0.4.0 | v0.4 — source snippets in symbol_context (includeSnippet, snippetContext, sourceSnippet field), install-mcp.sh, wrapper --self-test, cache smoke script, real client readiness |
+| 2026-05-11 | v0.5.0 | v0.5 — Daily-use candidate: mtime-based cache invalidation, LRU eviction (max 16), snippet expansion to calls_from/to/impact/query/rename, 2 new tools (production_assist, compare_runs), install --doctor, real-client-dry-run.sh, 20 tools total |

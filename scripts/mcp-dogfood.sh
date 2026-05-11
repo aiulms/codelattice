@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MCP v0.4 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 18 tools + source snippet + cache behavior.
+# MCP v0.5 Dogfood — real stdio JSON-RPC against the MCP server.
+# Exercises all 20 tools + source snippet + cache behavior.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -15,7 +15,7 @@ echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/gitnexus-rust-core-cli"
 
-echo "--- MCP v0.4 Dogfood ---"
+echo "--- MCP v0.5 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
 echo ""
@@ -114,14 +114,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" = "18" ]; then
+if [ "$TOOL_COUNT" = "20" ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list (18 tools)")
-    echo "   → 18 tools listed"
+    RESULTS+=("PASS: tools/list (20 tools)")
+    echo "   → 20 tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected 18, got $TOOL_COUNT)")
-    echo "   → expected 18 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected 20, got $TOOL_COUNT)")
+    echo "   → expected 20 tools, got $TOOL_COUNT"
 fi
 ID=3
 

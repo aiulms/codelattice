@@ -1,7 +1,7 @@
 # MCP Local Client Setup — CodeLattice Sidecar Server
 
 > **日期：** 2026-05-11
-> **版本：** v0.4.0
+> **版本：** v0.5.0
 > **状态：** Active
 
 ---
@@ -240,7 +240,7 @@ node /path/to/gitnexus/dist/cli/index.js analyze /path/to/project --force --skip
 
 ---
 
-## 十、安装与自检 (v0.4 新增)
+## 十、安装与自检 (v0.4 新增, v0.5 增强)
 
 ### install-mcp.sh
 
@@ -253,9 +253,14 @@ bash scripts/install-mcp.sh --print-config
 
 # 仅显示会做什么（不实际构建）
 bash scripts/install-mcp.sh --build --dry-run
+
+# 健康检查 (v0.5 新增)
+bash scripts/install-mcp.sh --doctor
 ```
 
 该脚本**不会自动修改**任何客户端配置文件。它只输出可复制粘贴的 JSON/TOML 片段。
+
+`--doctor` 检查：binary、wrapper、MCP handshake、tools/list (>= 20)、cache_status (maxEntries)。
 
 ### codelattice-mcp.sh --self-test
 
@@ -267,6 +272,8 @@ bash scripts/codelattice-mcp.sh --self-test
 1. CODELATTICE_ROOT 有效
 2. Binary 可找到且可执行
 3. MCP handshake 成功（initialize → 返回 codelattice server info）
+4. tools/list 返回 >= 20 个工具 (v0.5 新增)
+5. cache_status 包含 maxEntries 和 totalEvictions (v0.5 新增)
 
 ### mcp-cache-smoke.sh
 
@@ -279,3 +286,21 @@ bash scripts/mcp-cache-smoke.sh
 2. Cross-tool cache reuse
 3. cache_clear 后重新 miss
 4. 缓存命中时源码片段仍然可用
+
+### mcp-real-client-dry-run.sh (v0.5 新增)
+
+```bash
+bash scripts/mcp-real-client-dry-run.sh [root_dir]
+```
+
+模拟真实 MCP 客户端调用 10 个高频工具，不修改任何配置：
+1. initialize handshake
+2. tools/list (20 tools)
+3. cache_status (empty)
+4. codelattice_analyze (miss)
+5. codelattice_graph_overview
+6. codelattice_symbol_context
+7. codelattice_calls_from
+8. codelattice_impact_preview
+9. codelattice_production_assist
+10. cache_status (populated)
