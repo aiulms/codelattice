@@ -2597,3 +2597,570 @@ fn mcp_cangjie_symbol_search_finds_init() {
         count
     );
 }
+
+// ============================================================
+// Compact mode tests
+// ============================================================
+
+/// Helper: extract tool result data from MCP response
+fn extract_tool_data(resp: &serde_json::Value) -> serde_json::Value {
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    serde_json::from_str(text)
+        .unwrap_or_else(|e| panic!("Invalid JSON in tool result: {}. Text: {}", e, text))
+}
+
+#[test]
+fn mcp_compact_symbol_search_retains_identity() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "query": "helper",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4001);
+    let data = extract_tool_data(&resp);
+
+    assert!(
+        data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "should find helper"
+    );
+    let matches = data["matches"].as_array().expect("matches should be array");
+    let first = &matches[0];
+
+    // Compact must retain id, name, kind, file, line
+    assert!(
+        first["id"].as_str().is_some(),
+        "compact match must have 'id'"
+    );
+    assert!(
+        first["name"].as_str().is_some(),
+        "compact match must have 'name'"
+    );
+    assert!(
+        first["kind"].as_str().is_some(),
+        "compact match must have 'kind'"
+    );
+    assert!(
+        first["file"].as_str().is_some() || first["file"].is_null(),
+        "compact match must have 'file' key"
+    );
+    assert!(
+        first.get("line").is_some(),
+        "compact match must have 'line' key"
+    );
+
+    // Compact must NOT have 'label'
+    assert!(
+        first["label"].is_null(),
+        "compact match should not have 'label'"
+    );
+}
+
+#[test]
+fn mcp_compact_calls_from_retains_identity() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_calls_from",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symbol": "main_fn",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4002);
+    let data = extract_tool_data(&resp);
+
+    // Source candidates must have id, name, kind, file, line
+    let candidates = data["sourceCandidates"]
+        .as_array()
+        .expect("sourceCandidates should be array");
+    assert!(candidates.len() > 0, "should have source candidates");
+    let first_cand = &candidates[0];
+    assert!(
+        first_cand["id"].as_str().is_some(),
+        "compact candidate must have 'id'"
+    );
+    assert!(
+        first_cand["name"].as_str().is_some(),
+        "compact candidate must have 'name'"
+    );
+    assert!(
+        first_cand["file"].as_str().is_some() || first_cand["file"].is_null(),
+        "compact candidate must have 'file'"
+    );
+    assert!(
+        first_cand.get("line").is_some(),
+        "compact candidate must have 'line'"
+    );
+
+    // Edges must have targetId, targetName, targetKind, targetFile, targetLine, type, confidence, reason
+    let edges = data["edges"].as_array().expect("edges should be array");
+    assert!(edges.len() > 0, "main_fn should have outgoing edges");
+    let first_edge = &edges[0];
+    assert!(
+        first_edge["targetId"].as_str().is_some(),
+        "compact edge must have 'targetId'"
+    );
+    assert!(
+        first_edge["targetName"].as_str().is_some(),
+        "compact edge must have 'targetName'"
+    );
+    assert!(
+        first_edge["targetKind"].as_str().is_some(),
+        "compact edge must have 'targetKind'"
+    );
+    assert!(
+        first_edge.get("targetFile").is_some(),
+        "compact edge must have 'targetFile'"
+    );
+    assert!(
+        first_edge.get("targetLine").is_some(),
+        "compact edge must have 'targetLine'"
+    );
+    assert!(
+        first_edge["type"].as_str().is_some(),
+        "compact edge must have 'type'"
+    );
+    assert!(
+        first_edge.get("confidence").is_some(),
+        "compact edge must have 'confidence'"
+    );
+    assert!(
+        first_edge.get("reason").is_some(),
+        "compact edge must have 'reason'"
+    );
+
+    // Compact edges should NOT have 'depth' or 'source' (raw id)
+    assert!(
+        first_edge.get("depth").is_none(),
+        "compact edge should not have 'depth'"
+    );
+    assert!(
+        first_edge.get("source").is_none(),
+        "compact edge should not have 'source'"
+    );
+
+    // Response should have compact: true
+    assert_eq!(
+        data["compact"], true,
+        "compact response should have compact=true"
+    );
+}
+
+#[test]
+fn mcp_compact_calls_to_retains_identity() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_calls_to",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4003);
+    let data = extract_tool_data(&resp);
+
+    // Target candidates must have id, name, kind, file, line
+    let candidates = data["targetCandidates"]
+        .as_array()
+        .expect("targetCandidates should be array");
+    assert!(candidates.len() > 0, "should have target candidates");
+    let first_cand = &candidates[0];
+    assert!(
+        first_cand["id"].as_str().is_some(),
+        "compact candidate must have 'id'"
+    );
+    assert!(
+        first_cand["name"].as_str().is_some(),
+        "compact candidate must have 'name'"
+    );
+    assert!(
+        first_cand["file"].as_str().is_some() || first_cand["file"].is_null(),
+        "compact candidate must have 'file'"
+    );
+    assert!(
+        first_cand.get("line").is_some(),
+        "compact candidate must have 'line'"
+    );
+
+    // Edges must have sourceId, sourceName, sourceKind, sourceFile, sourceLine, type, confidence, reason
+    let edges = data["edges"].as_array().expect("edges should be array");
+    assert!(edges.len() > 0, "helper should have callers");
+    let first_edge = &edges[0];
+    assert!(
+        first_edge["sourceId"].as_str().is_some(),
+        "compact edge must have 'sourceId'"
+    );
+    assert!(
+        first_edge["sourceName"].as_str().is_some(),
+        "compact edge must have 'sourceName'"
+    );
+    assert!(
+        first_edge["sourceKind"].as_str().is_some(),
+        "compact edge must have 'sourceKind'"
+    );
+    assert!(
+        first_edge.get("sourceFile").is_some(),
+        "compact edge must have 'sourceFile'"
+    );
+    assert!(
+        first_edge.get("sourceLine").is_some(),
+        "compact edge must have 'sourceLine'"
+    );
+    assert!(
+        first_edge["type"].as_str().is_some(),
+        "compact edge must have 'type'"
+    );
+    assert!(
+        first_edge.get("confidence").is_some(),
+        "compact edge must have 'confidence'"
+    );
+    assert!(
+        first_edge.get("reason").is_some(),
+        "compact edge must have 'reason'"
+    );
+
+    assert_eq!(
+        data["compact"], true,
+        "compact response should have compact=true"
+    );
+}
+
+#[test]
+fn mcp_compact_query_graph_retains_identity() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_query_graph",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "nodeKind": "function",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4004);
+    let data = extract_tool_data(&resp);
+
+    let nodes = data["matchedNodes"]
+        .as_array()
+        .expect("matchedNodes should be array");
+    assert!(nodes.len() > 0, "should match function nodes");
+    let first_node = &nodes[0];
+
+    // Compact nodes must have id, name, kind, file, line
+    assert!(
+        first_node["id"].as_str().is_some(),
+        "compact node must have 'id'"
+    );
+    assert!(
+        first_node["name"].as_str().is_some(),
+        "compact node must have 'name'"
+    );
+    assert!(
+        first_node["kind"].as_str().is_some(),
+        "compact node must have 'kind'"
+    );
+    assert!(
+        first_node.get("file").is_some(),
+        "compact node must have 'file'"
+    );
+    assert!(
+        first_node.get("line").is_some(),
+        "compact node must have 'line'"
+    );
+
+    // Compact nodes should NOT have 'label' or 'sourceSnippet'
+    assert!(
+        first_node.get("label").is_none(),
+        "compact node should not have 'label'"
+    );
+    assert!(
+        first_node.get("sourceSnippet").is_none(),
+        "compact node should not have 'sourceSnippet'"
+    );
+
+    assert_eq!(
+        data["compact"], true,
+        "compact response should have compact=true"
+    );
+}
+
+#[test]
+fn mcp_compact_query_graph_edges_retain_confidence_reason() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_query_graph",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "edgeKind": "CALLS",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4005);
+    let data = extract_tool_data(&resp);
+
+    let edges = data["matchedEdges"]
+        .as_array()
+        .expect("matchedEdges should be array");
+    if edges.len() > 0 {
+        let first_edge = &edges[0];
+        assert!(
+            first_edge["source"].as_str().is_some(),
+            "compact edge must have 'source'"
+        );
+        assert!(
+            first_edge["target"].as_str().is_some(),
+            "compact edge must have 'target'"
+        );
+        assert!(
+            first_edge["type"].as_str().is_some(),
+            "compact edge must have 'type'"
+        );
+        assert!(
+            first_edge.get("confidence").is_some(),
+            "compact edge must have 'confidence'"
+        );
+        assert!(
+            first_edge.get("reason").is_some(),
+            "compact edge must have 'reason'"
+        );
+    }
+}
+
+#[test]
+fn mcp_compact_project_overview_counts_only() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4006);
+    let data = extract_tool_data(&resp);
+
+    // Must have core counts
+    assert!(
+        data["nodeCount"].as_u64().unwrap_or(0) > 0,
+        "should have nodeCount"
+    );
+    assert!(
+        data["edgeCount"].as_u64().unwrap_or(0) > 0,
+        "should have edgeCount"
+    );
+    assert!(data.get("symbolCount").is_some(), "should have symbolCount");
+    assert!(
+        data.get("packageCount").is_some(),
+        "should have packageCount"
+    );
+    assert!(
+        data.get("sourceFileCount").is_some(),
+        "should have sourceFileCount"
+    );
+    assert!(
+        data.get("diagnosticsCount").is_some(),
+        "should have diagnosticsCount"
+    );
+
+    // Must NOT have verbose breakdowns
+    assert!(
+        data.get("hotspots").is_none(),
+        "compact should not have 'hotspots'"
+    );
+    assert!(
+        data.get("denseFiles").is_none(),
+        "compact should not have 'denseFiles'"
+    );
+    assert!(
+        data.get("topNodeKinds").is_none(),
+        "compact should not have 'topNodeKinds'"
+    );
+    assert!(
+        data.get("topEdgeKinds").is_none(),
+        "compact should not have 'topEdgeKinds'"
+    );
+    assert!(
+        data.get("qualitySummary").is_none(),
+        "compact should not have 'qualitySummary'"
+    );
+    assert!(
+        data.get("diagnosticsSummary").is_none(),
+        "compact should not have 'diagnosticsSummary'"
+    );
+
+    assert_eq!(
+        data["compact"], true,
+        "compact response should have compact=true"
+    );
+}
+
+#[test]
+fn mcp_compact_unresolved_report_counts_only() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_unresolved_report",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4007);
+    let data = extract_tool_data(&resp);
+
+    // Must have summary fields
+    assert!(data.get("total").is_some(), "should have 'total'");
+    assert!(
+        data.get("unresolvedEdges").is_some(),
+        "should have 'unresolvedEdges'"
+    );
+    assert!(
+        data.get("unresolvedDiagnostics").is_some(),
+        "should have 'unresolvedDiagnostics'"
+    );
+    assert!(
+        data.get("reasonBreakdown").is_some(),
+        "should have 'reasonBreakdown'"
+    );
+
+    // Must NOT have detail arrays
+    assert!(
+        data.get("topItems").is_none(),
+        "compact should not have 'topItems'"
+    );
+    assert!(
+        data.get("diagnosticItems").is_none(),
+        "compact should not have 'diagnosticItems'"
+    );
+
+    assert_eq!(
+        data["compact"], true,
+        "compact response should have compact=true"
+    );
+}
+
+#[test]
+fn mcp_include_snippet_false_still_retains_file_line() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 4008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "query": "helper",
+                "compact": false,
+                "includeSnippet": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 4008);
+    let data = extract_tool_data(&resp);
+
+    let matches = data["matches"].as_array().expect("matches should be array");
+    assert!(matches.len() > 0);
+    let first = &matches[0];
+
+    // Must have id, name, kind, file, line even without snippet
+    assert!(first["id"].as_str().is_some(), "must have 'id'");
+    assert!(first["name"].as_str().is_some(), "must have 'name'");
+    assert!(first["kind"].as_str().is_some(), "must have 'kind'");
+    assert!(first.get("file").is_some(), "must have 'file'");
+    assert!(first.get("line").is_some(), "must have 'line'");
+}

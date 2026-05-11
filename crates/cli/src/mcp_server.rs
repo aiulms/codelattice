@@ -1087,6 +1087,7 @@ fn handle_unresolved_report(_cache: &mut McpCache, params: &Value) -> Result<Val
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
     let limit = params["limit"].as_u64().unwrap_or(20) as usize;
+    let compact = params["compact"].as_bool().unwrap_or(false);
     check_language_feature(language)?;
 
     // Run analyze with json format to get graph
@@ -1129,7 +1130,7 @@ fn handle_unresolved_report(_cache: &mut McpCache, params: &Value) -> Result<Val
                     // Count by reason
                     *reason_counts.entry(reason.clone()).or_insert(0) += 1;
 
-                    if unresolved_items.len() < limit {
+                    if !compact && unresolved_items.len() < limit {
                         unresolved_items.push(json!({
                             "source": edge["source"],
                             "target": edge["target"],
@@ -1145,38 +1146,73 @@ fn handle_unresolved_report(_cache: &mut McpCache, params: &Value) -> Result<Val
 
     // Also check diagnostics for unresolved-related codes
     let mut diag_unresolved = Vec::new();
-    if let Some(graph) = result.get("graph") {
-        if let Some(diagnostics) = graph["diagnostics"].as_array() {
-            for d in diagnostics {
-                let code = d["properties"]["code"].as_str().unwrap_or("");
-                if code.contains("unresolved") || code.contains("stop-line") {
-                    diag_unresolved.push(json!({
-                        "code": code,
-                        "message": d["properties"]["message"],
-                        "severity": d["properties"]["severity"],
-                        "path": d["properties"]["path"]
-                    }));
+    if !compact {
+        if let Some(graph) = result.get("graph") {
+            if let Some(diagnostics) = graph["diagnostics"].as_array() {
+                for d in diagnostics {
+                    let code = d["properties"]["code"].as_str().unwrap_or("");
+                    if code.contains("unresolved") || code.contains("stop-line") {
+                        diag_unresolved.push(json!({
+                            "code": code,
+                            "message": d["properties"]["message"],
+                            "severity": d["properties"]["severity"],
+                            "path": d["properties"]["path"]
+                        }));
+                    }
                 }
             }
         }
     }
+
+    // Count unresolved diagnostics even in compact mode (for total count accuracy)
+    let diag_count = if compact {
+        let mut count = 0u64;
+        if let Some(graph) = result.get("graph") {
+            if let Some(diagnostics) = graph["diagnostics"].as_array() {
+                for d in diagnostics {
+                    let code = d["properties"]["code"].as_str().unwrap_or("");
+                    if code.contains("unresolved") || code.contains("stop-line") {
+                        count += 1;
+                    }
+                }
+            }
+        }
+        count as usize
+    } else {
+        diag_unresolved.len()
+    };
+
+    // In compact mode, count unresolved edges from reason_counts (not limited by `limit`)
+    let unresolved_edge_count: usize = reason_counts.values().map(|v| *v as usize).sum();
 
     let reason_map: serde_json::Map<String, Value> = reason_counts
         .into_iter()
         .map(|(k, v)| (k, json!(v)))
         .collect();
 
-    Ok(tool_result(&json!({
-        "language": detected_lang,
-        "supported": true,
-        "total": unresolved_items.len() + diag_unresolved.len(),
-        "unresolvedEdges": unresolved_items.len(),
-        "unresolvedDiagnostics": diag_unresolved.len(),
-        "reasonBreakdown": Value::Object(reason_map),
-        "topItems": unresolved_items,
-        "diagnosticItems": diag_unresolved,
-        "stopLineNote": "Items near Rust stop-line (no rust-analyzer, no macro expansion, no full cfg evaluator) will appear as unresolved"
-    })))
+    if compact {
+        Ok(tool_result(&json!({
+            "language": detected_lang,
+            "supported": true,
+            "total": unresolved_edge_count + diag_count,
+            "unresolvedEdges": unresolved_edge_count,
+            "unresolvedDiagnostics": diag_count,
+            "reasonBreakdown": Value::Object(reason_map),
+            "compact": true
+        })))
+    } else {
+        Ok(tool_result(&json!({
+            "language": detected_lang,
+            "supported": true,
+            "total": unresolved_items.len() + diag_unresolved.len(),
+            "unresolvedEdges": unresolved_items.len(),
+            "unresolvedDiagnostics": diag_unresolved.len(),
+            "reasonBreakdown": Value::Object(reason_map),
+            "topItems": unresolved_items,
+            "diagnosticItems": diag_unresolved,
+            "stopLineNote": "Items near Rust stop-line (no rust-analyzer, no macro expansion, no full cfg evaluator) will appear as unresolved"
+        })))
+    }
 }
 
 fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -1192,6 +1228,7 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
     let kind_filter = params["kind"].as_str();
     let limit = params["limit"].as_u64().unwrap_or(20) as usize;
     let limit = limit.min(100); // max 100
+    let compact = params["compact"].as_bool().unwrap_or(false);
     check_language_feature(language)?;
 
     let result = run_analyze_subprocess(&validated, language, "json", false)?;
@@ -1304,14 +1341,24 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
                             .or_else(|| node["properties"]["kind"].as_str())
                             .unwrap_or(label);
 
-                        matches.push(json!({
-                            "id": node["id"],
-                            "name": name,
-                            "kind": kind_val,
-                            "file": file_val,
-                            "line": line_val,
-                            "label": label
-                        }));
+                        if compact {
+                            matches.push(json!({
+                                "id": node["id"],
+                                "name": name,
+                                "kind": kind_val,
+                                "file": file_val,
+                                "line": line_val
+                            }));
+                        } else {
+                            matches.push(json!({
+                                "id": node["id"],
+                                "name": name,
+                                "kind": kind_val,
+                                "file": file_val,
+                                "line": line_val,
+                                "label": label
+                            }));
+                        }
                     }
                 }
             }
@@ -1906,7 +1953,9 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
     let language = params["language"].as_str().unwrap_or("auto");
     let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
-    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    // compact implies no snippets regardless of explicit includeSnippet
+    let include_snippet = !compact && params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
     check_language_feature(language)?;
 
@@ -1935,7 +1984,8 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
                 "id": s["id"],
                 "name": s["properties"]["name"],
                 "kind": s["properties"]["symbolKind"],
-                "file": s["properties"]["sourcePath"]
+                "file": s["properties"]["sourcePath"],
+                "line": s["properties"]["lineStart"]
             });
             if include_snippet {
                 if let Some(map) = obj.as_object_mut() {
@@ -1974,29 +2024,43 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
             let target_id = edge["target"].as_str().unwrap_or("");
             let target_node = gv.nodes_by_id.get(target_id);
 
-            let mut edge_obj = json!({
-                "source": edge["source"],
-                "target": target_id,
-                "type": edge["type"],
-                "depth": current_depth + 1,
-                "confidence": edge["properties"]["confidence"],
-                "reason": edge["properties"]["reason"],
-                "targetName": target_node.and_then(|n| n["properties"]["name"].as_str()),
-                "targetKind": target_node.and_then(|n| n["properties"]["symbolKind"].as_str())
-            });
-            if include_snippet {
-                if let Some(tn) = target_node {
-                    let file = tn["properties"]["sourcePath"].as_str().unwrap_or("");
-                    let start = tn["properties"]["lineStart"].as_u64().unwrap_or(0);
-                    let end = tn["properties"]["lineEnd"].as_u64().unwrap_or(start);
-                    if let Some(map) = edge_obj.as_object_mut() {
-                        map.insert(
-                            "targetSnippet".to_string(),
-                            read_source_snippet(&root_str, file, start, end, snippet_ctx),
-                        );
+            let edge_obj = if compact {
+                json!({
+                    "targetId": target_id,
+                    "targetName": target_node.and_then(|n| n["properties"]["name"].as_str()),
+                    "targetKind": target_node.and_then(|n| n["properties"]["symbolKind"].as_str()),
+                    "targetFile": target_node.and_then(|n| n["properties"]["sourcePath"].as_str()),
+                    "targetLine": target_node.and_then(|n| n["properties"]["lineStart"].as_u64()),
+                    "type": edge["type"],
+                    "confidence": edge["properties"]["confidence"],
+                    "reason": edge["properties"]["reason"]
+                })
+            } else {
+                let mut eo = json!({
+                    "source": edge["source"],
+                    "target": target_id,
+                    "type": edge["type"],
+                    "depth": current_depth + 1,
+                    "confidence": edge["properties"]["confidence"],
+                    "reason": edge["properties"]["reason"],
+                    "targetName": target_node.and_then(|n| n["properties"]["name"].as_str()),
+                    "targetKind": target_node.and_then(|n| n["properties"]["symbolKind"].as_str())
+                });
+                if include_snippet {
+                    if let Some(tn) = target_node {
+                        let file = tn["properties"]["sourcePath"].as_str().unwrap_or("");
+                        let start = tn["properties"]["lineStart"].as_u64().unwrap_or(0);
+                        let end = tn["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                        if let Some(map) = eo.as_object_mut() {
+                            map.insert(
+                                "targetSnippet".to_string(),
+                                read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                            );
+                        }
                     }
                 }
-            }
+                eo
+            };
 
             all_edges.push(edge_obj);
 
@@ -2008,16 +2072,20 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
 
     let truncated = all_edges.len() >= limit;
 
-    Ok(merge_cache_and_result(
-        &json!({
-            "symbol": symbol,
-            "sourceCandidates": source_candidates,
-            "edgeCount": all_edges.len(),
-            "edges": all_edges,
-            "truncated": truncated
-        }),
-        &cache_meta,
-    ))
+    let mut result = json!({
+        "symbol": symbol,
+        "sourceCandidates": source_candidates,
+        "edgeCount": all_edges.len(),
+        "edges": all_edges,
+        "truncated": truncated
+    });
+    if compact {
+        if let Some(map) = result.as_object_mut() {
+            map.insert("compact".to_string(), json!(true));
+        }
+    }
+
+    Ok(merge_cache_and_result(&result, &cache_meta))
 }
 
 fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -2032,7 +2100,8 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let language = params["language"].as_str().unwrap_or("auto");
     let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
-    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let include_snippet = !compact && params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
     check_language_feature(language)?;
 
@@ -2060,7 +2129,8 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 "id": s["id"],
                 "name": s["properties"]["name"],
                 "kind": s["properties"]["symbolKind"],
-                "file": s["properties"]["sourcePath"]
+                "file": s["properties"]["sourcePath"],
+                "line": s["properties"]["lineStart"]
             });
             if include_snippet {
                 if let Some(map) = obj.as_object_mut() {
@@ -2099,29 +2169,43 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             let src_id = edge["source"].as_str().unwrap_or("");
             let src_node = gv.nodes_by_id.get(src_id);
 
-            let mut edge_obj = json!({
-                "source": src_id,
-                "target": edge["target"],
-                "type": edge["type"],
-                "depth": current_depth + 1,
-                "confidence": edge["properties"]["confidence"],
-                "reason": edge["properties"]["reason"],
-                "sourceName": src_node.and_then(|n| n["properties"]["name"].as_str()),
-                "sourceKind": src_node.and_then(|n| n["properties"]["symbolKind"].as_str())
-            });
-            if include_snippet {
-                if let Some(sn) = src_node {
-                    let file = sn["properties"]["sourcePath"].as_str().unwrap_or("");
-                    let start = sn["properties"]["lineStart"].as_u64().unwrap_or(0);
-                    let end = sn["properties"]["lineEnd"].as_u64().unwrap_or(start);
-                    if let Some(map) = edge_obj.as_object_mut() {
-                        map.insert(
-                            "sourceSnippet".to_string(),
-                            read_source_snippet(&root_str, file, start, end, snippet_ctx),
-                        );
+            let edge_obj = if compact {
+                json!({
+                    "sourceId": src_id,
+                    "sourceName": src_node.and_then(|n| n["properties"]["name"].as_str()),
+                    "sourceKind": src_node.and_then(|n| n["properties"]["symbolKind"].as_str()),
+                    "sourceFile": src_node.and_then(|n| n["properties"]["sourcePath"].as_str()),
+                    "sourceLine": src_node.and_then(|n| n["properties"]["lineStart"].as_u64()),
+                    "type": edge["type"],
+                    "confidence": edge["properties"]["confidence"],
+                    "reason": edge["properties"]["reason"]
+                })
+            } else {
+                let mut eo = json!({
+                    "source": src_id,
+                    "target": edge["target"],
+                    "type": edge["type"],
+                    "depth": current_depth + 1,
+                    "confidence": edge["properties"]["confidence"],
+                    "reason": edge["properties"]["reason"],
+                    "sourceName": src_node.and_then(|n| n["properties"]["name"].as_str()),
+                    "sourceKind": src_node.and_then(|n| n["properties"]["symbolKind"].as_str())
+                });
+                if include_snippet {
+                    if let Some(sn) = src_node {
+                        let file = sn["properties"]["sourcePath"].as_str().unwrap_or("");
+                        let start = sn["properties"]["lineStart"].as_u64().unwrap_or(0);
+                        let end = sn["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                        if let Some(map) = eo.as_object_mut() {
+                            map.insert(
+                                "sourceSnippet".to_string(),
+                                read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                            );
+                        }
                     }
                 }
-            }
+                eo
+            };
 
             all_edges.push(edge_obj);
 
@@ -2133,16 +2217,20 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
 
     let truncated = all_edges.len() >= limit;
 
-    Ok(merge_cache_and_result(
-        &json!({
-            "symbol": symbol,
-            "targetCandidates": target_candidates,
-            "edgeCount": all_edges.len(),
-            "edges": all_edges,
-            "truncated": truncated
-        }),
-        &cache_meta,
-    ))
+    let mut result = json!({
+        "symbol": symbol,
+        "targetCandidates": target_candidates,
+        "edgeCount": all_edges.len(),
+        "edges": all_edges,
+        "truncated": truncated
+    });
+    if compact {
+        if let Some(map) = result.as_object_mut() {
+            map.insert("compact".to_string(), json!(true));
+        }
+    }
+
+    Ok(merge_cache_and_result(&result, &cache_meta))
 }
 
 fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -2408,7 +2496,8 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
-    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(false);
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let include_snippet = !compact && params["includeSnippet"].as_bool().unwrap_or(false);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
     check_language_feature(language)?;
 
@@ -2461,29 +2550,40 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
             }
         }
 
-        let mut node_obj = json!({
-            "id": node["id"],
-            "label": node["label"],
-            "name": node["properties"]["name"],
-            "kind": node["properties"]["symbolKind"].as_str().or_else(|| node["label"].as_str()),
-            "file": node["properties"]["sourcePath"].as_str().or_else(|| node["properties"]["manifestPath"].as_str())
-        });
-        if include_snippet {
-            let file = node["properties"]["sourcePath"]
-                .as_str()
-                .or_else(|| node["properties"]["manifestPath"].as_str())
-                .unwrap_or("");
-            let start = node["properties"]["lineStart"].as_u64().unwrap_or(0);
-            let end = node["properties"]["lineEnd"].as_u64().unwrap_or(start);
-            if !file.is_empty() && start > 0 {
-                if let Some(map) = node_obj.as_object_mut() {
-                    map.insert(
-                        "sourceSnippet".to_string(),
-                        read_source_snippet(&root_str, file, start, end, snippet_ctx),
-                    );
+        let node_obj = if compact {
+            json!({
+                "id": node["id"],
+                "name": node["properties"]["name"],
+                "kind": node["properties"]["symbolKind"].as_str().or_else(|| node["label"].as_str()),
+                "file": node["properties"]["sourcePath"].as_str().or_else(|| node["properties"]["manifestPath"].as_str()),
+                "line": node["properties"]["lineStart"]
+            })
+        } else {
+            let mut obj = json!({
+                "id": node["id"],
+                "label": node["label"],
+                "name": node["properties"]["name"],
+                "kind": node["properties"]["symbolKind"].as_str().or_else(|| node["label"].as_str()),
+                "file": node["properties"]["sourcePath"].as_str().or_else(|| node["properties"]["manifestPath"].as_str())
+            });
+            if include_snippet {
+                let file = node["properties"]["sourcePath"]
+                    .as_str()
+                    .or_else(|| node["properties"]["manifestPath"].as_str())
+                    .unwrap_or("");
+                let start = node["properties"]["lineStart"].as_u64().unwrap_or(0);
+                let end = node["properties"]["lineEnd"].as_u64().unwrap_or(start);
+                if !file.is_empty() && start > 0 {
+                    if let Some(map) = obj.as_object_mut() {
+                        map.insert(
+                            "sourceSnippet".to_string(),
+                            read_source_snippet(&root_str, file, start, end, snippet_ctx),
+                        );
+                    }
                 }
             }
-        }
+            obj
+        };
         matched_nodes.push(node_obj);
     }
 
@@ -2503,29 +2603,43 @@ fn handle_query_graph(cache: &mut McpCache, params: &Value) -> Result<Value, Val
                         continue;
                     }
                 }
-                matched_edges.push(json!({
-                    "source": edge["source"],
-                    "target": edge["target"],
-                    "type": edge["type"],
-                    "confidence": edge["properties"]["confidence"],
-                    "reason": edge["properties"]["reason"]
-                }));
+                matched_edges.push(if compact {
+                    json!({
+                        "source": edge["source"],
+                        "target": edge["target"],
+                        "type": edge["type"],
+                        "confidence": edge["properties"]["confidence"],
+                        "reason": edge["properties"]["reason"]
+                    })
+                } else {
+                    json!({
+                        "source": edge["source"],
+                        "target": edge["target"],
+                        "type": edge["type"],
+                        "confidence": edge["properties"]["confidence"],
+                        "reason": edge["properties"]["reason"]
+                    })
+                });
             }
         }
     }
 
     let truncated = matched_nodes.len() >= limit || matched_edges.len() >= limit;
 
-    Ok(merge_cache_and_result(
-        &json!({
-            "matchedNodeCount": matched_nodes.len(),
-            "matchedEdgeCount": matched_edges.len(),
-            "matchedNodes": matched_nodes,
-            "matchedEdges": matched_edges,
-            "truncated": truncated
-        }),
-        &cache_meta,
-    ))
+    let mut result = json!({
+        "matchedNodeCount": matched_nodes.len(),
+        "matchedEdgeCount": matched_edges.len(),
+        "matchedNodes": matched_nodes,
+        "matchedEdges": matched_edges,
+        "truncated": truncated
+    });
+    if compact {
+        if let Some(map) = result.as_object_mut() {
+            map.insert("compact".to_string(), json!(true));
+        }
+    }
+
+    Ok(merge_cache_and_result(&result, &cache_meta))
 }
 
 fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -2535,6 +2649,7 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
 
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
+    let compact = params["compact"].as_bool().unwrap_or(false);
     check_language_feature(language)?;
 
     let (gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
@@ -2639,7 +2754,28 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
         .map(|s| s["qualitySummary"].clone())
         .unwrap_or(json!({}));
 
-    // Diagnostics summary
+    // Diagnostics summary (computed regardless, needed for compact count)
+    let diagnostics_count = gv.diagnostics.len();
+
+    if compact {
+        // Compact mode: counts only, skip expensive breakdown computations
+        return Ok(merge_cache_and_result(
+            &json!({
+                "language": gv.language,
+                "root": gv.root,
+                "nodeCount": node_count,
+                "edgeCount": edge_count,
+                "symbolCount": symbol_count,
+                "packageCount": package_count,
+                "sourceFileCount": file_count,
+                "diagnosticsCount": diagnostics_count,
+                "compact": true
+            }),
+            &cache_meta,
+        ));
+    }
+
+    // Full mode: compute all breakdowns
     let diag_by_severity: HashMap<String, u64> =
         gv.diagnostics.iter().fold(HashMap::new(), |mut acc, d| {
             let sev = d["properties"]["severity"].as_str().unwrap_or("unknown");
@@ -2687,40 +2823,58 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
         .map(|(f, c)| json!({ "file": f, "symbolCount": c }))
         .collect();
 
-    let mut nk_sorted: Vec<(String, u64)> = node_kinds.into_iter().collect();
-    nk_sorted.sort_by(|a, b| b.1.cmp(&a.1));
-    let node_kind_map: serde_json::Map<String, Value> =
-        nk_sorted.into_iter().map(|(k, v)| (k, json!(v))).collect();
-    let mut ek_sorted: Vec<(String, u64)> = edge_kinds.into_iter().collect();
-    ek_sorted.sort_by(|a, b| b.1.cmp(&a.1));
-    let edge_kind_map: serde_json::Map<String, Value> =
-        ek_sorted.into_iter().map(|(k, v)| (k, json!(v))).collect();
-    let sev_map: serde_json::Map<String, Value> = diag_by_severity
-        .into_iter()
-        .map(|(k, v)| (k, json!(v)))
-        .collect();
+    if compact {
+        // Compact mode: counts only, no verbose breakdown
+        Ok(merge_cache_and_result(
+            &json!({
+                "language": gv.language,
+                "root": gv.root,
+                "nodeCount": node_count,
+                "edgeCount": edge_count,
+                "symbolCount": symbol_count,
+                "packageCount": package_count,
+                "sourceFileCount": file_count,
+                "diagnosticsCount": gv.diagnostics.len(),
+                "compact": true
+            }),
+            &cache_meta,
+        ))
+    } else {
+        let mut nk_sorted: Vec<(String, u64)> = node_kinds.into_iter().collect();
+        nk_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        let node_kind_map: serde_json::Map<String, Value> =
+            nk_sorted.into_iter().map(|(k, v)| (k, json!(v))).collect();
+        let mut ek_sorted: Vec<(String, u64)> = edge_kinds.into_iter().collect();
+        ek_sorted.sort_by(|a, b| b.1.cmp(&a.1));
+        let edge_kind_map: serde_json::Map<String, Value> =
+            ek_sorted.into_iter().map(|(k, v)| (k, json!(v))).collect();
+        let sev_map: serde_json::Map<String, Value> = diag_by_severity
+            .into_iter()
+            .map(|(k, v)| (k, json!(v)))
+            .collect();
 
-    Ok(merge_cache_and_result(
-        &json!({
-            "language": gv.language,
-            "root": gv.root,
-            "nodeCount": node_count,
-            "edgeCount": edge_count,
-            "symbolCount": symbol_count,
-            "packageCount": package_count,
-            "sourceFileCount": file_count,
-            "topNodeKinds": Value::Object(node_kind_map),
-            "topEdgeKinds": Value::Object(edge_kind_map),
-            "qualitySummary": quality_summary,
-            "diagnosticsSummary": {
-                "total": gv.diagnostics.len(),
-                "bySeverity": Value::Object(sev_map)
-            },
-            "hotspots": hotspots,
-            "denseFiles": dense_files
-        }),
-        &cache_meta,
-    ))
+        Ok(merge_cache_and_result(
+            &json!({
+                "language": gv.language,
+                "root": gv.root,
+                "nodeCount": node_count,
+                "edgeCount": edge_count,
+                "symbolCount": symbol_count,
+                "packageCount": package_count,
+                "sourceFileCount": file_count,
+                "topNodeKinds": Value::Object(node_kind_map),
+                "topEdgeKinds": Value::Object(edge_kind_map),
+                "qualitySummary": quality_summary,
+                "diagnosticsSummary": {
+                    "total": gv.diagnostics.len(),
+                    "bySeverity": Value::Object(sev_map)
+                },
+                "hotspots": hotspots,
+                "denseFiles": dense_files
+            }),
+            &cache_meta,
+        ))
+    }
 }
 
 fn handle_repo_registry(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -3370,7 +3524,8 @@ fn tools_list() -> Value {
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" }
+                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit item detail arrays, return counts and reason breakdown only" }
                     },
                     "required": ["root"]
                 }
@@ -3385,7 +3540,8 @@ fn tools_list() -> Value {
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to search" },
                         "query": { "type": "string", "description": "Search query (case-insensitive substring match)" },
                         "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, enum, interface, etc)" },
-                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" }
+                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit label, keep id/name/kind/file/line per match" }
                     },
                     "required": ["root", "query"]
                 }
@@ -3430,7 +3586,10 @@ fn tools_list() -> Value {
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Source symbol name" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
-                        "limit": { "type": "integer", "default": 20, "maximum": 100 }
+                        "limit": { "type": "integer", "default": 20, "maximum": 100 },
+                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
+                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
                     },
                     "required": ["root", "symbol"]
                 }
@@ -3445,7 +3604,10 @@ fn tools_list() -> Value {
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Target symbol name" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
-                        "limit": { "type": "integer", "default": 20, "maximum": 100 }
+                        "limit": { "type": "integer", "default": 20, "maximum": 100 },
+                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
+                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
                     },
                     "required": ["root", "symbol"]
                 }
@@ -3478,7 +3640,10 @@ fn tools_list() -> Value {
                         "edgeKind": { "type": "string", "description": "Filter edges by type (CALLS, DEFINES, IMPORTS, etc)" },
                         "nameContains": { "type": "string", "description": "Filter nodes by name (case-insensitive substring)" },
                         "fileContains": { "type": "string", "description": "Filter nodes by file path (case-insensitive substring)" },
-                        "limit": { "type": "integer", "default": 50, "maximum": 200 }
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "includeSnippet": { "type": "boolean", "default": false, "description": "Include source code snippets in results" },
+                        "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets, keep id/name/kind/file/line per node and confidence/reason per edge" }
                     },
                     "required": ["root"]
                 }
@@ -3490,7 +3655,8 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit hotspots, dense files, top kinds; return counts only" }
                     },
                     "required": ["root"]
                 }
