@@ -452,10 +452,13 @@ impl McpCache {
         let start = Instant::now();
         let result = run_analyze_subprocess(root, language, "json", strict)?;
         let duration_ms = start.elapsed().as_millis() as u64;
-        let graph_view = GraphView::build(&result);
+        let mut graph_view = GraphView::build(&result);
 
         // Scan file mtimes for future freshness checks
         let file_mtimes = scan_file_mtimes(&canonical);
+
+        // Build doc scanner for code ↔ docs association and attach to GraphView
+        graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
         let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
         self.entries.insert(
@@ -1462,6 +1465,8 @@ struct GraphView {
     /// Raw analyze result metadata
     language: String,
     root: String,
+    /// Static doc scanner for code ↔ docs association
+    doc_scanner: Option<std::sync::Arc<DocScanner>>,
 }
 
 impl GraphView {
@@ -1571,6 +1576,7 @@ impl GraphView {
                 .unwrap_or("unknown")
                 .to_string(),
             root: analyze_result["root"].as_str().unwrap_or("").to_string(),
+            doc_scanner: None, // set later via set_doc_scanner
         }
     }
 
@@ -1585,6 +1591,7 @@ impl GraphView {
             diagnostics: self.diagnostics.clone(),
             language: self.language.clone(),
             root: self.root.clone(),
+            doc_scanner: self.doc_scanner.clone(),
         }
     }
 
@@ -1694,6 +1701,11 @@ impl GraphView {
             .filter(|n| n["label"].as_str() == Some("symbol"))
             .count();
         (node_count, edge_count, symbol_count)
+    }
+
+    /// Get a reference to the doc scanner (if available).
+    fn doc_scanner(&self) -> Option<&DocScanner> {
+        self.doc_scanner.as_deref()
     }
 
     /// Get diagnostics for a specific symbol/file
@@ -1930,6 +1942,34 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
         match_summaries.first().cloned().unwrap_or(Value::Null)
     };
 
+    // Find related docs
+    let related_docs = if let Some(ds) = gv.doc_scanner() {
+        let file = if !ambiguous {
+            matches[0]["properties"]["sourcePath"]
+                .as_str()
+                .unwrap_or("")
+        } else {
+            ""
+        };
+        let tool_name = if name.starts_with("codelattice_") {
+            vec![name]
+        } else {
+            vec![]
+        };
+        ds.find_related_docs(
+            name,
+            file,
+            &tool_name,
+            if params["compact"].as_bool().unwrap_or(false) {
+                5
+            } else {
+                20
+            },
+        )
+    } else {
+        vec![]
+    };
+
     Ok(merge_cache_and_result(
         &json!({
             "query": name,
@@ -1937,6 +1977,7 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "ambiguous": ambiguous,
             "selected": selected,
             "candidates": match_summaries,
+            "relatedDocs": related_docs,
             "note": if ambiguous { "Multiple symbols match. Use kind/file parameters to disambiguate." } else { "" }
         }),
         &cache_meta,
@@ -2233,6 +2274,599 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     }
 
     Ok(merge_cache_and_result(&result, &cache_meta))
+}
+
+// ============================================================
+// Static Doc Scanner — Code ↔ Docs Association
+// ============================================================
+
+/// Directories to skip when scanning for markdown docs.
+const DOC_SCAN_SKIP_DIRS: &[&str] = &[
+    "target",
+    ".git",
+    ".gitnexus",
+    ".claude",
+    ".agents",
+    ".arts",
+    ".codeartsdoer",
+    "CodeLattice-Tool",
+    "node_modules",
+];
+
+/// A section within a markdown document (heading + content).
+#[derive(Debug, Clone)]
+struct DocSection {
+    heading: String,
+    heading_level: u8,
+    start_line: usize,
+    end_line: usize,
+}
+
+/// A reference extracted from a markdown document.
+#[derive(Debug, Clone)]
+struct DocRef {
+    path: String,         // repo-relative doc path
+    line: usize,          // line number in doc
+    match_type: String,   // "symbol" | "file" | "command" | "link" | "section"
+    matched_text: String, // what was matched
+    confidence: String,   // "high" | "medium" | "low"
+    reason: String,       // why it matched
+    section: String,      // enclosing section heading (empty if none)
+}
+
+/// A scanned markdown document.
+#[derive(Debug, Clone)]
+struct ScannedDoc {
+    path: String,
+    title: String,
+    line_count: usize,
+    sections: Vec<DocSection>,
+    references: Vec<DocRef>,
+    link_count: usize,
+    code_fence_count: usize,
+    symbol_ref_count: usize,
+    path_ref_count: usize,
+}
+
+/// Static doc scanner: scans markdown files and builds searchable associations.
+struct DocScanner {
+    docs: Vec<ScannedDoc>,
+    total_doc_count: usize,
+    total_section_count: usize,
+    total_link_count: usize,
+    total_code_fence_count: usize,
+    total_symbol_ref_count: usize,
+    total_path_ref_count: usize,
+    total_command_count: usize,
+}
+
+impl DocScanner {
+    /// Build a DocScanner by scanning the repo for markdown files.
+    fn build(root: &std::path::Path) -> Self {
+        let mut docs = Vec::new();
+
+        // Walk the repo, collect .md files
+        if let Ok(entries) = walk_dir_for_md(root, root) {
+            for entry in entries {
+                if let Ok(content) = std::fs::read_to_string(&entry) {
+                    let line_count = content.lines().count();
+                    let relative = pathdiff_or_relative(&entry, root);
+                    let title = extract_doc_title(&content);
+                    let (
+                        sections,
+                        refs,
+                        link_count,
+                        code_fence_count,
+                        symbol_ref_count,
+                        path_ref_count,
+                        command_count,
+                    ) = parse_doc_content(&relative, &content);
+
+                    docs.push(ScannedDoc {
+                        path: relative,
+                        title,
+                        line_count,
+                        sections,
+                        references: refs,
+                        link_count,
+                        code_fence_count,
+                        symbol_ref_count,
+                        path_ref_count,
+                    });
+                }
+            }
+        }
+
+        let total_doc_count = docs.len();
+        let total_section_count = docs.iter().map(|d| d.sections.len()).sum();
+        let total_link_count = docs.iter().map(|d| d.link_count).sum();
+        let total_code_fence_count = docs.iter().map(|d| d.code_fence_count).sum();
+        let total_symbol_ref_count = docs.iter().map(|d| d.symbol_ref_count).sum();
+        let total_path_ref_count = docs.iter().map(|d| d.path_ref_count).sum();
+        let total_command_count = docs
+            .iter()
+            .map(|d| {
+                d.references
+                    .iter()
+                    .filter(|r| r.match_type == "command")
+                    .count()
+            })
+            .sum();
+
+        DocScanner {
+            docs,
+            total_doc_count,
+            total_section_count,
+            total_link_count,
+            total_code_fence_count,
+            total_symbol_ref_count,
+            total_path_ref_count,
+            total_command_count,
+        }
+    }
+
+    /// Summary counts for project_overview.
+    fn summary_json(&self) -> Value {
+        json!({
+            "docCount": self.total_doc_count,
+            "docSectionCount": self.total_section_count,
+            "docLinkCount": self.total_link_count,
+            "docCodeFenceCount": self.total_code_fence_count,
+            "docCommandCount": self.total_command_count,
+            "docPathReferenceCount": self.total_path_ref_count,
+            "docSymbolReferenceCount": self.total_symbol_ref_count,
+        })
+    }
+
+    /// Find docs related to a symbol name, file path, or MCP tool name.
+    fn find_related_docs(
+        &self,
+        symbol_name: &str,
+        file_path: &str,
+        tool_names: &[&str],
+        limit: usize,
+    ) -> Vec<Value> {
+        let mut results: Vec<Value> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for doc in &self.docs {
+            for r in &doc.references {
+                let matches = match r.match_type.as_str() {
+                    "symbol" => {
+                        // Exact match on symbol name (case-sensitive for accuracy)
+                        let sym_lower = symbol_name.to_lowercase();
+                        let matched_lower = r.matched_text.to_lowercase();
+                        matched_lower == sym_lower
+                            || matched_lower == format!("`{}`", sym_lower)
+                            || matched_lower == format!("codelattice_{}", sym_lower)
+                    }
+                    "file" => {
+                        // Exact or suffix match on file path
+                        file_path.ends_with(&r.matched_text)
+                            || r.matched_text.ends_with(file_path)
+                            || r.matched_text == file_path
+                    }
+                    "command" => {
+                        // Check if any tool name matches
+                        tool_names
+                            .iter()
+                            .any(|t| r.matched_text == **t || r.matched_text.contains(t))
+                    }
+                    "link" => {
+                        // Link target matches file or symbol
+                        r.matched_text.ends_with(file_path) || file_path.ends_with(&r.matched_text)
+                    }
+                    "section" => {
+                        // Section heading contains symbol or tool name
+                        let heading_lower = r.matched_text.to_lowercase();
+                        let sym_lower = symbol_name.to_lowercase();
+                        heading_lower.contains(&sym_lower)
+                            || tool_names
+                                .iter()
+                                .any(|t| heading_lower.contains(&t.to_lowercase()))
+                    }
+                    _ => false,
+                };
+
+                if matches {
+                    let key = format!("{}:{}:{}", doc.path, r.line, r.matched_text);
+                    if !seen.contains(&key) {
+                        seen.insert(key);
+                        results.push(json!({
+                            "path": doc.path,
+                            "section": r.section,
+                            "line": r.line,
+                            "matchType": r.match_type,
+                            "matchedText": r.matched_text,
+                            "confidence": r.confidence,
+                            "reason": r.reason,
+                        }));
+                        if results.len() >= limit {
+                            return results;
+                        }
+                    }
+                }
+            }
+        }
+        results
+    }
+
+    /// Find docs likely needing update based on changed symbols/files.
+    fn find_docs_needing_update(
+        &self,
+        symbol_names: &[String],
+        file_paths: &[String],
+        limit: usize,
+    ) -> Vec<Value> {
+        let mut results: Vec<Value> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for doc in &self.docs {
+            let mut matched_symbols: Vec<String> = Vec::new();
+            let mut matched_files: Vec<String> = Vec::new();
+            let mut best_reason = String::new();
+
+            for r in &doc.references {
+                let lower_text = r.matched_text.to_lowercase();
+
+                // Check symbol matches
+                for sym in symbol_names {
+                    let sym_lower = sym.to_lowercase();
+                    if lower_text == sym_lower
+                        || lower_text == format!("`{}`", sym_lower)
+                        || lower_text == format!("codelattice_{}", sym_lower)
+                        || lower_text.contains(&sym_lower)
+                    {
+                        if !matched_symbols.contains(sym) {
+                            matched_symbols.push(sym.clone());
+                            if best_reason.is_empty() {
+                                best_reason = "mentions changed symbol".to_string();
+                            }
+                        }
+                    }
+                }
+
+                // Check file path matches
+                for fp in file_paths {
+                    if r.matched_text.ends_with(fp)
+                        || fp.ends_with(&r.matched_text)
+                        || r.matched_text == *fp
+                    {
+                        if !matched_files.contains(fp) {
+                            matched_files.push(fp.clone());
+                            if best_reason.is_empty() {
+                                best_reason = "references changed file".to_string();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!matched_symbols.is_empty() || !matched_files.is_empty())
+                && !seen.contains(&doc.path)
+            {
+                seen.insert(doc.path.clone());
+                results.push(json!({
+                    "path": doc.path,
+                    "reason": if !matched_symbols.is_empty() { "mentions changed symbol" } else { "references changed file" },
+                    "matchedSymbols": matched_symbols,
+                    "matchedFiles": matched_files,
+                }));
+                if results.len() >= limit {
+                    return results;
+                }
+            }
+        }
+        results
+    }
+}
+
+/// Recursively walk directory for .md files, skipping excluded dirs.
+fn walk_dir_for_md(
+    root: &std::path::Path,
+    base: &std::path::Path,
+) -> Result<Vec<std::path::PathBuf>, std::io::Error> {
+    let mut result = Vec::new();
+    walk_dir_recursive(root, base, &mut result);
+    Ok(result)
+}
+
+fn walk_dir_recursive(
+    dir: &std::path::Path,
+    base: &std::path::Path,
+    result: &mut Vec<std::path::PathBuf>,
+) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                // Check if directory should be skipped
+                let dir_name = path.file_name().unwrap_or_default().to_string_lossy();
+                if !DOC_SCAN_SKIP_DIRS.contains(&dir_name.as_ref()) {
+                    walk_dir_recursive(&path, base, result);
+                }
+            } else if path.extension().map(|e| e == "md").unwrap_or(false) {
+                result.push(path);
+            }
+        }
+    }
+}
+
+/// Get relative path or best-effort path string.
+fn pathdiff_or_relative(full: &std::path::Path, base: &std::path::Path) -> String {
+    if let Ok(rel) = full.strip_prefix(base) {
+        rel.to_string_lossy().to_string()
+    } else {
+        full.to_string_lossy().to_string()
+    }
+}
+
+/// Extract the first H1 heading as document title.
+fn extract_doc_title(content: &str) -> String {
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("# ") {
+            return rest.to_string();
+        }
+    }
+    String::new()
+}
+
+/// Parse markdown content into sections and references.
+fn parse_doc_content(
+    doc_path: &str,
+    content: &str,
+) -> (
+    Vec<DocSection>,
+    Vec<DocRef>,
+    usize,
+    usize,
+    usize,
+    usize,
+    usize,
+) {
+    let mut sections: Vec<DocSection> = Vec::new();
+    let mut references: Vec<DocRef> = Vec::new();
+    let mut link_count = 0usize;
+    let mut code_fence_count = 0usize;
+    let mut symbol_ref_count = 0usize;
+    let mut path_ref_count = 0usize;
+    let mut command_count = 0usize;
+
+    let lines: Vec<&str> = content.lines().collect();
+    let mut in_code_fence = false;
+    let mut current_section_start: Option<usize> = None;
+    let mut current_section_heading = String::new();
+    let mut current_section_level: u8 = 0;
+
+    for (idx, &line) in lines.iter().enumerate() {
+        let line_num = idx + 1; // 1-based
+
+        // Track code fences
+        if line.trim().starts_with("```") {
+            in_code_fence = !in_code_fence;
+            code_fence_count += 1;
+            continue;
+        }
+        if in_code_fence {
+            // Inside code fences: check for commands
+            let trimmed = line.trim();
+            if trimmed.starts_with("cargo ")
+                || trimmed.starts_with("bash ")
+                || trimmed.starts_with("node ")
+                || trimmed.starts_with("git ")
+                || trimmed.starts_with("codelattice ")
+                || trimmed.starts_with("npm ")
+            {
+                references.push(DocRef {
+                    path: doc_path.to_string(),
+                    line: line_num,
+                    match_type: "command".to_string(),
+                    matched_text: trimmed
+                        .split_whitespace()
+                        .take(3)
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    confidence: "high".to_string(),
+                    reason: "code-block-command".to_string(),
+                    section: current_section_heading.clone(),
+                });
+                command_count += 1;
+            }
+            continue;
+        }
+
+        // Track sections (headings)
+        let trimmed = line.trim();
+        if trimmed.starts_with('#') {
+            // Close previous section
+            if let Some(start) = current_section_start.take() {
+                sections.push(DocSection {
+                    heading: current_section_heading.clone(),
+                    heading_level: current_section_level,
+                    start_line: start,
+                    end_line: line_num - 1,
+                });
+            }
+            let level = trimmed.bytes().take_while(|&b| b == b'#').count() as u8;
+            let heading_text = trimmed.trim_start_matches('#').trim().to_string();
+            current_section_start = Some(line_num);
+            current_section_heading = heading_text.clone();
+            current_section_level = level;
+
+            // Section headings as potential matches
+            references.push(DocRef {
+                path: doc_path.to_string(),
+                line: line_num,
+                match_type: "section".to_string(),
+                matched_text: heading_text.clone(),
+                confidence: "medium".to_string(),
+                reason: "section-heading".to_string(),
+                section: String::new(), // section itself
+            });
+            continue;
+        }
+
+        // Parse inline references (outside code fences)
+        parse_inline_refs(
+            doc_path,
+            line_num,
+            trimmed,
+            &mut references,
+            &mut link_count,
+            &mut symbol_ref_count,
+            &mut path_ref_count,
+            &current_section_heading,
+        );
+    }
+
+    // Close last section
+    if let Some(start) = current_section_start.take() {
+        sections.push(DocSection {
+            heading: current_section_heading.clone(),
+            heading_level: current_section_level,
+            start_line: start,
+            end_line: lines.len(),
+        });
+    }
+
+    (
+        sections,
+        references,
+        link_count,
+        code_fence_count,
+        symbol_ref_count,
+        path_ref_count,
+        command_count,
+    )
+}
+
+/// Parse inline markdown references from a single line.
+fn parse_inline_refs(
+    doc_path: &str,
+    line_num: usize,
+    line: &str,
+    refs: &mut Vec<DocRef>,
+    link_count: &mut usize,
+    symbol_ref_count: &mut usize,
+    path_ref_count: &mut usize,
+    current_section: &str,
+) {
+    // 1. Inline code (backtick) references — highest confidence
+    // Match `...` patterns
+    let mut chars = line.chars().peekable();
+    let mut pos = 0;
+    while let Some(c) = chars.next() {
+        pos += 1;
+        if c == '`' {
+            // Collect until closing backtick
+            let mut token = String::new();
+            let start_pos = pos;
+            while let Some(&nc) = chars.peek() {
+                if nc == '`' {
+                    chars.next();
+                    pos += 1;
+                    break;
+                }
+                token.push(chars.next().unwrap());
+                pos += 1;
+            }
+            let token = token.trim();
+            if token.is_empty() || token.len() < 2 {
+                continue;
+            }
+
+            // Classify the token
+            if token.starts_with("codelattice_") {
+                // MCP tool name
+                refs.push(DocRef {
+                    path: doc_path.to_string(),
+                    line: line_num,
+                    match_type: "symbol".to_string(),
+                    matched_text: token.to_string(),
+                    confidence: "high".to_string(),
+                    reason: "inline-code-mcp-tool".to_string(),
+                    section: current_section.to_string(),
+                });
+                *symbol_ref_count += 1;
+            } else if token.contains('/')
+                && (token.contains(".rs")
+                    || token.contains(".cj")
+                    || token.contains(".ets")
+                    || token.contains(".ts")
+                    || token.contains(".md")
+                    || token.contains(".toml")
+                    || token.contains(".json"))
+            {
+                // File path reference
+                refs.push(DocRef {
+                    path: doc_path.to_string(),
+                    line: line_num,
+                    match_type: "file".to_string(),
+                    matched_text: token.to_string(),
+                    confidence: "high".to_string(),
+                    reason: "inline-code-file-path".to_string(),
+                    section: current_section.to_string(),
+                });
+                *path_ref_count += 1;
+            } else if token.contains("::")
+                || token.contains('_')
+                || token
+                    .chars()
+                    .next()
+                    .map(|c| c.is_lowercase())
+                    .unwrap_or(false)
+            {
+                // Function/method/symbol-like name
+                refs.push(DocRef {
+                    path: doc_path.to_string(),
+                    line: line_num,
+                    match_type: "symbol".to_string(),
+                    matched_text: token.to_string(),
+                    confidence: "high".to_string(),
+                    reason: "inline-code-symbol-match".to_string(),
+                    section: current_section.to_string(),
+                });
+                *symbol_ref_count += 1;
+            }
+        }
+    }
+
+    // 2. Markdown links: [label](target)
+    // Simple regex-like scan
+    let bytes = line.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            // Find closing ]
+            let label_start = i + 1;
+            if let Some(bracket_end) = bytes[i..].iter().position(|&b| b == b']') {
+                if i + bracket_end + 1 < bytes.len() && bytes[i + bracket_end + 1] == b'(' {
+                    let label = &line[label_start..i + bracket_end];
+                    // Find closing )
+                    let paren_start = i + bracket_end + 2;
+                    if let Some(paren_end) = bytes[paren_start..].iter().position(|&b| b == b')') {
+                        let target = &line[paren_start..paren_start + paren_end];
+                        *link_count += 1;
+                        if target.contains('/') || target.ends_with(".md") {
+                            refs.push(DocRef {
+                                path: doc_path.to_string(),
+                                line: line_num,
+                                match_type: "link".to_string(),
+                                matched_text: target.to_string(),
+                                confidence: "high".to_string(),
+                                reason: "markdown-link".to_string(),
+                                section: current_section.to_string(),
+                            });
+                        }
+                        i = paren_start + paren_end + 1;
+                        continue;
+                    }
+                }
+            }
+        }
+        i += 1;
+    }
 }
 
 /// Compute impact metrics from the set of impacted nodes and edges.
@@ -2835,6 +3469,37 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         })
         .collect();
 
+    // Find related docs and docs likely needing update
+    let (related_docs, docs_likely_need_update) = if let Some(ds) = gv.doc_scanner() {
+        let tool_name: Vec<&str> = if symbol.starts_with("codelattice_") {
+            vec![&symbol]
+        } else {
+            vec![]
+        };
+        let target_file = impacted_nodes
+            .get(target_id)
+            .and_then(|n| n["properties"]["sourcePath"].as_str())
+            .unwrap_or("");
+        let rd = ds.find_related_docs(&symbol, target_file, &tool_name, 20);
+        let impacted_files: Vec<String> = impacted_nodes
+            .values()
+            .filter_map(|n| n["properties"]["sourcePath"].as_str().map(String::from))
+            .collect();
+        let impacted_sym_names: Vec<String> = impacted_nodes
+            .values()
+            .filter(|n| n["label"].as_str() == Some("symbol"))
+            .filter_map(|n| n["properties"]["name"].as_str().map(String::from))
+            .collect();
+        let dnu = ds.find_docs_needing_update(
+            &impacted_sym_names,
+            &impacted_files,
+            if compact { 10 } else { 20 },
+        );
+        (rd, dnu)
+    } else {
+        (vec![], vec![])
+    };
+
     Ok(merge_cache_and_result(
         &json!({
             "symbol": symbol,
@@ -2851,6 +3516,8 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "impactMetrics": impact_metrics,
             "confidenceSummary": confidence_summary,
             "reviewFocus": review_focus,
+            "relatedDocs": related_docs,
+            "docsLikelyNeedUpdate": docs_likely_need_update,
             "previewOnly": true,
             "noWrites": true
         }),
@@ -3240,7 +3907,8 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
                     "bySeverity": Value::Object(sev_map)
                 },
                 "hotspots": hotspots,
-                "denseFiles": dense_files
+                "denseFiles": dense_files,
+                "docs": if let Some(ds) = gv.doc_scanner() { ds.summary_json() } else { json!({}) }
             }),
             &cache_meta,
         ))
@@ -4212,6 +4880,34 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
         review_checklist.push("no immediate action required — project looks healthy".to_string());
     }
 
+    // Docs likely needing update
+    let (docs_likely_need_update, doc_association_summary) = if let Some(ds) = gv.doc_scanner() {
+        let sym_names: Vec<String> = changed_symbols_info
+            .iter()
+            .filter_map(|s| s["name"].as_str().map(String::from))
+            .collect();
+        let file_paths: Vec<String> = changed_symbols_info
+            .iter()
+            .filter_map(|s| s["file"].as_str().map(String::from))
+            .collect();
+        let dnu = ds.find_docs_needing_update(&sym_names, &file_paths, 10);
+        let summary = json!({
+            "docCountReferencingChangedSymbols": dnu.len(),
+            "changedSymbolDocHits": sym_names.len(),
+        });
+        (dnu, summary)
+    } else {
+        (vec![], json!({}))
+    };
+
+    // Add doc-related checklist items
+    if !docs_likely_need_update.is_empty() {
+        review_checklist.push(format!(
+            "Review {} doc(s) that mention changed symbols/files",
+            docs_likely_need_update.len()
+        ));
+    }
+
     Ok(merge_cache_and_result(
         &json!({
             "root": root,
@@ -4237,6 +4933,8 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
             "changedSymbolImpacts": changed_symbol_impacts,
             "highestRiskSymbols": highest_risk_symbols,
             "reviewChecklist": review_checklist,
+            "docsLikelyNeedUpdate": docs_likely_need_update,
+            "docAssociationSummary": doc_association_summary,
             "dryRun": true,
             "noWrites": true,
         }),
@@ -4906,9 +5604,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "codelattice",
-                        "version": "0.7.0",
+                        "version": "0.11.0",
                         "cangjieSupport": cangjie_support,
-                        "toolCount": 21
+                        "toolCount": 22
                     }
                 }),
             ))

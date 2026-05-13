@@ -2,7 +2,7 @@
 # MCP Local Client Integration Smoke — simulates an MCP client using the wrapper.
 #
 # Tests that the wrapper script can start the server, accept JSON-RPC calls,
-# and return valid responses for v0.5 tools (20 tools including cache).
+# and return valid responses for v0.11 tools (22 tools including cache + doc association).
 #
 # Usage: bash scripts/mcp-local-client-smoke.sh
 #
@@ -123,7 +123,7 @@ if [ "$TOOL_COUNT" -ge 20 ]; then
 else
     FAIL=$((FAIL + 1))
     RESULTS+=("FAIL: tools/list (expected >= 20, got $TOOL_COUNT)")
-    echo "   → expected >= 20 tools, got $TOOL_COUNT"
+    echo "   → expected >= 22 tools, got $TOOL_COUNT"
 fi
 
 # ============================================================

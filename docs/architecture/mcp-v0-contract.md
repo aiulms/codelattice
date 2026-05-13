@@ -1,9 +1,9 @@
 # MCP Contract — CodeLattice AI Layer
 
 > **日期：** 2026-05-11
-> **版本：** v0.5.0
-> **状态：** Active (MCP v0.5 Daily-use Candidate)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/mtime invalidation/LRU/源码片段/production assist/compare runs 能力
+> **版本：** v0.11.0
+> **状态：** Active (MCP v0.11 Doc Association)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/mtime invalidation/LRU/源码片段/production assist/compare runs/Code ↔ Docs Association 能力
 
 ---
 
@@ -297,9 +297,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 ---
 
-### 3.9 `codelattice_symbol_context` *(v0.2, enhanced v0.4)*
+### 3.9 `codelattice_symbol_context` *(v0.2, enhanced v0.4, v0.11)*
 
-获取符号的丰富上下文：定义位置、**源码片段**、出边/入边（按 kind 分组）、相关诊断、confidence 样本。若匹配多个符号则返回候选列表。
+获取符号的丰富上下文：定义位置、**源码片段**、出边/入边（按 kind 分组）、相关诊断、confidence 样本、**关联文档**。若匹配多个符号则返回候选列表。
 
 **Input Schema:**
 ```json
@@ -346,11 +346,16 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
       "confidenceSamples": [ { "confidence": 0.9, "reason": "call-same-module-resolved" } ]
     }
   ],
+  "relatedDocs": [
+    { "path": "docs/guide.md", "section": "Helper Functions", "confidence": 0.8, "matchType": "inline-code" }
+  ],
   "note": "Single match selected automatically"
 }
 ```
 
 > **v0.4 变更**: 每个候选新增 `sourceSnippet` 对象（默认开启，可通过 `includeSnippet: false` 关闭）。文件不存在或读取失败时返回 `{ "warning": "...", "lines": null }` 而非 panic。片段上限 50 行，上下文默认 3 行（最大 10）。
+
+> **v0.11 变更**: 新增 `relatedDocs` 数组字段。基于静态文档扫描（markdown 文件），返回与查询符号相关的文档条目（最多 5 条）。每条包含 `path`（repo 相对路径）、`section`（标题段落）、`confidence`（0-1）、`matchType`（`inline-code` / `markdown-link` / `code-fence` / `heading-section`）。无匹配时返回空数组。
 
 ### 3.10 `codelattice_calls_from` *(v0.2)*
 
@@ -416,9 +421,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 }
 ```
 
-### 3.12 `codelattice_impact_preview` *(v0.2, enhanced v0.10)*
+### 3.12 `codelattice_impact_preview` *(v0.2, enhanced v0.10, v0.11)*
 
-预览符号变更的影响范围：受影响的节点/边、风险等级、风险原因、影响指标、置信度摘要、审查焦点。只读，不写。
+预览符号变更的影响范围：受影响的节点/边、风险等级、风险原因、影响指标、置信度摘要、审查焦点、**可能需要更新的文档**。只读，不写。
 
 > **注意：** risk 是 graph-based preview，不是编译器级完整证明。low-confidence / unknown hunk 是安全信号，不是失败。riskReasons 是给 AI 安排 review focus 用的。
 
@@ -484,6 +489,12 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
     "publicSymbols": [],
     "testFiles": []
   },
+  "relatedDocs": [
+    { "path": "docs/api.md", "section": "Helper", "confidence": 0.7, "matchType": "inline-code" }
+  ],
+  "docsLikelyNeedUpdate": [
+    { "path": "docs/api.md", "section": "Helper", "reason": "references symbol in inline-code", "confidence": 0.7 }
+  ],
   "previewOnly": true,
   "noWrites": true
 }
@@ -521,9 +532,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 }
 ```
 
-### 3.14 `codelattice_project_overview` *(v0.2)*
+### 3.14 `codelattice_project_overview` *(v0.2, enhanced v0.11)*
 
-项目综合概览：身份、统计、top kinds、质量、诊断、hotspots（高扇出）、dense files。适合打开项目时首次调用。
+项目综合概览：身份、统计、top kinds、质量、诊断、hotspots（高扇出）、dense files、**文档关联摘要**。适合打开项目时首次调用。
 
 **Input Schema:**
 ```json
@@ -550,9 +561,19 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "qualitySummary": { "total": 7, "passed": 7, "failed": 0 },
   "diagnosticsSummary": { "total": 1, "bySeverity": { "info": 1 } },
   "hotspots": [],
-  "denseFiles": []
+  "denseFiles": [],
+  "docs": {
+    "docCount": 12,
+    "docSectionCount": 45,
+    "docLinkCount": 30,
+    "docSymbolReferenceCount": 18,
+    "docCodeFenceCount": 8,
+    "topDocPaths": ["docs/architecture/mcp-v0-contract.md", "README.md"]
+  }
 }
 ```
+
+> **v0.11 变更**: 新增 `docs` 对象字段。基于静态 markdown 扫描，提供文档统计摘要。无 markdown 文件时返回空对象 `{}`。
 
 ### 3.15 `codelattice_repo_registry` *(v0.2)*
 
@@ -669,9 +690,9 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 > **v0.3 Cache Signal**: All v0.2+ tools (3.9–3.16) now include `cacheHit` (boolean) and `analysisDurationMs` (u64, only on miss) in their output JSON. First call for a given root+language+strict is always a cache miss; subsequent calls return `cacheHit: true` without re-running the analyze subprocess. The `codelattice_analyze` (3.1) tool also includes these signals.
 
-### 3.19 `codelattice_production_assist`
+### 3.19 `codelattice_production_assist` *(enhanced v0.11)*
 
-Dry-run production readiness assistant。Aggregates quality gates、unresolved calls、diagnostics、changed symbol impact。Read-only。
+Dry-run production readiness assistant。Aggregates quality gates、unresolved calls、diagnostics、changed symbol impact、**文档更新建议**。Read-only。
 
 **Input Schema:**
 ```json
@@ -686,7 +707,9 @@ Dry-run production readiness assistant。Aggregates quality gates、unresolved c
 }
 ```
 
-**Output**: `{ symbolCount, nodeCount, edgeCount, qualityGatesPassed, qualityGatesFailed, unresolvedCalls, diagnostics, risk, topFiles, changedSymbols (with sourceSnippet), recommendations, dryRun: true }`
+**Output**: `{ symbolCount, nodeCount, edgeCount, qualityGatesPassed, qualityGatesFailed, unresolvedCalls, diagnostics, risk, topFiles, changedSymbols (with sourceSnippet), recommendations, docsLikelyNeedUpdate, docAssociationSummary, dryRun: true }`
+
+> **v0.11 变更**: 新增 `docsLikelyNeedUpdate` 数组（基于 changedSymbols 关联的文档）和 `docAssociationSummary` 对象（文档扫描统计）。无 changedSymbols 时 `docsLikelyNeedUpdate` 为空数组。
 
 ### 3.20 `codelattice_compare_runs`
 

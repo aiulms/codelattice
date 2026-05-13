@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.5 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 21 tools + source snippet + cache behavior.
+# Exercises all 22 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -15,7 +15,7 @@ echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/codelattice"
 
-echo "--- MCP v0.7 Dogfood ---"
+echo "--- MCP v0.11 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
 echo ""
@@ -297,7 +297,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.7 dogfood successful."
+    echo "All checks passed — MCP v0.11 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."

@@ -4463,3 +4463,300 @@ fn main() {
         "must have reviewChecklist"
     );
 }
+
+// ============================================================
+// Stage 7: Static Doc Graph Tests
+// ============================================================
+
+#[test]
+fn mcp_symbol_context_returns_related_docs() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Use the real codelattice repo — it has docs that mention symbols
+    let root = workspace_root();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "name": "handle_impact_preview"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11001);
+    let data = extract_tool_data(&resp);
+    // Even if no symbol match, relatedDocs should be present (possibly empty)
+    assert!(
+        data["relatedDocs"].is_array(),
+        "symbol_context must return relatedDocs: {:?}",
+        data
+    );
+    // If the symbol was found, relatedDocs should have entries from mcp-v0-contract.md
+    if data["matchCount"].as_u64().unwrap_or(0) > 0 {
+        let docs = data["relatedDocs"].as_array().unwrap();
+        // Each doc should have path, line, matchType, confidence, reason
+        for doc in docs {
+            assert!(doc["path"].is_string(), "doc must have path");
+            assert!(doc["line"].is_number(), "doc must have line");
+            assert!(doc["matchType"].is_string(), "doc must have matchType");
+            assert!(doc["confidence"].is_string(), "doc must have confidence");
+        }
+    }
+}
+
+#[test]
+fn mcp_impact_preview_returns_docs_likely_need_update() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = workspace_root();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11002,
+        "method": "tools/call",
+        "params": {
+             "name": "codelattice_impact_preview",
+             "arguments": {
+                 "root": root.to_string_lossy(),
+                 "language": "rust",
+                 "symbol": "handle_impact_preview",
+                 "depth": 1
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11002);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["relatedDocs"].is_array(),
+        "impact_preview must return relatedDocs: {:?}",
+        data
+    );
+    assert!(
+        data["docsLikelyNeedUpdate"].is_array(),
+        "impact_preview must return docsLikelyNeedUpdate: {:?}",
+        data
+    );
+}
+
+#[test]
+fn mcp_production_assist_returns_docs_fields() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = workspace_root();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11003);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["docsLikelyNeedUpdate"].is_array(),
+        "production_assist must return docsLikelyNeedUpdate: {:?}",
+        data
+    );
+    assert!(
+        data["docAssociationSummary"].is_object(),
+        "production_assist must return docAssociationSummary: {:?}",
+        data
+    );
+}
+
+#[test]
+fn mcp_project_overview_returns_docs_summary() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = workspace_root();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11004);
+    let data = extract_tool_data(&resp);
+    let docs = &data["docs"];
+    assert!(
+        docs.is_object(),
+        "project_overview must return docs summary: {:?}",
+        data
+    );
+    assert!(docs["docCount"].is_number(), "docs must have docCount");
+    assert!(
+        docs["docSectionCount"].is_number(),
+        "docs must have docSectionCount"
+    );
+    assert!(
+        docs["docLinkCount"].is_number(),
+        "docs must have docLinkCount"
+    );
+    assert!(
+        docs["docSymbolReferenceCount"].is_number(),
+        "docs must have docSymbolReferenceCount"
+    );
+    // The codelattice repo has many docs
+    let doc_count = docs["docCount"].as_u64().unwrap_or(0);
+    assert!(
+        doc_count > 0,
+        "codelattice repo should have at least 1 doc, got: {}",
+        doc_count
+    );
+}
+
+#[test]
+fn mcp_doc_scanner_excludes_hidden_dirs() {
+    // Verify that .agents/.claude/.gitnexus/target dirs are excluded
+    // by checking the doc scanner on the workspace root
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = workspace_root();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11005);
+    let data = extract_tool_data(&resp);
+    let docs = &data["docs"];
+    // docCount should be reasonable (not hundreds from .agents or .claude)
+    let doc_count = docs["docCount"].as_u64().unwrap_or(0);
+    // The codelattice repo has roughly 80-100 docs in docs/plans + a few others
+    assert!(
+        doc_count < 200,
+        "doc count should be reasonable (excluded hidden dirs), got: {}",
+        doc_count
+    );
+}
+
+#[test]
+fn mcp_no_docs_graceful_empty() {
+    // Use the portable smoke fixture — it has no docs
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "name": "helper"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11006);
+    let data = extract_tool_data(&resp);
+    // Should return empty relatedDocs, not error
+    assert!(
+        data["relatedDocs"].is_array(),
+        "must have relatedDocs array even with no docs"
+    );
+    assert_eq!(
+        data["relatedDocs"].as_array().unwrap().len(),
+        0,
+        "relatedDocs should be empty for fixture with no docs"
+    );
+}
+
+#[test]
+fn mcp_production_assist_doc_checklist_item() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Modify a function
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"fn helper() -> i32 { 999 }
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 11007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 11007);
+    let data = extract_tool_data(&resp);
+    // Should have docsLikelyNeedUpdate (even if empty for this small project)
+    assert!(
+        data["docsLikelyNeedUpdate"].is_array(),
+        "must have docsLikelyNeedUpdate"
+    );
+    assert!(
+        data["docAssociationSummary"].is_object(),
+        "must have docAssociationSummary"
+    );
+    // reviewChecklist should exist
+    assert!(
+        data["reviewChecklist"].is_array(),
+        "must have reviewChecklist"
+    );
+}
