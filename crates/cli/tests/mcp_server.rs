@@ -156,7 +156,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_twenty_tools() {
+fn mcp_tools_list_returns_twenty_two_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -173,7 +173,7 @@ fn mcp_tools_list_returns_twenty_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 21, "expected 21 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 22, "expected 22 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -3472,5 +3472,479 @@ mod arkts_tests {
         // The Index match should be a component
         let index_match = matches.iter().find(|m| m["name"].as_str() == Some("Index"));
         assert!(index_match.is_some(), "should find Index symbol");
+    }
+}
+
+// ============================================================
+// Changed Symbols Integration Tests
+// ============================================================
+
+/// Helper: create a temporary git repo with a Rust file for testing changed symbols.
+fn create_test_git_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir_path = dir.path();
+
+    // Write a simple Rust file
+    let src_dir = dir_path.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        src_dir.join("main.rs"),
+        r#"fn helper() -> i32 {
+    42
+}
+
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir_path.join("Cargo.toml"),
+        r#"[package]
+name = "test-changed-symbols"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+
+    // Initialize git repo and commit
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(dir_path)
+        .output()
+        .expect("git init failed");
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(dir_path)
+        .output()
+        .expect("git config email failed");
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(dir_path)
+        .output()
+        .expect("git config name failed");
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(dir_path)
+        .output()
+        .expect("git add failed");
+    std::process::Command::new("git")
+        .args(["commit", "-m", "baseline"])
+        .current_dir(dir_path)
+        .output()
+        .expect("git commit failed");
+
+    dir
+}
+
+#[test]
+fn mcp_changed_symbols_detects_modified_function() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Modify helper() function
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"fn helper() -> i32 {
+    99
+}
+
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust",
+                "diffMode": "unstaged",
+                "compact": true,
+                "includeSnippet": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9001);
+    assert!(
+        resp.get("error").is_none(),
+        "changed_symbols should not error: {:?}",
+        resp.get("error")
+    );
+    let data = extract_tool_data(&resp);
+
+    // Should detect changed files
+    let changed_files = data["changedFiles"]
+        .as_array()
+        .expect("changedFiles should be array");
+    assert!(
+        !changed_files.is_empty(),
+        "should have at least 1 changed file"
+    );
+
+    // Should detect changed symbols (at least helper which was modified)
+    let changed_symbols = data["changedSymbols"]
+        .as_array()
+        .expect("changedSymbols should be array");
+    assert!(
+        !changed_symbols.is_empty(),
+        "should have at least 1 changed symbol, got: {:?}",
+        data
+    );
+
+    // Each changed symbol must have minimum identity fields
+    for sym in changed_symbols {
+        assert!(sym["id"].as_str().is_some(), "symbol must have id");
+        assert!(sym["name"].as_str().is_some(), "symbol must have name");
+        assert!(sym["kind"].as_str().is_some(), "symbol must have kind");
+        assert!(sym["file"].as_str().is_some(), "symbol must have file");
+        assert!(sym.get("line").is_some(), "symbol must have line");
+        assert!(sym["risk"].as_str().is_some(), "symbol must have risk");
+    }
+
+    // Summary should be present
+    assert!(data["summary"]["changedFileCount"].as_u64().unwrap_or(0) > 0);
+    assert!(data["previewOnly"].as_bool().unwrap_or(false));
+    assert!(data["noWrites"].as_bool().unwrap_or(false));
+}
+
+#[test]
+fn mcp_changed_symbols_unknown_hunk_for_top_comment() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Add a comment at the top (not inside any function)
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"// This is a top-level comment
+fn helper() -> i32 {
+    42
+}
+
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust",
+                "diffMode": "unstaged"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9002);
+    assert!(
+        resp.get("error").is_none(),
+        "should not error: {:?}",
+        resp.get("error")
+    );
+    let data = extract_tool_data(&resp);
+
+    // Should have unknown hunks (the top-level comment)
+    let unknown_hunks = data["unknownHunks"]
+        .as_array()
+        .expect("unknownHunks should be array");
+    assert!(
+        !unknown_hunks.is_empty(),
+        "top-level comment should produce unknown hunk, got: {:?}",
+        data
+    );
+
+    // Each unknown hunk should have required fields
+    for hunk in unknown_hunks {
+        assert!(hunk["file"].as_str().is_some(), "hunk must have file");
+        assert!(hunk["reason"].as_str().is_some(), "hunk must have reason");
+    }
+}
+
+#[test]
+fn mcp_changed_symbols_staged_diff() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Modify and stage
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"fn helper() -> i32 {
+    100
+}
+
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(dir_path)
+        .output()
+        .expect("git add failed");
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust",
+                "diffMode": "staged"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9003);
+    assert!(
+        resp.get("error").is_none(),
+        "staged diff should not error: {:?}",
+        resp.get("error")
+    );
+    let data = extract_tool_data(&resp);
+
+    // Should detect the staged changes
+    let changed_files = data["changedFiles"]
+        .as_array()
+        .expect("changedFiles should be array");
+    assert!(
+        !changed_files.is_empty(),
+        "staged diff should detect changes"
+    );
+}
+
+#[test]
+fn mcp_changed_symbols_non_git_repo_graceful_error() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir_path = dir.path();
+
+    // Create a simple Rust project without git
+    let src_dir = dir_path.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(src_dir.join("main.rs"), "fn main() {}\n").unwrap();
+    std::fs::write(
+        dir_path.join("Cargo.toml"),
+        "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9004);
+    // Should return an error, not panic
+    assert!(
+        resp.get("error").is_some() || resp["result"]["isError"].as_bool().unwrap_or(false),
+        "non-git repo should return graceful error, got: {:?}",
+        resp
+    );
+}
+
+#[test]
+fn mcp_production_assist_auto_detects_changed_symbols() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Modify helper() function
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"fn helper() -> i32 {
+    77
+}
+
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9005);
+    assert!(
+        resp.get("error").is_none(),
+        "production_assist should not error: {:?}",
+        resp.get("error")
+    );
+    let data = extract_tool_data(&resp);
+
+    // Should auto-detect changed symbols
+    assert_eq!(
+        data["autoDetectedChangedSymbols"]
+            .as_bool()
+            .unwrap_or(false),
+        true,
+        "should auto-detect changed symbols"
+    );
+    assert!(
+        data["changedSymbolCount"].as_u64().unwrap_or(0) > 0,
+        "should have changed symbols"
+    );
+    assert!(
+        data["changedSymbols"].as_array().is_some(),
+        "should have changedSymbols array"
+    );
+}
+
+#[test]
+fn mcp_changed_symbols_no_crash_on_new_file() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Add a new file
+    std::fs::write(dir_path.join("src/new_mod.rs"), "pub fn new_func() {}\n").unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust",
+                "diffMode": "unstaged"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9006);
+    // Must not panic — should return gracefully
+    assert!(
+        resp.get("error").is_none(),
+        "should not panic on new file: {:?}",
+        resp.get("error")
+    );
+    let data = extract_tool_data(&resp);
+    assert!(data["changedFiles"].as_array().is_some());
+}
+
+#[test]
+fn mcp_changed_symbols_compact_mode_retains_identity() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Modify helper()
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"fn helper() -> i32 { 123 }
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust",
+                "compact": true,
+                "includeSnippet": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9007);
+    let data = extract_tool_data(&resp);
+    let symbols = data["changedSymbols"]
+        .as_array()
+        .expect("changedSymbols should be array");
+
+    for sym in symbols {
+        // Compact must retain minimum identity: id, name, kind, file, line
+        assert!(sym["id"].as_str().is_some(), "compact must have id");
+        assert!(sym["name"].as_str().is_some(), "compact must have name");
+        assert!(sym["kind"].as_str().is_some(), "compact must have kind");
+        assert!(sym["file"].as_str().is_some(), "compact must have file");
+        assert!(sym.get("line").is_some(), "compact must have line");
+        assert!(sym["risk"].as_str().is_some(), "compact must have risk");
     }
 }

@@ -262,9 +262,10 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_rename_preview` | 重命名预览，只读，不写文件 |
 | `codelattice_cache_status` | 查看 process-local cache 状态 |
 | `codelattice_cache_clear` | 清空 process-local cache |
-| `codelattice_production_assist` | 汇总质量门、未解析调用、diagnostics 和改动风险 |
+| `codelattice_production_assist` | 汇总质量门、未解析调用、diagnostics 和改动风险；自动从 git diff 检测 changed symbols |
 | `codelattice_compare_runs` | 对比两次 bridge/run artifact 的节点和边变化 |
 | `codelattice_cache_prewarm` | 预热 process-local cache，改善真实客户端首次交互体验 |
+| `codelattice_changed_symbols` | 从 git diff 自动检测改动符号，映射 hunk 到 graph symbol |
 
 常用验证：
 
@@ -276,6 +277,17 @@ bash scripts/mcp-dogfood.sh
 bash scripts/mcp-local-client-smoke.sh
 bash scripts/mcp-real-client-dry-run.sh
 ```
+
+### AI Sidecar 工作流
+
+AI 编程助手推荐使用以下工具链完成"改代码 → 检查影响 → 提交"循环：
+
+1. `codelattice_project_overview` — 快速了解项目规模
+2. `codelattice_changed_symbols` — 自动检测本次 git diff 影响了哪些符号
+3. `codelattice_impact_preview` — 对每个改动符号评估影响范围
+4. `codelattice_production_assist` — 一站式汇总：质量门 + 未解析调用 + 改动影响 + 建议
+
+`codelattice_production_assist` 在不传 `changedSymbols` 参数时会自动调用 git diff 检测改动符号，返回 `autoDetectedChangedSymbols: true`。
 
 ## Rust 支持范围
 

@@ -695,6 +695,63 @@ Pre-warm the process-local analysis cache for a project. Runs analysis and store
 
 ---
 
+### 3.22 `codelattice_changed_symbols`
+
+Detect changed symbols from git diff. Maps diff hunks to graph symbols using sourcePath + lineStart/lineEnd overlap detection. Read-only, no writes.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "Project root (absolute path, must be a git repo)" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
+    "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree" },
+    "baseRef": { "type": "string", "description": "Optional git ref to compare against" },
+    "compact": { "type": "boolean", "default": true },
+    "includeSnippet": { "type": "boolean", "default": true },
+    "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10 },
+    "limit": { "type": "integer", "default": 100, "maximum": 500 }
+  },
+  "required": ["root"]
+}
+```
+
+**Output**:
+```json
+{
+  "changedFiles": [{ "path": "...", "changeKind": "modified", "hunkCount": 2 }],
+  "changedSymbols": [{ "id": "...", "name": "...", "kind": "...", "file": "...", "line": 10, "lineEnd": 20, "changeKinds": ["modified"], "hunkCount": 1, "callerCount": 5, "risk": "MEDIUM" }],
+  "unknownHunks": [{ "file": "...", "hunkStart": 1, "hunkEnd": 3, "hunkLines": 3, "reason": "hunk does not overlap with any known symbol" }],
+  "deletedFiles": [{ "path": "..." }],
+  "renamedFiles": [{ "path": "..." }],
+  "summary": { "changedFileCount": 2, "changedSymbolCount": 3, "unknownHunkCount": 1, "deletedFileCount": 0, "renamedFileCount": 0 },
+  "diffMode": "working-tree",
+  "previewOnly": true,
+  "noWrites": true
+}
+```
+
+**Mapping strategy**: For each diff hunk, checks if the hunk line range [new_start, new_start + new_count - 1] overlaps with any symbol's [startLine, endLine]. Unknown hunks occur when: changes are outside any symbol range, new files have no graph symbols yet, or deleted files can't be mapped.
+
+**Error handling**: Non-git repos return a graceful error. Git diff failures don't panic. Unknown hunks are a normal safety output, not a failure.
+
+---
+
+### 3.23 `codelattice_production_assist` (updated with auto-detect)
+
+When `changedSymbols` is not provided, automatically runs `git diff` to detect changed symbols and includes:
+- `autoDetectedChangedSymbols: true/false`
+- `changedSymbolCount`
+- `changedSymbols` array (with id/name/kind/file/line/risk/callerCount)
+- `unknownHunkCount`
+- `unknownHunks`
+- `changedFileCount`
+
+Each auto-detected changed symbol includes lightweight impact info: caller count and risk level (LOW/MEDIUM/HIGH).
+
+---
+
 ### 3.22 Cangjie Symbol Search Fix (v0.6)
 
 > **v0.6 Fix**: Cangjie graph nodes use `kind="symbol"` with display name in `label` field, while Rust uses `kind="function"/"method"/...` with `label="symbol"`. The old `symbol_search` filtered by `label == "symbol"`, which excluded all Cangjie symbols.
@@ -848,3 +905,4 @@ Scripts parse this output to detect the binary's capabilities and warn if Cangji
 | 2026-05-11 | v0.6.0 | v0.6 — opencode real client verified, cangjie symbol_search fix (kind-based filtering, id parsing, label fallback), pipe-buffer deadlock fix, path-deny false positive fix, 1 new tool (cache_prewarm), 21 tools total |
 | 2026-05-11 | v0.7.0 | v0.7 — Install/profile hardening: cangjieSupport in initialize serverInfo, wrapper binary selection prefers cangjie-enabled binaries, install-mcp.sh --build defaults with cangjie feature, --rust-only option, doctor checks cangjie support + cangjie smoke, cargo run fallback includes tree-sitter-cangjie, 21 tools total |
 | 2026-05-11 | v0.8.0 | v0.8 — Cangjie Live Production Runway: live repo deny-list exemption for runtime/cjgui subpath (ALLOWED_DENIED_SUBPATHS), cangjie-live-codelattice-smoke.sh (--dry-run/--analyze/--mcp/--tool-ingest/--full), Tool registry entry cangjie-live-codelattice (17,194 nodes / 52,522 edges / 2,887 symbols), explicit naming convention (cangjie-live-codelattice vs cjgui-index vs legacy cjgui), 21 tools total |
+| 2026-05-13 | v0.9.0 | v0.9 — Changed-Symbol Auto Detection: 1 new tool (codelattice_changed_symbols), git diff → graph symbol mapping via hunk overlap detection, production_assist auto-detects changed symbols when changedSymbols not provided, 8 new integration tests (temp git repo fixture), 22 tools total |

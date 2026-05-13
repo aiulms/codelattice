@@ -1,7 +1,7 @@
 //! MCP v0.5 Daily-use Candidate Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 20 tools:
+//! Provides 22 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -11,6 +11,7 @@
 //!   v0.3: codelattice_cache_status, codelattice_cache_clear
 //!   v0.5: codelattice_production_assist, codelattice_compare_runs
 //!   v0.6: codelattice_cache_prewarm
+//!   v0.7: codelattice_changed_symbols
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -3036,6 +3037,477 @@ fn handle_rename_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
 // v0.5 Daily Workflow Tools
 // ============================================================
 
+// ----- Git Diff → Symbol Mapping -----
+
+/// A single hunk from a unified diff, with 1-based line numbers.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+struct DiffHunk {
+    file: String,
+    old_start: u64,
+    old_count: u64,
+    new_start: u64,
+    new_count: u64,
+}
+
+/// A file-level change from git diff.
+#[derive(Debug, Clone)]
+struct FileChange {
+    path: String,
+    change_kind: String, // "modified", "added", "deleted", "renamed"
+    hunks: Vec<DiffHunk>,
+}
+
+/// Parse `git diff` unified output into structured file changes and hunks.
+fn parse_git_diff(diff_output: &str) -> Vec<FileChange> {
+    let mut changes: Vec<FileChange> = Vec::new();
+    let mut current_file: Option<FileChange> = None;
+
+    for line in diff_output.lines() {
+        // New file diff header: diff --git a/... b/...
+        if line.starts_with("diff --git ") {
+            if let Some(prev) = current_file.take() {
+                changes.push(prev);
+            }
+            // Extract path from "diff --git a/path b/path"
+            let parts: Vec<&str> = line.splitn(4, ' ').collect();
+            let path = if parts.len() >= 4 {
+                // Use b/... path (destination), strip "b/" prefix
+                parts[3].strip_prefix("b/").unwrap_or(parts[3]).to_string()
+            } else {
+                "".to_string()
+            };
+            current_file = Some(FileChange {
+                path,
+                change_kind: "modified".to_string(),
+                hunks: Vec::new(),
+            });
+            continue;
+        }
+
+        // Detect file-level change kinds
+        if let Some(ref mut fc) = current_file {
+            if line.starts_with("new file mode ") {
+                fc.change_kind = "added".to_string();
+            } else if line.starts_with("deleted file mode ") {
+                fc.change_kind = "deleted".to_string();
+            } else if line.starts_with("rename from ") || line.starts_with("similarity index ") {
+                fc.change_kind = "renamed".to_string();
+            }
+        }
+
+        // Parse hunk header: @@ -old_start[,old_count] +new_start[,new_count] @@
+        if let Some(rest) = line.strip_prefix("@@") {
+            // Find the closing @@
+            if let Some(end_idx) = rest.find("@@") {
+                let hunk_spec = &rest[..end_idx].trim();
+                // Parse "-old_start[,old_count] +new_start[,new_count]"
+                let parts: Vec<&str> = hunk_spec.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let old_spec = parts[0].strip_prefix('-').unwrap_or(parts[0]);
+                    let new_spec = parts[1].strip_prefix('+').unwrap_or(parts[1]);
+                    let (old_start, old_count) = parse_hunk_range(old_spec);
+                    let (new_start, new_count) = parse_hunk_range(new_spec);
+                    if let Some(ref mut fc) = current_file {
+                        fc.hunks.push(DiffHunk {
+                            file: fc.path.clone(),
+                            old_start,
+                            old_count,
+                            new_start,
+                            new_count,
+                        });
+                    }
+                }
+            }
+        }
+    }
+    if let Some(prev) = current_file.take() {
+        changes.push(prev);
+    }
+    changes
+}
+
+/// Parse a hunk range like "10" or "10,5" into (start, count).
+fn parse_hunk_range(spec: &str) -> (u64, u64) {
+    if let Some(idx) = spec.find(',') {
+        let start: u64 = spec[..idx].parse().unwrap_or(1);
+        let count: u64 = spec[idx + 1..].parse().unwrap_or(1);
+        (start, count)
+    } else {
+        let start: u64 = spec.parse().unwrap_or(1);
+        (start, 1)
+    }
+}
+
+/// Map diff hunks to graph symbols. Returns (matched_symbols, unknown_hunks).
+fn map_hunks_to_symbols(
+    changes: &[FileChange],
+    gv: &GraphView,
+    compact: bool,
+    include_snippet: bool,
+    snippet_ctx: usize,
+    root_str: &std::path::Path,
+    limit: usize,
+) -> (Vec<Value>, Vec<Value>) {
+    let mut matched_symbols: Vec<Value> = Vec::new();
+    let mut unknown_hunks: Vec<Value> = Vec::new();
+    let mut seen_symbol_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Build a lookup: relative_path → Vec of symbol nodes
+    let mut symbols_by_file: HashMap<String, Vec<Value>> = HashMap::new();
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        // Check if this is a symbol-like node
+        let is_symbol = kind == "symbol"
+            || kind == "function"
+            || kind == "method"
+            || kind == "associated-function"
+            || kind == "class"
+            || kind == "struct"
+            || kind == "enum"
+            || kind == "trait"
+            || kind == "const"
+            || kind == "static"
+            || kind == "component"
+            || kind == "buildMethod"
+            || kind == "property"
+            || kind == "interface"
+            || kind == "typeAlias"
+            || label == "symbol";
+
+        if !is_symbol {
+            continue;
+        }
+
+        // Get source path from properties
+        let source_path = node["properties"]["sourcePath"].as_str().or_else(|| {
+            node["properties"]["fileId"]
+                .as_str()
+                .and_then(|fid| fid.strip_prefix("file:"))
+        });
+
+        if let Some(sp) = source_path {
+            symbols_by_file
+                .entry(sp.to_string())
+                .or_default()
+                .push(node.clone());
+        }
+    }
+
+    let mut symbol_count = 0;
+    for fc in changes {
+        // Find symbols in this file
+        let file_symbols = symbols_by_file.get(&fc.path);
+
+        for hunk in &fc.hunks {
+            let hunk_start = hunk.new_start;
+            let hunk_end = hunk.new_start + hunk.new_count.saturating_sub(1);
+
+            let mut hunk_matched = false;
+
+            if let Some(syms) = file_symbols {
+                for sym in syms {
+                    let sym_start = sym["properties"]["startLine"]
+                        .as_u64()
+                        .or_else(|| sym["properties"]["lineStart"].as_u64())
+                        .unwrap_or(0);
+                    let sym_end = sym["properties"]["endLine"]
+                        .as_u64()
+                        .or_else(|| sym["properties"]["lineEnd"].as_u64())
+                        .unwrap_or(sym_start);
+
+                    // Check if hunk overlaps with symbol range
+                    // hunk [hunk_start, hunk_end] overlaps with symbol [sym_start, sym_end]
+                    if sym_start == 0 && sym_end == 0 {
+                        continue;
+                    }
+                    let overlaps = hunk_start <= sym_end && hunk_end >= sym_start;
+                    if overlaps {
+                        let sym_id = sym["id"].as_str().unwrap_or("").to_string();
+                        if seen_symbol_ids.contains(&sym_id) {
+                            // Already matched — increment hunk count
+                            if let Some(existing) = matched_symbols
+                                .iter_mut()
+                                .find(|s| s["id"].as_str() == Some(&sym_id))
+                            {
+                                if let Some(hc) = existing["hunkCount"].as_u64() {
+                                    existing["hunkCount"] = json!(hc + 1);
+                                }
+                                // Merge change kinds
+                                if let Some(kinds) = existing["changeKinds"].as_array_mut() {
+                                    if !kinds.iter().any(|k| k.as_str() == Some(&fc.change_kind)) {
+                                        kinds.push(json!(fc.change_kind));
+                                    }
+                                }
+                            }
+                            hunk_matched = true;
+                            continue;
+                        }
+
+                        let name = sym["properties"]["name"]
+                            .as_str()
+                            .or_else(|| sym["label"].as_str())
+                            .unwrap_or("unknown");
+
+                        let kind = sym["properties"]["symbolKind"]
+                            .as_str()
+                            .or_else(|| sym["properties"]["arktsKind"].as_str())
+                            .or_else(|| sym["properties"]["kind"].as_str())
+                            .unwrap_or("symbol");
+
+                        let callers = gv.edges_to(&sym_id, Some("CALLS")).len();
+
+                        let mut entry = json!({
+                            "id": sym_id,
+                            "name": name,
+                            "kind": kind,
+                            "file": fc.path,
+                            "line": sym_start,
+                            "lineEnd": sym_end,
+                            "changeKinds": [fc.change_kind],
+                            "hunkCount": 1,
+                            "callerCount": callers,
+                        });
+
+                        if !compact {
+                            // Add risk based on caller count
+                            let risk = if callers > 10 {
+                                "HIGH"
+                            } else if callers > 3 {
+                                "MEDIUM"
+                            } else {
+                                "LOW"
+                            };
+                            entry["risk"] = json!(risk);
+
+                            if include_snippet {
+                                entry["snippet"] = read_source_snippet(
+                                    &root_str.to_string_lossy(),
+                                    &fc.path,
+                                    sym_start,
+                                    sym_end,
+                                    snippet_ctx,
+                                );
+                            }
+
+                            // Add impacted files (files that call this symbol)
+                            let callers_edges = gv.edges_to(&sym_id, Some("CALLS"));
+                            let caller_files: std::collections::HashSet<&str> = callers_edges
+                                .iter()
+                                .filter_map(|e| e["source"].as_str())
+                                .map(|s| {
+                                    // Extract file from edge source id like "file:/path/to/file.rs"
+                                    gv.nodes_by_id
+                                        .get(s)
+                                        .and_then(|n| {
+                                            n["properties"]["sourcePath"]
+                                                .as_str()
+                                                .or_else(|| n["label"].as_str())
+                                        })
+                                        .unwrap_or("")
+                                })
+                                .filter(|s| !s.is_empty())
+                                .collect();
+                            entry["impactedFileCount"] = json!(caller_files.len());
+                            if !compact && caller_files.len() <= 10 {
+                                entry["impactedFiles"] =
+                                    json!(caller_files.into_iter().collect::<Vec<_>>());
+                            }
+                        } else {
+                            // Compact: only id/name/kind/file/line/risk
+                            let risk = if callers > 10 {
+                                "HIGH"
+                            } else if callers > 3 {
+                                "MEDIUM"
+                            } else {
+                                "LOW"
+                            };
+                            entry["risk"] = json!(risk);
+                        }
+
+                        seen_symbol_ids.insert(sym_id);
+                        matched_symbols.push(entry);
+                        symbol_count += 1;
+                        hunk_matched = true;
+
+                        if symbol_count >= limit {
+                            break;
+                        }
+                    }
+                }
+                if symbol_count >= limit {
+                    break;
+                }
+            }
+
+            if !hunk_matched {
+                unknown_hunks.push(json!({
+                    "file": fc.path,
+                    "hunkStart": hunk_start,
+                    "hunkEnd": hunk_end,
+                    "hunkLines": hunk.new_count,
+                    "reason": if fc.change_kind == "added" { "new file, no graph symbols yet" } else if fc.change_kind == "deleted" { "deleted file" } else { "hunk does not overlap with any known symbol" }
+                }));
+            }
+        }
+        if symbol_count >= limit {
+            break;
+        }
+    }
+
+    (matched_symbols, unknown_hunks)
+}
+
+/// Detect changed symbols from git diff.
+fn detect_changed_symbols(
+    root: &std::path::Path,
+    gv: &GraphView,
+    diff_mode: &str,
+    base_ref: Option<&str>,
+    compact: bool,
+    include_snippet: bool,
+    snippet_ctx: usize,
+    limit: usize,
+) -> Result<Value, Value> {
+    // Run git diff
+    let mut args: Vec<String> = vec!["diff".to_string()];
+
+    match diff_mode {
+        "staged" => args.push("--staged".to_string()),
+        "unstaged" => { /* default git diff is unstaged */ }
+        "head" => args.extend(["HEAD"].iter().map(|s| s.to_string())),
+        _ => { /* working-tree = staged + unstaged, default git diff */ }
+    }
+
+    if let Some(base) = base_ref {
+        args.push(format!("{}...", base));
+    }
+
+    // Add common flags for machine-readable output
+    args.push("--unified=0".to_string());
+    args.push("--no-color".to_string());
+    args.push("--".to_string()); // separator before paths
+
+    let output = std::process::Command::new("git")
+        .args(&args)
+        .current_dir(root)
+        .output()
+        .map_err(|e| mcp_error("git_error", &format!("Failed to run git diff: {e}")))?;
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if !output.status.success() && !stderr.is_empty() {
+        // Git diff may return non-zero for some edge cases but still produce output
+        // Only error if there's no stdout
+        if output.stdout.is_empty() {
+            return Err(mcp_error(
+                "git_error",
+                &format!("git diff failed: {stderr}"),
+            ));
+        }
+    }
+
+    let diff_text = String::from_utf8_lossy(&output.stdout);
+    let changes = parse_git_diff(&diff_text);
+
+    let root_str = root;
+    let (matched_symbols, unknown_hunks) = map_hunks_to_symbols(
+        &changes,
+        gv,
+        compact,
+        include_snippet,
+        snippet_ctx,
+        root_str,
+        limit,
+    );
+
+    // Build changed files summary
+    let changed_files: Vec<Value> = changes
+        .iter()
+        .map(|fc| {
+            json!({
+                "path": fc.path,
+                "changeKind": fc.change_kind,
+                "hunkCount": fc.hunks.len(),
+            })
+        })
+        .collect();
+
+    let deleted_files: Vec<Value> = changes
+        .iter()
+        .filter(|fc| fc.change_kind == "deleted")
+        .map(|fc| json!({ "path": fc.path }))
+        .collect();
+
+    let renamed_files: Vec<Value> = changes
+        .iter()
+        .filter(|fc| fc.change_kind == "renamed")
+        .map(|fc| json!({ "path": fc.path }))
+        .collect();
+
+    Ok(json!({
+        "changedFiles": changed_files,
+        "changedSymbols": matched_symbols,
+        "unknownHunks": unknown_hunks,
+        "deletedFiles": deleted_files,
+        "renamedFiles": renamed_files,
+        "summary": {
+            "changedFileCount": changed_files.len(),
+            "changedSymbolCount": matched_symbols.len(),
+            "unknownHunkCount": unknown_hunks.len(),
+            "deletedFileCount": deleted_files.len(),
+            "renamedFileCount": renamed_files.len(),
+        },
+        "diffMode": diff_mode,
+        "baseRef": base_ref,
+        "previewOnly": true,
+        "noWrites": true,
+    }))
+}
+
+/// Handle `codelattice_changed_symbols` MCP tool.
+fn handle_changed_symbols(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let diff_mode = params["diffMode"].as_str().unwrap_or("working-tree");
+    let base_ref = params["baseRef"].as_str();
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
+    let limit = params["limit"].as_u64().unwrap_or(100).min(500) as usize;
+    check_language_feature(language)?;
+
+    // Check that root is a git repo
+    let git_dir = validated.join(".git");
+    if !git_dir.exists() {
+        return Err(mcp_error_with_hint(
+            "not_a_git_repo",
+            "Root directory is not a git repository",
+            "codelattice_changed_symbols requires a git repository to run git diff",
+            "Point root at a directory containing .git, or use git init to create one",
+        ));
+    }
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let diff_result = detect_changed_symbols(
+        &validated,
+        &gv,
+        diff_mode,
+        base_ref,
+        compact,
+        include_snippet,
+        snippet_ctx,
+        limit,
+    )?;
+
+    Ok(merge_cache_and_result(&diff_result, &cache_meta))
+}
+
 /// Production assist dry-run: aggregates quality, impact, and symbol info
 /// for a quick project health check. Read-only, no file writes.
 fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -3103,10 +3575,14 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
         .map(|(f, c)| json!({ "file": f, "symbolCount": c }))
         .collect();
 
-    // Changed symbols lookup if provided
-    let changed_symbols_info: Vec<Value> =
-        if let Some(symbols) = params["changedSymbols"].as_array() {
-            symbols
+    // Changed symbols: auto-detect from git diff if not provided
+    let (changed_symbols_info, auto_detected, unknown_hunks, changed_file_count) = if let Some(
+        symbols,
+    ) =
+        params["changedSymbols"].as_array()
+    {
+        // Explicit list from user
+        let info: Vec<Value> = symbols
                 .iter()
                 .filter_map(|s| s.as_str())
                 .filter_map(|name| {
@@ -3125,15 +3601,52 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
                             "kind": sym["properties"]["symbolKind"],
                             "file": file,
                             "line": start,
+                            "lineEnd": end,
                             "callerCount": callers,
+                            "risk": if callers > 10 { "HIGH" } else if callers > 3 { "MEDIUM" } else { "LOW" },
                             "sourceSnippet": read_source_snippet(&root_str, file, start, end, 3),
                         }))
                     }
                 })
-                .collect()
+                .collect();
+        (info, false, vec![], 0)
+    } else {
+        // Auto-detect from git diff
+        let git_dir = validated.join(".git");
+        if git_dir.exists() {
+            match detect_changed_symbols(
+                &validated,
+                &gv,
+                "working-tree",
+                None,
+                true,  // compact
+                false, // no snippets in auto mode
+                2,
+                50,
+            ) {
+                Ok(diff_result) => {
+                    let syms = diff_result["changedSymbols"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let hunks = diff_result["unknownHunks"]
+                        .as_array()
+                        .cloned()
+                        .unwrap_or_default();
+                    let fc = diff_result["summary"]["changedFileCount"]
+                        .as_u64()
+                        .unwrap_or(0) as usize;
+                    (syms, true, hunks, fc)
+                }
+                Err(_) => {
+                    // git diff failed — not a hard error, just warn
+                    (vec![], false, vec![], 0)
+                }
+            }
         } else {
-            vec![]
-        };
+            (vec![], false, vec![], 0)
+        }
+    };
 
     let mut recommendations = Vec::new();
     if failed > 0 {
@@ -3167,7 +3680,12 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
             "diagnostics": diag_count,
             "risk": risk,
             "topFiles": top_files,
+            "autoDetectedChangedSymbols": auto_detected,
+            "changedSymbolCount": changed_symbols_info.len(),
             "changedSymbols": changed_symbols_info,
+            "unknownHunkCount": unknown_hunks.len(),
+            "unknownHunks": unknown_hunks,
+            "changedFileCount": changed_file_count,
             "recommendations": recommendations,
             "dryRun": true,
             "noWrites": true,
@@ -3751,6 +4269,24 @@ fn tools_list() -> Value {
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
                         "strict": { "type": "boolean", "default": false, "description": "Strict mode (quality gate failures as errors). Default false to match most other tools." }
                     },
+                     "required": ["root"]
+                 }
+              },
+             {
+                "name": "codelattice_changed_symbols",
+                "description": "Detect changed symbols from git diff. Maps diff hunks to graph symbols, returning changed files, changed symbols, unknown hunks, and deleted/renamed files. Read-only, no writes. Ideal for AI agents to auto-detect what changed before impact analysis.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path, must be a git repo)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree", "description": "What to diff: working-tree (default, staged+unstaged), staged only, unstaged only, or HEAD" },
+                        "baseRef": { "type": "string", "description": "Optional git ref to compare against (e.g., 'main', 'HEAD~3')" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact output — only id/name/kind/file/line/risk per symbol" },
+                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source snippets for changed symbols" },
+                        "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippets" },
+                        "limit": { "type": "integer", "default": 100, "maximum": 500, "description": "Max changed symbols to return" }
+                    },
                     "required": ["root"]
                 }
              }
@@ -3856,6 +4392,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_production_assist" => handle_production_assist(cache, &arguments),
                 "codelattice_compare_runs" => handle_compare_runs(cache, &arguments),
                 "codelattice_cache_prewarm" => handle_cache_prewarm(cache, &arguments),
+                "codelattice_changed_symbols" => handle_changed_symbols(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
