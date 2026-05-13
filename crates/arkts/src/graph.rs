@@ -43,6 +43,7 @@ pub fn augment_graph_with_arkts(
                 label: comp.name.clone(),
                 properties: serde_json::json!({
                     "arktsKind": "component",
+                    "fileId": file_id,
                     "decorators": comp.decorators,
                     "isEntry": comp.is_entry,
                     "startLine": comp.start_line,
@@ -72,6 +73,7 @@ pub fn augment_graph_with_arkts(
                     label: "build".to_string(),
                     properties: serde_json::json!({
                         "arktsKind": "buildMethod",
+                        "fileId": file_id,
                         "uiCalls": build.ui_calls,
                         "startLine": build.start_line,
                         "endLine": build.end_line,

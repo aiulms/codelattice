@@ -801,10 +801,6 @@ fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value])
         .iter()
         .filter(|n| n.get("kind").and_then(|v| v.as_str()) == Some("sourceFile"))
         .count();
-    let import_edge_count = edges
-        .iter()
-        .filter(|e| e.get("kind").and_then(|v| v.as_str()) == Some("imports"))
-        .count();
     let call_edge_count = edges
         .iter()
         .filter(|e| e.get("kind").and_then(|v| v.as_str()) == Some("calls"))

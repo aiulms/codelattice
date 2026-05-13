@@ -148,8 +148,12 @@ fn partition_arkts_nodes(
                         extra_props.insert(k.clone(), v.clone());
                     }
                 }
+                // Determine the bridge symbol kind:
+                // - ArkTS augment nodes use "arktsKind" (component, buildMethod)
+                // - Base TS symbol nodes use "symbolKind" (method, function, class, etc.)
                 let symbol_kind = props
-                    .get("symbolKind")
+                    .get("arktsKind")
+                    .or_else(|| props.get("symbolKind"))
                     .and_then(|v| v.as_str())
                     .unwrap_or(kind)
                     .to_string();
@@ -157,12 +161,17 @@ fn partition_arkts_nodes(
                     .get("fileId")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
+                // Derive sourcePath from fileId (strip "file:" prefix)
+                let source_path = file_id
+                    .as_ref()
+                    .map(|fid| fid.strip_prefix("file:").unwrap_or(fid).to_string());
                 symbols.push(BridgeSymbol {
                     id,
                     name,
                     kind: symbol_kind,
                     package_id: None,
                     file_id,
+                    source_path,
                     parent_id: None,
                     properties: extra_props,
                 });

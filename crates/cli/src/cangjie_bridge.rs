@@ -169,6 +169,7 @@ fn partition_cangjie_nodes(
                     kind: symbol_kind,
                     package_id: None,
                     file_id: None,
+                    source_path: None,
                     parent_id: None,
                     properties: extra_props,
                 });

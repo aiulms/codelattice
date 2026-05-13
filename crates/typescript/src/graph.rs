@@ -95,6 +95,45 @@ pub fn build_ts_graph(
         }),
     });
 
+    // Package node (if manifest available)
+    let pkg_id = if let Some(ref manifest) = project.manifest {
+        let pkg_id = format!("pkg:{}", manifest.name);
+        let manifest_path = match manifest.kind {
+            crate::manifest::TsManifestKind::OhPackageJson5 => project
+                .root
+                .join("oh-package.json5")
+                .to_string_lossy()
+                .to_string(),
+            crate::manifest::TsManifestKind::PackageJson => project
+                .root
+                .join("package.json")
+                .to_string_lossy()
+                .to_string(),
+            crate::manifest::TsManifestKind::TsconfigJson => project
+                .root
+                .join("tsconfig.json")
+                .to_string_lossy()
+                .to_string(),
+        };
+        nodes.push(TsGraphNode {
+            id: pkg_id.clone(),
+            kind: TsNodeKind::Package,
+            label: manifest.name.clone(),
+            properties: serde_json::json!({
+                "manifestPath": manifest_path,
+            }),
+        });
+        edges.push(TsGraphEdge {
+            kind: TsEdgeKind::ContainsPackage,
+            source: Some(repo_id.clone()),
+            target: pkg_id.clone(),
+            properties: None,
+        });
+        Some(pkg_id)
+    } else {
+        None
+    };
+
     // Source file nodes
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
@@ -103,7 +142,9 @@ pub fn build_ts_graph(
             id: file_id.clone(),
             kind: TsNodeKind::SourceFile,
             label: rel.to_string_lossy().to_string(),
-            properties: serde_json::json!({}),
+            properties: serde_json::json!({
+                "packageId": pkg_id,
+            }),
         });
         edges.push(TsGraphEdge {
             kind: TsEdgeKind::OwnsSource,
@@ -127,7 +168,8 @@ pub fn build_ts_graph(
                     kind: TsNodeKind::Symbol,
                     label: sym.name.clone(),
                     properties: serde_json::json!({
-                        "kind": sym.kind.to_string(),
+                        "symbolKind": sym.kind.to_string(),
+                        "fileId": file_id,
                         "startLine": sym.start_line,
                         "endLine": sym.end_line,
                         "ownerName": sym.owner_name,

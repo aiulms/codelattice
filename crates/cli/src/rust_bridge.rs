@@ -220,6 +220,7 @@ fn partition_rust_nodes(
                     kind,
                     package_id: None,
                     file_id,
+                    source_path: None,
                     parent_id,
                     properties: extra_props,
                 });
@@ -262,6 +263,7 @@ fn partition_rust_nodes(
                     kind: "Diagnostic".to_string(),
                     package_id: None,
                     file_id: None,
+                    source_path: None,
                     parent_id: None,
                     properties: {
                         let mut p = HashMap::new();

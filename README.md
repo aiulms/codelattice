@@ -17,10 +17,10 @@ CodeLattice 是一个本地代码智能引擎，当前面向 Rust 与 Cangjie / 
 
 | 能力 | 说明 |
 |------|------|
-| 项目模型 | 识别 Rust Cargo 项目和 Cangjie cjpm 项目，建立 package、target、source ownership |
-| 符号索引 | 提取函数、方法、类型、trait/interface、枚举、宏、init 等语言符号 |
+| 项目模型 | 识别 Rust Cargo 项目、Cangjie cjpm 项目和 ArkTS HarmonyOS 项目，建立 package、target、source ownership |
+| 符号索引 | 提取函数、方法、类型、trait/interface、枚举、宏、init 等语言符号；ArkTS 额外提取 @Component、@State、build() |
 | 调用解析 | 解析同模块、跨文件、import 绑定、部分关联函数和有限 receiver method |
-| 图输出 | 输出 repository / package / source file / symbol / diagnostic 节点和关系边 |
+| 图输出 | 输出 repository / package / source file / symbol / diagnostic 节点和关系边；ArkTS 额外输出 component / buildMethod / UI call 节点 |
 | 质量门 | 检查 dangling edge、duplicate、统计一致性、stdout JSON purity、deterministic output |
 | MCP sidecar | 提供 21 个 MCP 工具，支持 AI client 查询项目概览、符号上下文、调用关系、影响预览 |
 | 本地安全 | 默认只读；wrapper 与 stable runtime 可隔离；配置脚本只打印模板，不写真实客户端配置 |
@@ -158,6 +158,31 @@ target/release/codelattice analyze \
   --strict
 ```
 
+### 分析 ArkTS / HarmonyOS 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/arkts/project \
+  --language arkts \
+  --format json
+```
+
+Bridge 格式输出（供 GitNexus-RC 消费）：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/arkts/project \
+  --language arkts \
+  --format gitnexus-rc
+```
+
+> **Alpha 状态：** ArkTS 支持当前为 production trial 阶段。已知限制：
+> - `struct` 关键字被 tree-sitter-typescript 解析为 ERROR 节点，通过模式匹配恢复组件定义
+> - 跨文件引用解析为 import 边（`module:../path`），不做符号级跨文件绑定
+> - 不分析 `@Builder`、`@Extend` 等高级装饰器
+> - 不解析 `.ets` 文件中的 ArkUI 声明式语法树（仅提取 UI 调用名称）
+> - 需要通过 `--features tree-sitter-arkts` 编译启用
+
 ### 自动检测语言
 
 ```bash
@@ -171,7 +196,8 @@ target/release/codelattice analyze \
 
 - 发现 `Cargo.toml`：Rust
 - 发现 `cjpm.toml`：Cangjie / 仓颉
-- 两者同时存在：要求显式指定 `--language`
+- 发现 `oh-package.json5`：ArkTS
+- 两者以上同时存在：要求显式指定 `--language`
 
 ### 质量门检查
 

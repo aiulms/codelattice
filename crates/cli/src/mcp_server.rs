@@ -545,7 +545,7 @@ fn get_cli_binary() -> PathBuf {
     std::env::current_exe().unwrap_or_else(|_| PathBuf::from("gitnexus-rust-core-cli"))
 }
 
-fn run_subcommand_with_timeout(args: &[&str], timeout: Duration) -> Result<Value, Value> {
+fn run_subcommand_with_timeout(args: &[&str], _timeout: Duration) -> Result<Value, Value> {
     let binary = get_cli_binary();
 
     let mut child = Command::new(&binary)
@@ -1716,6 +1716,7 @@ impl GraphView {
 }
 
 /// Build a GraphView by running analyze and parsing the result.
+#[allow(dead_code)]
 fn build_graph_view(root: &Path, language: &str) -> Result<GraphView, Value> {
     let result = run_analyze_subprocess(root, language, "json", false)?;
     Ok(GraphView::build(&result))

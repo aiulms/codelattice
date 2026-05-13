@@ -34,6 +34,22 @@ fn cangjie_portable_smoke_dir() -> std::path::PathBuf {
         .join("portable-smoke")
 }
 
+#[allow(dead_code)]
+fn arkts_portable_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("arkts")
+        .join("portable-smoke")
+}
+
+#[allow(dead_code)]
+fn arkts_cross_file_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("arkts")
+        .join("cross-file")
+}
+
 fn cli_binary() -> PathBuf {
     // Use CARGO_BIN_EXE environment variable set by cargo test
     std::env::var("CARGO_BIN_EXE_gitnexus-rust-core-cli")
@@ -3163,4 +3179,298 @@ fn mcp_include_snippet_false_still_retains_file_line() {
     assert!(first["kind"].as_str().is_some(), "must have 'kind'");
     assert!(first.get("file").is_some(), "must have 'file'");
     assert!(first.get("line").is_some(), "must have 'line'");
+}
+
+// ============================================================
+// ArkTS Integration Tests (feature-gated)
+// ============================================================
+
+#[cfg(feature = "tree-sitter-arkts")]
+mod arkts_tests {
+    use super::*;
+
+    /// ArkTS CLI analysis: portable-smoke fixture should produce valid JSON with
+    /// correct node/edge counts and package node.
+    #[test]
+    fn arkts_cli_portable_smoke_json() {
+        let root = arkts_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "arkts",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+
+        let summary = &data["summary"];
+        assert_eq!(
+            summary["nodeCount"].as_u64().unwrap(),
+            9,
+            "expected 9 nodes (repo+pkg+2src+2baseSym+2component+1build)"
+        );
+        assert_eq!(summary["sourceFileCount"].as_u64().unwrap(), 2);
+        assert_eq!(
+            summary["packageCount"].as_u64().unwrap(),
+            1,
+            "expected 1 package from oh-package.json5"
+        );
+        assert!(
+            summary["symbolCount"].as_u64().unwrap() >= 4,
+            "should have at least 4 symbols"
+        );
+    }
+
+    /// ArkTS CLI bridge format: symbols must have kind differentiation (component,
+    /// method, buildMethod) and sourcePath.
+    #[test]
+    fn arkts_cli_portable_smoke_bridge() {
+        let root = arkts_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "arkts",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "gitnexus-rc",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("bridge stdout should be valid JSON");
+
+        // Packages populated
+        let packages = data["packages"]
+            .as_array()
+            .expect("packages should be array");
+        assert_eq!(packages.len(), 1, "should have 1 package");
+        assert_eq!(packages[0]["name"].as_str().unwrap(), "portable-smoke");
+
+        // Source files have packageId
+        let source_files = data["sourceFiles"]
+            .as_array()
+            .expect("sourceFiles should be array");
+        assert_eq!(source_files.len(), 2);
+        for sf in source_files {
+            assert!(
+                sf["packageId"].as_str().is_some(),
+                "sourceFile should have packageId"
+            );
+        }
+
+        // Symbols have differentiated kinds
+        let symbols = data["symbols"].as_array().expect("symbols should be array");
+        let kinds: std::collections::HashSet<&str> =
+            symbols.iter().filter_map(|s| s["kind"].as_str()).collect();
+        assert!(kinds.contains("component"), "should have component kind");
+        assert!(kinds.contains("method"), "should have method kind");
+        assert!(
+            !kinds.contains("symbol") || kinds.len() > 2,
+            "should not have generic 'symbol' as only kind"
+        );
+
+        // Every symbol has sourcePath
+        for sym in symbols {
+            assert!(
+                sym["sourcePath"].as_str().is_some(),
+                "symbol {} should have sourcePath",
+                sym["name"]
+            );
+            assert!(
+                sym["fileId"].as_str().is_some(),
+                "symbol {} should have fileId",
+                sym["name"]
+            );
+        }
+    }
+
+    /// ArkTS cross-file fixture: import edges should exist between files.
+    #[test]
+    fn arkts_cli_cross_file_imports() {
+        let root = arkts_cross_file_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "arkts",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+
+        let edges = data["graph"]["edges"]
+            .as_array()
+            .expect("edges should be array");
+        let import_edges: Vec<_> = edges
+            .iter()
+            .filter(|e| e["kind"].as_str() == Some("imports"))
+            .collect();
+
+        // Should have import edges from Index to Logger, Index to Second, Second to Logger
+        assert!(
+            import_edges.len() >= 3,
+            "should have at least 3 import edges, got {}",
+            import_edges.len()
+        );
+
+        // Verify at least one cross-file import (to non-@kit module)
+        let cross_file_imports: Vec<_> = import_edges
+            .iter()
+            .filter(|e| {
+                e["target"]
+                    .as_str()
+                    .map(|t| !t.starts_with("module:@kit"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(
+            !cross_file_imports.is_empty(),
+            "should have cross-file import edges (to Logger or Second)"
+        );
+
+        // Verify 3 source files detected
+        assert_eq!(data["summary"]["sourceFileCount"].as_u64().unwrap(), 3);
+        // Logger.ets should produce class, method, function symbols
+        let symbols = data["graph"]["nodes"]
+            .as_array()
+            .expect("nodes should be array");
+        let logger_syms: Vec<_> = symbols
+            .iter()
+            .filter(|n| {
+                n["id"]
+                    .as_str()
+                    .map(|id| id.contains("Logger.ets"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(logger_syms.len() >= 4, "Logger.ets should produce at least 4 symbols (class+property+methods+function), got {}", logger_syms.len());
+    }
+
+    /// ArkTS MCP analyze tool: should return analysis results through MCP protocol.
+    #[test]
+    fn mcp_arkts_analyze() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = arkts_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8001,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "arkts",
+                    "includeGraph": true
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        assert_eq!(resp["id"], 8001);
+        assert!(
+            resp.get("error").is_none(),
+            "MCP analyze should not error: {:?}",
+            resp.get("error")
+        );
+        let data = extract_tool_data(&resp);
+        assert_eq!(data["language"].as_str().unwrap(), "arkts");
+        let summary = &data["summary"];
+        assert!(
+            summary["nodeCount"].as_u64().unwrap() > 0,
+            "should have nodes"
+        );
+        assert!(
+            summary["sourceFileCount"].as_u64().unwrap() >= 2,
+            "should have at least 2 source files"
+        );
+    }
+
+    /// ArkTS MCP project_overview: should return counts without full graph.
+    #[test]
+    fn mcp_arkts_project_overview() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = arkts_cross_file_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8002,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "arkts"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        assert_eq!(resp["id"], 8002);
+        assert!(
+            resp.get("error").is_none(),
+            "MCP project_overview should not error: {:?}",
+            resp.get("error")
+        );
+        let data = extract_tool_data(&resp);
+        assert!(data["nodeCount"].as_u64().unwrap() > 0);
+        assert!(data["sourceFileCount"].as_u64().unwrap() >= 3);
+    }
+
+    /// ArkTS MCP symbol_search: should find ArkTS component symbols.
+    #[test]
+    fn mcp_arkts_symbol_search() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = arkts_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8003,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_symbol_search",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "arkts",
+                    "query": "Index"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        assert_eq!(resp["id"], 8003);
+        assert!(
+            resp.get("error").is_none(),
+            "MCP symbol_search should not error: {:?}",
+            resp.get("error")
+        );
+        let data = extract_tool_data(&resp);
+        let matches = data["matches"].as_array().expect("matches should be array");
+        assert!(matches.len() > 0, "should find Index component");
+        // The Index match should be a component
+        let index_match = matches.iter().find(|m| m["name"].as_str() == Some("Index"));
+        assert!(index_match.is_some(), "should find Index symbol");
+    }
 }
