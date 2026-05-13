@@ -862,3 +862,20 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - Codex / opencode 应指向稳定运行目录，不再直接指向开发 checkout wrapper
     - 目的：开发区源码修改、debug rebuild、wrapper 改动不会影响正在使用的 AI IDE；只有 explicit promote 才更新运行版
     - Plan: `docs/plans/2026-05-11-codelattice-runtime-isolation-pack.md`
+
+67. **Changed-Symbol Auto Detection Pack** ✅ 完成（2026-05-13）：
+    - `codelattice_changed_symbols` MCP tool：git diff → hunk overlap → graph symbol mapping
+    - `codelattice_production_assist` 自动检测：不传 changedSymbols 时自动 git diff
+    - 8 个新集成测试（tempfile git repo fixture）
+    - 22 tools total
+    - Plan: `docs/plans/2026-05-13-better-impact-risk-reasons-preflight.md`
+    - Commit: `9d0b157`
+
+68. **Better Impact Risk Reasons Pack** ✅ 完成（2026-05-13）：
+    - `codelattice_impact_preview` 增强：riskReasons、impactMetrics（11 个指标）、confidenceSummary（min/avg/max）、reviewFocus（6 个分类）、compact 模式
+    - `codelattice_production_assist` 增强：overallRisk、overallRiskReasons、changedSymbolImpacts、highestRiskSymbols、reviewChecklist
+    - unknown hunks 进入 risk reasons 和 checklist
+    - 10 个新集成测试，76 total
+    - MCP contract v0.10.0
+    - Plan: `docs/plans/2026-05-13-better-impact-risk-reasons-preflight.md`
+    - Closure: `docs/plans/2026-05-13-better-impact-risk-reasons-closure.md`

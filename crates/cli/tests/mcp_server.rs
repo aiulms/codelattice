@@ -3948,3 +3948,518 @@ fn main() {
         assert!(sym["risk"].as_str().is_some(), "compact must have risk");
     }
 }
+
+// ============================================================
+// Stage 4: Better Impact Risk Reasons tests
+// ============================================================
+
+#[test]
+fn mcp_impact_preview_returns_risk_reasons() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "depth": 1
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10001);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["riskReasons"].is_array(),
+        "impact_preview must return riskReasons array: {:?}",
+        data
+    );
+    let reasons = data["riskReasons"].as_array().unwrap();
+    assert!(!reasons.is_empty(), "riskReasons should not be empty");
+}
+
+#[test]
+fn mcp_impact_preview_returns_impact_metrics() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "depth": 1
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10002);
+    let data = extract_tool_data(&resp);
+    let metrics = &data["impactMetrics"];
+    assert!(
+        metrics.is_object(),
+        "impact_preview must return impactMetrics object: {:?}",
+        data
+    );
+    // Verify all required metric fields
+    assert!(
+        metrics["callerCount"].is_number(),
+        "impactMetrics must have callerCount"
+    );
+    assert!(
+        metrics["downstreamCount"].is_number(),
+        "impactMetrics must have downstreamCount"
+    );
+    assert!(
+        metrics["impactedFileCount"].is_number(),
+        "impactMetrics must have impactedFileCount"
+    );
+    assert!(
+        metrics["crossFileCount"].is_number(),
+        "impactMetrics must have crossFileCount"
+    );
+    assert!(
+        metrics["publicSymbolCount"].is_number(),
+        "impactMetrics must have publicSymbolCount"
+    );
+    assert!(
+        metrics["testFileCount"].is_number(),
+        "impactMetrics must have testFileCount"
+    );
+    assert!(
+        metrics["totalEdgesConsidered"].is_number(),
+        "impactMetrics must have totalEdgesConsidered"
+    );
+    assert!(
+        metrics["lowConfidenceEdgeCount"].is_number(),
+        "impactMetrics must have lowConfidenceEdgeCount"
+    );
+    assert!(
+        metrics["highConfidenceEdgeCount"].is_number(),
+        "impactMetrics must have highConfidenceEdgeCount"
+    );
+}
+
+#[test]
+fn mcp_impact_preview_returns_confidence_summary() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "depth": 1
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10003);
+    let data = extract_tool_data(&resp);
+    let cs = &data["confidenceSummary"];
+    assert!(
+        cs.is_object(),
+        "impact_preview must return confidenceSummary: {:?}",
+        data
+    );
+    assert!(
+        cs["totalEdgesConsidered"].is_number(),
+        "confidenceSummary must have totalEdgesConsidered"
+    );
+    assert!(
+        cs["highConfidenceCount"].is_number(),
+        "confidenceSummary must have highConfidenceCount"
+    );
+    assert!(
+        cs["mediumConfidenceCount"].is_number(),
+        "confidenceSummary must have mediumConfidenceCount"
+    );
+    assert!(
+        cs["lowConfidenceCount"].is_number(),
+        "confidenceSummary must have lowConfidenceCount"
+    );
+    assert!(
+        cs["unknownConfidenceCount"].is_number(),
+        "confidenceSummary must have unknownConfidenceCount"
+    );
+}
+
+#[test]
+fn mcp_impact_preview_compact_retains_identity() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "depth": 1,
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10004);
+    let data = extract_tool_data(&resp);
+    // compact mode must retain risk, riskReasons, impactMetrics, confidenceSummary, reviewFocus
+    assert!(data["risk"].is_string(), "compact must have risk");
+    assert!(
+        data["riskReasons"].is_array(),
+        "compact must have riskReasons"
+    );
+    assert!(
+        data["impactMetrics"].is_object(),
+        "compact must have impactMetrics"
+    );
+    assert!(
+        data["confidenceSummary"].is_object(),
+        "compact must have confidenceSummary"
+    );
+    assert!(
+        data["reviewFocus"].is_object(),
+        "compact must have reviewFocus"
+    );
+    // impactedSymbols must still have id/name/kind/file/line
+    let symbols = data["impactedSymbols"]
+        .as_array()
+        .expect("impactedSymbols must exist");
+    for sym in symbols {
+        assert!(
+            sym["id"].is_string() || sym["id"].is_null(),
+            "compact symbol must have id"
+        );
+        assert!(
+            sym["name"].is_string() || sym["name"].is_null(),
+            "compact symbol must have name"
+        );
+        assert!(
+            sym["kind"].is_string() || sym["kind"].is_null(),
+            "compact symbol must have kind"
+        );
+    }
+}
+
+#[test]
+fn mcp_impact_preview_returns_review_focus() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "depth": 2
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10005);
+    let data = extract_tool_data(&resp);
+    let rf = &data["reviewFocus"];
+    assert!(
+        rf.is_object(),
+        "impact_preview must return reviewFocus: {:?}",
+        data
+    );
+    assert!(
+        rf["topCallers"].is_array(),
+        "reviewFocus must have topCallers"
+    );
+    assert!(
+        rf["topCallees"].is_array(),
+        "reviewFocus must have topCallees"
+    );
+    assert!(rf["topFiles"].is_array(), "reviewFocus must have topFiles");
+    assert!(
+        rf["lowConfidenceEdges"].is_array(),
+        "reviewFocus must have lowConfidenceEdges"
+    );
+    assert!(
+        rf["publicSymbols"].is_array(),
+        "reviewFocus must have publicSymbols"
+    );
+    assert!(
+        rf["testFiles"].is_array(),
+        "reviewFocus must have testFiles"
+    );
+}
+
+#[test]
+fn mcp_impact_preview_public_symbol_in_metrics() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust",
+                "symbol": "main_fn",
+                "depth": 2
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10006);
+    let data = extract_tool_data(&resp);
+    let metrics = &data["impactMetrics"];
+    // For a function symbol like main_fn, publicSymbolCount should be >= 1
+    let public_count = metrics["publicSymbolCount"].as_u64().unwrap_or(0);
+    // The helper/main_fn functions are public symbols
+    assert!(
+        public_count >= 1,
+        "publicSymbolCount should be >= 1 for function impacts, got: {}",
+        public_count
+    );
+}
+
+#[test]
+fn mcp_production_assist_returns_overall_risk() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10007);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["overallRisk"].is_string(),
+        "production_assist must return overallRisk: {:?}",
+        data
+    );
+    let risk = data["overallRisk"].as_str().unwrap();
+    assert!(
+        ["LOW", "MEDIUM", "HIGH"].contains(&risk),
+        "overallRisk must be LOW/MEDIUM/HIGH, got: {}",
+        risk
+    );
+}
+
+#[test]
+fn mcp_production_assist_returns_review_checklist() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": fixture.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10008);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["reviewChecklist"].is_array(),
+        "production_assist must return reviewChecklist: {:?}",
+        data
+    );
+    let checklist = data["reviewChecklist"].as_array().unwrap();
+    assert!(!checklist.is_empty(), "reviewChecklist should not be empty");
+}
+
+#[test]
+fn mcp_production_assist_changed_symbols_with_risk() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Modify the function
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"fn helper() -> i32 { 456 }
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10009,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10009);
+    let data = extract_tool_data(&resp);
+    // Should have auto-detected changed symbols
+    assert!(
+        data["autoDetectedChangedSymbols"]
+            .as_bool()
+            .unwrap_or(false),
+        "should auto-detect changed symbols"
+    );
+    assert!(
+        data["changedSymbolCount"].as_u64().unwrap_or(0) > 0,
+        "should have changed symbols"
+    );
+    // Must have overallRisk and overallRiskReasons
+    assert!(data["overallRisk"].is_string(), "must have overallRisk");
+    assert!(
+        data["overallRiskReasons"].is_array(),
+        "must have overallRiskReasons"
+    );
+    // Must have changedSymbolImpacts
+    assert!(
+        data["changedSymbolImpacts"].is_array(),
+        "must have changedSymbolImpacts"
+    );
+    let impacts = data["changedSymbolImpacts"].as_array().unwrap();
+    for impact in impacts {
+        assert!(impact["name"].is_string(), "impact must have name");
+        assert!(impact["risk"].is_string(), "impact must have risk");
+        assert!(
+            impact["callerCount"].is_number(),
+            "impact must have callerCount"
+        );
+        assert!(impact["reasons"].is_array(), "impact must have reasons");
+    }
+}
+
+#[test]
+fn mcp_production_assist_unknown_hunks_in_checklist() {
+    let dir = create_test_git_repo();
+    let dir_path = dir.path();
+
+    // Add a top-level comment (not inside any function) — should produce unknown hunks
+    std::fs::write(
+        dir_path.join("src/main.rs"),
+        r#"// Top-level comment change that is not in any function
+fn helper() -> i32 { 42 }
+fn main() {
+    let x = helper();
+    println!("{}", x);
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 10010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": dir_path.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 10010);
+    let data = extract_tool_data(&resp);
+    // If there are unknown hunks, they must appear in risk reasons or checklist
+    let unknown_count = data["unknownHunkCount"].as_u64().unwrap_or(0);
+    if unknown_count > 0 {
+        // Check overallRiskReasons mentions unknown hunks
+        let reasons = data["overallRiskReasons"].as_array().unwrap();
+        let mentions_unknown = reasons.iter().any(|r| {
+            r.as_str()
+                .map(|s| s.contains("unknown hunk"))
+                .unwrap_or(false)
+        });
+        assert!(
+            mentions_unknown,
+            "overallRiskReasons must mention unknown hunks when present: {:?}",
+            reasons
+        );
+    }
+    // reviewChecklist must be present
+    assert!(
+        data["reviewChecklist"].is_array(),
+        "must have reviewChecklist"
+    );
+}

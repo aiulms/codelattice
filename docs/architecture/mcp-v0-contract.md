@@ -416,9 +416,11 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 }
 ```
 
-### 3.12 `codelattice_impact_preview` *(v0.2)*
+### 3.12 `codelattice_impact_preview` *(v0.2, enhanced v0.10)*
 
-预览符号变更的影响范围：受影响的节点/边、风险等级、高影响文件。只读，不写。
+预览符号变更的影响范围：受影响的节点/边、风险等级、风险原因、影响指标、置信度摘要、审查焦点。只读，不写。
+
+> **注意：** risk 是 graph-based preview，不是编译器级完整证明。low-confidence / unknown hunk 是安全信号，不是失败。riskReasons 是给 AI 安排 review focus 用的。
 
 **Input Schema:**
 ```json
@@ -426,11 +428,12 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
     "symbol": { "type": "string", "description": "要分析影响范围的符号名称" },
     "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
     "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
-    "limit": { "type": "integer", "default": 50, "maximum": 200 }
+    "limit": { "type": "integer", "default": 50, "maximum": 200 },
+    "compact": { "type": "boolean", "default": false, "description": "Compact 模式：保留 risk/riskReasons/impactMetrics/confidenceSummary/reviewFocus，impactedSymbols 只保留 id/name/kind/file/line，不返回 snippet" }
   },
   "required": ["root", "symbol"]
 }
@@ -440,13 +443,47 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 ```json
 {
   "symbol": "helper",
-  "risk": "LOW",
+  "targetId": "sym_helper_1",
   "direction": "both",
-  "depth": 2,
+  "risk": "LOW",
+  "reasons": ["Small blast radius, few callers"],
   "impactedNodeCount": 2,
-  "impactedEdgeCount": 1,
-  "topFiles": [ { "file": "src/lib.rs", "impactCount": 2 } ],
-  "impactedNodes": [ { "id": "...", "name": "helper", "kind": "function" } ],
+  "impactedSymbols": [ { "id": "...", "name": "helper", "kind": "function", "file": "src/lib.rs", "line": 1 } ],
+  "impactedNodesByKind": { "function": 2 },
+  "impactedEdgesByKind": { "CALLS": 1 },
+  "topImpactedFiles": [ { "file": "src/lib.rs", "impactedNodeCount": 2 } ],
+  "riskReasons": ["Small blast radius, few callers"],
+  "impactMetrics": {
+    "callerCount": 1,
+    "downstreamCount": 1,
+    "impactedFileCount": 1,
+    "crossFileCount": 0,
+    "publicSymbolCount": 2,
+    "testFileCount": 0,
+    "lowConfidenceEdgeCount": 0,
+    "mediumConfidenceEdgeCount": 0,
+    "highConfidenceEdgeCount": 1,
+    "unknownConfidenceEdgeCount": 0,
+    "totalEdgesConsidered": 1
+  },
+  "confidenceSummary": {
+    "totalEdgesConsidered": 1,
+    "highConfidenceCount": 1,
+    "mediumConfidenceCount": 0,
+    "lowConfidenceCount": 0,
+    "unknownConfidenceCount": 0,
+    "minConfidence": "1.00",
+    "avgConfidence": "1.00",
+    "maxConfidence": "1.00"
+  },
+  "reviewFocus": {
+    "topCallers": [],
+    "topCallees": [],
+    "topFiles": [{ "file": "src/lib.rs", "impactedNodeCount": 2 }],
+    "lowConfidenceEdges": [],
+    "publicSymbols": [],
+    "testFiles": []
+  },
   "previewOnly": true,
   "noWrites": true
 }
@@ -738,7 +775,7 @@ Detect changed symbols from git diff. Maps diff hunks to graph symbols using sou
 
 ---
 
-### 3.23 `codelattice_production_assist` (updated with auto-detect)
+### 3.23 `codelattice_production_assist` (updated with auto-detect + risk summary, enhanced v0.10)
 
 When `changedSymbols` is not provided, automatically runs `git diff` to detect changed symbols and includes:
 - `autoDetectedChangedSymbols: true/false`
@@ -748,7 +785,19 @@ When `changedSymbols` is not provided, automatically runs `git diff` to detect c
 - `unknownHunks`
 - `changedFileCount`
 
-Each auto-detected changed symbol includes lightweight impact info: caller count and risk level (LOW/MEDIUM/HIGH).
+**v0.10 Enhanced Risk Summary** (new fields):
+- `overallRisk` — aggregated risk level (LOW/MEDIUM/HIGH) from changed symbols + project health
+- `overallRiskReasons` — array of human-readable reasons for the overall risk
+- `changedSymbolImpacts` — per-symbol risk breakdown with callerCount, lowConfidenceEdges, reasons
+- `highestRiskSymbols` — top 5 symbols sorted by caller count (most dangerous first)
+- `reviewChecklist` — actionable items for AI agents:
+  - "inspect direct callers of each changed symbol via codelattice_symbol_context"
+  - "inspect N low-confidence edge(s) — these may be indirect or ambiguous calls"
+  - "run focused tests for affected test files identified in impact set"
+  - "review N unknown hunk(s) manually — diff region(s) could not be mapped to known symbols"
+  - "address N failed quality gate(s) before proceeding"
+
+> **注意：** unknown hunks 不等于失败，但意味着需要人工/AI复核。production_assist 会将 unknown hunks 写入 overallRiskReasons 和 reviewChecklist。
 
 ---
 
@@ -906,3 +955,4 @@ Scripts parse this output to detect the binary's capabilities and warn if Cangji
 | 2026-05-11 | v0.7.0 | v0.7 — Install/profile hardening: cangjieSupport in initialize serverInfo, wrapper binary selection prefers cangjie-enabled binaries, install-mcp.sh --build defaults with cangjie feature, --rust-only option, doctor checks cangjie support + cangjie smoke, cargo run fallback includes tree-sitter-cangjie, 21 tools total |
 | 2026-05-11 | v0.8.0 | v0.8 — Cangjie Live Production Runway: live repo deny-list exemption for runtime/cjgui subpath (ALLOWED_DENIED_SUBPATHS), cangjie-live-codelattice-smoke.sh (--dry-run/--analyze/--mcp/--tool-ingest/--full), Tool registry entry cangjie-live-codelattice (17,194 nodes / 52,522 edges / 2,887 symbols), explicit naming convention (cangjie-live-codelattice vs cjgui-index vs legacy cjgui), 21 tools total |
 | 2026-05-13 | v0.9.0 | v0.9 — Changed-Symbol Auto Detection: 1 new tool (codelattice_changed_symbols), git diff → graph symbol mapping via hunk overlap detection, production_assist auto-detects changed symbols when changedSymbols not provided, 8 new integration tests (temp git repo fixture), 22 tools total |
+| 2026-05-13 | v0.10.0 | v0.10 — Better Impact Risk Reasons: impact_preview enhanced with riskReasons (human-readable risk explanations), impactMetrics (callerCount/downstreamCount/impactedFileCount/crossFileCount/publicSymbolCount/testFileCount/confidence edge counts), confidenceSummary (min/avg/max confidence), reviewFocus (topCallers/topCallees/topFiles/lowConfidenceEdges/publicSymbols/testFiles), compact mode. production_assist enhanced with overallRisk/overallRiskReasons/changedSymbolImpacts/highestRiskSymbols/reviewChecklist. unknown hunks surface in risk reasons and checklist. 10 new integration tests, 76 total, 22 tools total |

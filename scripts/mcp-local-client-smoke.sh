@@ -156,7 +156,7 @@ check_response "calls_from (main_fn)" "$RESP" \
 echo "6. codelattice_impact_preview"
 RESP=$(call_tool "codelattice_impact_preview" "{\"root\":\"$FIXTURE\",\"language\":\"rust\",\"symbol\":\"helper\",\"depth\":1}")
 check_response "impact_preview (helper)" "$RESP" \
-    "data.get('symbol') == 'helper' and data.get('risk') in ['LOW','MEDIUM','HIGH']"
+    "data.get('symbol') == 'helper' and data.get('risk') in ['LOW','MEDIUM','HIGH'] and isinstance(data.get('riskReasons'), list) and isinstance(data.get('impactMetrics'), dict)"
 
 # ============================================================
 # 7. codelattice_rename_preview (on fixture)

@@ -193,7 +193,7 @@ check_tool "codelattice_calls_to" \
 echo "13. codelattice_impact_preview"
 check_tool "codelattice_impact_preview" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"symbol\":\"helper\",\"depth\":1}" \
-    "data.get('symbol') == 'helper' and data.get('risk') in ['LOW','MEDIUM','HIGH']"
+    "data.get('symbol') == 'helper' and data.get('risk') in ['LOW','MEDIUM','HIGH'] and isinstance(data.get('riskReasons'), list) and isinstance(data.get('impactMetrics'), dict) and isinstance(data.get('confidenceSummary'), dict) and isinstance(data.get('reviewFocus'), dict)"
 
 echo "14. codelattice_query_graph"
 check_tool "codelattice_query_graph" \

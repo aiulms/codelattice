@@ -195,7 +195,7 @@ with open('$TMPFILE') as f:
             d = json.loads(line)
             if d.get('id') == 8:
                 t = json.loads(d['result']['content'][0]['text'])
-                print('yes' if 'risk' in t else 'no')
+                print('yes' if 'risk' in t and isinstance(t.get('riskReasons'), list) and isinstance(t.get('impactMetrics'), dict) else 'no')
                 break
         except: pass
 " 2>/dev/null || echo "no")
@@ -212,7 +212,7 @@ with open('$TMPFILE') as f:
             d = json.loads(line)
             if d.get('id') == 9:
                 t = json.loads(d['result']['content'][0]['text'])
-                print('yes' if 'risk' in t and t.get('dryRun') == True else 'no')
+                print('yes' if 'risk' in t and t.get('dryRun') == True and isinstance(t.get('overallRisk'), str) and isinstance(t.get('reviewChecklist'), list) else 'no')
                 break
         except: pass
 " 2>/dev/null || echo "no")

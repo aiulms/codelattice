@@ -255,14 +255,14 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_symbol_context` | 符号上下文、调用关系摘要和源码片段 |
 | `codelattice_calls_from` | 查询一个符号向外调用了什么 |
 | `codelattice_calls_to` | 查询哪些符号调用了目标符号 |
-| `codelattice_impact_preview` | 只读影响预览，给出风险和受影响关系 |
+| `codelattice_impact_preview` | 只读影响预览，给出风险等级、风险原因、影响指标、置信度摘要和审查焦点 |
 | `codelattice_query_graph` | 参数化本地图查询 |
 | `codelattice_project_overview` | 项目级概览，适合 AI 快速建模 |
 | `codelattice_repo_registry` | 只读 repo registry/status 视图 |
 | `codelattice_rename_preview` | 重命名预览，只读，不写文件 |
 | `codelattice_cache_status` | 查看 process-local cache 状态 |
 | `codelattice_cache_clear` | 清空 process-local cache |
-| `codelattice_production_assist` | 汇总质量门、未解析调用、diagnostics 和改动风险；自动从 git diff 检测 changed symbols |
+| `codelattice_production_assist` | 汇总质量门、未解析调用、diagnostics、改动风险和审查清单；自动从 git diff 检测 changed symbols |
 | `codelattice_compare_runs` | 对比两次 bridge/run artifact 的节点和边变化 |
 | `codelattice_cache_prewarm` | 预热 process-local cache，改善真实客户端首次交互体验 |
 | `codelattice_changed_symbols` | 从 git diff 自动检测改动符号，映射 hunk 到 graph symbol |
@@ -284,10 +284,10 @@ AI 编程助手推荐使用以下工具链完成"改代码 → 检查影响 → 
 
 1. `codelattice_project_overview` — 快速了解项目规模
 2. `codelattice_changed_symbols` — 自动检测本次 git diff 影响了哪些符号
-3. `codelattice_impact_preview` — 对每个改动符号评估影响范围
-4. `codelattice_production_assist` — 一站式汇总：质量门 + 未解析调用 + 改动影响 + 建议
+3. `codelattice_impact_preview` — 对每个改动符号评估影响范围，返回 `riskReasons`（人可读风险原因）、`impactMetrics`（定量指标）、`confidenceSummary`（置信度统计）、`reviewFocus`（优先审查的调用方/文件/低置信度边）
+4. `codelattice_production_assist` — 一站式汇总：质量门 + 未解析调用 + 改动影响 + `overallRisk` + `reviewChecklist`（可执行建议）
 
-`codelattice_production_assist` 在不传 `changedSymbols` 参数时会自动调用 git diff 检测改动符号，返回 `autoDetectedChangedSymbols: true`。
+`codelattice_production_assist` 在不传 `changedSymbols` 参数时会自动调用 git diff 检测改动符号，返回 `autoDetectedChangedSymbols: true`。`reviewChecklist` 提供 AI 可执行建议：检查直接调用方、审查低置信度边、运行相关测试、复核 unknown hunks。
 
 ## Rust 支持范围
 

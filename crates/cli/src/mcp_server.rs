@@ -2235,6 +2235,372 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     Ok(merge_cache_and_result(&result, &cache_meta))
 }
 
+/// Compute impact metrics from the set of impacted nodes and edges.
+///
+/// Returns (impactMetrics, confidenceSummary, riskReasons, reviewFocus).
+fn compute_impact_risk_details(
+    gv: &GraphView,
+    target_id: &str,
+    impacted_nodes: &HashMap<String, Value>,
+    impacted_edge_types: &HashMap<String, u64>,
+    _root_str: &str,
+) -> (Value, Value, Vec<String>, Value) {
+    // --- impactMetrics ---
+    #[allow(unused_assignments)]
+    let mut nodes_with_callers: u64 = 0;
+    let mut downstream_count: u64 = 0;
+    let mut impacted_file_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut cross_file_count: u64 = 0;
+    let mut public_symbol_count: u64 = 0;
+    let mut test_file_count: u64 = 0;
+
+    // Target file for cross-file detection
+    let target_file = impacted_nodes
+        .get(target_id)
+        .and_then(|n| n["properties"]["sourcePath"].as_str())
+        .unwrap_or("")
+        .to_string();
+
+    for node in impacted_nodes.values() {
+        let file = node["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| node["properties"]["manifestPath"].as_str())
+            .unwrap_or("");
+        impacted_file_set.insert(file.to_string());
+
+        // Cross-file: any impacted node not in the target's file
+        if !file.is_empty() && file != target_file {
+            cross_file_count += 1;
+        }
+
+        // Count incoming CALLS edges as callers
+        let node_id = node["id"].as_str().unwrap_or("");
+        if node_id != target_id {
+            let in_calls = gv.edges_to(node_id, Some("CALLS")).len();
+            if in_calls > 0 {
+                nodes_with_callers += 1;
+            }
+            downstream_count += 1;
+        }
+
+        // Public/exported symbol detection
+        let kind = node["properties"]["symbolKind"].as_str().unwrap_or("");
+        let is_public = kind == "function"
+            || kind == "method"
+            || kind == "associated-function"
+            || kind == "struct"
+            || kind == "enum"
+            || kind == "trait"
+            || kind == "interface"
+            || kind == "const"
+            || kind == "static";
+        if is_public {
+            public_symbol_count += 1;
+        }
+
+        // Test file detection
+        if file.contains("_test")
+            || file.contains("/tests/")
+            || file.contains("\\tests\\")
+            || file.contains("/test/")
+            || file.contains("\\test\\")
+            || file.ends_with("_test.rs")
+            || file.ends_with(".test.ts")
+            || file.ends_with("Test.cj")
+        {
+            test_file_count += 1;
+        }
+    }
+
+    let caller_edge_count = impacted_edge_types.get("CALLS").copied().unwrap_or(0);
+    let total_edges_considered: u64 = impacted_edge_types.values().sum();
+
+    let impact_metrics = json!({
+        "callerCount": caller_edge_count,
+        "downstreamCount": downstream_count,
+        "impactedFileCount": impacted_file_set.len(),
+        "crossFileCount": cross_file_count,
+        "publicSymbolCount": public_symbol_count,
+        "testFileCount": test_file_count,
+        "lowConfidenceEdgeCount": 0u64,  // filled below
+        "mediumConfidenceEdgeCount": 0u64,
+        "highConfidenceEdgeCount": 0u64,
+        "unknownConfidenceEdgeCount": 0u64,
+        "totalEdgesConsidered": total_edges_considered
+    });
+
+    // --- confidenceSummary ---
+    // Collect confidence values from all impacted edges
+    let mut high_conf: u64 = 0;
+    let mut medium_conf: u64 = 0;
+    let mut low_conf: u64 = 0;
+    let mut unknown_conf: u64 = 0;
+    let mut all_confidences: Vec<f64> = Vec::new();
+
+    for node_id in impacted_nodes.keys() {
+        for edge in gv.edges_from(node_id, None) {
+            if !impacted_nodes.contains_key(edge["target"].as_str().unwrap_or("")) {
+                continue;
+            }
+            let conf = edge["properties"]["confidence"].as_f64().unwrap_or(-1.0);
+            if conf < 0.0 {
+                unknown_conf += 1;
+            } else if conf >= 0.8 {
+                high_conf += 1;
+                all_confidences.push(conf);
+            } else if conf >= 0.5 {
+                medium_conf += 1;
+                all_confidences.push(conf);
+            } else {
+                low_conf += 1;
+                all_confidences.push(conf);
+            }
+        }
+        for edge in gv.edges_to(node_id, None) {
+            if !impacted_nodes.contains_key(edge["source"].as_str().unwrap_or("")) {
+                continue;
+            }
+            let conf = edge["properties"]["confidence"].as_f64().unwrap_or(-1.0);
+            if conf < 0.0 {
+                unknown_conf += 1;
+            } else if conf >= 0.8 {
+                high_conf += 1;
+                all_confidences.push(conf);
+            } else if conf >= 0.5 {
+                medium_conf += 1;
+                all_confidences.push(conf);
+            } else {
+                low_conf += 1;
+                all_confidences.push(conf);
+            }
+        }
+    }
+
+    let min_conf = all_confidences.iter().cloned().fold(f64::MAX, f64::min);
+    let max_conf = all_confidences.iter().cloned().fold(f64::MIN, f64::max);
+    let avg_conf = if all_confidences.is_empty() {
+        0.0
+    } else {
+        all_confidences.iter().sum::<f64>() / all_confidences.len() as f64
+    };
+
+    let confidence_summary = json!({
+        "totalEdgesConsidered": high_conf + medium_conf + low_conf + unknown_conf,
+        "highConfidenceCount": high_conf,
+        "mediumConfidenceCount": medium_conf,
+        "lowConfidenceCount": low_conf,
+        "unknownConfidenceCount": unknown_conf,
+        "minConfidence": if all_confidences.is_empty() { Value::Null } else { json!(format!("{:.2}", min_conf)) },
+        "avgConfidence": if all_confidences.is_empty() { Value::Null } else { json!(format!("{:.2}", avg_conf)) },
+        "maxConfidence": if all_confidences.is_empty() { Value::Null } else { json!(format!("{:.2}", max_conf)) }
+    });
+
+    // Update impactMetrics with actual confidence counts
+    let mut metrics = impact_metrics;
+    if let Some(map) = metrics.as_object_mut() {
+        map.insert("lowConfidenceEdgeCount".to_string(), json!(low_conf));
+        map.insert("mediumConfidenceEdgeCount".to_string(), json!(medium_conf));
+        map.insert("highConfidenceEdgeCount".to_string(), json!(high_conf));
+        map.insert(
+            "unknownConfidenceEdgeCount".to_string(),
+            json!(unknown_conf),
+        );
+    }
+
+    // --- riskReasons ---
+    let mut risk_reasons: Vec<String> = Vec::new();
+
+    let total_impacted = impacted_nodes.len();
+    if caller_edge_count > 0 {
+        risk_reasons.push(format!(
+            "{} direct callers depend on this symbol",
+            caller_edge_count
+        ));
+    }
+    if impacted_file_set.len() > 1 {
+        risk_reasons.push(format!("Impact crosses {} files", impacted_file_set.len()));
+    }
+    if low_conf > 0 {
+        risk_reasons.push(format!(
+            "{} low-confidence edge(s) require manual review",
+            low_conf
+        ));
+    }
+    if public_symbol_count > 0 {
+        risk_reasons.push(format!(
+            "Public/exported symbol is affected ({} public symbols in impact set)",
+            public_symbol_count
+        ));
+    }
+    if test_file_count > 0 {
+        risk_reasons.push(format!(
+            "Test files are in the impact set ({} test symbols)",
+            test_file_count
+        ));
+    }
+    if total_impacted <= 3 && caller_edge_count <= 2 {
+        risk_reasons.push("Small blast radius, few callers".to_string());
+    }
+
+    // --- reviewFocus ---
+    // Top callers (nodes with most incoming CALLS edges)
+    let mut caller_list: Vec<Value> = Vec::new();
+    for node in impacted_nodes.values() {
+        let nid = node["id"].as_str().unwrap_or("");
+        if nid == target_id {
+            continue;
+        }
+        let in_calls = gv.edges_to(nid, Some("CALLS")).len();
+        if in_calls > 0 {
+            caller_list.push(json!({
+                "id": nid,
+                "name": node["properties"]["name"],
+                "kind": node["properties"]["symbolKind"],
+                "file": node["properties"]["sourcePath"],
+                "line": node["properties"]["lineStart"],
+                "callerCount": in_calls,
+            }));
+        }
+    }
+    caller_list.sort_by(|a, b| {
+        b["callerCount"]
+            .as_u64()
+            .unwrap_or(0)
+            .cmp(&a["callerCount"].as_u64().unwrap_or(0))
+    });
+    let top_callers: Vec<Value> = caller_list.into_iter().take(5).collect();
+
+    // Top callees (outgoing CALLS from target)
+    let top_callees: Vec<Value> = gv
+        .edges_from(target_id, Some("CALLS"))
+        .iter()
+        .take(5)
+        .filter_map(|e| {
+            let tgt = e["target"].as_str().unwrap_or("");
+            impacted_nodes.get(tgt).map(|n| {
+                json!({
+                    "id": tgt,
+                    "name": n["properties"]["name"],
+                    "kind": n["properties"]["symbolKind"],
+                    "file": n["properties"]["sourcePath"],
+                    "line": n["properties"]["lineStart"],
+                    "confidence": e["properties"]["confidence"],
+                })
+            })
+        })
+        .collect();
+
+    // Top files
+    let mut file_counts: Vec<(String, u64)> = Vec::new();
+    for node in impacted_nodes.values() {
+        let f = node["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| node["properties"]["manifestPath"].as_str())
+            .unwrap_or("");
+        if !f.is_empty() {
+            if let Some(entry) = file_counts.iter_mut().find(|(path, _)| path == f) {
+                entry.1 += 1;
+            } else {
+                file_counts.push((f.to_string(), 1));
+            }
+        }
+    }
+    file_counts.sort_by(|a, b| b.1.cmp(&a.1));
+    let top_files: Vec<Value> = file_counts
+        .into_iter()
+        .take(5)
+        .map(|(f, c)| json!({ "file": f, "impactedNodeCount": c }))
+        .collect();
+
+    // Low-confidence edges
+    let mut low_conf_edges: Vec<Value> = Vec::new();
+    for node_id in impacted_nodes.keys() {
+        for edge in gv.edges_from(node_id, None) {
+            let tgt = edge["target"].as_str().unwrap_or("");
+            if !impacted_nodes.contains_key(tgt) {
+                continue;
+            }
+            let conf = edge["properties"]["confidence"].as_f64().unwrap_or(-1.0);
+            if conf >= 0.0 && conf < 0.8 {
+                low_conf_edges.push(json!({
+                    "source": edge["source"],
+                    "target": tgt,
+                    "type": edge["type"],
+                    "confidence": format!("{:.2}", conf),
+                    "reason": edge["properties"]["reason"],
+                }));
+                if low_conf_edges.len() >= 10 {
+                    break;
+                }
+            }
+        }
+        if low_conf_edges.len() >= 10 {
+            break;
+        }
+    }
+
+    // Public symbols
+    let public_symbols: Vec<Value> = impacted_nodes
+        .values()
+        .filter(|n| {
+            let kind = n["properties"]["symbolKind"].as_str().unwrap_or("");
+            kind == "function"
+                || kind == "method"
+                || kind == "struct"
+                || kind == "enum"
+                || kind == "trait"
+                || kind == "interface"
+        })
+        .take(10)
+        .map(|n| {
+            json!({
+                "id": n["id"],
+                "name": n["properties"]["name"],
+                "kind": n["properties"]["symbolKind"],
+                "file": n["properties"]["sourcePath"],
+                "line": n["properties"]["lineStart"],
+            })
+        })
+        .collect();
+
+    // Test files
+    let test_files: Vec<Value> = impacted_nodes
+        .values()
+        .filter(|n| {
+            let file = n["properties"]["sourcePath"].as_str().unwrap_or("");
+            file.contains("_test")
+                || file.contains("/tests/")
+                || file.contains("\\tests\\")
+                || file.contains("/test/")
+                || file.contains("\\test\\")
+                || file.ends_with("_test.rs")
+                || file.ends_with(".test.ts")
+                || file.ends_with("Test.cj")
+        })
+        .take(10)
+        .map(|n| {
+            json!({
+                "id": n["id"],
+                "name": n["properties"]["name"],
+                "kind": n["properties"]["symbolKind"],
+                "file": n["properties"]["sourcePath"],
+                "line": n["properties"]["lineStart"],
+            })
+        })
+        .collect();
+
+    let review_focus = json!({
+        "topCallers": top_callers,
+        "topCallees": top_callees,
+        "topFiles": top_files,
+        "lowConfidenceEdges": low_conf_edges,
+        "publicSymbols": public_symbols,
+        "testFiles": test_files,
+    });
+
+    (metrics, confidence_summary, risk_reasons, review_focus)
+}
+
 fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
@@ -2248,7 +2614,8 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let direction = params["direction"].as_str().unwrap_or("both"); // upstream/downstream/both
     let depth = params["depth"].as_u64().unwrap_or(2).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
-    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let include_snippet = !compact && params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(2).min(10) as usize;
     check_language_feature(language)?;
 
@@ -2369,32 +2736,29 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         *nodes_by_kind.entry(kind).or_insert(0) += 1;
     }
 
-    // Risk heuristic
+    // Compute enhanced risk metrics
     let total_impacted = impacted_nodes.len();
-    let caller_count = impacted_edge_types.get("CALLS").copied().unwrap_or(0);
+    let (impact_metrics, confidence_summary, risk_reasons, review_focus) =
+        compute_impact_risk_details(
+            &gv,
+            target_id,
+            &impacted_nodes,
+            &impacted_edge_types,
+            &root_str,
+        );
 
-    let (risk, reasons) = if total_impacted <= 3 && caller_count <= 2 {
-        (
-            "LOW".to_string(),
-            vec!["Small blast radius, few callers".to_string()],
-        )
+    // Legacy risk level (kept for backward compat)
+    let caller_count = impacted_edge_types.get("CALLS").copied().unwrap_or(0);
+    let risk = if total_impacted <= 3 && caller_count <= 2 {
+        "LOW".to_string()
     } else if total_impacted <= 15 && caller_count <= 10 {
-        (
-            "MEDIUM".to_string(),
-            vec![format!(
-                "Moderate fanout: {} impacted nodes, {} CALLS edges",
-                total_impacted, caller_count
-            )],
-        )
+        "MEDIUM".to_string()
     } else {
-        (
-            "HIGH".to_string(),
-            vec![format!(
-                "High fanout: {} impacted nodes, {} CALLS edges — change requires careful review",
-                total_impacted, caller_count
-            )],
-        )
+        "HIGH".to_string()
     };
+
+    // Legacy reasons (kept for backward compat)
+    let reasons = risk_reasons.clone();
 
     let node_kind_map: serde_json::Map<String, Value> = nodes_by_kind
         .into_iter()
@@ -2483,6 +2847,10 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "impactedNodesByKind": Value::Object(node_kind_map),
             "impactedEdgesByKind": Value::Object(edge_kind_map),
             "topImpactedFiles": top_files,
+            "riskReasons": risk_reasons,
+            "impactMetrics": impact_metrics,
+            "confidenceSummary": confidence_summary,
+            "reviewFocus": review_focus,
             "previewOnly": true,
             "noWrites": true
         }),
@@ -3667,6 +4035,183 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
         );
     }
 
+    // --- Enhanced: overall risk from changed symbols ---
+    let mut overall_risk_reasons: Vec<String> = Vec::new();
+    let mut max_caller_count: usize = 0;
+    let mut changed_symbol_impacts: Vec<Value> = Vec::new();
+    let mut all_low_conf_edges: usize = 0;
+
+    for sym_info in &changed_symbols_info {
+        let sym_name = sym_info["name"].as_str().unwrap_or("unknown");
+        let sym_id = sym_info["id"].as_str().unwrap_or("");
+        let callers = sym_info["callerCount"].as_u64().unwrap_or(0) as usize;
+
+        if callers > max_caller_count {
+            max_caller_count = callers;
+        }
+
+        let sym_risk = if callers > 10 {
+            "HIGH"
+        } else if callers > 3 {
+            "MEDIUM"
+        } else {
+            "LOW"
+        };
+
+        // Count low-confidence edges for this symbol
+        let low_conf = if !sym_id.is_empty() {
+            let lc_out = gv
+                .edges_from(sym_id, Some("CALLS"))
+                .iter()
+                .filter(|e| {
+                    e["properties"]["confidence"]
+                        .as_f64()
+                        .map(|c| c < 0.8)
+                        .unwrap_or(false)
+                })
+                .count();
+            let lc_in = gv
+                .edges_to(sym_id, Some("CALLS"))
+                .iter()
+                .filter(|e| {
+                    e["properties"]["confidence"]
+                        .as_f64()
+                        .map(|c| c < 0.8)
+                        .unwrap_or(false)
+                })
+                .count();
+            all_low_conf_edges += lc_out + lc_in;
+            lc_out + lc_in
+        } else {
+            0
+        };
+
+        let mut impact_reasons: Vec<String> = Vec::new();
+        if callers > 0 {
+            impact_reasons.push(format!("{} direct caller(s)", callers));
+        }
+        if low_conf > 0 {
+            impact_reasons.push(format!("{} low-confidence edge(s)", low_conf));
+        }
+
+        changed_symbol_impacts.push(json!({
+            "name": sym_name,
+            "id": sym_id,
+            "risk": sym_risk,
+            "callerCount": callers,
+            "lowConfidenceEdges": low_conf,
+            "reasons": impact_reasons,
+        }));
+    }
+
+    // overall risk: aggregate from changed symbols + project-level risk
+    let overall_risk = if !changed_symbols_info.is_empty() {
+        if max_caller_count > 10 || failed > 0 || all_low_conf_edges > 5 {
+            "HIGH"
+        } else if max_caller_count > 3 || all_low_conf_edges > 0 || unresolved_count > 3 {
+            "MEDIUM"
+        } else {
+            "LOW"
+        }
+    } else {
+        &risk
+    };
+
+    if !changed_symbols_info.is_empty() {
+        overall_risk_reasons.push(format!(
+            "{} changed symbol(s) detected",
+            changed_symbols_info.len()
+        ));
+    }
+    if max_caller_count > 0 {
+        overall_risk_reasons.push(format!(
+            "Highest-caller symbol has {} direct caller(s)",
+            max_caller_count
+        ));
+    }
+    if all_low_conf_edges > 0 {
+        overall_risk_reasons.push(format!(
+            "{} total low-confidence edge(s) across changed symbols",
+            all_low_conf_edges
+        ));
+    }
+    if failed > 0 {
+        overall_risk_reasons.push(format!("{} quality gate(s) failed", failed));
+    }
+
+    // unknown hunks as risk signal
+    if !unknown_hunks.is_empty() {
+        overall_risk_reasons.push(format!(
+            "{} unknown hunk(s) could not be mapped to graph symbols — manual review recommended",
+            unknown_hunks.len()
+        ));
+    }
+
+    // Highest-risk symbols (sorted by caller count descending)
+    let mut sorted_impacts = changed_symbol_impacts.clone();
+    sorted_impacts.sort_by(|a, b| {
+        b["callerCount"]
+            .as_u64()
+            .unwrap_or(0)
+            .cmp(&a["callerCount"].as_u64().unwrap_or(0))
+    });
+    let highest_risk_symbols: Vec<Value> = sorted_impacts.into_iter().take(5).collect();
+
+    // Review checklist: actionable items for AI
+    let mut review_checklist: Vec<String> = Vec::new();
+    if !changed_symbols_info.is_empty() {
+        review_checklist.push(
+            "inspect direct callers of each changed symbol via codelattice_symbol_context"
+                .to_string(),
+        );
+    }
+    if all_low_conf_edges > 0 {
+        review_checklist.push(format!(
+            "inspect {} low-confidence edge(s) — these may be indirect or ambiguous calls",
+            all_low_conf_edges
+        ));
+    }
+    // Check if any changed symbol is in a test file
+    let has_test_symbols = changed_symbols_info.iter().any(|sym| {
+        let file = sym["file"].as_str().unwrap_or("");
+        file.contains("_test")
+            || file.contains("/tests/")
+            || file.contains("\\tests\\")
+            || file.contains("/test/")
+            || file.contains("\\test\\")
+            || file.ends_with("_test.rs")
+            || file.ends_with(".test.ts")
+            || file.ends_with("Test.cj")
+    });
+    if has_test_symbols {
+        review_checklist
+            .push("run focused tests for affected test files identified in impact set".to_string());
+    } else if !changed_symbols_info.is_empty() {
+        review_checklist
+            .push("no test files found in impact set — consider adding test coverage".to_string());
+    }
+    if !unknown_hunks.is_empty() {
+        review_checklist.push(format!(
+            "review {} unknown hunk(s) manually — diff region(s) could not be mapped to known symbols",
+            unknown_hunks.len()
+        ));
+    }
+    if failed > 0 {
+        review_checklist.push(format!(
+            "address {} failed quality gate(s) before proceeding",
+            failed
+        ));
+    }
+    if unresolved_count > 3 {
+        review_checklist.push(format!(
+            "investigate {} unresolved call(s) that may affect reliability",
+            unresolved_count
+        ));
+    }
+    if review_checklist.is_empty() {
+        review_checklist.push("no immediate action required — project looks healthy".to_string());
+    }
+
     Ok(merge_cache_and_result(
         &json!({
             "root": root,
@@ -3687,6 +4232,11 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
             "unknownHunks": unknown_hunks,
             "changedFileCount": changed_file_count,
             "recommendations": recommendations,
+            "overallRisk": overall_risk,
+            "overallRiskReasons": overall_risk_reasons,
+            "changedSymbolImpacts": changed_symbol_impacts,
+            "highestRiskSymbols": highest_risk_symbols,
+            "reviewChecklist": review_checklist,
             "dryRun": true,
             "noWrites": true,
         }),
@@ -4133,7 +4683,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_impact_preview",
-                "description": "Preview the blast radius of changing a symbol. Returns impacted nodes/edges grouped by kind, approximate risk level (LOW/MEDIUM/HIGH), and top affected files. Read-only, no writes.",
+                "description": "Preview the blast radius of changing a symbol. Returns impacted nodes/edges grouped by kind, approximate risk level (LOW/MEDIUM/HIGH), impact metrics, confidence summary, risk reasons, and review focus. Read-only, no writes.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -4142,7 +4692,8 @@ fn tools_list() -> Value {
                         "symbol": { "type": "string", "description": "Symbol name to analyze impact for" },
                         "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
                         "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
-                        "limit": { "type": "integer", "default": 50, "maximum": 200 }
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: keep risk/riskReasons/impactMetrics/confidenceSummary/reviewFocus, impactedSymbols only id/name/kind/file/line, no snippets" }
                     },
                     "required": ["root", "symbol"]
                 }
