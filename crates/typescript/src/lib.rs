@@ -27,4 +27,7 @@ pub use manifest::{
     load_ts_manifest, parse_oh_package_json5, parse_package_json, parse_tsconfig_json, TsManifest,
     TsManifestError,
 };
-pub use project::{find_project_root, list_source_files, TsPackageInfo, TsProject, TsProjectKind};
+pub use project::{
+    find_project_root, find_typescript_project_root, list_source_files, TsPackageInfo, TsProject,
+    TsProjectKind,
+};

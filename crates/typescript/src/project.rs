@@ -81,6 +81,31 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Walk up from `start` until a TypeScript-specific project marker is found.
+///
+/// Unlike `find_project_root`, this ignores `oh-package.json5` and only
+/// recognizes `tsconfig.json` and `package.json` as markers.
+/// Use this when `--language typescript` is explicitly specified.
+pub fn find_typescript_project_root(start: &Path) -> Option<PathBuf> {
+    let mut current = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
+
+    loop {
+        if current.join("tsconfig.json").is_file() {
+            return Some(current);
+        }
+        if current.join("package.json").is_file() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Source file discovery
 // ---------------------------------------------------------------------------

@@ -3319,7 +3319,11 @@ mod arkts_tests {
             .expect("edges should be array");
         let import_edges: Vec<_> = edges
             .iter()
-            .filter(|e| e["kind"].as_str() == Some("imports"))
+            .filter(|e| {
+                let kind = e["kind"].as_str().unwrap_or("");
+                let type_ = e["type"].as_str().unwrap_or("");
+                kind == "imports" || type_ == "IMPORTS"
+            })
             .collect();
 
         // Should have import edges from Index to Logger, Index to Second, Second to Logger
@@ -4758,5 +4762,301 @@ fn main() {
     assert!(
         data["reviewChecklist"].is_array(),
         "must have reviewChecklist"
+    );
+}
+
+// ============================================================
+// TypeScript Phase A MCP Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[allow(dead_code)]
+fn typescript_portable_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("typescript")
+        .join("portable-smoke")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[allow(dead_code)]
+fn typescript_tsx_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("typescript")
+        .join("tsx-smoke")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_project_overview() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12001);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["nodeCount"].as_u64().unwrap_or(0) > 0,
+        "TypeScript overview must have nodes: {:?}",
+        data
+    );
+    assert!(
+        data["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "TypeScript overview must have symbols: {:?}",
+        data
+    );
+    assert!(
+        data["sourceFileCount"].as_u64().unwrap_or(0) > 0,
+        "TypeScript overview must have source files: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_symbol_search() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "query": "add"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12002);
+    let data = extract_tool_data(&resp);
+    let results = data["matches"].as_array();
+    assert!(
+        results.is_some() && !results.unwrap().is_empty(),
+        "TypeScript symbol search for 'add' must return matches: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_symbol_context() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_context",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "name": "Calculator"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12003);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "TypeScript symbol context for Calculator must find matches: {:?}",
+        data
+    );
+    let empty_candidates: Vec<serde_json::Value> = vec![];
+    let candidates = data["candidates"].as_array().unwrap_or(&empty_candidates);
+    assert!(
+        !candidates.is_empty(),
+        "TypeScript symbol context for Calculator must find matches: {:?}",
+        data
+    );
+    let first = &candidates[0];
+    assert!(
+        first["file"].as_str().unwrap_or("").contains("math"),
+        "Calculator should be in math.ts, got: {:?}",
+        first["file"]
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_query_graph_compact() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_query_graph",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "nameContains": "Calculator",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12004);
+    let data = extract_tool_data(&resp);
+    let nodes = data["matchedNodes"].as_array();
+    assert!(
+        nodes.is_some() && !nodes.unwrap().is_empty(),
+        "TypeScript query_graph must return matched nodes: {:?}",
+        data
+    );
+    // Compact mode: each node should have id/name/kind/file/line
+    let first = &nodes.unwrap()[0];
+    assert!(first["id"].is_string(), "compact node must have id");
+    assert!(first["name"].is_string(), "compact node must have name");
+    assert!(first["kind"].is_string(), "compact node must have kind");
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_impact_preview() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_preview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "symbol": "greet",
+                "depth": 1
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12005);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["risk"].is_string(),
+        "TypeScript impact_preview must return risk: {:?}",
+        data
+    );
+    assert!(
+        data["riskReasons"].is_array(),
+        "TypeScript impact_preview must return riskReasons: {:?}",
+        data
+    );
+    assert!(
+        data["impactMetrics"].is_object(),
+        "TypeScript impact_preview must return impactMetrics: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_changed_symbols() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12006);
+    let data = extract_tool_data(&resp);
+    // changed_symbols should return without error (may be empty if no git diff)
+    assert!(
+        data["changedSymbols"].is_array() || data["changedSymbols"].is_null(),
+        "TypeScript changed_symbols must return array: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_production_assist() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_production_assist",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 12007);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["nodeCount"].as_u64().unwrap_or(0) > 0,
+        "TypeScript production_assist must have nodes: {:?}",
+        data
+    );
+    assert!(
+        data["qualityGatesPassed"].is_number(),
+        "must have qualityGatesPassed: {:?}",
+        data
+    );
+    assert!(
+        data["edgeCount"].as_u64().unwrap_or(0) > 0,
+        "TypeScript production_assist must have edges: {:?}",
+        data
     );
 }

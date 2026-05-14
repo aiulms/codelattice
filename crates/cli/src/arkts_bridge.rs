@@ -116,7 +116,11 @@ fn partition_arkts_nodes(
                 repo_node = Some(node.clone());
             }
             "package" => {
-                let name = label.clone();
+                let name = props
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&label)
+                    .to_string();
                 let manifest_path = props
                     .get("manifestPath")
                     .and_then(|v| v.as_str())
@@ -128,8 +132,12 @@ fn partition_arkts_nodes(
                     manifest_path,
                 });
             }
-            "sourceFile" => {
-                let path = label.clone();
+            "sourceFile" | "source-file" => {
+                let path = props
+                    .get("sourcePath")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&label)
+                    .to_string();
                 let package_id = props
                     .get("packageId")
                     .and_then(|v| v.as_str())
@@ -141,7 +149,11 @@ fn partition_arkts_nodes(
                 });
             }
             "symbol" | "component" | "stateProperty" | "buildMethod" => {
-                let name = label.clone();
+                let name = props
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&label)
+                    .to_string();
                 let mut extra_props = HashMap::new();
                 if let Value::Object(map) = &props {
                     for (k, v) in map {

@@ -17,6 +17,7 @@ default = ["tree-sitter-extraction"]
 tree-sitter-extraction = ["gitnexus-project-model/tree-sitter-extraction"]
 tree-sitter-cangjie = ["gitnexus-cangjie/tree-sitter-cangjie"]
 tree-sitter-arkts = ["dep:gitnexus-arkts", "dep:gitnexus-typescript", "gitnexus-arkts/tree-sitter-arkts"]
+tree-sitter-typescript = ["dep:gitnexus-typescript", "gitnexus-typescript/tree-sitter-typescript"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }

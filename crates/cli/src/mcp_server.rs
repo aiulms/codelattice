@@ -723,7 +723,7 @@ fn run_script_with_timeout(
 // Language helpers
 // ============================================================
 
-/// Check if cangjie/arkts language is requested but feature is not compiled.
+/// Check if cangjie/arkts/typescript language is requested but feature is not compiled.
 /// Returns Err if requested without feature, Ok(()) otherwise.
 fn check_language_feature(language: &str) -> Result<(), Value> {
     if language == "cangjie" {
@@ -745,6 +745,17 @@ fn check_language_feature(language: &str) -> Result<(), Value> {
                 "ArkTS support not compiled",
                 "ArkTS language was requested but tree-sitter-arkts feature is not enabled",
                 "Rebuild with --features tree-sitter-arkts",
+            ));
+        }
+    }
+    if language == "typescript" {
+        #[cfg(not(feature = "tree-sitter-typescript"))]
+        {
+            return Err(mcp_error_with_hint(
+                "typescript_disabled",
+                "TypeScript support not compiled",
+                "TypeScript language was requested but tree-sitter-typescript feature is not enabled",
+                "Rebuild with --features tree-sitter-typescript",
             ));
         }
     }
@@ -5604,7 +5615,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "codelattice",
-                        "version": "0.11.0",
+                        "version": "0.12.0",
                         "cangjieSupport": cangjie_support,
                         "toolCount": 22
                     }

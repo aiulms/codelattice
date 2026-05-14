@@ -17,7 +17,7 @@ use crate::project::TsProject;
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "kebab-case")]
 pub enum TsNodeKind {
     Repository,
     Package,
@@ -39,7 +39,7 @@ pub struct TsGraphNode {
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum TsEdgeKind {
     ContainsPackage,
     OwnsSource,
@@ -51,6 +51,7 @@ pub enum TsEdgeKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TsGraphEdge {
+    #[serde(rename = "type")]
     pub kind: TsEdgeKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
@@ -84,13 +85,14 @@ pub fn build_ts_graph(
     nodes.push(TsGraphNode {
         id: repo_id.clone(),
         kind: TsNodeKind::Repository,
-        label: project
-            .root
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("root")
-            .to_string(),
+        label: "repository".to_string(),
         properties: serde_json::json!({
+            "name": project
+                .root
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("root")
+                .to_string(),
             "language": format!("{:?}", project.kind),
         }),
     });
@@ -118,8 +120,9 @@ pub fn build_ts_graph(
         nodes.push(TsGraphNode {
             id: pkg_id.clone(),
             kind: TsNodeKind::Package,
-            label: manifest.name.clone(),
+            label: "package".to_string(),
             properties: serde_json::json!({
+                "name": manifest.name.clone(),
                 "manifestPath": manifest_path,
             }),
         });
@@ -141,8 +144,9 @@ pub fn build_ts_graph(
         nodes.push(TsGraphNode {
             id: file_id.clone(),
             kind: TsNodeKind::SourceFile,
-            label: rel.to_string_lossy().to_string(),
+            label: "source-file".to_string(),
             properties: serde_json::json!({
+                "sourcePath": rel.to_string_lossy().to_string(),
                 "packageId": pkg_id,
             }),
         });
@@ -166,12 +170,14 @@ pub fn build_ts_graph(
                 nodes.push(TsGraphNode {
                     id: sym_id.clone(),
                     kind: TsNodeKind::Symbol,
-                    label: sym.name.clone(),
+                    label: "symbol".to_string(),
                     properties: serde_json::json!({
+                        "name": sym.name,
                         "symbolKind": sym.kind.to_string(),
+                        "sourcePath": rel.display().to_string(),
                         "fileId": file_id,
-                        "startLine": sym.start_line,
-                        "endLine": sym.end_line,
+                        "lineStart": sym.start_line,
+                        "lineEnd": sym.end_line,
                         "ownerName": sym.owner_name,
                     }),
                 });

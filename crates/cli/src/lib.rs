@@ -631,7 +631,7 @@ fn run_arkts_analysis(
 // TypeScript 分析 + Graph 提取
 // ============================================================
 
-#[cfg(feature = "tree-sitter-arkts")]
+#[cfg(feature = "tree-sitter-typescript")]
 fn run_typescript_analysis(
     root: &Path,
 ) -> Result<
@@ -645,9 +645,10 @@ fn run_typescript_analysis(
     use std::collections::BTreeMap;
 
     // 1. Build project model (tsconfig.json / package.json)
-    let project = gitnexus_typescript::project::find_project_root(root).ok_or_else(|| {
-        "TypeScript project root not found (no tsconfig.json or package.json)".to_string()
-    })?;
+    let project =
+        gitnexus_typescript::project::find_typescript_project_root(root).ok_or_else(|| {
+            "TypeScript project root not found (no tsconfig.json or package.json)".to_string()
+        })?;
 
     let source_files = gitnexus_typescript::project::list_source_files(&project)
         .map_err(|e| format!("Failed to list TypeScript source files: {e}"))?;
@@ -720,7 +721,7 @@ fn run_typescript_analysis(
     Ok((json_val, nodes, edges))
 }
 
-#[cfg(not(feature = "tree-sitter-arkts"))]
+#[cfg(not(feature = "tree-sitter-typescript"))]
 fn run_typescript_analysis(
     _root: &Path,
 ) -> Result<
@@ -732,7 +733,7 @@ fn run_typescript_analysis(
     String,
 > {
     Err(
-        "TypeScript support is disabled. 请使用 --features tree-sitter-arkts 重新编译。"
+        "TypeScript support is disabled. 请使用 --features tree-sitter-typescript 重新编译。"
             .to_string(),
     )
 }
@@ -795,15 +796,25 @@ fn compute_arkts_quality_gates(
 fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value]) -> GraphSummary {
     let symbol_count = nodes
         .iter()
-        .filter(|n| n.get("kind").and_then(|v| v.as_str()) == Some("symbol"))
+        .filter(|n| {
+            let k = n.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            k == "symbol" || k == "Symbol"
+        })
         .count();
     let source_file_count = nodes
         .iter()
-        .filter(|n| n.get("kind").and_then(|v| v.as_str()) == Some("sourceFile"))
+        .filter(|n| {
+            let k = n.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            k == "sourceFile" || k == "source-file" || k == "SourceFile"
+        })
         .count();
     let call_edge_count = edges
         .iter()
-        .filter(|e| e.get("kind").and_then(|v| v.as_str()) == Some("calls"))
+        .filter(|e| {
+            let k = e.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+            let t = e.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            k == "calls" || k == "Calls" || t == "CALLS"
+        })
         .count();
 
     GraphSummary {

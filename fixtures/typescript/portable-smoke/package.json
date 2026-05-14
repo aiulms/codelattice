@@ -1,0 +1,6 @@
+{
+  "name": "portable-smoke",
+  "version": "1.0.0",
+  "description": "Portable smoke test fixture for CodeLattice TypeScript analysis",
+  "private": true
+}

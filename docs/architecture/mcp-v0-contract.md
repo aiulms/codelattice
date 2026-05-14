@@ -1,8 +1,8 @@
 # MCP Contract — CodeLattice AI Layer
 
 > **日期：** 2026-05-11
-> **版本：** v0.11.0
-> **状态：** Active (MCP v0.11 Doc Association)
+> **版本：** v0.12.0
+> **状态：** Active (MCP v0.12 TypeScript Phase A)
 > **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/mtime invalidation/LRU/源码片段/production assist/compare runs/Code ↔ Docs Association 能力
 
 ---
@@ -957,6 +957,26 @@ Scripts parse this output to detect the binary's capabilities and warn if Cangji
 - `export_bridge` output restricted to /tmp only
 - `rename_preview` does not perform AST-safe rewrite — use IDE/language server for actual renames
 - `query_graph` only matches edges if `edgeKind` parameter is provided; node-only queries return empty `matchedEdges`
+
+### TypeScript Phase A (v0.12)
+
+TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可通过 `--language typescript` 和 `language: "typescript"` MCP 参数使用。
+
+**支持范围：**
+- 函数、类、方法、接口、类型别名、变量、枚举的符号提取
+- 命名/默认/命名空间 import 识别
+- 函数调用、类型引用、成员访问、new 表达式的基础识别
+- `codelattice_analyze`、`codelattice_project_overview`、`codelattice_symbol_search`、`codelattice_symbol_context`、`codelattice_query_graph`、`codelattice_impact_preview`、`codelattice_changed_symbols`、`codelattice_production_assist` 全部可用
+- CLI `--format json` 和 `--format gitnexus-rc` (bridge) 输出
+- TSX 文件通过 tree-sitter TSX 语法解析
+
+**已知限制（TypeScript）：**
+- 不运行 npm/tsc — 无类型检查，无模块解析
+- 不替代 tsserver/IDE
+- 不解析 node_modules、path alias、monorepo workspace 引用
+- 方法调用置信度较低（无法确定调用目标类型）
+- 不支持 JSX 框架语义（React component detection 等）
+- 编译需要 `--features tree-sitter-typescript`
 - `impact_preview` risk heuristic is simple (node/edge count thresholds), not context-aware
 - `repo_registry` does not maintain persistent state — defers to GitNexus-RC Tool for full registry
 - BFS traversal for calls_from/calls_to/impact_preview limited to max depth 3
