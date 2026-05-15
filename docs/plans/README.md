@@ -23,6 +23,10 @@
 
 ## 当前状态总结
 
+**External Beta v0.13.0-beta.2 All-Language Pack（2026-05-15，已完成）：**
+- 📝 [`2026-05-15-beta2-all-language-release-preflight.md`](2026-05-15-beta2-all-language-release-preflight.md) — beta.1 预编译包缺少 ArkTS feature 的根因、修复边界、执行卡。
+- ✅ [`2026-05-15-beta2-all-language-release-closure.md`](2026-05-15-beta2-all-language-release-closure.md) — closure：全语言 release build、MCP capability profile、Rust/Cangjie/ArkTS/TypeScript packaged smoke、beta.2 发布验证。
+
 **Release Download + Installer Pack（2026-05-11，已完成）：**
 - 📝 [`2026-05-11-release-download-installer-preflight.md`](2026-05-11-release-download-installer-preflight.md) — GitCode Release installer、README download path、checksum/self-test 安装策略。
 - 📝 [`2026-05-11-release-download-installer-execution-card.md`](2026-05-11-release-download-installer-execution-card.md) — write set / forbidden set / verification target。

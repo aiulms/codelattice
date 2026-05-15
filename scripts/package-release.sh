@@ -40,7 +40,7 @@ The package includes:
   CHANGELOG.md
   docs/getting-started.md, release docs, and selected MCP architecture docs when present
   docs/platforms/linux-openeuler.md and scripts/linux-source-build-smoke.sh when present
-  portable Rust/Cangjie fixtures for release smoke
+  portable Rust/Cangjie/ArkTS/TypeScript fixtures for release smoke
 HELP
 }
 
@@ -142,13 +142,15 @@ echo "Platform: $PLATFORM"
 echo "Dist:     $DIST_DIR"
 echo ""
 
+RELEASE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript"
+
 if [[ "$SKIP_BUILD" != "true" ]]; then
-    echo "--- Build release binaries (Rust + Cangjie) ---"
+    echo "--- Build release binaries (all language adapters) ---"
     cargo build \
         --release \
         --manifest-path "$REPO_ROOT/Cargo.toml" \
         -p gitnexus-rust-core-cli \
-        --features tree-sitter-cangjie \
+        --features "$RELEASE_FEATURES" \
         --bins
 else
     echo "--- Build skipped ---"
@@ -167,7 +169,13 @@ fi
 
 echo ""
 echo "--- Stage artifact ---"
-mkdir -p "$STAGE_DIR/bin" "$STAGE_DIR/docs" "$STAGE_DIR/fixtures/rust" "$STAGE_DIR/fixtures/cangjie"
+mkdir -p \
+    "$STAGE_DIR/bin" \
+    "$STAGE_DIR/docs" \
+    "$STAGE_DIR/fixtures/rust" \
+    "$STAGE_DIR/fixtures/cangjie" \
+    "$STAGE_DIR/fixtures/arkts" \
+    "$STAGE_DIR/fixtures/typescript"
 cp "$BIN_CODELATTICE" "$STAGE_DIR/bin/codelattice"
 cp "$BIN_COMPAT" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
 chmod +x "$STAGE_DIR/bin/codelattice" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
@@ -203,6 +211,8 @@ done
 
 cp -R "$REPO_ROOT/fixtures/rust/portable-smoke" "$STAGE_DIR/fixtures/rust/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/cangjie/portable-smoke" "$STAGE_DIR/fixtures/cangjie/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/arkts/portable-smoke" "$STAGE_DIR/fixtures/arkts/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/typescript/portable-smoke" "$STAGE_DIR/fixtures/typescript/portable-smoke"
 
 cat > "$STAGE_DIR/codelattice-mcp.sh" <<'WRAPPER'
 #!/usr/bin/env bash
@@ -256,6 +266,8 @@ d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 print("  serverVersion: {}".format(s.get("version", "unknown")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport", "unknown")))
+print("  arktsSupport: {}".format(s.get("arktsSupport", "unknown")))
+print("  typescriptSupport: {}".format(s.get("typescriptSupport", "unknown")))
 print("  toolCount: {}".format(s.get("toolCount", "unknown")))'
     exit 0
 fi
@@ -271,9 +283,13 @@ s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
 assert int(s.get("toolCount", 0)) >= 21
 assert s.get("cangjieSupport") is True
+assert s.get("arktsSupport") is True
+assert s.get("typescriptSupport") is True
 print("  serverVersion: {}".format(s.get("version")))
 print("  toolCount: {}".format(s.get("toolCount")))
-print("  cangjieSupport: {}".format(s.get("cangjieSupport")))'
+print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
+print("  arktsSupport: {}".format(s.get("arktsSupport")))
+print("  typescriptSupport: {}".format(s.get("typescriptSupport")))'
     echo "Self-test passed."
     exit 0
 fi
@@ -290,6 +306,8 @@ COMPAT_SHA256="$(shasum -a 256 "$STAGE_DIR/bin/gitnexus-rust-core-cli" | awk '{p
 PROFILE_JSON="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-release","version":"1.0"}}}' | "$STAGE_DIR/bin/codelattice" mcp 2>/dev/null | head -1)"
 SERVER_VERSION="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("version","unknown"))')"
 CANGJIE_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport", False)).lower())')"
+ARKTS_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport", False)).lower())')"
+TYPESCRIPT_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport", False)).lower())')"
 TOOL_COUNT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))')"
 
 cat > "$STAGE_DIR/manifest.json" <<JSON
@@ -310,7 +328,9 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "changelog": "CHANGELOG.md",
     "releasePolicy": "docs/release-versioning.md",
     "rustFixture": "fixtures/rust/portable-smoke",
-    "cangjieFixture": "fixtures/cangjie/portable-smoke"
+    "cangjieFixture": "fixtures/cangjie/portable-smoke",
+    "arktsFixture": "fixtures/arkts/portable-smoke",
+    "typescriptFixture": "fixtures/typescript/portable-smoke"
   },
   "checksums": {
     "binarySha256": "$BINARY_SHA256",
@@ -319,6 +339,8 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
   "profile": {
     "serverVersion": "$SERVER_VERSION",
     "cangjieSupport": $CANGJIE_SUPPORT,
+    "arktsSupport": $ARKTS_SUPPORT,
+    "typescriptSupport": $TYPESCRIPT_SUPPORT,
     "toolCount": $TOOL_COUNT
   }
 }

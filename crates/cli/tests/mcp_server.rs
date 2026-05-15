@@ -158,6 +158,18 @@ fn mcp_initialize_returns_capabilities() {
 
     assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
     assert_eq!(resp["result"]["serverInfo"]["name"], "codelattice");
+    assert_eq!(
+        resp["result"]["serverInfo"]["cangjieSupport"],
+        cfg!(feature = "tree-sitter-cangjie")
+    );
+    assert_eq!(
+        resp["result"]["serverInfo"]["arktsSupport"],
+        cfg!(feature = "tree-sitter-arkts")
+    );
+    assert_eq!(
+        resp["result"]["serverInfo"]["typescriptSupport"],
+        cfg!(feature = "tree-sitter-typescript")
+    );
     assert!(resp["result"]["capabilities"]["tools"].is_object());
 }
 

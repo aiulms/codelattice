@@ -2,7 +2,7 @@
 
 > **Platform**: macOS (`darwin-arm64`), Apple Silicon
 > **Date**: 2026-05-15
-> **Version**: 0.13.0-beta.1
+> **Version**: 0.13.0-beta.2
 > **Rust**: stable (via `rustc`)
 
 ## Feature Combinations
@@ -72,10 +72,11 @@
 | `git diff --check` | No whitespace issues | ✅ |
 | `cargo test --test mcp_server` | 89 MCP integration tests | ✅ |
 | `cargo test` | All unit tests | ✅ |
+| `cargo test --all-features` | Combined optional adapter tests | ✅ |
 | `scripts/mcp-dogfood.sh` | 22-tool MCP walkthrough | ✅ |
 | `scripts/mcp-cache-smoke.sh` | Cache hit/miss/persistent (6 tests) | ✅ |
-| `scripts/package-release.sh` | Build tarball + manifest | ✅ |
-| `scripts/release-smoke.sh` | Tarball unpack + verify | ✅ |
+| `scripts/package-release.sh` | Build all-language tarball + manifest | ✅ |
+| `scripts/release-smoke.sh` | Tarball unpack + Rust/Cangjie/ArkTS/TypeScript verify | ✅ |
 | `scripts/fresh-clone-smoke.sh` | Simulated external clone path | ✅ |
 | `scripts/linux-source-build-smoke.sh` | Source-build platform preflight | ✅ |
 

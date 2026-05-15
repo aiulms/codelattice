@@ -4,7 +4,7 @@
 # Usage: bash scripts/install-mcp.sh [options]
 #
 # Options:
-#   --build           Build release binary with Rust + Cangjie support (default)
+#   --build           Build release binary with all language adapters (default)
 #   --rust-only       Build release binary with Rust support only
 #   --install-dir PATH Stable runtime directory for printed client config
 #   --print-config    Print configuration snippets for AI clients
@@ -53,8 +53,8 @@ install-mcp.sh — Build and configure CodeLattice MCP for local AI clients.
 Usage: bash scripts/install-mcp.sh [--build|--rust-only|--install-dir PATH|--print-config|--dry-run|--doctor|--help]
 
 Options:
-  --build           Build release binary with Rust + Cangjie support (default)
-  --rust-only       Build release binary with Rust support only (no Cangjie)
+  --build           Build release binary with all language adapters (default)
+  --rust-only       Build release binary with Rust support only (no optional adapters)
   --install-dir     Stable runtime directory for printed client config
   --print-config    Print MCP client configuration snippets
   --dry-run         Show what would be done
@@ -86,8 +86,8 @@ if [[ "$ACTION" == "build" ]]; then
         echo "--- Building release binary (Rust only) ---"
         BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --bins"
     else
-        echo "--- Building release binary (Rust + Cangjie) ---"
-        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins"
+        echo "--- Building release binary (all language adapters) ---"
+        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins"
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -107,7 +107,7 @@ if [[ "$ACTION" == "build" ]]; then
         if [[ "$RUST_ONLY" == "true" ]]; then
             echo "  Profile: rust-only"
         else
-            echo "  Profile: rust+cangjie"
+            echo "  Profile: all-languages"
         fi
     elif [[ "$DRY_RUN" != "true" ]]; then
         echo "WARNING: Binary not found after build: $BIN_PATH"
@@ -211,8 +211,8 @@ JSON
     echo "Notes:"
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - This script never writes client config; it only prints snippets"
-    echo "  - Supports Rust and Cangjie analysis (when built with --features tree-sitter-cangjie)"
-    echo "  - 21 tools including process-local cache with mtime invalidation and prewarm"
+    echo "  - Supports Rust, Cangjie, ArkTS, and TypeScript when built with --build"
+    echo "  - 22 tools including process-local cache with mtime invalidation and prewarm"
     echo "  - Read-only — never modifies source code"
     echo "  - After config change, restart your AI client session to reload MCP tools"
 fi
@@ -276,13 +276,17 @@ if [[ "$ACTION" == "doctor" ]]; then
         if echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='codelattice'" 2>/dev/null; then
             SERVER_VER=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
             CANGJIE_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+            ARKTS_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('arktsSupport','unknown'))" 2>/dev/null || echo "unknown")
+            TYPESCRIPT_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('typescriptSupport','unknown'))" 2>/dev/null || echo "unknown")
             TOOL_COUNT_INFO=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
-            echo "PASS: MCP handshake (server v$SERVER_VER, cangjie=$CANGJIE_SUPPORT, tools=$TOOL_COUNT_INFO)"
+            echo "PASS: MCP handshake (server v$SERVER_VER, cangjie=$CANGJIE_SUPPORT, arkts=$ARKTS_SUPPORT, typescript=$TYPESCRIPT_SUPPORT, tools=$TOOL_COUNT_INFO)"
             PASS=$((PASS + 1))
         else
             echo "FAIL: MCP handshake failed"
             FAIL=$((FAIL + 1))
             CANGJIE_SUPPORT="unknown"
+            ARKTS_SUPPORT="unknown"
+            TYPESCRIPT_SUPPORT="unknown"
         fi
 
         # 4. tools/list count
@@ -307,17 +311,18 @@ if [[ "$ACTION" == "doctor" ]]; then
             FAIL=$((FAIL + 1))
         fi
 
-        # 6. Cangjie support check
-        if [[ "$CANGJIE_SUPPORT" == "True" ]]; then
-            echo "PASS: cangjieSupport=true (tree-sitter-cangjie feature compiled)"
+        # 6. Language adapter support check
+        if [[ "$CANGJIE_SUPPORT" == "True" && "$ARKTS_SUPPORT" == "True" && "$TYPESCRIPT_SUPPORT" == "True" ]]; then
+            echo "PASS: all optional language adapters compiled"
             PASS=$((PASS + 1))
-        elif [[ "$CANGJIE_SUPPORT" == "False" ]]; then
-            echo "FAIL: cangjieSupport=false — Cangjie tools will not work"
+        elif [[ "$CANGJIE_SUPPORT" == "False" || "$ARKTS_SUPPORT" == "False" || "$TYPESCRIPT_SUPPORT" == "False" ]]; then
+            echo "FAIL: missing optional language adapter support"
+            echo "      cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT"
             echo "      Fix: bash $0 --build"
-            echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins"
+            echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins"
             FAIL=$((FAIL + 1))
         else
-            echo "WARN: cangjieSupport=$CANGJIE_SUPPORT (could not detect)"
+            echo "WARN: language support could not be fully detected (cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT)"
         fi
 
         # 7. Cangjie smoke test (only if support is true)
@@ -358,8 +363,8 @@ for line in sys.stdin:
     if [[ "$FAIL" -gt 0 ]]; then
         echo ""
         echo "Fix suggestions:"
-        echo "  bash $0 --build              # Build with Rust + Cangjie"
-        echo "  bash $0 --build --rust-only  # Build Rust only (no Cangjie)"
+        echo "  bash $0 --build              # Build all language adapters"
+        echo "  bash $0 --build --rust-only  # Build Rust only (no optional adapters)"
         echo "  bash $WRAPPER --self-test"
         exit 1
     fi

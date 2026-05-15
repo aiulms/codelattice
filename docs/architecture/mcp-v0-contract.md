@@ -888,15 +888,19 @@ The `initialize` response now includes profile information:
     "name": "codelattice",
     "version": "0.7.0",
     "cangjieSupport": true,
+    "arktsSupport": true,
+    "typescriptSupport": true,
     "toolCount": 21
   }
 }
 ```
 
 - `cangjieSupport`: `true` if binary compiled with `--features tree-sitter-cangjie`, `false` otherwise
+- `arktsSupport`: `true` if binary compiled with `--features tree-sitter-arkts`, `false` otherwise
+- `typescriptSupport`: `true` if binary compiled with `--features tree-sitter-typescript`, `false` otherwise
 - `toolCount`: number of tools exposed via `tools/list`
 
-Scripts parse this output to detect the binary's capabilities and warn if Cangjie support is missing.
+Scripts parse this output to detect the binary's capabilities and warn if optional language support is missing.
 
 ---
 
@@ -1042,6 +1046,7 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
 | 2026-05-11 | v0.5.0 | v0.5 — Daily-use candidate: mtime-based cache invalidation, LRU eviction (max 16), snippet expansion to calls_from/to/impact/query/rename, 2 new tools (production_assist, compare_runs), install --doctor, real-client-dry-run.sh, 20 tools total |
 | 2026-05-11 | v0.6.0 | v0.6 — opencode real client verified, cangjie symbol_search fix (kind-based filtering, id parsing, label fallback), pipe-buffer deadlock fix, path-deny false positive fix, 1 new tool (cache_prewarm), 21 tools total |
 | 2026-05-11 | v0.7.0 | v0.7 — Install/profile hardening: cangjieSupport in initialize serverInfo, wrapper binary selection prefers cangjie-enabled binaries, install-mcp.sh --build defaults with cangjie feature, --rust-only option, doctor checks cangjie support + cangjie smoke, cargo run fallback includes tree-sitter-cangjie, 21 tools total |
+| 2026-05-15 | v0.13.0 | v0.13 beta.2 — initialize serverInfo adds arktsSupport/typescriptSupport, release packaging builds all optional language adapters, release smoke verifies Rust/Cangjie/ArkTS/TypeScript portable fixtures, 22 tools total |
 | 2026-05-11 | v0.8.0 | v0.8 — Cangjie Live Production Runway: live repo deny-list exemption for runtime/cjgui subpath (ALLOWED_DENIED_SUBPATHS), cangjie-live-codelattice-smoke.sh (--dry-run/--analyze/--mcp/--tool-ingest/--full), Tool registry entry cangjie-live-codelattice (17,194 nodes / 52,522 edges / 2,887 symbols), explicit naming convention (cangjie-live-codelattice vs cjgui-index vs legacy cjgui), 21 tools total |
 | 2026-05-13 | v0.9.0 | v0.9 — Changed-Symbol Auto Detection: 1 new tool (codelattice_changed_symbols), git diff → graph symbol mapping via hunk overlap detection, production_assist auto-detects changed symbols when changedSymbols not provided, 8 new integration tests (temp git repo fixture), 22 tools total |
 | 2026-05-13 | v0.10.0 | v0.10 — Better Impact Risk Reasons: impact_preview enhanced with riskReasons (human-readable risk explanations), impactMetrics (callerCount/downstreamCount/impactedFileCount/crossFileCount/publicSymbolCount/testFileCount/confidence edge counts), confidenceSummary (min/avg/max confidence), reviewFocus (topCallers/topCallees/topFiles/lowConfidenceEdges/publicSymbols/testFiles), compact mode. production_assist enhanced with overallRisk/overallRiskReasons/changedSymbolImpacts/highestRiskSymbols/reviewChecklist. unknown hunks surface in risk reasons and checklist. 10 new integration tests, 76 total, 22 tools total |

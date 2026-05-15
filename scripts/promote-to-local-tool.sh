@@ -112,8 +112,8 @@ echo "Install dir: $INSTALL_DIR"
 echo ""
 
 if [[ "$SKIP_BUILD" != "true" ]]; then
-    echo "--- Building release binary (Rust + Cangjie) ---"
-    run cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins --manifest-path "$REPO_ROOT/Cargo.toml"
+    echo "--- Building release binary (all language adapters) ---"
+    run cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins --manifest-path "$REPO_ROOT/Cargo.toml"
 else
     echo "--- Build skipped ---"
 fi
@@ -197,6 +197,8 @@ d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 print("  serverVersion: {}".format(s.get("version", "unknown")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport", "unknown")))
+print("  arktsSupport: {}".format(s.get("arktsSupport", "unknown")))
+print("  typescriptSupport: {}".format(s.get("typescriptSupport", "unknown")))
 print("  toolCount: {}".format(s.get("toolCount", "unknown")))'
     exit 0
 fi
@@ -212,9 +214,13 @@ s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
 assert int(s.get("toolCount", 0)) >= 21
 assert s.get("cangjieSupport") is True
+assert s.get("arktsSupport") is True
+assert s.get("typescriptSupport") is True
 print("  serverVersion: {}".format(s.get("version")))
 print("  toolCount: {}".format(s.get("toolCount")))
-print("  cangjieSupport: {}".format(s.get("cangjieSupport")))'
+print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
+print("  arktsSupport: {}".format(s.get("arktsSupport")))
+print("  typescriptSupport: {}".format(s.get("typescriptSupport")))'
 
     MULTI_RESP="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-tool-self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$BIN" mcp 2>/dev/null)"
     TOOL_COUNT="$(echo "$MULTI_RESP" | python3 -c 'import json,sys
@@ -245,6 +251,8 @@ WRAPPER
     INIT_RESP="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"promote-manifest","version":"1.0"}}}' | "$INSTALL_BIN" mcp 2>/dev/null | head -1)"
     SERVER_VERSION="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("version","unknown"))' 2>/dev/null || echo unknown)"
     CANGJIE_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport", False)).lower())' 2>/dev/null || echo false)"
+    ARKTS_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport", False)).lower())' 2>/dev/null || echo false)"
+    TYPESCRIPT_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport", False)).lower())' 2>/dev/null || echo false)"
     TOOL_COUNT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))' 2>/dev/null || echo 0)"
     cat > "$INSTALL_MANIFEST" <<JSON
 {
@@ -269,6 +277,8 @@ WRAPPER
   "profile": {
     "serverVersion": "$SERVER_VERSION",
     "cangjieSupport": $CANGJIE_SUPPORT,
+    "arktsSupport": $ARKTS_SUPPORT,
+    "typescriptSupport": $TYPESCRIPT_SUPPORT,
     "toolCount": $TOOL_COUNT
   }
 }

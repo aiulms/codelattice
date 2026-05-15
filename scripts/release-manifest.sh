@@ -110,15 +110,28 @@ CARGO_VERSION="$(cargo --version 2>/dev/null || echo "unknown")"
 FEATURES_DEFAULT="tree-sitter-extraction"
 FEATURES_ENABLED="$FEATURES_DEFAULT"
 if [[ -n "$BINARY" ]]; then
-    # Check if cangjie support is available by probing MCP
+    # Check which language adapters are available by probing MCP.
     _PROFILE="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manifest","version":"1.0"}}}' | "$BINARY" mcp 2>/dev/null | head -1 || true)"
     MCP_VERSION="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("version","unknown"))' 2>/dev/null || echo "unknown")"
     CANGJIE_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport",False)).lower())' 2>/dev/null || echo "false")"
+    ARKTS_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport",False)).lower())' 2>/dev/null || echo "false")"
+    TYPESCRIPT_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport",False)).lower())' 2>/dev/null || echo "false")"
     TOOL_COUNT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))' 2>/dev/null || echo "0")"
     BINARY_SHA256="$(shasum -a 256 "$BINARY" | awk '{print $1}')"
+    if [[ "$CANGJIE_SUPPORT" == "true" ]]; then
+        FEATURES_ENABLED="$FEATURES_ENABLED,tree-sitter-cangjie"
+    fi
+    if [[ "$ARKTS_SUPPORT" == "true" ]]; then
+        FEATURES_ENABLED="$FEATURES_ENABLED,tree-sitter-arkts"
+    fi
+    if [[ "$TYPESCRIPT_SUPPORT" == "true" ]]; then
+        FEATURES_ENABLED="$FEATURES_ENABLED,tree-sitter-typescript"
+    fi
 else
     MCP_VERSION="unknown"
     CANGJIE_SUPPORT="unknown"
+    ARKTS_SUPPORT="unknown"
+    TYPESCRIPT_SUPPORT="unknown"
     TOOL_COUNT="unknown"
     BINARY_SHA256="unknown"
 fi
@@ -143,7 +156,9 @@ MANIFEST=$(cat <<JSON
   "mcpProfile": {
     "serverVersion": "$MCP_VERSION",
     "toolCount": $TOOL_COUNT,
-    "cangjieSupport": $CANGJIE_SUPPORT
+    "cangjieSupport": $CANGJIE_SUPPORT,
+    "arktsSupport": $ARKTS_SUPPORT,
+    "typescriptSupport": $TYPESCRIPT_SUPPORT
   },
   "supportedLanguages": {
     "rust": "stable",

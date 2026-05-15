@@ -105,6 +105,8 @@ RELEASE_POLICY="$RELEASE_DIR/docs/release-versioning.md"
 RELEASE_INSTALL="$RELEASE_DIR/docs/release-install.md"
 RUST_FIXTURE="$RELEASE_DIR/fixtures/rust/portable-smoke"
 CANGJIE_FIXTURE="$RELEASE_DIR/fixtures/cangjie/portable-smoke"
+ARKTS_FIXTURE="$RELEASE_DIR/fixtures/arkts/portable-smoke"
+TYPESCRIPT_FIXTURE="$RELEASE_DIR/fixtures/typescript/portable-smoke"
 
 for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST" "$CHANGELOG" "$RELEASE_POLICY" "$RELEASE_INSTALL"; do
     if [[ ! -e "$path" ]]; then
@@ -143,6 +145,23 @@ if [[ -z "$TOOLS_COUNT" || "$TOOLS_COUNT" -lt 21 ]]; then
     exit 1
 fi
 echo "tools/list: OK ($TOOLS_COUNT tools)"
+
+echo ""
+echo "--- Language support profile ---"
+PROFILE_JSON="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"release-smoke-profile","version":"1.0"}}}' \
+    | "$BIN" mcp 2>/dev/null \
+    | head -1)"
+echo "$PROFILE_JSON" | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+s=d["result"]["serverInfo"]
+assert s.get("cangjieSupport") is True, "cangjieSupport must be true in release artifact"
+assert s.get("arktsSupport") is True, "arktsSupport must be true in release artifact"
+assert s.get("typescriptSupport") is True, "typescriptSupport must be true in release artifact"
+print("language support: OK cangjie={} arkts={} typescript={}".format(
+    s.get("cangjieSupport"),
+    s.get("arktsSupport"),
+    s.get("typescriptSupport"),
+))'
 
 echo ""
 echo "--- Rust fixture analyze ---"
@@ -185,6 +204,44 @@ print("cangjie: OK symbols={} files={} edges={}".format(
 else
     echo "cangjie: SKIP (support=$CANGJIE_SUPPORT fixture=$([[ -d "$CANGJIE_FIXTURE" ]] && echo present || echo missing))"
 fi
+
+echo ""
+echo "--- ArkTS fixture analyze ---"
+if [[ ! -d "$ARKTS_FIXTURE" ]]; then
+    echo "ERROR: missing packaged ArkTS fixture: $ARKTS_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$ARKTS_FIXTURE" --language arkts --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "arkts"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+print("arkts: OK symbols={} files={} edges={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+))'
+
+echo ""
+echo "--- TypeScript fixture analyze ---"
+if [[ ! -d "$TYPESCRIPT_FIXTURE" ]]; then
+    echo "ERROR: missing packaged TypeScript fixture: $TYPESCRIPT_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$TYPESCRIPT_FIXTURE" --language typescript --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "typescript"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+print("typescript: OK symbols={} files={} edges={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+))'
 
 echo ""
 echo "Release smoke passed."

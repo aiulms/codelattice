@@ -20,7 +20,7 @@
 #   3. target/debug/codelattice if exists
 #   4. target/release/gitnexus-rust-core-cli if exists (compat)
 #   5. target/debug/gitnexus-rust-core-cli if exists (compat)
-#   6. cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- mcp
+#   6. cargo run --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript -p gitnexus-rust-core-cli --bin codelattice -- mcp
 #
 # The MCP server speaks newline-delimited JSON-RPC over stdio.
 # Logging goes to stderr only — stdout is pure JSON-RPC.
@@ -36,13 +36,15 @@ CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
 
 # --- Helper: get profile info from binary via MCP initialize ---
-# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_TOOLS
+# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_TOOLS
 _get_profile() {
     local bin="$1"
     local init_resp
     init_resp=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"profile","version":"1.0"}}}' | "$bin" mcp 2>/dev/null | head -1)
     _PROFILE_VERSION=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
     _PROFILE_CANGJIE=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_ARKTS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('arktsSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_TYPESCRIPT=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('typescriptSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_TOOLS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
 }
 
@@ -79,26 +81,26 @@ _select_binary() {
         candidates+=("$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli:debug-compat")
     fi
 
-    # Try candidates: prefer ones with cangjie support
+    # Try candidates: prefer all-language binaries.
     for entry in "${candidates[@]}"; do
         local bin="${entry%%:*}"
         local profile="${entry##*:}"
         _get_profile "$bin"
-        if [[ "$_PROFILE_CANGJIE" == "True" ]]; then
+        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" ]]; then
             SELECTED_BIN="$bin"
-            SELECTED_SOURCE="$profile (cangjie=true)"
+            SELECTED_SOURCE="$profile (all-languages=true)"
             return
         fi
     done
 
-    # Fall back to first candidate even without cangjie
+    # Fall back to first candidate even without all optional adapters.
     if [[ ${#candidates[@]} -gt 0 ]]; then
         local entry="${candidates[0]}"
         local bin="${entry%%:*}"
         local profile="${entry##*:}"
         SELECTED_BIN="$bin"
         _get_profile "$bin"
-        SELECTED_SOURCE="$profile (cangjie=$_PROFILE_CANGJIE)"
+        SELECTED_SOURCE="$profile (cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT)"
         return
     fi
 
@@ -130,15 +132,16 @@ Environment:
 
 Binary selection:
   1. CODELATTICE_MCP_BIN (if set)
-  2. target/release/codelattice (if exists, prefer cangjie-enabled)
-  3. target/debug/codelattice (if exists, prefer cangjie-enabled)
+  2. target/release/codelattice (if exists, prefer all-language build)
+  3. target/debug/codelattice (if exists, prefer all-language build)
   4. target/release/gitnexus-rust-core-cli (compat)
   5. target/debug/gitnexus-rust-core-cli (compat)
-  6. cargo run --features tree-sitter-cangjie --bin codelattice (fallback)
+  6. cargo run --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bin codelattice (fallback)
 
 Profile:
-  The wrapper detects cangjieSupport from the binary's MCP initialize response.
-  If no cangjie-enabled binary is found, it warns and suggests rebuild.
+  The wrapper detects cangjieSupport, arktsSupport, and typescriptSupport from
+  the binary's MCP initialize response.
+  If no all-language binary is found, it warns and suggests rebuild.
 
 Examples:
   # Default startup (from any cwd)
@@ -168,10 +171,12 @@ if [[ "${1:-}" == "--version" ]]; then
         _get_profile "$SELECTED_BIN"
         echo "  serverVersion: $_PROFILE_VERSION"
         echo "  cangjieSupport: $_PROFILE_CANGJIE"
+        echo "  arktsSupport: $_PROFILE_ARKTS"
+        echo "  typescriptSupport: $_PROFILE_TYPESCRIPT"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback)"
-        echo "  source: cargo-run-fallback (will build with tree-sitter-cangjie)"
+        echo "  source: cargo-run-fallback (will build all language adapters)"
     fi
     exit 0
 fi
@@ -199,6 +204,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
         _get_profile "$SELECTED_BIN"
         echo "  serverVersion: $_PROFILE_VERSION"
         echo "  cangjieSupport: $_PROFILE_CANGJIE"
+        echo "  arktsSupport: $_PROFILE_ARKTS"
+        echo "  typescriptSupport: $_PROFILE_TYPESCRIPT"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback — no pre-built binary found)"
@@ -266,14 +273,15 @@ for line in sys.stdin:
         exit 1
     fi
 
-    # Cangjie support check
-    if [[ "$_PROFILE_CANGJIE" == "True" ]]; then
-        echo "  cangjieSupport: OK (tree-sitter-cangjie feature compiled)"
-    elif [[ "$_PROFILE_CANGJIE" == "False" ]]; then
-        echo "  cangjieSupport: WARN — Cangjie tools will not work"
+    # Optional language support check
+    if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" ]]; then
+        echo "  languageSupport: OK (Cangjie, ArkTS, TypeScript compiled)"
+    elif [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" ]]; then
+        echo "  languageSupport: WARN — optional language tools may not work"
+        echo "    cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT"
         echo "    Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build"
     else
-        echo "  cangjieSupport: unknown (could not detect)"
+        echo "  languageSupport: unknown (could not detect)"
     fi
 
     echo ""
@@ -292,67 +300,18 @@ if [[ ! -f "$CODELATTICE_ROOT/Cargo.toml" ]]; then
     exit 1
 fi
 
-# --- Select binary with profile awareness ---
-BIN=""
-WARN_CANGJIE=false
-
-if [[ -n "$CODELATTICE_MCP_BIN" ]]; then
-    if [[ ! -x "$CODELATTICE_MCP_BIN" ]]; then
-        echo "ERROR: CODELATTICE_MCP_BIN not executable: $CODELATTICE_MCP_BIN" >&2
-        exit 1
+# --- Select and launch ---
+_select_binary
+if [[ -n "$SELECTED_BIN" ]]; then
+    _get_profile "$SELECTED_BIN"
+    if [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" ]]; then
+        echo "[codelattice] WARNING: optional language support missing in selected binary." >&2
+        echo "[codelattice] cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT" >&2
+        echo "[codelattice] Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build" >&2
     fi
-    BIN="$CODELATTICE_MCP_BIN"
-    # Quick profile check
-    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
-    if [[ "$_CJ" == "False" ]]; then
-        WARN_CANGJIE=true
-    fi
-elif [[ -x "$CODELATTICE_ROOT/target/release/codelattice" ]]; then
-    BIN="$CODELATTICE_ROOT/target/release/codelattice"
-    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
-    if [[ "$_CJ" == "False" ]]; then
-        # Check if debug binary has cangjie — prefer it
-        if [[ -x "$CODELATTICE_ROOT/target/debug/codelattice" ]]; then
-            _DCJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$CODELATTICE_ROOT/target/debug/codelattice" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
-            if [[ "$_DCJ" == "True" ]]; then
-                BIN="$CODELATTICE_ROOT/target/debug/codelattice"
-                _CJ="True"
-            fi
-        fi
-        if [[ "$_CJ" == "False" ]]; then
-            WARN_CANGJIE=true
-        fi
-    fi
-elif [[ -x "$CODELATTICE_ROOT/target/debug/codelattice" ]]; then
-    BIN="$CODELATTICE_ROOT/target/debug/codelattice"
-    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
-    if [[ "$_CJ" == "False" ]]; then
-        WARN_CANGJIE=true
-    fi
-elif [[ -x "$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli" ]]; then
-    BIN="$CODELATTICE_ROOT/target/release/gitnexus-rust-core-cli"
-    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
-    if [[ "$_CJ" == "False" ]]; then
-        WARN_CANGJIE=true
-    fi
-elif [[ -x "$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli" ]]; then
-    BIN="$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli"
-    _CJ=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"wrapper","version":"1.0"}}}' | "$BIN" mcp 2>/dev/null | head -1 | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
-    if [[ "$_CJ" == "False" ]]; then
-        WARN_CANGJIE=true
-    fi
-fi
-
-if [[ "$WARN_CANGJIE" == "true" ]]; then
-    echo "[codelattice] WARNING: Cangjie support not compiled in this binary." >&2
-    echo "[codelattice] Cangjie tools will fail. Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build" >&2
-fi
-
-# --- Launch ---
-if [[ -n "$BIN" ]]; then
-    exec "$BIN" mcp
+    exec "$SELECTED_BIN" mcp
 else
-    # Fallback: cargo run with cangjie feature
-    echo "[codelattice] No pre-built binary found. Using cargo run with tree-sitter-cangjie..." >&2
-    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bin codelattice --quiet -- mcp
+    # Fallback: cargo run with all optional language adapters.
+    echo "[codelattice] No pre-built binary found. Using cargo run with all language adapters..." >&2
+    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bin codelattice --quiet -- mcp
 fi

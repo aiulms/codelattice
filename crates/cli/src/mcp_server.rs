@@ -6324,6 +6324,26 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     false
                 }
             };
+            let arkts_support = {
+                #[cfg(feature = "tree-sitter-arkts")]
+                {
+                    true
+                }
+                #[cfg(not(feature = "tree-sitter-arkts"))]
+                {
+                    false
+                }
+            };
+            let typescript_support = {
+                #[cfg(feature = "tree-sitter-typescript")]
+                {
+                    true
+                }
+                #[cfg(not(feature = "tree-sitter-typescript"))]
+                {
+                    false
+                }
+            };
             Some(make_response(
                 &id,
                 json!({
@@ -6333,6 +6353,8 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "name": "codelattice",
                         "version": "0.13.0",
                         "cangjieSupport": cangjie_support,
+                        "arktsSupport": arkts_support,
+                        "typescriptSupport": typescript_support,
                         "toolCount": 22
                     }
                 }),

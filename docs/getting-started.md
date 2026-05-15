@@ -14,14 +14,14 @@ CodeLattice runs locally and does not upload source code.
 
 ## Install from GitCode Release
 
-The current `v0.13.0-beta.1` published binary targets macOS Apple Silicon (`darwin-arm64`):
+The current `v0.13.0-beta.2` published binary targets macOS Apple Silicon (`darwin-arm64`):
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.13.0-beta.1 \
+  --version v0.13.0-beta.2 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
@@ -129,13 +129,13 @@ The tarball contains:
 - `manifest.json`
 - `CHANGELOG.md`
 - selected docs
-- portable Rust/Cangjie fixtures for smoke
+- portable Rust/Cangjie/ArkTS/TypeScript fixtures for smoke
 
 See [release-versioning.md](release-versioning.md) and [release-packaging.md](release-packaging.md) for release rules and artifact details.
 
 ## Troubleshooting
 
-If Cangjie support is missing:
+If optional language support is missing:
 
 ```bash
 bash scripts/install-mcp.sh --build
