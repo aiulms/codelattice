@@ -36,7 +36,7 @@ CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
 
 # --- Helper: get profile info from binary via MCP initialize ---
-# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_TOOLS
+# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_C, _PROFILE_TOOLS
 _get_profile() {
     local bin="$1"
     local init_resp
@@ -45,6 +45,7 @@ _get_profile() {
     _PROFILE_CANGJIE=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_ARKTS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('arktsSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_TYPESCRIPT=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('typescriptSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_C=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_TOOLS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
 }
 
@@ -86,7 +87,7 @@ _select_binary() {
         local bin="${entry%%:*}"
         local profile="${entry##*:}"
         _get_profile "$bin"
-        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" ]]; then
+        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" ]]; then
             SELECTED_BIN="$bin"
             SELECTED_SOURCE="$profile (all-languages=true)"
             return
@@ -206,6 +207,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
         echo "  cangjieSupport: $_PROFILE_CANGJIE"
         echo "  arktsSupport: $_PROFILE_ARKTS"
         echo "  typescriptSupport: $_PROFILE_TYPESCRIPT"
+        echo "  cSupport: $_PROFILE_C"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback — no pre-built binary found)"

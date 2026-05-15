@@ -5,12 +5,67 @@
 //! 2. 有 Cargo.toml → rust
 //! 3. 有 cjpm.toml → cangjie
 //! 4. 有 tsconfig.json 或 package.json（非 ArkTS/非 Rust/非 Cangjie）→ typescript
-//! 5. 多种存在 → 报错要求显式指定
-//! 6. 都没有 → 报错"无法检测语言"
+//! 5. 有 C 项目标记且无 C++ 文件 → c
+//! 6. 多种存在 → 报错要求显式指定
+//! 7. 都没有 → 报错"无法检测语言"
 
 use std::path::Path;
 
 use crate::unified_types::DetectedLanguage;
+
+/// C++ file extensions — if found, C auto-detect returns Unknown.
+const CPP_EXTENSIONS: &[&str] = &[
+    "cpp", "cc", "cxx", "c++", "C", "hpp", "hh", "hxx", "h++", "H",
+];
+
+/// Check if any file in the root directory tree has a C++ extension.
+fn has_cpp_files(root: &Path) -> bool {
+    walk_for_extension(root, CPP_EXTENSIONS)
+}
+
+/// Walk directory tree checking if any file matches the given extensions.
+fn walk_for_extension(root: &Path, extensions: &[&str]) -> bool {
+    let mut stack = vec![root.to_path_buf()];
+    let skip = [
+        "target",
+        "build",
+        ".git",
+        "node_modules",
+        "dist",
+        "cmake-build-debug",
+        "cmake-build-release",
+        ".gitnexus",
+    ];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if !skip.contains(&name) && !name.starts_with('.') {
+                        stack.push(path);
+                    }
+                }
+            } else if path
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|ext| extensions.contains(&ext))
+                .unwrap_or(false)
+            {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// Check if any .c or .h files exist in the tree.
+fn has_c_files(root: &Path) -> bool {
+    walk_for_extension(root, &["c", "h"])
+}
 
 /// 从项目根目录检测语言
 ///
@@ -21,6 +76,11 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
     let has_oh_pkg = root.join("oh-package.json5").is_file();
     let has_tsconfig = root.join("tsconfig.json").is_file();
     let has_pkg_json = root.join("package.json").is_file();
+
+    // C project markers (lower priority than above)
+    let has_cmake = root.join("CMakeLists.txt").is_file();
+    let has_makefile = root.join("Makefile").is_file() || root.join("GNUmakefile").is_file();
+    let has_autoconf = root.join("configure.ac").is_file();
 
     // Collect all detected language markers
     let mut detected = Vec::new();
@@ -36,6 +96,13 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
     // TypeScript: only if not already claimed by ArkTS/Rust/Cangjie
     if has_tsconfig || (has_pkg_json && !has_oh_pkg && !has_cargo && !has_cjpm) {
         detected.push(DetectedLanguage::TypeScript);
+    }
+    // C: only if no stronger markers, has C markers/files, and NO C++ files
+    if !has_cargo && !has_cjpm && !has_oh_pkg && !has_tsconfig && !has_pkg_json {
+        let has_c_markers = has_cmake || has_makefile || has_autoconf || has_c_files(root);
+        if has_c_markers && !has_cpp_files(root) {
+            detected.push(DetectedLanguage::C);
+        }
     }
 
     match detected.len() {

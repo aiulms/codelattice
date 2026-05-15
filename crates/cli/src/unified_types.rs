@@ -115,6 +115,8 @@ pub enum DetectedLanguage {
     ArkTS,
     /// TypeScript project (tsconfig.json / package.json with .ts/.tsx files)
     TypeScript,
+    /// C project (CMakeLists.txt / Makefile / .c/.h files, no C++ files)
+    C,
     /// 多种清单存在，需要用户显式指定
     Ambiguous,
     /// 没有可识别的清单文件
@@ -129,6 +131,7 @@ impl DetectedLanguage {
             DetectedLanguage::Cangjie => "cangjie",
             DetectedLanguage::ArkTS => "arkts",
             DetectedLanguage::TypeScript => "typescript",
+            DetectedLanguage::C => "c",
             DetectedLanguage::Ambiguous => "ambiguous",
             DetectedLanguage::Unknown => "unknown",
         }

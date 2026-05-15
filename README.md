@@ -2,9 +2,13 @@
 
 > 中文 README 是本项目的权威介绍与维护基准；英文说明仅作为外部 beta 用户的参考入口。
 
-CodeLattice 是一个用 Rust 编写的本地代码图谱分析核心，面向 AI 编程工具、代码审查和工程质量检查提供可验证的代码理解能力。它目前重点支持 Rust 与 Cangjie / 仓颉项目，并逐步覆盖 ArkTS / HarmonyOS 与 TypeScript。
+CodeLattice 是给 AI 和人类用的“屎山代码分析器”：把陌生大仓、遗留项目和高耦合模块，拆成能查询、能复盘、能评估风险的本地代码图谱。
 
-它做的事情很直接：在本地读取代码，抽取符号，解析调用关系，生成结构化图谱，检查图谱质量，然后通过 CLI 和 MCP sidecar 把这些结果交给 AI 编程助手或工程工具使用。整个过程默认只读，不上传代码，不依赖云端索引。
+它解决的问题很直接：接手一个看不懂的仓库时，先别急着让 AI 乱改。先让 CodeLattice 在本地扫一遍代码，告诉你“有哪些文件和符号、谁调用谁、哪里风险高、改动可能影响哪里”，再把这些结构化上下文交给 Codex、opencode、Claude Desktop 或其他工程工具。
+
+一句话概括：**先把代码地图画出来，再让 AI 下手。**
+
+它用 Rust 编写，目前重点支持 Rust 与 Cangjie / 仓颉项目，并逐步覆盖 ArkTS / HarmonyOS 与 TypeScript。整个过程默认只读，不上传代码，不依赖云端索引。
 
 **当前状态：外部 Beta（`v0.13.0-beta.2`）**。本地生产试用已通过，但还不是 GA 版本。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
@@ -204,6 +208,24 @@ target/release/codelattice analyze \
   --strict
 ```
 
+### 分析 C 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/c/project \
+  --language c \
+  --format json
+```
+
+导出 GitNexus-RC bridge 格式：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/c/project \
+  --language c \
+  --format gitnexus-rc
+```
+
 ### 分析 ArkTS / HarmonyOS 项目
 
 ```bash
@@ -236,6 +258,7 @@ target/release/codelattice analyze \
 - 找到 `Cargo.toml`：Rust
 - 找到 `cjpm.toml`：Cangjie / 仓颉
 - 找到 `oh-package.json5`：ArkTS
+- 找到 `.c`/`.h` 文件且无 C++ 文件：无 C++ 的 C 项目
 - 同时检测到多个语言：需要显式传入 `--language`
 
 ### 质量检查

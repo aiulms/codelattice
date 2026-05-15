@@ -129,7 +129,7 @@ if [ "$TOOL_COUNT" -ge 21 ]; then
 else
     FAIL=$((FAIL + 1))
     RESULTS+=("FAIL: tools/list (expected >= 24, got $TOOL_COUNT)")
-    echo "   → expected >= 24 tools, got $TOOL_COUNT"
+    echo "   → expected >= 21 tools, got $TOOL_COUNT"
 fi
 ID=3
 

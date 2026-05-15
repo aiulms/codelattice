@@ -6,6 +6,7 @@ members = [
     "crates/cangjie",
     "crates/typescript",
     "crates/arkts",
+    "crates/c",
 ]
 
 [workspace.package]

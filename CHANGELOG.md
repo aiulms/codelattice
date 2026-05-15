@@ -24,6 +24,17 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - 7 new MCP integration tests for project_insights
 - Updated README.md: large project insight section, AI-sidecar workflow step 1
 
+- **C Phase A** (unreleased): C language static analysis support via tree-sitter-c.
+  - New `gitnexus-c` crate: `extractors/` (symbol, include), `graph.rs`, `project.rs`
+  - CLI `analyze --language c`, `quality --language c`, `summary --language c` commands
+  - MCP `language=c` enum added to all 21 tool schemas; `check_language_feature` updated
+  - Bridge format: `convert_c_graph` independent implementation
+  - Auto-detect: walk directory tree, exclude C++ files (`.cpp/.cc/.cxx/.hpp/.hh/.hxx`)
+  - Phase A limitations: no macro expansion, no function pointer resolution, no C++ support
+  - New `scripts/c-real-project-smoke.sh`: synthetic + real project C smoke tests
+  - 9 new feature-gated MCP integration tests for C language
+  - `serverInfo.cSupport` profile flag in MCP initialize response
+
 - **MCP tool `codelattice_review_plan`** (v0.9): AI engineering review checklist that synthesizes project insights, impact analysis, changed symbols, and doc associations into actionable plans. Graph-based heuristic — not compiler/IDE/test-system proof.
   - 4 modes: `onboarding` (start a new project), `before_edit` (pre-change impact preview), `after_edit` (post-change impact + test/doc hints), `release_check` (pre-release quality gate)
   - Each plan item: priority (P0/P1/P2), action, target, file, line, reason, source, recommendedTool, doneCriteria

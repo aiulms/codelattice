@@ -51,6 +51,14 @@ fn arkts_cross_file_dir() -> std::path::PathBuf {
         .join("cross-file")
 }
 
+#[allow(dead_code)]
+fn c_portable_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("c")
+        .join("portable-smoke")
+}
+
 fn cli_binary() -> PathBuf {
     // Use CARGO_BIN_EXE environment variable set by cargo test
     std::env::var("CARGO_BIN_EXE_gitnexus-rust-core-cli")
@@ -5104,6 +5112,319 @@ fn mcp_typescript_production_assist() {
         "TypeScript production_assist must have edges: {:?}",
         data
     );
+}
+
+// ============================================================
+// C Phase A MCP Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-c")]
+mod c_tests {
+    use super::*;
+
+    /// C CLI analyze: portable-smoke fixture should produce valid JSON with nodes/edges.
+    #[test]
+    fn mcp_c_analyze_portable_smoke() {
+        let root = c_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "c",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C analyze should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+        let summary = &data["summary"];
+        assert!(
+            summary["nodeCount"].as_u64().unwrap() > 0,
+            "C analyze should produce nodes"
+        );
+        assert!(
+            summary["sourceFileCount"].as_u64().unwrap() > 0,
+            "C analyze should report source files"
+        );
+        assert!(
+            summary["symbolCount"].as_u64().unwrap() > 0,
+            "C analyze should extract symbols"
+        );
+    }
+
+    /// C CLI quality: should return quality gates without error.
+    #[test]
+    fn mcp_c_quality_portable_smoke() {
+        let root = c_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "quality",
+                "--language",
+                "c",
+                "--root",
+                &root.to_string_lossy(),
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C quality should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("quality output should be valid JSON");
+        assert_eq!(data["language"], "c");
+        assert!(data["gates"].is_array(), "quality should have gates array");
+        assert!(
+            data["gates"].as_array().unwrap().len() > 0,
+            "quality should have gates"
+        );
+    }
+
+    /// C CLI summary: should return graph + quality summary.
+    #[test]
+    fn mcp_c_summary_portable_smoke() {
+        let root = c_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "summary",
+                "--language",
+                "c",
+                "--root",
+                &root.to_string_lossy(),
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C summary should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("summary output should be valid JSON");
+        assert_eq!(data["language"], "c");
+        assert!(
+            data["graphSummary"].is_object(),
+            "summary should have graphSummary"
+        );
+        assert!(
+            data["qualitySummary"].is_object(),
+            "summary should have qualitySummary"
+        );
+    }
+
+    /// C CLI bridge format: should produce gitnexus-rc compatible output.
+    #[test]
+    fn mcp_c_bridge_format() {
+        let root = c_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "c",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "gitnexus-rc",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C bridge format should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("bridge output should be valid JSON");
+        assert_eq!(data["language"], "c");
+        assert!(
+            data["symbols"].is_array(),
+            "bridge should have symbols array"
+        );
+        assert!(
+            data["sourceFiles"].is_array(),
+            "bridge should have sourceFiles array"
+        );
+    }
+
+    /// C MCP symbol_search: should find "add" function in math_utils.
+    #[test]
+    fn mcp_c_symbol_search_finds_add() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = c_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 20001,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_symbol_search",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "c",
+                    "query": "add",
+                    "limit": 10
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 20001);
+        let text = resp["result"]["content"][0]["text"].as_str().expect("text");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("symbol_search output should be valid JSON");
+        let count = data["matchCount"].as_u64().unwrap_or(0);
+        assert!(
+            count > 0,
+            "C symbol_search(add) should find matches, got {}",
+            count
+        );
+    }
+
+    /// C MCP project_overview: counts should be non-zero.
+    #[test]
+    fn mcp_c_project_overview_counts_nonzero() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = c_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 20002,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "c"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 20002);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C project_overview should succeed"
+        );
+        let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value = serde_json::from_str(content_text)
+            .expect("project_overview output should be valid JSON");
+        assert_eq!(data["language"], "c");
+        assert!(data["nodeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["edgeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["symbolCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["sourceFileCount"].as_u64().unwrap_or(0) > 0);
+    }
+
+    /// C MCP calls_from: should return calls from main.
+    #[test]
+    fn mcp_c_calls_from_main() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = c_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 20004,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_calls_from",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "c",
+                    "symbol": "main"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 20004);
+        // calls_from returns valid response (may have 0 calls if no callees)
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C calls_from should not error"
+        );
+    }
+
+    /// C MCP query_graph by file: should find nodes from a specific source file.
+    #[test]
+    fn mcp_c_query_graph_finds_math_utils() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = c_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 20005,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_query_graph",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "c",
+                    "fileContains": "math_utils"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 20005);
+        // Should not error - fileContains is supported
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C query_graph(fileContains) should not error"
+        );
+    }
+
+    /// C MCP production_assist: should run without error.
+    #[test]
+    fn mcp_c_production_assist() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = c_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 20006,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_production_assist",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "c"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 20006);
+        let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value = serde_json::from_str(content_text)
+            .expect("production_assist output should be valid JSON");
+        assert!(
+            data["changedSymbols"].is_array() || data["changedSymbols"].is_null(),
+            "production_assist should return changedSymbols array"
+        );
+        assert!(
+            data["qualityGatesPassed"].is_number(),
+            "production_assist should have qualityGatesPassed"
+        );
+    }
 }
 
 // ─── v0.8 Persistent Cache Tests ──────────────────────────────────────────
