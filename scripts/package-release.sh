@@ -38,7 +38,8 @@ The package includes:
   manifest.json
   README.md
   CHANGELOG.md
-  docs/getting-started.md, docs/release-install.md, docs/release-versioning.md, and docs/release-packaging.md when present
+  docs/getting-started.md, release docs, and selected MCP architecture docs when present
+  docs/platforms/linux-openeuler.md and scripts/linux-source-build-smoke.sh when present
   portable Rust/Cangjie fixtures for release smoke
 HELP
 }
@@ -176,10 +177,27 @@ cp "$REPO_ROOT/CHANGELOG.md" "$STAGE_DIR/CHANGELOG.md"
 if [[ -f "$REPO_ROOT/LICENSE" ]]; then
     cp "$REPO_ROOT/LICENSE" "$STAGE_DIR/LICENSE"
 fi
-for doc in docs/getting-started.md docs/release-install.md docs/release-versioning.md docs/release-packaging.md docs/architecture/mcp-local-client-setup.md docs/architecture/mcp-v0-contract.md; do
+for doc in \
+    docs/getting-started.md \
+    docs/release-install.md \
+    docs/release-versioning.md \
+    docs/release-packaging.md \
+    docs/release/upgrade.md \
+    docs/release/smoke-matrix.md \
+    docs/platforms/linux-openeuler.md \
+    docs/architecture/mcp-local-client-setup.md \
+    docs/architecture/mcp-v0-contract.md; do
     if [[ -f "$REPO_ROOT/$doc" ]]; then
         mkdir -p "$STAGE_DIR/$(dirname "$doc")"
         cp "$REPO_ROOT/$doc" "$STAGE_DIR/$doc"
+    fi
+done
+
+for script in scripts/linux-source-build-smoke.sh; do
+    if [[ -f "$REPO_ROOT/$script" ]]; then
+        mkdir -p "$STAGE_DIR/$(dirname "$script")"
+        cp "$REPO_ROOT/$script" "$STAGE_DIR/$script"
+        chmod +x "$STAGE_DIR/$script"
     fi
 done
 

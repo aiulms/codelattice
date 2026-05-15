@@ -8,13 +8,13 @@ It does not write Codex, opencode, Claude, or shell configuration files.
 
 ## Current Published Binary
 
-`v0.1.0` publishes a macOS Apple Silicon artifact:
+`v0.13.0-beta.1` publishes a macOS Apple Silicon artifact:
 
 ```text
-codelattice-0.1.0-darwin-arm64.tar.gz
+codelattice-0.13.0-beta.1-darwin-arm64.tar.gz
 ```
 
-Linux users can already clone and build from source. Multi-platform release artifacts are the next packaging step.
+Linux users can already clone and build from source. Multi-platform release artifacts are the next packaging step. See the [Linux / openEuler source build guide](platforms/linux-openeuler.md) for prerequisites and smoke commands.
 
 ## Install
 
@@ -23,7 +23,7 @@ export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.1.0 \
+  --version v0.13.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 ```
 
@@ -42,7 +42,7 @@ $CODELATTICE_TOOL_DIR/codelattice-mcp.sh
 ## Options
 
 ```bash
-bash scripts/install-release.sh --version v0.1.0
+bash scripts/install-release.sh --version v0.13.0-beta.1
 bash scripts/install-release.sh --platform darwin-arm64
 bash scripts/install-release.sh --install-dir "$HOME/.local/share/codelattice-tool"
 bash scripts/install-release.sh --dry-run
@@ -70,4 +70,10 @@ If download fails with 404, the selected release probably does not provide that 
 git clone https://gitcode.com/aiulms/codelattice.git
 cd codelattice
 bash scripts/install-mcp.sh --build
+```
+
+For a fuller platform preflight, run:
+
+```bash
+bash scripts/linux-source-build-smoke.sh --all-language-features
 ```

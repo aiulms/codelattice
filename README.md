@@ -1,36 +1,89 @@
 # CodeLattice
 
-CodeLattice 是一个本地代码分析器和 AI coding sidecar。它分析 Rust、Cangjie / 仓颉、ArkTS / HarmonyOS 和 TypeScript 项目，提取符号、调用关系、文档关联和影响风险，通过 CLI 和 MCP sidecar 提供给 AI 编程助手、代码审查和本地工程工具。
+CodeLattice is a local code analyzer and AI coding sidecar. It analyzes Rust, Cangjie / 仓颉, ArkTS / HarmonyOS, and TypeScript projects to extract symbols, call relationships, documentation associations, and impact risks. It provides these capabilities through CLI and MCP sidecar for AI programming assistants, code review, and local engineering tools.
 
-CodeLattice 完全在本机运行，不上传代码。默认只读分析，通过 stdio JSON-RPC 对外提供能力。
+CodeLattice runs entirely on your local machine and never uploads code. It performs read-only analysis by default and exposes capabilities via stdio JSON-RPC.
 
-**当前状态：External Beta (`v0.13.0-beta.1`)** — 本地 production trial 已通过，不是 GA release。参见 [CHANGELOG](CHANGELOG.md) 和 [Smoke Matrix](docs/release/smoke-matrix.md)。
+**Current Status: External Beta (`v0.13.0-beta.1`)** — Local production trial passed, not GA release. See [CHANGELOG](CHANGELOG.md) and [Smoke Matrix](docs/release/smoke-matrix.md).
 
-## 适合谁
+## Who Is It For
 
-- 想让 AI agent 先理解代码结构，再回答、改动或做影响分析的开发者。
-- 需要在本机生成代码图谱、符号索引、调用关系和质量门报告的团队。
-- 正在维护 Rust 或 Cangjie 项目，想要一个可脚本化、可 smoke、可接 MCP client 的本地分析核心。
-- 想把代码理解能力嵌入自己的工具链，但暂时不需要 WebUI 或托管平台的人。
+- Developers who want AI agents to understand code structure before answering, modifying, or performing impact analysis.
+- Teams that need to generate code graphs, symbol indexes, call relationships, and quality gate reports locally.
+- Developers maintaining Rust or Cangjie projects who want a scriptable, smoke-testable, MCP-client-connectable local analysis core.
+- Users who want to embed code understanding capabilities into their own toolchain without needing a WebUI or hosted platform.
 
-## 核心能力
+## Core Capabilities
 
-| 能力 | 说明 |
-|------|------|
-| 项目模型 | 识别 Rust Cargo 项目、Cangjie cjpm 项目和 ArkTS HarmonyOS 项目，建立 package、target、source ownership |
-| 符号索引 | 提取函数、方法、类型、trait/interface、枚举、宏、init 等语言符号；ArkTS 额外提取 @Component、@State、build() |
-| 调用解析 | 解析同模块、跨文件、import 绑定、部分关联函数和有限 receiver method |
-| 图输出 | 输出 repository / package / source file / symbol / diagnostic 节点和关系边；ArkTS 额外输出 component / buildMethod / UI call 节点 |
-| 质量门 | 检查 dangling edge、duplicate、统计一致性、stdout JSON purity、deterministic output |
-| MCP sidecar | 提供 22 个 MCP 工具，支持 AI client 查询项目概览、符号上下文、调用关系、影响预览、改动检测、文档关联 |
-| 持久化缓存 | 两层缓存（内存 + 磁盘），fingerprint 失效检测，跨进程复用分析结果 |
-| 本地安全 | 默认只读；wrapper 与 stable runtime 可隔离；配置脚本只打印模板，不写真实客户端配置 |
+| Capability | Description |
+|-----------|-------------|
+| Project Model | Identifies Rust Cargo projects, Cangjie cjpm projects, and ArkTS HarmonyOS projects; establishes package, target, and source ownership |
+| Symbol Indexing | Extracts functions, methods, types, traits/interfaces, enums, macros, init, and other language symbols; ArkTS additionally extracts @Component, @State, build() |
+| Call Resolution | Resolves same-module, cross-file, import binding, partial associated functions, and limited receiver methods |
+| Graph Output | Outputs repository / package / source file / symbol / diagnostic nodes and relationship edges; ArkTS additionally outputs component / buildMethod / UI call nodes |
+| Quality Gates | Checks dangling edges, duplicates, statistical consistency, stdout JSON purity, deterministic output |
+| MCP Sidecar | Provides 22 MCP tools supporting AI client queries for project overview, symbol context, call relationships, impact preview, change detection, and documentation association |
+| Persistent Cache | Two-layer cache (memory + disk) with fingerprint invalidation detection for cross-process analysis result reuse |
+| Local Security | Read-only by default; wrapper and stable runtime can be isolated; configuration scripts only print templates without writing real client configurations |
 
 ## Quick Start
 
-### 1. 从 GitCode Release 安装
+### 1. Clone and Build
 
-当前 `v0.13.0-beta.1` 已发布 macOS Apple Silicon (`darwin-arm64`) 发行包：
+```bash
+git clone https://gitcode.com/aiulms/codelattice.git
+cd codelattice
+
+# Build release binary with default Rust + Cangjie support
+bash scripts/install-mcp.sh --build
+```
+
+After building, use the public binary:
+
+```bash
+target/release/codelattice --version
+```
+
+Compatibility note: The Cargo package is still named `gitnexus-rust-core-cli` and continues to build a compatibility binary with the same name; the external command name `codelattice` is preferred.
+
+### 2. Run Fresh Clone Smoke Test
+
+```bash
+bash scripts/fresh-clone-smoke.sh --skip-tests
+```
+
+This script copies the current repo to `/tmp/codelattice-fresh-smoke-*` to simulate an external fresh clone without network cloning and without touching real AI client configurations. By default, it validates the build, temporary stable runtime installation, MCP wrapper self-test, tools/list, Rust fixture, and Cangjie fixture when available.
+
+For full testing:
+
+```bash
+bash scripts/fresh-clone-smoke.sh
+```
+
+### 3. Install Stable MCP Runtime
+
+AI clients should point to the promoted stable wrapper rather than scripts in the development checkout.
+
+```bash
+export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
+bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
+"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
+```
+
+If `--install-dir` is not provided, the script uses the default directory `$HOME/Desktop/CodeLattice-Tool`.
+
+### 4. Analyze a Rust Fixture
+
+```bash
+target/release/codelattice analyze \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --format json
+```
+
+### 5. Install from Release Tarball
+
+Current `v0.13.0-beta.1` has published macOS Apple Silicon (`darwin-arm64`) release packages:
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
@@ -42,55 +95,23 @@ bash "$tmp_dir/scripts/install-release.sh" \
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
 
-这个 installer 会下载 GitCode Release tarball，校验 `.sha256`，安装 stable MCP wrapper，并运行 self-test。它不会修改 Codex / opencode / Claude 配置。参见 [安装指南](docs/release-install.md) 和 [升级指南](docs/release/upgrade.md)。
+This installer downloads the GitCode Release tarball, verifies `.sha256`, installs the stable MCP wrapper, and runs self-test. It does not modify Codex / opencode / Claude configurations. See [Install Guide](docs/release-install.md) and [Upgrade Guide](docs/release/upgrade.md).
 
-Linux 或其他平台当前可先走源码构建路径；多平台 release artifact 是下一步 packaging 工作。
+Linux and other platforms currently follow the source build path; multi-platform release artifacts are the next packaging milestone. See the [Linux / openEuler source build guide](docs/platforms/linux-openeuler.md) for prerequisites and smoke commands.
 
-### 2. Clone 并构建
-
-```bash
-git clone https://gitcode.com/aiulms/codelattice.git
-cd codelattice
-
-# 构建 release binary，默认包含 Rust + Cangjie 支持
-bash scripts/install-mcp.sh --build
-```
-
-构建后优先使用 public binary：
+### 6. Print MCP Client Configuration Template
 
 ```bash
-target/release/codelattice --version
+bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
 ```
 
-兼容说明：Cargo package 仍叫 `gitnexus-rust-core-cli`，并继续构建同名兼容 binary；对外命令优先使用 `codelattice`。
+This command only prints Codex / opencode / Claude configuration snippets without modifying any real configuration. The wrapper in the configuration should point to:
 
-### 3. 跑 fresh clone smoke
-
-```bash
-bash scripts/fresh-clone-smoke.sh --skip-tests
+```text
+$CODELATTICE_TOOL_DIR/codelattice-mcp.sh
 ```
 
-这个脚本会把当前 repo 复制到 `/tmp/codelattice-fresh-smoke-*` 模拟外部 fresh clone，不联网 clone，不触碰真实 AI client 配置。默认会验证构建、临时 stable runtime 安装、MCP wrapper self-test、tools/list、Rust fixture 和可用时的 Cangjie fixture。
-
-需要完整测试时：
-
-```bash
-bash scripts/fresh-clone-smoke.sh
-```
-
-### 4. 安装稳定 MCP runtime
-
-AI 客户端建议指向 promoted stable wrapper，而不是开发 checkout 里的脚本。
-
-```bash
-export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
-bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
-"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
-```
-
-如果不传 `--install-dir`，脚本会使用默认目录 `$HOME/Desktop/CodeLattice-Tool`。
-
-### 5. 打包 release tarball
+### 7. Package Release Tarball
 
 ```bash
 bash scripts/check-release-metadata.sh
@@ -98,39 +119,27 @@ bash scripts/package-release.sh
 bash scripts/release-smoke.sh
 ```
 
-默认产物：
+Default artifacts:
 
 ```text
 dist/codelattice-<version>-<platform>.tar.gz
 dist/codelattice-<version>-<platform>.tar.gz.sha256
 ```
 
-版本规则见 `docs/release-versioning.md`，发布记录见 `CHANGELOG.md`。产品版本来自 Cargo `workspace.package.version`；MCP `serverVersion` 是 sidecar tool/profile 版本，两者分开管理。
+Version rules are in `docs/release-versioning.md`; release notes are in `CHANGELOG.md`. The product version comes from Cargo `workspace.package.version`; the MCP `serverVersion` is the sidecar tool/profile version, managed separately.
 
-### 6. 打印 MCP client 配置模板
+## Supported Languages
 
-```bash
-bash scripts/install-mcp.sh --install-dir "$CODELATTICE_TOOL_DIR" --print-config
-```
+| Language | Status | Feature Flag |
+|----------|--------|-------------|
+| Rust | **Stable** | `tree-sitter-extraction` (enabled by default) |
+| Cangjie / 仓颉 | **Stable** | `tree-sitter-cangjie` |
+| ArkTS / HarmonyOS | **Production Trial** | `tree-sitter-arkts` |
+| TypeScript | **Phase A** | `tree-sitter-typescript` |
 
-该命令只打印 Codex / opencode / Claude 配置片段，不会修改任何真实配置。配置中的 wrapper 应指向：
+## CLI Usage
 
-```text
-$CODELATTICE_TOOL_DIR/codelattice-mcp.sh
-```
-
-### 7. 分析一个 Rust fixture
-
-```bash
-target/release/codelattice analyze \
-  --root fixtures/rust/portable-smoke \
-  --language rust \
-  --format json
-```
-
-## CLI 用法
-
-### 分析 Rust 项目
+### Analyze Rust Project
 
 ```bash
 target/release/codelattice analyze \
@@ -139,7 +148,7 @@ target/release/codelattice analyze \
   --format json
 ```
 
-严格质量门：
+Strict quality gates:
 
 ```bash
 target/release/codelattice analyze \
@@ -149,7 +158,7 @@ target/release/codelattice analyze \
   --strict
 ```
 
-### 分析 Cangjie / 仓颉项目
+### Analyze Cangjie / 仓颉 Project
 
 ```bash
 target/release/codelattice analyze \
@@ -159,7 +168,7 @@ target/release/codelattice analyze \
   --strict
 ```
 
-### 分析 ArkTS / HarmonyOS 项目
+### Analyze ArkTS / HarmonyOS Project
 
 ```bash
 target/release/codelattice analyze \
@@ -168,7 +177,7 @@ target/release/codelattice analyze \
   --format json
 ```
 
-Bridge 格式输出（供 GitNexus-RC 消费）：
+Bridge format output (for GitNexus-RC consumption):
 
 ```bash
 target/release/codelattice analyze \
@@ -177,14 +186,14 @@ target/release/codelattice analyze \
   --format gitnexus-rc
 ```
 
-> **Alpha 状态：** ArkTS 支持当前为 production trial 阶段。已知限制：
-> - `struct` 关键字被 tree-sitter-typescript 解析为 ERROR 节点，通过模式匹配恢复组件定义
-> - 跨文件引用解析为 import 边（`module:../path`），不做符号级跨文件绑定
-> - 不分析 `@Builder`、`@Extend` 等高级装饰器
-> - 不解析 `.ets` 文件中的 ArkUI 声明式语法树（仅提取 UI 调用名称）
-> - 需要通过 `--features tree-sitter-arkts` 编译启用
+> **Alpha Status:** ArkTS support is currently in production trial phase. Known limitations:
+> - The `struct` keyword is parsed as an ERROR node by tree-sitter-typescript; component definitions are recovered through pattern matching
+> - Cross-file references are resolved as import edges (`module:../path`) without symbol-level cross-file binding
+> - Does not analyze advanced decorators such as `@Builder`, `@Extend`
+> - Does not parse ArkUI declarative syntax trees in `.ets` files (only extracts UI call names)
+> - Requires compilation with `--features tree-sitter-arkts` to enable
 
-### 自动检测语言
+### Auto-Detect Language
 
 ```bash
 target/release/codelattice analyze \
@@ -193,14 +202,14 @@ target/release/codelattice analyze \
   --format json
 ```
 
-自动检测规则：
+Auto-detection rules:
 
-- 发现 `Cargo.toml`：Rust
-- 发现 `cjpm.toml`：Cangjie / 仓颉
-- 发现 `oh-package.json5`：ArkTS
-- 两者以上同时存在：要求显式指定 `--language`
+- Finds `Cargo.toml`: Rust
+- Finds `cjpm.toml`: Cangjie / 仓颉
+- Finds `oh-package.json5`: ArkTS
+- Multiple detected simultaneously: requires explicit `--language`
 
-### 质量门检查
+### Quality Gate Check
 
 ```bash
 target/release/codelattice quality \
@@ -208,13 +217,13 @@ target/release/codelattice quality \
   --language rust
 ```
 
-exit code：
+Exit codes:
 
-- `0`：质量门通过
-- `1`：质量门失败
-- `2`：项目语言或结构不明确
+- `0`: Quality gates passed
+- `1`: Quality gates failed
+- `2`: Project language or structure unclear
 
-### 摘要输出
+### Summary Output
 
 ```bash
 target/release/codelattice summary \
@@ -225,15 +234,15 @@ target/release/codelattice summary \
 
 ## MCP Sidecar
 
-CodeLattice 提供 JSON-RPC over stdio 的 MCP server，可被 Codex、opencode、Claude Desktop 等支持 MCP 的客户端调用。
+CodeLattice provides an MCP server via JSON-RPC over stdio, callable by MCP-enabled clients such as Codex, opencode, and Claude Desktop.
 
-开发调试时可以直接用 checkout wrapper：
+For development debugging, you can use the checkout wrapper directly:
 
 ```bash
 bash scripts/codelattice-mcp.sh --self-test
 ```
 
-日常 AI client 使用建议先 promote：
+For daily AI client use, promote first:
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
@@ -241,34 +250,34 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
 
-可用 MCP 工具：
+### Available MCP Tools
 
-| 工具 | 用途 |
-|------|------|
-| `codelattice_analyze` | 分析项目，返回 graph summary + quality gates |
-| `codelattice_quality` | 质量门检查，failed gates 排前面 |
-| `codelattice_summary` | 紧凑概要，包含 stats + quality，无 graph |
-| `codelattice_smoke` | 端到端 smoke 测试 |
-| `codelattice_graph_overview` | 图规模概览，包含 node/edge/symbol counts 和 kind breakdowns |
-| `codelattice_unresolved_report` | 未解析调用报告 |
-| `codelattice_symbol_search` | 按名称搜索符号 |
-| `codelattice_export_bridge` | 导出 bridge JSON 到 `/tmp`，供下游图谱消费 |
-| `codelattice_symbol_context` | 符号上下文、调用关系摘要和源码片段 |
-| `codelattice_calls_from` | 查询一个符号向外调用了什么 |
-| `codelattice_calls_to` | 查询哪些符号调用了目标符号 |
-| `codelattice_impact_preview` | 只读影响预览，给出风险等级、风险原因、影响指标、置信度摘要和审查焦点 |
-| `codelattice_query_graph` | 参数化本地图查询 |
-| `codelattice_project_overview` | 项目级概览，适合 AI 快速建模 |
-| `codelattice_repo_registry` | 只读 repo registry/status 视图 |
-| `codelattice_rename_preview` | 重命名预览，只读，不写文件 |
-| `codelattice_cache_status` | 查看 process-local cache 状态（内存 + 持久化双层） |
-| `codelattice_cache_clear` | 清空 cache，支持 memory / persistent / both 层选择 |
-| `codelattice_production_assist` | 汇总质量门、未解析调用、diagnostics、改动风险和审查清单；自动从 git diff 检测 changed symbols |
-| `codelattice_compare_runs` | 对比两次 bridge/run artifact 的节点和边变化 |
-| `codelattice_cache_prewarm` | 预热 process-local cache，改善真实客户端首次交互体验 |
-| `codelattice_changed_symbols` | 从 git diff 自动检测改动符号，映射 hunk 到 graph symbol |
+| Tool | Description |
+|------|-------------|
+| `codelattice_analyze` | Analyze project, return graph summary + quality gates |
+| `codelattice_quality` | Quality gate check, failed gates listed first |
+| `codelattice_summary` | Compact summary with stats + quality, no graph |
+| `codelattice_smoke` | End-to-end smoke test |
+| `codelattice_graph_overview` | Graph scale overview with node/edge/symbol counts and kind breakdowns |
+| `codelattice_unresolved_report` | Unresolved call report |
+| `codelattice_symbol_search` | Search symbols by name |
+| `codelattice_export_bridge` | Export bridge JSON to `/tmp` for downstream graph consumption |
+| `codelattice_symbol_context` | Symbol context, call relationship summary, and source snippets |
+| `codelattice_calls_from` | Query what a symbol calls outward |
+| `codelattice_calls_to` | Query which symbols call the target symbol |
+| `codelattice_impact_preview` | Read-only impact preview providing risk level, risk reasons, impact metrics, confidence summary, and review focus |
+| `codelattice_query_graph` | Parameterized local graph query |
+| `codelattice_project_overview` | Project-level overview, suitable for AI quick modeling |
+| `codelattice_repo_registry` | Read-only repo registry/status view |
+| `codelattice_rename_preview` | Rename preview, read-only, does not write files |
+| `codelattice_cache_status` | View process-local cache status (memory + persistent dual-layer) |
+| `codelattice_cache_clear` | Clear cache, supports memory / persistent / both layer selection |
+| `codelattice_production_assist` | One-stop summary: quality gates + unresolved calls + diagnostics + change risk + review checklist; auto-detects changed symbols from git diff |
+| `codelattice_compare_runs` | Compare node and edge changes between two bridge/run artifacts |
+| `codelattice_cache_prewarm` | Prewarm process-local cache to improve real client first-interaction experience |
+| `codelattice_changed_symbols` | Auto-detect changed symbols from git diff, mapping hunks to graph symbols |
 
-常用验证：
+Common validations:
 
 ```bash
 bash scripts/install-mcp.sh --doctor
@@ -279,137 +288,128 @@ bash scripts/mcp-local-client-smoke.sh
 bash scripts/mcp-real-client-dry-run.sh
 ```
 
-### AI Sidecar 工作流
+### AI Sidecar Workflow
 
-AI 编程助手推荐使用以下工具链完成"改代码 → 检查影响 → 提交"循环：
+AI programming assistants are recommended to use the following tool chain to complete the "modify code → check impact → commit" loop:
 
-1. `codelattice_project_overview` — 快速了解项目规模
-2. `codelattice_changed_symbols` — 自动检测本次 git diff 影响了哪些符号
-3. `codelattice_impact_preview` — 对每个改动符号评估影响范围，返回 `riskReasons`（人可读风险原因）、`impactMetrics`（定量指标）、`confidenceSummary`（置信度统计）、`reviewFocus`（优先审查的调用方/文件/低置信度边）
-4. `codelattice_production_assist` — 一站式汇总：质量门 + 未解析调用 + 改动影响 + `overallRisk` + `reviewChecklist`（可执行建议）
+1. `codelattice_project_overview` — Quickly understand project scale
+2. `codelattice_changed_symbols` — Auto-detect which symbols are affected by current git diff
+3. `codelattice_impact_preview` — Evaluate impact scope for each changed symbol, returning `riskReasons` (human-readable risk reasons), `impactMetrics` (quantitative metrics), `confidenceSummary` (confidence statistics), `reviewFocus` (priority review callers/files/low-confidence edges)
+4. `codelattice_production_assist` — One-stop summary: quality gates + unresolved calls + change impact + `overallRisk` + `reviewChecklist` (actionable recommendations)
 
-`codelattice_production_assist` 在不传 `changedSymbols` 参数时会自动调用 git diff 检测改动符号，返回 `autoDetectedChangedSymbols: true`。`reviewChecklist` 提供 AI 可执行建议：检查直接调用方、审查低置信度边、运行相关测试、复核 unknown hunks。
+`codelattice_production_assist` automatically calls git diff to detect changed symbols when no `changedSymbols` parameter is provided, returning `autoDetectedChangedSymbols: true`. The `reviewChecklist` provides AI-executable recommendations: check direct callers, review low-confidence edges, run related tests, review unknown hunks.
 
-## 支持的语言
+## Rust Support Scope
 
-| 语言 | 状态 | Feature Flag |
-|------|------|-------------|
-| Rust | **Stable** | `tree-sitter-extraction`（默认启用） |
-| Cangjie / 仓颉 | **Stable** | `tree-sitter-cangjie` |
-| ArkTS / HarmonyOS | **Production Trial** | `tree-sitter-arkts` |
-| TypeScript | **Phase A** | `tree-sitter-typescript` |
+Supported:
 
-## Rust 支持范围
+- Cargo package / workspace / target identification
+- Source file ownership identification
+- Symbol extraction for functions, methods, structs, enums, traits, impls, consts, statics, macro definitions, enum variants
+- `use` import resolution
+- `crate::`, `self::`, `super::` path resolution
+- Partial same-file, same-module, and cross-file same-crate call resolution
+- Enum constructor / enum variant constructor resolution
+- Conservative associated function resolution
+- Limited receiver type method call heuristics
+- Common std/core/alloc external symbol completion
+- Graph endpoint integrity quality gates
 
-已支持：
+Representative Rust call resolution forms currently supported:
 
-- Cargo package / workspace / target 识别
-- source file ownership 识别
-- 函数、方法、结构体、枚举、trait、impl、const、static、宏定义、enum variant 等符号提取
-- `use` import 解析
-- `crate::`、`self::`、`super::` 路径解析
-- 同文件、同模块、跨文件 same-crate 的部分调用解析
-- enum constructor / enum variant constructor 解析
-- associated function 的保守解析
-- receiver type 的有限方法调用启发式
-- std/core/alloc 常见外部符号补全
-- graph endpoint integrity 质量门
+| Call Form | Example | Confidence |
+|-----------|---------|------------|
+| Same-module function | `helper()` | 0.90 |
+| Import binding | `use crate::math::add; add()` | 0.85 |
+| `crate::` path | `crate::math::add()` | 0.90 |
+| `self::` path | `self::inner_helper()` | 0.80 |
+| `super::` path | `super::parent_fn()` | 0.80 |
+| Associated function | `Config::new()` | 0.75 |
+| Enum constructor | `Some(42)`, `Ok(value)`, `Err(error)` | 0.80 |
+| Enum variant constructor | `Event::Click(x)` | 0.80 |
+| Cross-file same-crate function | `split_last_segment()` | 0.80 |
+| Wildcard import disambiguation | `helper_func()` introduced via `use calculations::*` | 0.80 |
+| Limited receiver method | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
 
-当前 Rust 调用解析支持的代表形式：
+Explicitly not supported:
 
-| 调用形式 | 示例 | 置信度 |
-|----------|------|--------|
-| 同模块函数 | `helper()` | 0.90 |
-| import 绑定 | `use crate::math::add; add()` | 0.85 |
-| `crate::` 路径 | `crate::math::add()` | 0.90 |
-| `self::` 路径 | `self::inner_helper()` | 0.80 |
-| `super::` 路径 | `super::parent_fn()` | 0.80 |
-| associated function | `Config::new()` | 0.75 |
-| enum constructor | `Some(42)`、`Ok(value)`、`Err(error)` | 0.80 |
-| enum variant constructor | `Event::Click(x)` | 0.80 |
-| 跨文件 same-crate 函数 | `split_last_segment()` | 0.80 |
-| wildcard import 消歧 | `helper_func()`，通过 `use calculations::*` 引入 | 0.80 |
-| 有限 receiver method | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
+- Full type inference
+- Trait solving
+- Proc-macro / build.rs execution
+- Macro expansion
+- Full cfg evaluator
+- Arbitrary third-party crate API deep resolution
 
-当前明确不做：
+## Cangjie / 仓颉 Support Scope
 
-- 完整类型推断
-- trait solving
-- proc-macro / build.rs 执行
-- macro expansion
-- 完整 cfg evaluator
-- 任意第三方 crate API 深度解析
+Supported:
 
-## Cangjie / 仓颉支持范围
-
-已支持：
-
-- `cjpm.toml` package / workspace 扫描
-- source file 收集
-- Function / Class / Struct / Enum / Interface / TypeAlias / Macro / Init 符号提取
-- named import / alias import / wildcard import / path dependency 解析
-- same-file 和 cross-file reference extraction
-- function call reference extraction
-- `cjc` / `cjlint` diagnostics runner 接入
-- graph 输出
+- `cjpm.toml` package / workspace scanning
+- Source file collection
+- Symbol extraction for Function / Class / Struct / Enum / Interface / TypeAlias / Macro / Init
+- Named import / alias import / wildcard import / path dependency resolution
+- Same-file and cross-file reference extraction
+- Function call reference extraction
+- `cjc` / `cjlint` diagnostics runner integration
+- Graph output
 - `cangjie inspect` / `cangjie graph`
-- `--strict` 质量门
+- `--strict` quality gates
 
-启用 Cangjie feature：
+Enable Cangjie feature:
 
 ```bash
 cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bins
 ```
 
-当前明确不做：
+Explicitly not supported:
 
-- 完整方法派发
-- 类型推断
-- trait / interface solving
-- macro expansion
-- 完整 cfg evaluator
+- Full method dispatch
+- Type inference
+- Trait / interface solving
+- Macro expansion
+- Full cfg evaluator
 
-## 缓存与性能
+## Cache and Performance
 
-CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
+CodeLattice provides a two-layer analysis cache to accelerate repeated MCP calls:
 
-1. **内存层**（默认启用）— 进程内 LRU 缓存，最多 16 条目。同一进程内的重复调用直接命中，不重新分析。
-2. **持久化层**（opt-in）— 跨进程的磁盘缓存。设置 `CODELATTICE_CACHE_DIR` 环境变量启用。
+1. **Memory Layer** (enabled by default) — In-process LRU cache with up to 16 entries. Repeated calls within the same process hit directly without re-analysis.
+2. **Persistent Layer** (opt-in) — Cross-process disk cache. Enable by setting the `CODELATTICE_CACHE_DIR` environment variable.
 
-缓存查找顺序：内存 → 持久化 → 重新分析。
+Cache lookup order: memory → persistent → re-analysis.
 
-### 持久化缓存配置
+### Persistent Cache Configuration
 
-| 环境变量 | 说明 |
-|----------|------|
-| `CODELATTICE_CACHE_DIR` | 持久化缓存目录路径。设置后启用持久化缓存。未设置时仅使用内存缓存。 |
-| `CODELATTICE_CACHE` | 设为 `off` 可完全禁用缓存（包括内存层）。 |
+| Environment Variable | Description |
+|---------------------|-------------|
+| `CODELATTICE_CACHE_DIR` | Persistent cache directory path. Enables persistent cache when set. When not set, only memory cache is used. |
+| `CODELATTICE_CACHE` | Set to `off` to completely disable cache (including memory layer). |
 
-缓存文件格式：`${CODELATTICE_CACHE_DIR}/cl-cache-{fnv_hash}.json`，包含分析结果、文件 mtime 指纹和 manifest hash。
+Cache file format: `${CODELATTICE_CACHE_DIR}/cl-cache-{fnv_hash}.json`, containing analysis results, file mtime fingerprints, and manifest hash.
 
-### 失效检测
+### Invalidation Detection
 
-当以下条件变化时缓存自动失效：
+Cache automatically invalidates when the following conditions change:
 
-- 源文件新增 / 删除 / 修改（通过 mtime 检测 `.rs`/`.cj`/`.ets`/`.ts`/`.tsx`/`.js`/`.json`/`.toml`/`.md` 等）
-- 构建配置变更（Cargo.toml / Cargo.lock / cjpm.toml / oh-package.json5 / tsconfig.json / package.json）
-- CodeLattice 版本升级
-- 缓存文件损坏
+- Source file added / deleted / modified (mtime detection for `.rs`/`.cj`/`.ets`/`.ts`/`.tsx`/`.js`/`.json`/`.toml`/`.md`, etc.)
+- Build configuration changes (Cargo.toml / Cargo.lock / cjpm.toml / oh-package.json5 / tsconfig.json / package.json)
+- CodeLattice version upgrade
+- Cache file corruption
 
-失效时返回结构化的 `staleReasons`（如 `file_modified`、`manifest_changed`、`version_changed`），供 AI 侧理解缓存行为。
+When invalidated, structured `staleReasons` are returned (e.g., `file_modified`, `manifest_changed`, `version_changed`) for AI-side cache behavior understanding.
 
-## 输出内容
+## Output Content
 
-`analyze --format json` 会输出统一分析结果，主要包含：
+`analyze --format json` outputs unified analysis results, mainly containing:
 
-- 项目摘要
-- 质量门结果
-- 语言信息
-- graph 节点和边
-- diagnostics
-- stats
+- Project summary
+- Quality gate results
+- Language information
+- Graph nodes and edges
+- Diagnostics
+- Stats
 
-图数据包含的常见节点：
+Common nodes in graph data:
 
 - Repository
 - Package
@@ -418,7 +418,7 @@ CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
 - Symbol
 - Diagnostic
 
-图数据包含的常见关系：
+Common relationships in graph data:
 
 - CONTAINS_PACKAGE
 - HAS_TARGET
@@ -430,78 +430,80 @@ CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
 - HAS_PARENT
 - ANNOTATES
 
-## 已知限制
+## Known Limitations
 
-- CodeLattice 不是编译器、IDE 或语言服务器 — 不做类型推断、trait solving 或 macro expansion
-- 调用边是启发式的，带 confidence 和 reason 标注，非编译器验证
-- **TypeScript**：无 path alias 解析、无 monorepo/workspace 支持、无 TSX framework hints
-- **ArkTS**：struct 关键字解析为 ERROR 节点（已通过模式匹配恢复），无 @Builder/@Extend
-- 不执行用户项目脚本
-- 不做 per-symbol incremental recompute（当前为 project-level 全量重分析）
+- CodeLattice is not a compiler, IDE, or language server — it does not perform type inference, trait solving, or macro expansion
+- Call edges are heuristic with confidence and reason annotations, not compiler-verified
+- **TypeScript**: No path alias resolution, no monorepo/workspace support, no TSX framework hints
+- **ArkTS**: Struct keyword parsed as ERROR node (recovered through pattern matching), no @Builder/@Extend
+- Does not execute user project scripts
+- No per-symbol incremental recompute (currently project-level full re-analysis)
 
-## 安全模型
+## Safety Model
 
-- CodeLattice 默认在本机运行，不上传项目代码。
-- MCP sidecar 默认只读；`rename_preview` 只预览，不写文件。
-- `export_bridge` 只写 `/tmp`。
-- `install-mcp.sh --print-config` 只打印配置模板，不修改 Codex / opencode / Claude 配置。
-- `fresh-clone-smoke.sh` 默认使用 `/tmp` 临时目录，结束后清理。
+- CodeLattice runs locally by default and does not upload project code.
+- MCP sidecar is read-only by default; `rename_preview` only previews without writing files.
+- `export_bridge` only writes to `/tmp`.
+- `install-mcp.sh --print-config` only prints configuration templates without modifying Codex / opencode / Claude configurations.
+- `fresh-clone-smoke.sh` uses `/tmp` temporary directory by default and cleans up after completion.
 
-## 项目状态与路线图
+## Project Status and Roadmap
 
-**External Beta (`v0.13.0-beta.1`)** — 本地 production trial 已通过，不是 GA。
+**External Beta (`v0.13.0-beta.1`)** — Local production trial passed, not GA.
 
-当前可以依赖的部分：
+Currently reliable:
 
-- Rust / Cangjie CLI 分析（Stable）
-- ArkTS CLI 分析（Production Trial）
-- TypeScript CLI 分析（Phase A）
-- MCP sidecar 22 工具
-- 两层持久化缓存
-- stable runtime promote
-- release tarball packaging + release smoke
-- fresh clone smoke
-- 本地 AI client 接入模板
+- Rust / Cangjie CLI analysis (Stable)
+- ArkTS CLI analysis (Production Trial)
+- TypeScript CLI analysis (Phase A)
+- MCP sidecar 22 tools
+- Two-layer persistent cache
+- Stable runtime promote
+- Release tarball packaging + release smoke
+- Fresh clone smoke
+- Local AI client integration templates
 
-正在补齐的部分：
+Being improved:
 
-- 多平台发行包（Linux、Windows）
-- 自动化 release CI
-- TypeScript path alias / monorepo 支持
+- Multi-platform release packages (Linux, Windows)
+- Linux / openEuler native smoke certification
+- Automated release CI
+- TypeScript path alias / monorepo support
 - TSX framework hints
-- 更深层的 per-symbol incremental recompute
+- Deeper per-symbol incremental recompute
 
-长期方向：
+Long-term direction:
 
-- 成为一个可嵌入、可验证、可扩展的多语言代码智能核心
-- 为本地代码理解、影响分析、重构辅助和 AI agent 工作流提供基础设施
+- Become an embeddable, verifiable, extensible multi-language code intelligence core
+- Provide infrastructure for local code understanding, impact analysis, refactoring assistance, and AI agent workflows
 
-## 文档
+## Documentation
 
-- [CHANGELOG](CHANGELOG.md) — 版本变化记录
-- [MCP Contract](docs/architecture/mcp-v0-contract.md) — MCP 工具输入/输出合约
-- [Unified Output Contract](docs/architecture/unified-output-contract.md) — CLI 输出格式
-- [Release Versioning](docs/release-versioning.md) — 版本规则
-- [Install Guide](docs/release-install.md) — tarball 安装
-- [Upgrade Guide](docs/release/upgrade.md) — 升级/回滚/cache 清理
-- [Smoke Matrix](docs/release/smoke-matrix.md) — 验证矩阵
-- [Getting Started](docs/getting-started.md) — 详细入门
+- [CHANGELOG](CHANGELOG.md) — Version change log
+- [MCP Contract](docs/architecture/mcp-v0-contract.md) — MCP tool input/output contract
+- [Unified Output Contract](docs/architecture/unified-output-contract.md) — CLI output format
+- [Release Versioning](docs/release-versioning.md) — Version rules
+- [Install Guide](docs/release-install.md) — Tarball installation
+- [Linux / openEuler Source Build](docs/platforms/linux-openeuler.md) — Source-build compatibility guide
+- [Upgrade Guide](docs/release/upgrade.md) — Upgrade/rollback/cache cleanup
+- [Smoke Matrix](docs/release/smoke-matrix.md) — Verification matrix
+- [Getting Started](docs/getting-started.md) — Detailed getting started guide
 
-## 开发与验证
+## Development and Verification
 
-构建：
+Build:
 
 ```bash
 ./scripts/build.sh
 ```
 
-快速 smoke：
+Quick smoke:
 
 ```bash
 ./scripts/smoke.sh --quick
 ```
 
-完整本地验证：
+Full local verification:
 
 ```bash
 cargo fmt --check
@@ -514,7 +516,7 @@ bash scripts/release-smoke.sh
 bash scripts/fresh-clone-smoke.sh --skip-tests
 ```
 
-更完整的 MCP 验证：
+More complete MCP verification:
 
 ```bash
 bash scripts/mcp-dogfood.sh
@@ -522,26 +524,26 @@ bash scripts/mcp-real-client-dry-run.sh
 bash scripts/mcp-local-client-smoke.sh
 ```
 
-## 项目结构
+## Project Structure
 
 ```text
 codelattice/
   Cargo.toml
   crates/
-    project-model/       Rust 项目模型、符号、import、calls、graph 输出
-    cangjie/             Cangjie 项目模型、符号、diagnostics、graph 输出
-    cli/                 命令行入口、统一输出、MCP server、语言检测
+    project-model/       Rust project model, symbols, imports, calls, graph output
+    cangjie/             Cangjie project model, symbols, diagnostics, graph output
+    cli/                 Command-line entry, unified output, MCP server, language detection
   fixtures/
-    call-resolution/     Rust 调用解析 fixture
+    call-resolution/     Rust call resolution fixture
     import-use/          Rust import fixture
-    item-extraction/     Rust 符号提取 fixture
+    item-extraction/     Rust symbol extraction fixture
     rust/                Rust graph contract fixture
     cangjie/             Cangjie fixture
   docs/
-    architecture/        架构和输出格式说明
-    decisions/           设计决策
-    fixtures/            fixture 索引
-    plans/               preflight / execution / closure 文档
+    architecture/        Architecture and output format documentation
+    decisions/           Design decisions
+    fixtures/            Fixture index
+    plans/               Preflight / execution / closure documentation
   scripts/
     build.sh
     smoke.sh

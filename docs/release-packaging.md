@@ -2,7 +2,7 @@
 
 CodeLattice release packaging is intentionally local and scriptable. It does not publish assets, edit AI client configuration, or promote into a user's stable runtime directory.
 
-The current public `v0.1.0` release is available on GitCode with a `darwin-arm64` tarball and checksum. Multi-platform artifacts are planned next.
+The current public `v0.13.0-beta.1` release is available on GitCode with a `darwin-arm64` tarball and checksum. Multi-platform artifacts are planned next.
 
 ## Install a Published Release
 
@@ -11,7 +11,7 @@ export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.1.0 \
+  --version v0.13.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 ```
 
@@ -35,7 +35,7 @@ dist/codelattice-<version>-<platform>.tar.gz.sha256
 Options:
 
 ```bash
-bash scripts/package-release.sh --version 0.1.0
+bash scripts/package-release.sh --version 0.13.0-beta.1
 bash scripts/package-release.sh --platform darwin-arm64
 bash scripts/package-release.sh --dist-dir /tmp/codelattice-dist
 bash scripts/package-release.sh --skip-build
@@ -54,11 +54,18 @@ codelattice-<version>-<platform>/
   README.md
   CHANGELOG.md
   LICENSE
+  scripts/
+    linux-source-build-smoke.sh
   docs/
     getting-started.md
     release-install.md
     release-versioning.md
     release-packaging.md
+    release/
+      upgrade.md
+      smoke-matrix.md
+    platforms/
+      linux-openeuler.md
     architecture/
       mcp-local-client-setup.md
       mcp-v0-contract.md
@@ -102,7 +109,7 @@ bash scripts/release-smoke.sh
 The smoke script uses the newest `dist/codelattice-*.tar.gz` unless a tarball is specified:
 
 ```bash
-bash scripts/release-smoke.sh --tarball dist/codelattice-0.1.0-darwin-arm64.tar.gz
+bash scripts/release-smoke.sh --tarball dist/codelattice-0.13.0-beta.1-darwin-arm64.tar.gz
 ```
 
 It verifies:
@@ -146,6 +153,6 @@ cargo test
 cargo test --features tree-sitter-cangjie
 bash scripts/package-release.sh
 bash scripts/release-smoke.sh
-bash scripts/install-release.sh --dry-run --version v0.1.0 --platform darwin-arm64
+bash scripts/install-release.sh --dry-run --version v0.13.0-beta.1 --platform darwin-arm64
 bash scripts/fresh-clone-smoke.sh --skip-tests
 ```

@@ -77,6 +77,7 @@
 | `scripts/package-release.sh` | Build tarball + manifest | ✅ |
 | `scripts/release-smoke.sh` | Tarball unpack + verify | ✅ |
 | `scripts/fresh-clone-smoke.sh` | Simulated external clone path | ✅ |
+| `scripts/linux-source-build-smoke.sh` | Source-build platform preflight | ✅ |
 
 ### Feature-Optional (run when feature flag available)
 
@@ -96,6 +97,7 @@
 | `scripts/cangjie-live-codelattice-smoke.sh` | Cangjie live project analysis |
 | `scripts/typescript-real-project-smoke.sh` | TypeScript real project analysis |
 | `scripts/alpha-trial-smoke.sh` | Alpha trial validation |
+| `scripts/linux-source-build-smoke.sh --all-language-features` | Linux / openEuler source-build compatibility smoke |
 
 ### Real Project Production Trials (local, non-distributable)
 
