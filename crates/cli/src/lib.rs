@@ -813,8 +813,24 @@ fn run_c_analysis(
         }
     }
 
-    // 3. Build graph
-    let graph = gitnexus_c::build_c_graph(&project, &symbols_by_file, &includes_by_file);
+    // 3. Build include resolver from compile_commands.json (if present)
+    let c_compile_db = root
+        .join("compile_commands.json")
+        .exists()
+        .then(|| gitnexus_c::load_compile_commands(&root.join("compile_commands.json")))
+        .transpose()
+        .ok()
+        .flatten();
+    let c_resolver =
+        gitnexus_c::CIncludeResolver::build(root, &source_files, &header_files, c_compile_db);
+
+    // 4. Build graph
+    let graph = gitnexus_c::build_c_graph(
+        &project,
+        &symbols_by_file,
+        &includes_by_file,
+        Some(&c_resolver),
+    );
 
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("C graph JSON serialization failed: {e}"))?;
@@ -945,12 +961,24 @@ fn run_cpp_analysis(
         }
     }
 
-    // 5. Build graph
+    // 5. Build include resolver from compile_commands.json (if present)
+    let cpp_compile_db = root
+        .join("compile_commands.json")
+        .exists()
+        .then(|| gitnexus_cpp::load_compile_commands(&root.join("compile_commands.json")))
+        .transpose()
+        .ok()
+        .flatten();
+    let cpp_resolver =
+        gitnexus_cpp::CppIncludeResolver::build(root, &source_files, &header_files, cpp_compile_db);
+
+    // 6. Build graph
     let graph = gitnexus_cpp::build_cpp_graph(
         &project,
         &symbols_by_file,
         &includes_by_file,
         &calls_by_file,
+        Some(&cpp_resolver),
     );
 
     let json_val = serde_json::to_value(&graph)

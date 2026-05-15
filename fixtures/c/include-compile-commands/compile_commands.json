@@ -1,0 +1,17 @@
+[
+  {
+    "directory": ".",
+    "file": "src/main.c",
+    "command": "cc -Iinclude -Igenerated -iquote src/internal -DAPP_DEBUG=1 -include generated/version.h -c src/main.c"
+  },
+  {
+    "directory": ".",
+    "file": "src/logger.c",
+    "command": "cc -Iinclude -c src/logger.c"
+  },
+  {
+    "directory": ".",
+    "file": "src/internal/detail.c",
+    "command": "cc -Iinclude -iquote src/internal -c src/internal/detail.c"
+  }
+]

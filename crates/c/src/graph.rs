@@ -9,6 +9,7 @@ use std::path::PathBuf;
 
 use crate::extractors::include::CInclude;
 use crate::extractors::symbol::CSymbol;
+use crate::include_resolution::{CIncludeResolver, CResolvedIncludeKind};
 use crate::project::CProject;
 
 // ---------------------------------------------------------------------------
@@ -67,6 +68,8 @@ pub struct CGraphOutput {
     pub schema_version: String,
     pub nodes: Vec<CGraphNode>,
     pub edges: Vec<CGraphEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -91,9 +94,11 @@ pub fn build_c_graph(
     project: &CProject,
     symbols: &BTreeMap<PathBuf, Vec<CSymbol>>,
     includes: &BTreeMap<PathBuf, Vec<CInclude>>,
+    include_resolver: Option<&CIncludeResolver>,
 ) -> CGraphOutput {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
+    let mut diagnostics = Vec::new();
 
     // 1. Repository node
     let repo_id = "repo:root".to_string();
@@ -159,7 +164,7 @@ pub fn build_c_graph(
         };
         for (idx, sym) in syms.iter().enumerate() {
             let sym_id = format!("sym:{}:{}:{}", sym.kind, sym.name, idx);
-            let mut props = serde_json::json!({
+            let props = serde_json::json!({
                 "visibility": format!("{:?}", sym.visibility).to_lowercase(),
                 "isDefinition": sym.is_definition,
             });
@@ -180,38 +185,96 @@ pub fn build_c_graph(
         }
     }
 
-    // 4. Include edges (local only)
+    // 4. Include edges
     for (file, incs) in includes {
         let source_file_id = match file_ids.get(file) {
             Some(id) => id.clone(),
             None => continue,
         };
-        for inc in incs {
-            if inc.kind == crate::extractors::include::CIncludeKind::Local {
-                // Try to resolve to a project header file
-                let target_id = file_ids
-                    .iter()
-                    .find(|(p, _)| {
-                        p.file_name()
-                            .and_then(|n| n.to_str())
-                            .map(|name| name == inc.path || inc.path.ends_with(name))
-                            .unwrap_or(false)
-                    })
-                    .map(|(_, id)| id.clone());
 
-                if let Some(target_id) = target_id {
-                    edges.push(CGraphEdge {
-                        kind: CEdgeKind::Includes,
-                        source: Some(source_file_id.clone()),
-                        target: target_id,
-                        properties: Some(serde_json::json!({
-                            "confidence": 1.0,
-                            "reason": "local-include",
-                        })),
-                    });
+        if let Some(resolver) = include_resolver {
+            // Use compile_commands-aware resolution
+            for inc in incs {
+                let resolved = resolver.resolve(file, inc);
+
+                match resolved.resolution_kind {
+                    CResolvedIncludeKind::SameDirectory
+                    | CResolvedIncludeKind::QuoteIncludeDir
+                    | CResolvedIncludeKind::ProjectIncludeDir
+                    | CResolvedIncludeKind::ForcedInclude => {
+                        if let Some(ref target_file) = resolved.target_file {
+                            if let Some(target_id) = file_ids.get(target_file).cloned() {
+                                edges.push(CGraphEdge {
+                                    kind: CEdgeKind::Includes,
+                                    source: Some(source_file_id.clone()),
+                                    target: target_id,
+                                    properties: Some(serde_json::json!({
+                                        "confidence": resolved.confidence.unwrap_or(0.0),
+                                        "reason": resolved.reason,
+                                    })),
+                                });
+                            }
+                        }
+                    }
+                    CResolvedIncludeKind::SystemExternal => {
+                        // No edge for system/external includes
+                    }
+                    CResolvedIncludeKind::Unresolved | CResolvedIncludeKind::Ambiguous => {
+                        diagnostics.push(serde_json::json!({
+                            "kind": resolved.reason,
+                            "sourceFile": file.to_string_lossy(),
+                            "includePath": inc.path,
+                            "line": inc.line,
+                            "includeKind": format!("{:?}", inc.kind),
+                        }));
+                    }
                 }
             }
-            // System includes: no edge (Phase A limitation)
+
+            // Forced includes
+            for forced in resolver.resolve_forced_includes(file) {
+                if let Some(ref target_file) = forced.target_file {
+                    if let Some(target_id) = file_ids.get(target_file).cloned() {
+                        edges.push(CGraphEdge {
+                            kind: CEdgeKind::Includes,
+                            source: Some(source_file_id.clone()),
+                            target: target_id,
+                            properties: Some(serde_json::json!({
+                                "confidence": forced.confidence.unwrap_or(0.0),
+                                "reason": forced.reason,
+                            })),
+                        });
+                    }
+                }
+            }
+        } else {
+            // Legacy behavior: filename-based matching (no compile_commands)
+            for inc in incs {
+                if inc.kind == crate::extractors::include::CIncludeKind::Local {
+                    let target_id = file_ids
+                        .iter()
+                        .find(|(p, _)| {
+                            p.file_name()
+                                .and_then(|n| n.to_str())
+                                .map(|name| name == inc.path || inc.path.ends_with(name))
+                                .unwrap_or(false)
+                        })
+                        .map(|(_, id)| id.clone());
+
+                    if let Some(target_id) = target_id {
+                        edges.push(CGraphEdge {
+                            kind: CEdgeKind::Includes,
+                            source: Some(source_file_id.clone()),
+                            target: target_id,
+                            properties: Some(serde_json::json!({
+                                "confidence": 1.0,
+                                "reason": "local-include",
+                            })),
+                        });
+                    }
+                }
+                // System includes: no edge (Phase A limitation)
+            }
         }
     }
 
@@ -230,8 +293,9 @@ pub fn build_c_graph(
     // builder — calls are added by the CLI's run_c_analysis().
 
     CGraphOutput {
-        schema_version: "v0.1.0".to_string(),
+        schema_version: "v0.2.0".to_string(),
         nodes,
         edges,
+        diagnostics,
     }
 }

@@ -23,11 +23,14 @@
 //! - No compile_commands.json include path resolution
 //! - Not a replacement for clang / clangd / IDE
 
+pub mod compile_commands;
 pub mod extractors;
 pub mod graph;
+pub mod include_resolution;
 pub mod project;
 
 // Re-export key types for convenience
+pub use compile_commands::{load_compile_commands, CompileCommandDb, CompileCommandEntry};
 #[cfg(feature = "tree-sitter-cpp")]
 pub use extractors::{extract_cpp_calls, extract_cpp_includes, extract_cpp_symbols};
 pub use extractors::{
@@ -35,4 +38,5 @@ pub use extractors::{
     CppVisibility,
 };
 pub use graph::{build_cpp_graph, CppEdgeKind, CppGraphOutput, CppNodeKind};
+pub use include_resolution::{CppIncludeResolver, CppResolvedInclude, CppResolvedIncludeKind};
 pub use project::{find_cpp_project_root, list_cpp_source_files, CppProject, CppProjectKind};

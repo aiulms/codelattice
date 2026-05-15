@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use crate::extractors::call::CppCall;
 use crate::extractors::include::CppInclude;
 use crate::extractors::symbol::CppSymbol;
+use crate::include_resolution::{CppIncludeResolver, CppResolvedIncludeKind};
 use crate::project::CppProject;
 
 // ---------------------------------------------------------------------------
@@ -70,6 +71,8 @@ pub struct CppGraphOutput {
     pub schema_version: String,
     pub nodes: Vec<CppGraphNode>,
     pub edges: Vec<CppGraphEdge>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<serde_json::Value>,
 }
 
 // ---------------------------------------------------------------------------
@@ -99,10 +102,12 @@ pub fn build_cpp_graph(
     symbols_by_file: &BTreeMap<PathBuf, Vec<CppSymbol>>,
     includes_by_file: &BTreeMap<PathBuf, Vec<CppInclude>>,
     calls_by_file: &BTreeMap<PathBuf, Vec<CppCall>>,
+    include_resolver: Option<&CppIncludeResolver>,
 ) -> CppGraphOutput {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
     let mut id_counter: u64 = 0;
+    let mut diagnostics = Vec::new();
     let root = &project.root;
 
     // 1. Repository node
@@ -289,37 +294,88 @@ pub fn build_cpp_graph(
             None => continue,
         };
 
-        for inc in includes {
-            let target_file = find_include_target(file, &inc.path, project);
-            let target_id = match target_file {
-                Some(tf) => file_ids.get(&tf).cloned(),
-                None => None,
-            };
+        if let Some(resolver) = include_resolver {
+            // Use compile_commands-aware resolution
+            for inc in includes {
+                let resolved = resolver.resolve(file, inc);
 
-            let mut props = serde_json::json!({
-                "includePath": inc.path,
-                "includeKind": format!("{:?}", inc.kind),
-                "line": inc.line,
-            });
-
-            if let Some(tid) = target_id {
-                edges.push(CppGraphEdge {
-                    kind: CppEdgeKind::Includes,
-                    source: Some(file_id.clone()),
-                    target: tid,
-                    properties: Some(props),
-                });
-            } else if inc.kind == crate::extractors::CppIncludeKind::Local {
-                // Local include not resolved — record as diagnostic
-                props["unresolved"] = serde_json::json!(true);
-                edges.push(CppGraphEdge {
-                    kind: CppEdgeKind::Includes,
-                    source: Some(file_id.clone()),
-                    target: format!("unresolved:{}", inc.path),
-                    properties: Some(props),
-                });
+                match resolved.resolution_kind {
+                    CppResolvedIncludeKind::SameDirectory
+                    | CppResolvedIncludeKind::QuoteIncludeDir
+                    | CppResolvedIncludeKind::ProjectIncludeDir
+                    | CppResolvedIncludeKind::ForcedInclude => {
+                        if let Some(ref target_file) = resolved.target_file {
+                            if let Some(target_id) = file_ids.get(target_file).cloned() {
+                                edges.push(CppGraphEdge {
+                                    kind: CppEdgeKind::Includes,
+                                    source: Some(file_id.clone()),
+                                    target: target_id,
+                                    properties: Some(serde_json::json!({
+                                        "includePath": inc.path,
+                                        "includeKind": format!("{:?}", inc.kind),
+                                        "line": inc.line,
+                                        "confidence": resolved.confidence.unwrap_or(0.0),
+                                        "reason": resolved.reason,
+                                    })),
+                                });
+                            }
+                        }
+                    }
+                    CppResolvedIncludeKind::SystemExternal => {
+                        // No edge for system/external includes
+                    }
+                    CppResolvedIncludeKind::Unresolved | CppResolvedIncludeKind::Ambiguous => {
+                        diagnostics.push(serde_json::json!({
+                            "kind": resolved.reason,
+                            "sourceFile": file.to_string_lossy(),
+                            "includePath": inc.path,
+                            "line": inc.line,
+                            "includeKind": format!("{:?}", inc.kind),
+                        }));
+                    }
+                }
             }
-            // System includes are not resolved in Phase A
+
+            // Forced includes
+            for forced in resolver.resolve_forced_includes(file) {
+                if let Some(ref target_file) = forced.target_file {
+                    if let Some(target_id) = file_ids.get(target_file).cloned() {
+                        edges.push(CppGraphEdge {
+                            kind: CppEdgeKind::Includes,
+                            source: Some(file_id.clone()),
+                            target: target_id,
+                            properties: Some(serde_json::json!({
+                                "confidence": forced.confidence.unwrap_or(0.0),
+                                "reason": forced.reason,
+                            })),
+                        });
+                    }
+                }
+            }
+        } else {
+            // Legacy behavior: simple filename-based matching (no compile_commands)
+            // IMPORTANT: Do NOT create `unresolved:` synthetic targets
+            for inc in includes {
+                let target_file = find_include_target(file, &inc.path, project);
+                let target_id = match target_file {
+                    Some(ref tf) => file_ids.get(tf).cloned(),
+                    None => None,
+                };
+
+                if let Some(tid) = target_id {
+                    edges.push(CppGraphEdge {
+                        kind: CppEdgeKind::Includes,
+                        source: Some(file_id.clone()),
+                        target: tid,
+                        properties: Some(serde_json::json!({
+                            "includePath": inc.path,
+                            "includeKind": format!("{:?}", inc.kind),
+                            "line": inc.line,
+                        })),
+                    });
+                }
+                // Unresolved includes: no edge, no synthetic target
+            }
         }
     }
 
@@ -352,9 +408,10 @@ pub fn build_cpp_graph(
     }
 
     CppGraphOutput {
-        schema_version: "v0.1.0".to_string(),
+        schema_version: "v0.2.0".to_string(),
         nodes,
         edges,
+        diagnostics,
     }
 }
 

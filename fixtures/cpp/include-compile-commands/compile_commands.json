@@ -1,0 +1,17 @@
+[
+  {
+    "directory": ".",
+    "file": "src/main.cpp",
+    "arguments": ["c++", "-I", "include", "-isystem", "third_party/include", "-iquote", "src/detail", "-DAPP_VERSION=1", "-include", "generated/build_config.hpp", "-c", "src/main.cpp"]
+  },
+  {
+    "directory": ".",
+    "file": "src/logger.cpp",
+    "arguments": ["c++", "-I", "include", "-c", "src/logger.cpp"]
+  },
+  {
+    "directory": ".",
+    "file": "src/detail/detail.cpp",
+    "arguments": ["c++", "-I", "include", "-iquote", "src/detail", "-c", "src/detail/detail.cpp"]
+  }
+]

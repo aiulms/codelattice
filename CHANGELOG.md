@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **C/C++ Include Resolution with compile_commands.json** (v0.17): Enhanced C and C++ graph quality with compile_commands-aware include path resolution, replacing naive filename matching with proper `-I`/`-iquote`/`-isystem` include path search.
+  - New `compile_commands.rs` for both C and C++ crates — parses `compile_commands.json` with both `command` (shell string) and `arguments` (array) fields, extracts per-file compiler flags (`-I`, `-iquote`, `-isystem`, `-D`, `-include`).
+  - New `include_resolution.rs` for both crates — `CIncludeResolver` / `CppIncludeResolver` resolves `#include` directives to real project header files using compile_commands include paths.
+  - Resolves: quoted includes via `-I` and `-iquote`, angle includes via `-I` and `-isystem`, forced includes via `-include`, same-directory fallback, project-root fallback.
+  - Fixes C++ bug: `unresolved:{path}` synthetic target edges removed — unresolved includes now emit diagnostics only (no dangling edges).
+  - Confidence tiers: same-dir 0.95, quote-dir 0.90, project-dir 0.85, angle-project 0.75, forced 0.70, filename-unique 0.60.
+  - System includes (e.g., `<stdio.h>`, `<vector>`) emit `c-system-external` / `cpp-system-external` diagnostics (no project edges created).
+  - `CGraphOutput` and `CppGraphOutput` now include a `diagnostics` field.
+  - New fixtures: `fixtures/c/include-compile-commands/` (8 files), `fixtures/cpp/include-compile-commands/` (8 files).
+  - 12 new C crate tests + 9 new C++ crate tests.
+  - No new dependencies. Backward compatible (filename matching used when no compile_commands.json is present).
+
 - **TypeScript Path Alias / Monorepo Import Resolution** (v0.16): Enhanced TypeScript graph quality with tsconfig paths, workspace package, and extensionless import resolution, replacing synthetic module nodes with real file targets.
   - New `tsconfig.rs` — parses tsconfig.json with `extends` chains, `compilerOptions.baseUrl`, `compilerOptions.paths`, JSONC support via `strip_json5_comments`.
   - New `module_resolution.rs` — `TsModuleResolver` resolves import specifiers to real project files.
