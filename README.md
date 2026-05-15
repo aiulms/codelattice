@@ -176,6 +176,7 @@ $CODELATTICE_TOOL_DIR/codelattice-mcp.sh
 | Cangjie / 仓颉 | **Stable** | `tree-sitter-cangjie` |
 | ArkTS / HarmonyOS | **Production Trial** | `tree-sitter-arkts` |
 | TypeScript | **Phase A** | `tree-sitter-typescript` |
+| C++ | **Phase A** | `tree-sitter-cpp` |
 
 ## CLI 使用
 
@@ -226,6 +227,24 @@ target/release/codelattice analyze \
   --format gitnexus-rc
 ```
 
+### 分析 C++ 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/cpp-project \
+  --language cpp \
+  --format json
+```
+
+导出 GitNexus-RC bridge 格式：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/cpp-project \
+  --language cpp \
+  --format gitnexus-rc
+```
+
 ### 分析 ArkTS / HarmonyOS 项目
 
 ```bash
@@ -259,6 +278,7 @@ target/release/codelattice analyze \
 - 找到 `cjpm.toml`：Cangjie / 仓颉
 - 找到 `oh-package.json5`：ArkTS
 - 找到 `.c`/`.h` 文件且无 C++ 文件：无 C++ 的 C 项目
+- 找到 `.cpp`/`.hpp`/`.cc`/`.cxx` 文件：C++ 项目
 - 同时检测到多个语言：需要显式传入 `--language`
 
 ### 质量检查
@@ -444,6 +464,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - 调用边是带 confidence / reason 的启发式分析结果，不是编译器证明
 - **TypeScript**：暂无 path alias resolution、monorepo / workspace 支持和 TSX framework hints
 - **ArkTS**：`struct` 关键字由 tree-sitter-typescript 解析为 ERROR node，当前通过 pattern matching 恢复；暂不支持 `@Builder` / `@Extend`
+- **C++**：Phase A 支持，不做完整预处理、不执行构建系统、不依赖 compile_commands.json、不做模板实例化、不做完整重载解析、不做虚函数派发解析；不是 clangd 的替代
 - 不执行用户项目脚本
 - 暂无 per-symbol incremental recompute，目前仍以项目级重新分析为主
 
@@ -464,6 +485,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - Rust / Cangjie CLI 分析（Stable）
 - ArkTS CLI 分析（Production Trial）
 - TypeScript CLI 分析（Phase A）
+- C++ CLI 分析（Phase A）
 - MCP sidecar 22 个工具
 - 两层持久化缓存
 - stable runtime promote

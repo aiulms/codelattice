@@ -19,6 +19,7 @@ tree-sitter-cangjie = ["gitnexus-cangjie/tree-sitter-cangjie"]
 tree-sitter-arkts = ["dep:gitnexus-arkts", "dep:gitnexus-typescript", "gitnexus-arkts/tree-sitter-arkts"]
 tree-sitter-typescript = ["dep:gitnexus-typescript", "gitnexus-typescript/tree-sitter-typescript"]
 tree-sitter-c = ["dep:gitnexus-c", "gitnexus-c/tree-sitter-c"]
+tree-sitter-cpp = ["dep:gitnexus-cpp", "gitnexus-cpp/tree-sitter-cpp"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -29,6 +30,7 @@ gitnexus-cangjie = { path = "../cangjie", optional = true }
 gitnexus-arkts = { path = "../arkts", optional = true }
 gitnexus-typescript = { path = "../typescript", optional = true }
 gitnexus-c = { path = "../c", optional = true }
+gitnexus-cpp = { path = "../cpp", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-15（Large Project Insight Pack）
+最后更新：2026-05-15（C++ Phase A Pack + Large Project Insight Pack）
 
 ## 用途
 
@@ -22,6 +22,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**C++ Phase A Pack（2026-05-15，进行中）：**
+- 📝 [`2026-05-15-cpp-phase-a-preflight.md`](2026-05-15-cpp-phase-a-preflight.md) — C++ Phase A 静态代码图谱支持 preflight：符号提取、调用关系、质量门、已知限制。
+- ⏳ [`2026-05-15-cpp-phase-a-closure.md`](2026-05-15-cpp-phase-a-closure.md) — closure：实现完成，待验证。
 
 **Large Project Insight Pack（2026-05-15，已完成）：**
 - 📝 [`2026-05-15-large-project-insight-preflight.md`](2026-05-15-large-project-insight-preflight.md) — 大项目洞察地图设计：指标模型、入口点检测、热点识别、风险区域、先读/先审建议。

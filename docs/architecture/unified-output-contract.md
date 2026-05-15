@@ -27,7 +27,7 @@
 ```rust
 struct LanguageAnalysisResult {
     /// 分析语言标识
-    language: String,          // "rust" | "cangjie"
+    language: String,          // "rust" | "cangjie" | "cpp"
     /// 项目根目录绝对路径
     root: String,
     /// 分析时间戳 (ISO 8601)
@@ -91,17 +91,17 @@ struct GraphSummary {
 
 字段语义对齐：
 
-| 字段 | Rust 来源 | Cangjie 来源 | 对齐状态 |
-|------|-----------|-------------|----------|
-| `node_count` | `GraphStats.node_count` | `nodes.len()` | ✅ 直接映射 |
-| `edge_count` | `GraphStats.edge_count` | `edges.len()` | ✅ 直接映射 |
-| `symbol_count` | `GraphStats.symbol_count` | Symbol node 计数 | ✅ 直接映射 |
-| `source_file_count` | SourceFile node 计数 | SourceFile node 计数 | ✅ 直接映射 |
-| `package_count` | Package + Target node 计数 | Package node 计数 | ⚠️ Rust 多 Target 层，Cangjie 无 |
-| `diagnostic_count` | `GraphStats.diagnostic_count` | Diagnostic node 计数 | ✅ 直接映射 |
-| `call_edge_count` | `GraphStats.call_edge_count` | Uses+Accesses+Modifies edge 计数 | ⚠️ 语义不同但可比 |
+| 字段 | Rust 来源 | Cangjie 来源 | C++ 来源 | 对齐状态 |
+|------|-----------|-------------|----------|----------|
+| `node_count` | `GraphStats.node_count` | `nodes.len()` | Graph node 计数 | ✅ 直接映射 |
+| `edge_count` | `GraphStats.edge_count` | `edges.len()` | Graph edge 计数 | ✅ 直接映射 |
+| `symbol_count` | `GraphStats.symbol_count` | Symbol node 计数 | Symbol node 计数 | ✅ 直接映射 |
+| `source_file_count` | SourceFile node 计数 | SourceFile node 计数 | SourceFile node 计数 | ✅ 直接映射 |
+| `package_count` | Package + Target node 计数 | Package node 计数 | 无（返回 0） | ⚠️ Rust 多 Target 层，Cangjie 无，C++ 无 Package 概念 |
+| `diagnostic_count` | `GraphStats.diagnostic_count` | Diagnostic node 计数 | 无（返回 0） | ✅ 直接映射 |
+| `call_edge_count` | `GraphStats.call_edge_count` | Uses+Accesses+Modifies edge 计数 | CALLS edge 计数 | ⚠️ 语义不同但可比 |
 
-**注意：** `package_count` 语义差异记录在此。Rust 的 Package + Target 两层在 Cangjie 中对应单层 Package。统一 summary 时使用各自语言的定义，不做跨语言对齐归一化。
+**注意：** `package_count` 语义差异记录在此。Rust 的 Package + Target 两层在 Cangjie 中对应单层 Package，C++ 无 Package 概念（返回 0）。统一 summary 时使用各自语言的定义，不做跨语言对齐归一化。
 
 ### 1.3 QualityGateResult
 
@@ -118,16 +118,16 @@ struct QualityGateResult {
 
 支持的质量门列表（对齐 QUALITY.md）：
 
-| gate_name | Rust 适用 | Cangjie 适用 | 判定逻辑 |
-|-----------|----------|-------------|---------|
-| `duplicate_nodes` | yes | yes | 重复 node ID 数 = 0 |
-| `duplicate_edges` | yes | yes | 重复 edge triple 数 = 0 |
-| `dangling_source` | yes | yes | 悬空 source 引用数 = 0 |
-| `dangling_target` | yes | yes | 悬空 target 引用数 = 0 |
-| `deterministic` | yes | yes | 两次运行输出完全一致 |
-| `synthetic_nodes` | no | yes | CallableSource node 数 = 0 |
-| `calls_endpoint_integrity` | yes | no | 每条 CALLS edge 端点存在于 nodes |
-| `external_symbol_marking` | yes | no | 外部 symbol node 有 `isExternal: true` |
+| gate_name | Rust 适用 | Cangjie 适用 | C++ 适用 | 判定逻辑 |
+|-----------|----------|-------------|----------|---------|
+| `duplicate_nodes` | yes | yes | yes | 重复 node ID 数 = 0 |
+| `duplicate_edges` | yes | yes | yes | 重复 edge triple 数 = 0 |
+| `dangling_source` | yes | yes | yes | 悬空 source 引用数 = 0 |
+| `dangling_target` | yes | yes | yes | 悬空 target 引用数 = 0 |
+| `deterministic` | yes | yes | yes | 两次运行输出完全一致 |
+| `synthetic_nodes` | no | yes | no | CallableSource node 数 = 0 |
+| `calls_endpoint_integrity` | yes | no | yes | 每条 CALLS edge 端点存在于 nodes |
+| `external_symbol_marking` | yes | no | no | 外部 symbol node 有 `isExternal: true` |
 
 ### 1.4 Node/Edge 兼容性期望
 
@@ -140,12 +140,12 @@ struct QualityGateResult {
 
 当前差异保留：
 
-| 差异点 | Rust | Cangjie |
-|--------|------|---------|
-| Node 类型 | Repository/Workspace/Package/Target/SourceFile/Module/Symbol/Diagnostic | Repository/Package/SourceFile/Symbol/Diagnostic/CallableSource |
-| Edge 类型 | CONTAINS_WORKSPACE/CONTAINS_PACKAGE/HAS_TARGET/OWNS_SOURCE/DEFINES/CALLS/DESIGNATION/ACCESSES/HAS_PARENT | ContainsPackage/OwnsSource/Defines/Annotates/Uses/Accesses/Modifies/Imports |
-| 图顶层字段 | schemaVersion/generatedAt/root/nodes/edges/diagnostics/stats | nodes/edges |
-| 额外统计 | call_edge_count/designation_edge_count/accesses_edge_count | 无 stats 结构 |
+| 差异点 | Rust | Cangjie | C++ |
+|--------|------|---------|-----|
+| Node 类型 | Repository/Workspace/Package/Target/SourceFile/Module/Symbol/Diagnostic | Repository/Package/SourceFile/Symbol/Diagnostic/CallableSource | Repository/SourceFile/Symbol |
+| Edge 类型 | CONTAINS_WORKSPACE/CONTAINS_PACKAGE/HAS_TARGET/OWNS_SOURCE/DEFINES/CALLS/DESIGNATION/ACCESSES/HAS_PARENT | ContainsPackage/OwnsSource/Defines/Annotates/Uses/Accesses/Modifies/Imports | DEFINES/CALLS/INCLUDES |
+| 图顶层字段 | schemaVersion/generatedAt/root/nodes/edges/diagnostics/stats | nodes/edges | nodes/edges |
+| 额外统计 | call_edge_count/designation_edge_count/accesses_edge_count | 无 stats 结构 | call_edge_count |
 
 ---
 
@@ -171,8 +171,9 @@ struct QualityGateResult {
 
 1. 检查 `<root>/Cargo.toml` → `rust`
 2. 检查 `<root>/cjpm.toml` → `cangjie`
-3. 两者都有 → 报错要求显式指定
-4. 两者都没有 → 报错"无法检测语言"
+3. 检查 `<root>` 含 `.cpp`/`.hpp`/`.cc`/`.cxx` 文件 → `cpp`
+4. 两者都有 → 报错要求显式指定
+5. 两者都没有 → 报错"无法检测语言"
 
 ---
 
@@ -256,7 +257,8 @@ struct QualityGateResult {
 
 - Rust 路径：对 fixtures/rust/portable-smoke 使用 `analyze --language rust`
 - Cangjie 路径：对 fixtures/cangjie/portable-smoke 使用 `analyze --language cangjie`
-- auto 路径：对 Cargo 项目 + cjpm 项目各测一次
+- C++ 路径：对 fixtures/cpp/portable-smoke 使用 `analyze --language cpp`
+- auto 路径：对 Cargo 项目 + cjpm 项目 + C++ 项目各测一次
 - quality 路径：pass/fail/unsupported 三种退出码
 - summary 路径：验证不含 graph inline，stats 非零
 
@@ -266,6 +268,7 @@ struct QualityGateResult {
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-15 | 1.2.0 | 新增 C++ Phase A 支持：language 枚举、GraphSummary 来源、质量门适用性、Node/Edge 差异表、auto 检测策略、测试要求 |
 | 2026-05-15 | 1.1.0 | 新增 MCP 缓存元数据说明（第六节） |
 | 2026-05-09 | 1.0.0 | 初始版本：定义 LanguageAnalysisResult / GraphSummary / QualityGateResult / Node/Edge 兼容性期望 / CLI 输出协议 |
 

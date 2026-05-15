@@ -117,6 +117,8 @@ pub enum DetectedLanguage {
     TypeScript,
     /// C project (CMakeLists.txt / Makefile / .c/.h files, no C++ files)
     C,
+    /// C++ project (CMakeLists.txt / .cpp/.hpp files; may include .h)
+    Cpp,
     /// 多种清单存在，需要用户显式指定
     Ambiguous,
     /// 没有可识别的清单文件
@@ -132,6 +134,7 @@ impl DetectedLanguage {
             DetectedLanguage::ArkTS => "arkts",
             DetectedLanguage::TypeScript => "typescript",
             DetectedLanguage::C => "c",
+            DetectedLanguage::Cpp => "cpp",
             DetectedLanguage::Ambiguous => "ambiguous",
             DetectedLanguage::Unknown => "unknown",
         }

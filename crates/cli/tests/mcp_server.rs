@@ -59,6 +59,14 @@ fn c_portable_smoke_dir() -> std::path::PathBuf {
         .join("portable-smoke")
 }
 
+#[allow(dead_code)]
+fn cpp_portable_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("cpp")
+        .join("portable-smoke")
+}
+
 fn cli_binary() -> PathBuf {
     // Use CARGO_BIN_EXE environment variable set by cargo test
     std::env::var("CARGO_BIN_EXE_gitnexus-rust-core-cli")
@@ -6491,4 +6499,611 @@ fn mcp_review_plan_invalid_mode() {
         resp["result"]["isError"].as_bool().unwrap_or(false) || resp.get("error").is_some(),
         "invalid mode should return error"
     );
+}
+
+// ============================================================
+// C++ Phase A MCP Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-cpp")]
+#[cfg(test)]
+mod cpp_tests {
+    use super::*;
+
+    /// C++ CLI analyze: portable-smoke fixture should produce valid JSON with nodes/edges.
+    #[test]
+    fn mcp_cpp_analyze_portable_smoke() {
+        let root = cpp_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "cpp",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C++ analyze should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+        let summary = &data["summary"];
+        assert!(
+            summary["nodeCount"].as_u64().unwrap() > 0,
+            "C++ analyze should produce nodes"
+        );
+        assert!(
+            summary["sourceFileCount"].as_u64().unwrap() > 0,
+            "C++ analyze should report source files"
+        );
+        assert!(
+            summary["symbolCount"].as_u64().unwrap() > 0,
+            "C++ analyze should extract symbols"
+        );
+    }
+
+    /// C++ CLI quality: should return quality gates without error.
+    #[test]
+    fn mcp_cpp_quality_portable_smoke() {
+        let root = cpp_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "quality",
+                "--language",
+                "cpp",
+                "--root",
+                &root.to_string_lossy(),
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C++ quality should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("quality output should be valid JSON");
+        assert_eq!(data["language"], "cpp");
+        assert!(data["gates"].is_array(), "quality should have gates array");
+        assert!(
+            data["gates"].as_array().unwrap().len() > 0,
+            "quality should have gates"
+        );
+    }
+
+    /// C++ CLI summary: should return graph + quality summary.
+    #[test]
+    fn mcp_cpp_summary_portable_smoke() {
+        let root = cpp_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "summary",
+                "--language",
+                "cpp",
+                "--root",
+                &root.to_string_lossy(),
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C++ summary should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("summary output should be valid JSON");
+        assert_eq!(data["language"], "cpp");
+        assert!(
+            data["graphSummary"].is_object(),
+            "summary should have graphSummary"
+        );
+        assert!(
+            data["qualitySummary"].is_object(),
+            "summary should have qualitySummary"
+        );
+    }
+
+    /// C++ MCP project_overview: counts should be non-zero.
+    #[test]
+    fn mcp_cpp_project_overview() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30001,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30001);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ project_overview should succeed"
+        );
+        let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value = serde_json::from_str(content_text)
+            .expect("project_overview output should be valid JSON");
+        assert_eq!(data["language"], "cpp");
+        assert!(data["nodeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["edgeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["symbolCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["sourceFileCount"].as_u64().unwrap_or(0) > 0);
+    }
+
+    /// C++ MCP symbol_search: should find "Logger" class.
+    #[test]
+    fn mcp_cpp_symbol_search() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30002,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_symbol_search",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp",
+                    "query": "Logger",
+                    "limit": 10
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30002);
+        let text = resp["result"]["content"][0]["text"].as_str().expect("text");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("symbol_search output should be valid JSON");
+        let count = data["matchCount"].as_u64().unwrap_or(0);
+        assert!(
+            count > 0,
+            "C++ symbol_search(Logger) should find matches, got {}",
+            count
+        );
+    }
+
+    /// C++ MCP symbol_context: should return context for "Logger".
+    #[test]
+    fn mcp_cpp_symbol_context() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30003,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_symbol_context",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp",
+                    "name": "Logger"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30003);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ symbol_context should succeed"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("symbol_context output should be valid JSON");
+        // Should have at least a file path and line number
+        assert!(
+            data["file"].as_str().is_some()
+                || data["filePath"].as_str().is_some()
+                || data.get("candidates").is_some(),
+            "C++ symbol_context should have file/location info"
+        );
+    }
+
+    /// C++ MCP query_graph: should return nodes.
+    #[test]
+    fn mcp_cpp_query_graph() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30004,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_query_graph",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30004);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ query_graph should not error"
+        );
+    }
+
+    /// C++ MCP project_insights: should return readFirst/hotspots.
+    #[test]
+    fn mcp_cpp_project_insights() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30005,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_insights",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30005);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ project_insights should succeed"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("project_insights output should be valid JSON");
+        // Should have readFirst or hotspots arrays
+        assert!(
+            data["readFirst"].is_array()
+                || data["hotspots"].is_array()
+                || data.get("entryPoints").is_some(),
+            "C++ project_insights should return readFirst/hotspots"
+        );
+    }
+
+    /// C++ MCP review_plan (onboarding mode): should return readPlan.
+    #[test]
+    fn mcp_cpp_review_plan() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30006,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_review_plan",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp",
+                    "mode": "onboarding"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30006);
+        let data = extract_tool_data(&resp);
+        assert_eq!(data["mode"], "onboarding");
+        // Should produce a readPlan array
+        assert!(
+            data["readPlan"].is_array(),
+            "onboarding should produce readPlan array"
+        );
+    }
+
+    /// C++ MCP impact_preview: should return risk or graceful preview.
+    #[test]
+    fn mcp_cpp_impact_preview() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30007,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_impact_preview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp",
+                    "symbol": "Logger"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30007);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ impact_preview should not error"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("impact_preview output should be valid JSON");
+        // Should have riskReasons or at least a graceful preview
+        assert!(
+            data["riskReasons"].is_array()
+                || data["risk"].is_string()
+                || data.get("affectedSymbols").is_some()
+                || data.get("candidates").is_some(),
+            "C++ impact_preview should return risk info or graceful preview"
+        );
+    }
+
+    /// C++ MCP changed_symbols: create temp git repo with C++ file, modify, detect change.
+    #[test]
+    fn mcp_cpp_changed_symbols() {
+        let tmp = std::env::temp_dir().join(format!(
+            "codelattice-cpp-changed-symbols-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+
+        // Write initial C++ file
+        let cpp_file = tmp.join("example.cpp");
+        std::fs::write(
+            &cpp_file,
+            r#"// Initial version
+int add(int a, int b) {
+    return a + b;
+}
+"#,
+        )
+        .expect("write initial file");
+
+        // git init, add, commit
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&tmp)
+                .output()
+                .expect("git command")
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@test.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["add", "."]);
+        git(&["commit", "-m", "initial"]);
+
+        // Modify the file
+        std::fs::write(
+            &cpp_file,
+            r#"// Modified version
+int add(int a, int b) {
+    return a + b + 1;
+}
+"#,
+        )
+        .expect("write modified file");
+
+        // Run changed_symbols via MCP
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30008,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_changed_symbols",
+                "arguments": {
+                    "root": tmp.to_string_lossy(),
+                    "language": "cpp"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30008);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ changed_symbols should succeed"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("changed_symbols output should be valid JSON");
+        // Should detect at least one changed symbol or changed file
+        assert!(
+            data["changedSymbols"]
+                .as_array()
+                .map_or(false, |a| !a.is_empty())
+                || data["changedFiles"]
+                    .as_array()
+                    .map_or(false, |a| !a.is_empty())
+                || data["hunks"].as_array().map_or(false, |a| !a.is_empty()),
+            "C++ changed_symbols should detect changes, got: {:?}",
+            data
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// C++ MCP production_assist: should return reviewChecklist.
+    #[test]
+    fn mcp_cpp_production_assist() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30009,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_production_assist",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30009);
+        let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value = serde_json::from_str(content_text)
+            .expect("production_assist output should be valid JSON");
+        assert!(
+            data["reviewChecklist"].is_array() || data["changedSymbols"].is_array(),
+            "production_assist should return reviewChecklist or changedSymbols"
+        );
+    }
+
+    /// C++ MCP export_bridge: should write bridge JSON to /tmp.
+    #[test]
+    fn mcp_cpp_export_bridge() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = cpp_portable_smoke_dir();
+        let bridge_path = format!(
+            "/tmp/codelattice-cpp-bridge-test-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30010,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_export_bridge",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "cpp",
+                    "outputPath": bridge_path
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30010);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "C++ export_bridge should succeed"
+        );
+        // Verify the file was written
+        let content = std::fs::read_to_string(&bridge_path).expect("bridge JSON file should exist");
+        let data: serde_json::Value =
+            serde_json::from_str(&content).expect("bridge file should be valid JSON");
+        assert_eq!(data["language"], "cpp");
+        assert!(
+            data["symbols"].is_array(),
+            "bridge should have symbols array"
+        );
+        let _ = std::fs::remove_file(&bridge_path);
+    }
+
+    /// C++ MCP tools/list: language enums in schemas should contain "cpp".
+    #[test]
+    fn mcp_cpp_tools_list_includes_cpp() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 30011,
+            "method": "tools/list",
+            "params": {}
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 30011);
+        let tools = resp["result"]["tools"]
+            .as_array()
+            .expect("tools should be array");
+        // Find a tool with a language parameter and verify "cpp" is in the enum
+        let mut found_cpp = false;
+        for tool in tools {
+            if let Some(props) = tool["inputSchema"]["properties"].as_object() {
+                if let Some(lang) = props.get("language") {
+                    if let Some(enum_vals) = lang["enum"].as_array() {
+                        for v in enum_vals {
+                            if v.as_str() == Some("cpp") {
+                                found_cpp = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if found_cpp {
+                break;
+            }
+        }
+        assert!(
+            found_cpp,
+            "At least one tool schema should list 'cpp' in its language enum"
+        );
+    }
+
+    /// C++ auto-detect: analyze with --language auto on C++ fixture should detect "cpp".
+    #[test]
+    fn mcp_cpp_auto_detect() {
+        let root = cpp_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "auto",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "C++ auto-detect analyze should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("auto-detect output should be valid JSON");
+        assert_eq!(
+            data["language"], "cpp",
+            "auto-detect should identify C++ project as 'cpp'"
+        );
+    }
 }

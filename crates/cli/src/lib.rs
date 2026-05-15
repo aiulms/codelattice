@@ -13,6 +13,7 @@ mod arkts_bridge;
 mod bridge_format;
 mod c_bridge;
 mod cangjie_bridge;
+mod cpp_bridge;
 mod language_detect;
 mod mcp_server;
 mod rust_bridge;
@@ -138,14 +139,15 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
             DetectedLanguage::ArkTS => Ok("arkts".to_string()),
             DetectedLanguage::TypeScript => Ok("typescript".to_string()),
             DetectedLanguage::C => Ok("c".to_string()),
+            DetectedLanguage::Cpp => Ok("cpp".to_string()),
             DetectedLanguage::Ambiguous => Err(
-                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript|c 显式指定".to_string(),
+                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript|c|cpp 显式指定".to_string(),
             ),
             DetectedLanguage::Unknown => Err(
                 "语言检测失败：未找到可识别的清单文件，无法自动检测语言".to_string(),
             ),
         }
-    } else if ["rust", "cangjie", "arkts", "typescript", "c"].contains(&lang_arg) {
+    } else if ["rust", "cangjie", "arkts", "typescript", "c", "cpp"].contains(&lang_arg) {
         Ok(lang_arg.to_string())
     } else {
         Err(format!(
@@ -835,6 +837,142 @@ fn compute_c_quality_gates(
     edges: &[serde_json::Value],
 ) -> Vec<QualityGateResult> {
     // C uses the same quality gate logic as ArkTS/TypeScript (generic node/edge checks)
+    compute_arkts_quality_gates(nodes, edges)
+}
+
+// ============================================================
+// C++ 分析
+// ============================================================
+
+#[cfg(feature = "tree-sitter-cpp")]
+fn run_cpp_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    use std::collections::BTreeMap;
+
+    // 1. Build project model
+    let project = gitnexus_cpp::project::find_cpp_project_root(root).ok_or_else(|| {
+        "C++ project root not found (no C++ markers or files detected)".to_string()
+    })?;
+
+    let (source_files, header_files) = gitnexus_cpp::project::list_cpp_source_files(&project)
+        .map_err(|e| format!("Failed to list C++ source files: {e}"))?;
+
+    let all_files: Vec<std::path::PathBuf> = source_files
+        .iter()
+        .chain(header_files.iter())
+        .cloned()
+        .collect();
+
+    // 2. Extract per-file data
+    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppSymbol>> =
+        BTreeMap::new();
+    let mut includes_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppInclude>> =
+        BTreeMap::new();
+
+    for file in &all_files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        let syms = gitnexus_cpp::extract_cpp_symbols(&source);
+        let incs = gitnexus_cpp::extract_cpp_includes(&source);
+
+        if !syms.is_empty() {
+            symbols_by_file.insert(file.clone(), syms);
+        }
+        if !incs.is_empty() {
+            includes_by_file.insert(file.clone(), incs);
+        }
+    }
+
+    // 3. Build project function name index for call extraction
+    let project_fn_names: Vec<String> = symbols_by_file
+        .values()
+        .flat_map(|syms| {
+            syms.iter()
+                .filter(|s| {
+                    matches!(
+                        s.kind,
+                        gitnexus_cpp::CppSymbolKind::FunctionDefinition
+                            | gitnexus_cpp::CppSymbolKind::FunctionDeclaration
+                            | gitnexus_cpp::CppSymbolKind::MethodDefinition
+                            | gitnexus_cpp::CppSymbolKind::MethodDeclaration
+                    )
+                })
+                .flat_map(|s| [s.qualified_name.clone(), s.name.clone()])
+        })
+        .collect();
+
+    // 4. Extract calls per file
+    let mut calls_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppCall>> =
+        BTreeMap::new();
+    for file in &all_files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let rel = file.strip_prefix(root).unwrap_or(file);
+        let calls =
+            gitnexus_cpp::extract_cpp_calls(&source, &rel.to_string_lossy(), &project_fn_names);
+        if !calls.is_empty() {
+            calls_by_file.insert(file.clone(), calls);
+        }
+    }
+
+    // 5. Build graph
+    let graph = gitnexus_cpp::build_cpp_graph(
+        &project,
+        &symbols_by_file,
+        &includes_by_file,
+        &calls_by_file,
+    );
+
+    let json_val = serde_json::to_value(&graph)
+        .map_err(|e| format!("C++ graph JSON serialization failed: {e}"))?;
+
+    let nodes: Vec<serde_json::Value> = json_val
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let edges: Vec<serde_json::Value> = json_val
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-cpp"))]
+fn run_cpp_analysis(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    Err("C++ support is disabled. 请使用 --features tree-sitter-cpp 重新编译。".to_string())
+}
+
+/// 计算 C++ 质量门（复用通用质量门逻辑）
+fn compute_cpp_quality_gates(
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> Vec<QualityGateResult> {
     compute_arkts_quality_gates(nodes, edges)
 }
 
@@ -1568,6 +1706,69 @@ pub fn run() {
                         }
                     }
                 }
+                "cpp" => {
+                    let (json_val, nodes, edges) = match run_cpp_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let quality_gates = compute_cpp_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("v0.1.0")
+                        .to_string();
+
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = cpp_bridge::convert_cpp_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_arkts_summary(&nodes, &edges);
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates: quality_gates.clone(),
+                            graph: json_val,
+                        };
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
+
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 other => {
                     eprintln!("错误：不支持的语言: {other}");
                     std::process::exit(1);
@@ -1599,9 +1800,10 @@ pub fn run() {
                 && language != "arkts"
                 && language != "typescript"
                 && language != "c"
+                && language != "cpp"
             {
                 eprintln!(
-                    "错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript|c"
+                    "错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript|c|cpp"
                 );
                 std::process::exit(1);
             }
@@ -1670,6 +1872,19 @@ pub fn run() {
                         }
                     };
                     let gates = compute_c_quality_gates(&nodes, &edges);
+                    let all_pass = gates.iter().all(|g| g.passed);
+                    let overall = if all_pass { "pass" } else { "fail" };
+                    (gates, overall)
+                }
+                "cpp" => {
+                    let (_json_val, nodes, edges) = match run_cpp_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gates = compute_cpp_quality_gates(&nodes, &edges);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -1816,6 +2031,26 @@ pub fn run() {
                     };
                     let gs = build_arkts_summary(&nodes, &edges);
                     let gates = compute_c_quality_gates(&nodes, &edges);
+                    let total = gates.len() as u32;
+                    let passed = gates.iter().filter(|g| g.passed).count() as u32;
+                    let failed = total - passed;
+                    let qs = QualitySummary {
+                        total,
+                        passed,
+                        failed,
+                    };
+                    (gs, qs)
+                }
+                "cpp" => {
+                    let (_json_val, nodes, edges) = match run_cpp_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gates = compute_cpp_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;

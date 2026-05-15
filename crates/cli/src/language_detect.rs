@@ -100,7 +100,12 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
     // C: only if no stronger markers, has C markers/files, and NO C++ files
     if !has_cargo && !has_cjpm && !has_oh_pkg && !has_tsconfig && !has_pkg_json {
         let has_c_markers = has_cmake || has_makefile || has_autoconf || has_c_files(root);
-        if has_c_markers && !has_cpp_files(root) {
+        let has_cpp = has_cpp_files(root);
+        if has_cpp {
+            // C++ files present — detect as C++ (covers pure C++ and mixed C/C++)
+            detected.push(DetectedLanguage::Cpp);
+        } else if has_c_markers {
+            // Pure C project, no C++ files
             detected.push(DetectedLanguage::C);
         }
     }
