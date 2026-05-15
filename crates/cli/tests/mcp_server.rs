@@ -175,7 +175,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_twenty_three_tools() {
+fn mcp_tools_list_returns_twenty_four_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -192,7 +192,7 @@ fn mcp_tools_list_returns_twenty_three_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 23, "expected 23 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 24, "expected 24 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -284,6 +284,11 @@ fn mcp_tools_list_returns_twenty_three_tools() {
     assert!(
         names.contains(&"codelattice_project_insights"),
         "missing codelattice_project_insights"
+    );
+    // v0.9 tools
+    assert!(
+        names.contains(&"codelattice_review_plan"),
+        "missing codelattice_review_plan"
     );
 
     // Verify each tool has inputSchema
@@ -5830,5 +5835,339 @@ fn mcp_project_insights_docs_signals_stable() {
     assert!(
         data["docsSignals"].is_array(),
         "docsSignals should be array"
+    );
+}
+
+// ============================================================
+// v0.9: codelattice_review_plan tests
+// ============================================================
+
+#[test]
+fn mcp_review_plan_onboarding_basic() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9501,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "onboarding"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    assert_eq!(data["mode"], "onboarding");
+    assert!(
+        data["summary"]["nodeCount"].is_number(),
+        "summary.nodeCount should be number"
+    );
+    assert!(
+        data["summary"]["edgeCount"].is_number(),
+        "summary.edgeCount should be number"
+    );
+    assert!(
+        data["summary"]["symbolCount"].is_number(),
+        "summary.symbolCount should be number"
+    );
+    assert!(data["readPlan"].is_array(), "readPlan should be array");
+    assert!(
+        data["riskReviewPlan"].is_array(),
+        "riskReviewPlan should be array"
+    );
+    assert!(data["testHints"].is_array(), "testHints should be array");
+    assert!(
+        data["docUpdateHints"].is_array(),
+        "docUpdateHints should be array"
+    );
+    assert!(
+        data["questionsToAskBeforeEdit"].is_array(),
+        "questionsToAskBeforeEdit should be array"
+    );
+    assert!(
+        data["manualReviewRequired"].is_array(),
+        "manualReviewRequired should be array"
+    );
+    assert!(
+        data["recommendedMcpCalls"].is_array(),
+        "recommendedMcpCalls should be array"
+    );
+    assert!(
+        data["generatedFrom"]["graphBased"].is_boolean(),
+        "generatedFrom.graphBased should be boolean"
+    );
+    assert_eq!(data["generatedFrom"]["compilerVerified"], false);
+    assert_eq!(data["generatedFrom"]["previewOnly"], true);
+}
+
+#[test]
+fn mcp_review_plan_onboarding_has_entry_points() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9502,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "onboarding"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let read_plan = data["readPlan"]
+        .as_array()
+        .expect("readPlan should be array");
+
+    // Onboarding mode should produce at least some readPlan items
+    // (dense files are always produced; entry points depend on graph)
+    assert!(
+        !read_plan.is_empty(),
+        "onboarding readPlan should not be empty"
+    );
+
+    // Each read plan item should have required fields
+    for item in read_plan {
+        assert!(
+            item["priority"].is_string(),
+            "plan item should have priority"
+        );
+        assert!(item["action"].is_string(), "plan item should have action");
+        assert!(item["reason"].is_string(), "plan item should have reason");
+        assert!(item["source"].is_string(), "plan item should have source");
+    }
+}
+
+#[test]
+fn mcp_review_plan_onboarding_docs_signal() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9503,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "onboarding",
+                "includeDocs": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // recommendedMcpCalls should be populated for onboarding
+    let rec = data["recommendedMcpCalls"]
+        .as_array()
+        .expect("recommendedMcpCalls should be array");
+    assert!(!rec.is_empty(), "onboarding should recommend MCP calls");
+}
+
+#[test]
+fn mcp_review_plan_before_edit_with_symbol() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9504,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "before_edit",
+                "symbol": "main"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    assert_eq!(data["mode"], "before_edit");
+    // before_edit with a known symbol should produce risk items
+    let risk = data["riskReviewPlan"]
+        .as_array()
+        .expect("riskReviewPlan should be array");
+    // main exists in the smoke project, so we should get caller info
+    assert!(
+        !risk.is_empty(),
+        "before_edit with 'main' should produce risk items"
+    );
+}
+
+#[test]
+fn mcp_review_plan_before_edit_without_symbol() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9505,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "before_edit"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // Without symbol, should ask which symbol to change
+    let questions = data["questionsToAskBeforeEdit"]
+        .as_array()
+        .expect("questionsToAsk should be array");
+    assert!(
+        !questions.is_empty(),
+        "before_edit without symbol should ask questions"
+    );
+}
+
+#[test]
+fn mcp_review_plan_after_edit_basic() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9506,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "after_edit",
+                "changedSymbols": ["main"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    assert_eq!(data["mode"], "after_edit");
+    // after_edit should produce risk items for changed symbols
+    let risk = data["riskReviewPlan"]
+        .as_array()
+        .expect("riskReviewPlan should be array");
+    assert!(
+        !risk.is_empty(),
+        "after_edit with changedSymbols should produce risk items"
+    );
+    // testHints should be populated
+    let hints = data["testHints"]
+        .as_array()
+        .expect("testHints should be array");
+    assert!(!hints.is_empty(), "after_edit should produce test hints");
+}
+
+#[test]
+fn mcp_review_plan_release_check() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9507,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "release_check"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    assert_eq!(data["mode"], "release_check");
+    // release_check should always produce test hints
+    let hints = data["testHints"]
+        .as_array()
+        .expect("testHints should be array");
+    assert!(
+        hints.len() >= 3,
+        "release_check should produce at least 3 test hints, got {}",
+        hints.len()
+    );
+    // recommendedMcpCalls should be populated
+    let rec = data["recommendedMcpCalls"]
+        .as_array()
+        .expect("recommendedMcpCalls should be array");
+    assert!(!rec.is_empty(), "release_check should recommend MCP calls");
+    // summary should have quality gate info
+    assert!(data["summary"]["qualityGatesPassed"].is_number());
+    assert!(data["summary"]["qualityGatesFailed"].is_number());
+}
+
+#[test]
+fn mcp_review_plan_invalid_mode() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9508,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "mode": "nonexistent_mode"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    // Should return an error
+    assert!(
+        resp["result"]["isError"].as_bool().unwrap_or(false) || resp.get("error").is_some(),
+        "invalid mode should return error"
     );
 }

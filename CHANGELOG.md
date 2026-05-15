@@ -24,6 +24,21 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - 7 new MCP integration tests for project_insights
 - Updated README.md: large project insight section, AI-sidecar workflow step 1
 
+- **MCP tool `codelattice_review_plan`** (v0.9): AI engineering review checklist that synthesizes project insights, impact analysis, changed symbols, and doc associations into actionable plans. Graph-based heuristic — not compiler/IDE/test-system proof.
+  - 4 modes: `onboarding` (start a new project), `before_edit` (pre-change impact preview), `after_edit` (post-change impact + test/doc hints), `release_check` (pre-release quality gate)
+  - Each plan item: priority (P0/P1/P2), action, target, file, line, reason, source, recommendedTool, doneCriteria
+  - `onboarding`: readPlan (entry points, hotspot files, docs), riskReviewPlan (high-risk symbols), recommendedMcpCalls
+  - `before_edit`: impactPreview (callers, file ripple), backwardCompatNotes, questionPrompt (if no symbol), recommendedMcpCalls
+  - `after_edit`: impactSummary, testHints, docUpdateHints (via DocScanner), recommendedMcpCalls
+  - `release_check`: qualityGates, diagnosticSummary, lowConfidenceEdges, testHints, releaseReadiness, recommendedMcpCalls
+  - Parameters: root, language, mode, symbol, changedSymbols, compact, limit, includeDocs, includeTests
+  - `generatedFrom`: `graphBased=true, compilerVerified=false, previewOnly=true`
+- Updated `scripts/mcp-dogfood.sh` to include `codelattice_review_plan` (24 tool checks)
+- Updated `scripts/codelattice-mcp.sh` tool threshold to >=24
+- Updated `scripts/install-mcp.sh` tool count to 24
+- 8 new MCP integration tests for review_plan (onboarding basic/entry_points/docs_signal, before_edit with/without symbol, after_edit, release_check, invalid mode)
+- Updated README.md: review_plan in tools table, AI workflow expanded to 8 steps integrating review_plan
+
 ### Changed
 
 - (No unreleased changes yet.)

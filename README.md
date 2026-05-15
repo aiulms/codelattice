@@ -282,16 +282,20 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_changed_symbols` | 从 git diff 自动识别变更涉及的符号 |
 | `codelattice_production_assist` | 一站式摘要：quality gates、unresolved calls、diagnostics、change risk、review checklist |
 | `codelattice_project_insights` | 大项目洞察地图：入口点、热点文件/符号、风险区域、低置信度聚集区、先读/先审建议 |
+| `codelattice_review_plan` | AI 工程审查清单：4 模式（onboarding/before_edit/after_edit/release_check），将洞察、影响分析、变更符号、文档关联转化为可操作的行动计划 |
 | `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
 | `codelattice_cache_clear` | 清理 memory / persistent / both 缓存层 |
 
 AI 编程助手推荐使用这条链路完成“接手项目 → 改代码 → 看影响 → 审查 → 提交”的闭环：
 
-1. `codelattice_project_insights`：接手陌生项目时，先获取洞察地图（入口点、热点、风险区域、先读建议）
-2. `codelattice_project_overview`：快速理解项目规模
-3. `codelattice_changed_symbols`：识别当前 git diff 影响的符号
-4. `codelattice_impact_preview`：查看影响范围、风险理由、置信度和 review focus
-5. `codelattice_production_assist`：汇总质量 gate、未解析调用、变更影响和审查清单
+1. `codelattice_review_plan(mode=onboarding)`：接手陌生项目时，获取可操作的阅读/审查清单（入口点、热点文件、文档信号）
+2. `codelattice_review_plan(mode=before_edit, symbol=...)`：修改前获取影响预览和向后兼容性检查
+3. `codelattice_project_overview`：快速理解项目规模
+4. `codelattice_changed_symbols`：识别当前 git diff 影响的符号
+5. `codelattice_review_plan(mode=after_edit)`：修改后获取影响汇总、测试建议、文档更新提示
+6. `codelattice_impact_preview`：查看影响范围、风险理由、置信度和 review focus
+7. `codelattice_review_plan(mode=release_check)`：发布前检查：quality gates、测试建议、生产就绪评估
+8. `codelattice_production_assist`：汇总质量 gate、未解析调用、变更影响和审查清单
 
 ## Rust 支持范围
 

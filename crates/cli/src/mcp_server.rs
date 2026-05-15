@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 23 tools:
+//! Provides 24 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -13,6 +13,7 @@
 //!   v0.6: codelattice_cache_prewarm
 //!   v0.7: codelattice_changed_symbols
 //!   v0.8: codelattice_project_insights
+//!   v0.9: codelattice_review_plan
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -6551,6 +6552,473 @@ fn detect_entry_like(name: &str, kind: &str, file: &str, language: &str, fan_out
     }
 }
 
+// ============================================================
+// v0.9: AI Review Plan
+// ============================================================
+
+/// AI review plan workflow: converts project insights, impact analysis, changed symbols,
+/// and doc associations into an actionable engineering checklist for AI agents.
+///
+/// Four modes: onboarding, before_edit, after_edit, release_check.
+/// Graph-based heuristic — not compiler/IDE/test-system proof.
+fn handle_review_plan(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let mode = params["mode"].as_str().unwrap_or("onboarding");
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(10).min(100) as usize;
+    let include_docs = params["includeDocs"].as_bool().unwrap_or(true);
+    let include_tests = params["includeTests"].as_bool().unwrap_or(true);
+    check_language_feature(language)?;
+
+    let (gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let (node_count, edge_count, symbol_count) = gv.stats();
+    let root_str = validated.to_string_lossy();
+
+    // Shared: quality gates
+    let quality_gates = result.get("qualityGates").cloned().unwrap_or(json!([]));
+    let gate_array = quality_gates.as_array().cloned().unwrap_or_default();
+    let passed_gates = gate_array
+        .iter()
+        .filter(|g| g["passed"].as_bool().unwrap_or(false))
+        .count();
+    let failed_gates = gate_array.len() - passed_gates;
+
+    // Shared: low-confidence call edges
+    let low_conf_count = gv
+        .outgoing
+        .values()
+        .flatten()
+        .filter(|e| {
+            e["type"].as_str() == Some("CALLS")
+                && e["properties"]["confidence"]
+                    .as_f64()
+                    .map(|c| c < 0.8)
+                    .unwrap_or(false)
+        })
+        .count();
+
+    // Shared: diagnostics
+    let diag_count = gv.diagnostics.len();
+
+    // Plan item helper closure
+    let plan_item = |priority: &str,
+                     action: &str,
+                     target: &str,
+                     file: &str,
+                     line: u64,
+                     reason: &str,
+                     source: &str,
+                     rec_tool: &str,
+                     done: &str|
+     -> Value {
+        json!({"priority":priority,"action":action,"target":target,"file":file,"line":line,
+               "reason":reason,"source":source,"recommendedTool":rec_tool,"doneCriteria":done})
+    };
+
+    let mut read_plan: Vec<Value> = Vec::new();
+    let mut risk_review_plan: Vec<Value> = Vec::new();
+    let mut test_hints: Vec<Value> = Vec::new();
+    let mut doc_update_hints: Vec<Value> = Vec::new();
+    let mut questions_to_ask: Vec<Value> = Vec::new();
+    let mut manual_review_required: Vec<Value> = Vec::new();
+    let mut recommended_mcp_calls: Vec<Value> = Vec::new();
+
+    match mode {
+        "onboarding" => {
+            // Entry-like symbols
+            for (id, edges) in &gv.outgoing {
+                if !id.starts_with("symbol:") {
+                    continue;
+                }
+                if let Some(node) = gv.nodes_by_id.get(id) {
+                    let name = node["properties"]["name"].as_str().unwrap_or("");
+                    let kind = node["properties"]["symbolKind"]
+                        .as_str()
+                        .unwrap_or("symbol");
+                    let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let line = node["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    if detect_entry_like(name, kind, file, &gv.language, edges.len()) {
+                        read_plan.push(plan_item(
+                            "P0",
+                            &format!("Read entry point: {}", name),
+                            name,
+                            file,
+                            line,
+                            &format!("entry-like with {} outgoing edges", edges.len()),
+                            "project_insights",
+                            "codelattice_symbol_context",
+                            &format!("understand {} and its call graph", name),
+                        ));
+                    }
+                    if read_plan.len() >= limit {
+                        break;
+                    }
+                }
+            }
+            // Dense files
+            let mut fsym: HashMap<&str, usize> = HashMap::new();
+            for node in gv.nodes_by_id.values() {
+                if node["label"].as_str() == Some("symbol") {
+                    if let Some(f) = node["properties"]["sourcePath"].as_str() {
+                        *fsym.entry(f).or_insert(0) += 1;
+                    }
+                }
+            }
+            let mut dense: Vec<(&str, usize)> = fsym.into_iter().collect();
+            dense.sort_by(|a, b| b.1.cmp(&a.1));
+            for (file, count) in dense.iter().take(3) {
+                read_plan.push(plan_item(
+                    "P1",
+                    &format!("High-density file ({} symbols)", count),
+                    *file,
+                    *file,
+                    0,
+                    "high symbol concentration",
+                    "project_insights",
+                    "codelattice_project_overview",
+                    "understand file structure",
+                ));
+            }
+            read_plan.truncate(limit);
+            // Docs signal
+            if include_docs {
+                if let Some(ds) = gv.doc_scanner() {
+                    let dc = ds.summary_json()["docCount"].as_u64().unwrap_or(0);
+                    if dc > 0 {
+                        doc_update_hints.push(plan_item(
+                            "P2",
+                            "Read project docs",
+                            "docs",
+                            "",
+                            0,
+                            &format!("{} doc files found", dc),
+                            "doc_graph",
+                            "",
+                            "familiar with architecture docs",
+                        ));
+                    }
+                }
+            }
+            recommended_mcp_calls.push(json!({"tool":"codelattice_project_overview",
+                "argumentsSummary":format!("root={}",root_str),"reason":"get full overview"}));
+            recommended_mcp_calls.push(json!({"tool":"codelattice_symbol_context",
+                "argumentsSummary":"name=<from-readPlan>","reason":"deep-dive into entry points"}));
+        }
+
+        "before_edit" => {
+            let symbol = params["symbol"].as_str().unwrap_or("");
+            if !symbol.is_empty() {
+                let targets = gv.find_symbols(symbol, None, 5);
+                if targets.is_empty() {
+                    questions_to_ask.push(json!({"question":format!("Symbol '{}' not found. Try symbol_search.",symbol),"priority":"P0","source":"symbol_context"}));
+                } else if targets.len() > 1 {
+                    questions_to_ask.push(json!({"question":format!("'{}' has {} candidates. Specify kind/file.",symbol,targets.len()),"priority":"P0","source":"symbol_context"}));
+                } else {
+                    let tgt = &targets[0];
+                    let tid = tgt["id"].as_str().unwrap_or("");
+                    let tf = tgt["properties"]["sourcePath"].as_str().unwrap_or("");
+                    let tl = tgt["properties"]["lineStart"].as_u64().unwrap_or(0);
+                    let callers = gv.edges_to(tid, Some("CALLS"));
+                    let callees = gv.edges_from(tid, Some("CALLS"));
+                    let lc: Vec<&Value> = callers
+                        .iter()
+                        .chain(callees.iter())
+                        .filter(|e| {
+                            e["properties"]["confidence"]
+                                .as_f64()
+                                .map(|c| c < 0.8)
+                                .unwrap_or(false)
+                        })
+                        .collect();
+                    risk_review_plan.push(plan_item(
+                        if callers.len() > 5 { "P0" } else { "P1" },
+                        &format!("Review {} callers of {}", callers.len(), symbol),
+                        symbol,
+                        tf,
+                        tl,
+                        &format!("{} direct callers", callers.len()),
+                        "impact_preview",
+                        "codelattice_calls_to",
+                        &format!("verify {} callers", callers.len()),
+                    ));
+                    if !lc.is_empty() {
+                        risk_review_plan.push(plan_item(
+                            "P0",
+                            &format!("Inspect {} low-confidence edges", lc.len()),
+                            symbol,
+                            tf,
+                            tl,
+                            "uncertain call targets",
+                            "impact_preview",
+                            "codelattice_unresolved_report",
+                            "verify uncertain edges",
+                        ));
+                    }
+                    if include_docs {
+                        if let Some(ds) = gv.doc_scanner() {
+                            for doc in ds.find_related_docs(symbol, tf, &[], 3).iter().take(3) {
+                                doc_update_hints.push(plan_item(
+                                    "P1",
+                                    &format!(
+                                        "Review doc: {}",
+                                        doc["docPath"].as_str().unwrap_or("?")
+                                    ),
+                                    symbol,
+                                    doc["docPath"].as_str().unwrap_or(""),
+                                    0,
+                                    "doc mentions symbol",
+                                    "doc_graph",
+                                    "codelattice_symbol_context",
+                                    "doc reflects code",
+                                ));
+                            }
+                        }
+                    }
+                    if callers.len() > 10 {
+                        questions_to_ask.push(json!({"question":format!("{} has {} callers - is change backward-compatible?",symbol,callers.len()),"priority":"P0","source":"impact_preview"}));
+                    }
+                    recommended_mcp_calls.push(json!({"tool":"codelattice_impact_preview","argumentsSummary":format!("symbol={}",symbol),"reason":"full blast radius"}));
+                    recommended_mcp_calls.push(json!({"tool":"codelattice_calls_to","argumentsSummary":format!("symbol={}",symbol),"reason":"see all callers"}));
+                }
+            } else {
+                let mut sf: Vec<(&String, usize)> = gv
+                    .incoming
+                    .iter()
+                    .filter(|(id, _)| id.starts_with("symbol:"))
+                    .map(|(id, e)| (id, e.len()))
+                    .collect();
+                sf.sort_by(|a, b| b.1.cmp(&a.1));
+                for (id, fanin) in sf.iter().take(limit) {
+                    if *fanin > 3 {
+                        if let Some(n) = gv.nodes_by_id.get(*id) {
+                            risk_review_plan.push(plan_item(
+                                "P1",
+                                &format!(
+                                    "High-impact: {} ({} callers)",
+                                    n["properties"]["name"].as_str().unwrap_or("?"),
+                                    fanin
+                                ),
+                                n["properties"]["name"].as_str().unwrap_or(""),
+                                n["properties"]["sourcePath"].as_str().unwrap_or(""),
+                                n["properties"]["lineStart"].as_u64().unwrap_or(0),
+                                "high fan-in",
+                                "project_insights",
+                                "codelattice_impact_preview",
+                                "understand impact",
+                            ));
+                        }
+                    }
+                }
+                questions_to_ask.push(json!({"question":"Which symbol(s) are you planning to change?","priority":"P1","source":"review_plan"}));
+                recommended_mcp_calls.push(json!({"tool":"codelattice_project_insights","argumentsSummary":format!("root={}",root_str),"reason":"get risk landscape"}));
+            }
+        }
+
+        "after_edit" => {
+            let changed: Vec<Value> = if let Some(syms) = params["changedSymbols"].as_array() {
+                syms.iter().filter_map(|s|s.as_str()).filter_map(|name|{
+                    let f=gv.find_symbols(name,None,3);
+                    if f.is_empty(){None}else{let sym=&f[0];let id=sym["id"].as_str().unwrap_or("");
+                    Some(json!({"name":name,"kind":sym["properties"]["symbolKind"],"file":sym["properties"]["sourcePath"].as_str().unwrap_or(""),"line":sym["properties"]["lineStart"].as_u64().unwrap_or(0),"callerCount":gv.edges_to(id,Some("CALLS")).len(),"id":id}))}
+                }).collect()
+            } else if validated.join(".git").exists() {
+                detect_changed_symbols(&validated, &gv, "working-tree", None, true, false, 2, 50)
+                    .map(|d| d["changedSymbols"].as_array().cloned().unwrap_or_default())
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+            let uhunks: Vec<Value> = if validated.join(".git").exists() {
+                detect_changed_symbols(&validated, &gv, "working-tree", None, true, false, 2, 50)
+                    .map(|d| d["unknownHunks"].as_array().cloned().unwrap_or_default())
+                    .unwrap_or_default()
+            } else {
+                vec![]
+            };
+
+            for si in changed.iter().take(limit) {
+                let name = si["name"].as_str().unwrap_or("?");
+                let callers = si["callerCount"].as_u64().unwrap_or(0) as usize;
+                let file = si["file"].as_str().unwrap_or("");
+                let line = si["line"].as_u64().unwrap_or(0);
+                risk_review_plan.push(plan_item(
+                    if callers > 10 {
+                        "P0"
+                    } else if callers > 3 {
+                        "P1"
+                    } else {
+                        "P2"
+                    },
+                    &format!("Review impact: {} ({} callers)", name, callers),
+                    name,
+                    file,
+                    line,
+                    &format!("changed symbol with {} callers", callers),
+                    "changed_symbols",
+                    "codelattice_impact_preview",
+                    "verify no breakage",
+                ));
+                if callers > 10 {
+                    manual_review_required.push(plan_item(
+                        "P0",
+                        &format!("Manually inspect {} callers of {}", callers, name),
+                        name,
+                        file,
+                        line,
+                        "high fan-in change",
+                        "changed_symbols",
+                        "codelattice_calls_to",
+                        "each caller checked",
+                    ));
+                }
+            }
+            for h in uhunks.iter().take(limit) {
+                manual_review_required.push(plan_item(
+                    "P0",
+                    "Review unknown hunk",
+                    h["file"].as_str().unwrap_or("?"),
+                    h["file"].as_str().unwrap_or(""),
+                    h["lineStart"].as_u64().unwrap_or(0),
+                    "unmapped diff region",
+                    "changed_symbols",
+                    "codelattice_symbol_search",
+                    "identify what changed",
+                ));
+            }
+            if include_tests {
+                let cf: Vec<&str> = changed.iter().filter_map(|s| s["file"].as_str()).collect();
+                let has_mcp = cf.iter().any(|f| f.contains("mcp_server"));
+                test_hints.push(json!({"command":"cargo test","reason":"general tests","priority":"P1","safeToRun":true,"requiresExternalProject":false}));
+                if has_mcp {
+                    test_hints.push(json!({"command":"cargo test --test mcp_server","reason":"MCP files changed","priority":"P0","safeToRun":true,"requiresExternalProject":false}));
+                }
+            }
+            if include_docs {
+                if let Some(ds) = gv.doc_scanner() {
+                    let sn: Vec<String> = changed
+                        .iter()
+                        .filter_map(|s| s["name"].as_str().map(String::from))
+                        .collect();
+                    let fp: Vec<String> = changed
+                        .iter()
+                        .filter_map(|s| s["file"].as_str().map(String::from))
+                        .collect();
+                    for doc in ds
+                        .find_docs_needing_update(&sn, &fp, limit)
+                        .iter()
+                        .take(limit)
+                    {
+                        doc_update_hints.push(plan_item(
+                            "P1",
+                            &format!("Update doc: {}", doc["docPath"].as_str().unwrap_or("?")),
+                            "",
+                            doc["docPath"].as_str().unwrap_or(""),
+                            0,
+                            "doc references changed symbols",
+                            "doc_graph",
+                            "codelattice_symbol_context",
+                            "doc updated",
+                        ));
+                    }
+                }
+            }
+            recommended_mcp_calls.push(json!({"tool":"codelattice_changed_symbols","argumentsSummary":format!("root={}",root_str),"reason":"re-confirm changes"}));
+            recommended_mcp_calls.push(json!({"tool":"codelattice_production_assist","argumentsSummary":format!("root={}",root_str),"reason":"health check"}));
+            if !changed.is_empty() {
+                recommended_mcp_calls.push(json!({"tool":"codelattice_compare_runs","argumentsSummary":format!("root={}",root_str),"reason":"compare before/after"}));
+            }
+        }
+
+        "release_check" => {
+            if failed_gates > 0 {
+                risk_review_plan.push(plan_item(
+                    "P0",
+                    &format!("Fix {} failed quality gate(s)", failed_gates),
+                    "",
+                    "",
+                    0,
+                    &format!("{} of {} gates failed", failed_gates, gate_array.len()),
+                    "quality_gate",
+                    "codelattice_quality",
+                    "all gates pass",
+                ));
+            }
+            if low_conf_count > 3 {
+                risk_review_plan.push(plan_item(
+                    "P1",
+                    &format!("Investigate {} low-confidence edges", low_conf_count),
+                    "",
+                    "",
+                    0,
+                    "many uncertain calls",
+                    "impact_preview",
+                    "codelattice_unresolved_report",
+                    "edges reviewed",
+                ));
+            }
+            if diag_count > 0 {
+                risk_review_plan.push(plan_item(
+                    "P1",
+                    &format!("Review {} diagnostics", diag_count),
+                    "",
+                    "",
+                    0,
+                    &format!("{} diagnostics", diag_count),
+                    "production_assist",
+                    "codelattice_project_overview",
+                    "diagnostics addressed",
+                ));
+            }
+            if include_tests {
+                test_hints.push(json!({"command":"cargo test","reason":"full suite","priority":"P0","safeToRun":true,"requiresExternalProject":false}));
+                test_hints.push(json!({"command":"cargo test --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript","reason":"all adapters","priority":"P1","safeToRun":true,"requiresExternalProject":false}));
+                test_hints.push(json!({"command":"bash scripts/mcp-dogfood.sh","reason":"dogfood smoke","priority":"P0","safeToRun":true,"requiresExternalProject":false}));
+                test_hints.push(json!({"command":"bash scripts/codelattice-mcp.sh --self-test","reason":"self-test","priority":"P0","safeToRun":true,"requiresExternalProject":false}));
+            }
+            recommended_mcp_calls.push(json!({"tool":"codelattice_production_assist","argumentsSummary":format!("root={}",root_str),"reason":"production readiness"}));
+            recommended_mcp_calls.push(json!({"tool":"codelattice_project_overview","argumentsSummary":format!("root={}",root_str),"reason":"project health"}));
+            recommended_mcp_calls.push(json!({"tool":"codelattice_compare_runs","argumentsSummary":format!("root={}",root_str),"reason":"compare against baseline"}));
+        }
+
+        _ => {
+            return Err(mcp_error(
+                "invalid_mode",
+                &format!(
+                    "Invalid mode '{}'. Use: onboarding, before_edit, after_edit, release_check",
+                    mode
+                ),
+            ))
+        }
+    }
+
+    let summary = json!({"mode":mode,"language":gv.language,"nodeCount":node_count,"edgeCount":edge_count,"symbolCount":symbol_count,
+        "qualityGatesPassed":passed_gates,"qualityGatesFailed":failed_gates,"lowConfidenceEdges":low_conf_count,"diagnosticsCount":diag_count});
+
+    read_plan.truncate(limit);
+    risk_review_plan.truncate(limit);
+    test_hints.truncate(limit);
+    doc_update_hints.truncate(limit);
+    questions_to_ask.truncate(limit);
+    manual_review_required.truncate(limit);
+    recommended_mcp_calls.truncate(limit);
+
+    Ok(merge_cache_and_result(
+        &json!({
+            "mode":mode,"summary":summary,"readPlan":read_plan,"riskReviewPlan":risk_review_plan,
+            "testHints":test_hints,"docUpdateHints":doc_update_hints,"questionsToAskBeforeEdit":questions_to_ask,
+            "manualReviewRequired":manual_review_required,"recommendedMcpCalls":recommended_mcp_calls,
+            "generatedFrom":{"projectInsights":true,"impactPreview":true,"changedSymbols":true,"docGraph":true,"graphBased":true,"compilerVerified":false,"previewOnly":true},
+            "compact":compact
+        }),
+        &cache_meta,
+    ))
+}
+
 /// Compare two analysis runs: either two bridge JSON files or the same root.
 /// Returns differences in nodes, edges, symbols, diagnostics, quality gates.
 fn handle_compare_runs(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -7150,6 +7618,26 @@ fn tools_list() -> Value {
                  }
               },
              {
+                "name": "codelattice_review_plan",
+                "description": "AI review plan workflow: converts project insights, impact analysis, changed symbols, and doc associations into an actionable engineering checklist. Four modes: onboarding (read-first map), before_edit (impact preview for target symbol), after_edit (changed symbol impact + test/doc hints), release_check (quality gates + diagnostics + full suite). Graph-based heuristic — not compiler/IDE/test-system proof.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "release_check"], "default": "onboarding", "description": "Review plan mode" },
+                        "symbol": { "type": "string", "description": "Target symbol name (used in before_edit mode)" },
+                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Explicit changed symbol names (after_edit mode; auto-detected if omitted)" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact output" },
+                        "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
+                        "includeDocs": { "type": "boolean", "default": true, "description": "Include doc update hints" },
+                        "includeTests": { "type": "boolean", "default": true, "description": "Include test hints" }
+                    },
+                    "required": ["root"]
+                }
+             },
+
+             {
                 "name": "codelattice_changed_symbols",
                 "description": "Detect changed symbols from git diff. Maps diff hunks to graph symbols, returning changed files, changed symbols, unknown hunks, and deleted/renamed files. Read-only, no writes. Ideal for AI agents to auto-detect what changed before impact analysis.",
                 "inputSchema": {
@@ -7256,7 +7744,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cangjieSupport": cangjie_support,
                         "arktsSupport": arkts_support,
                         "typescriptSupport": typescript_support,
-                        "toolCount": 23
+                        "toolCount": 24
                     }
                 }),
             ))
@@ -7293,6 +7781,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_cache_prewarm" => handle_cache_prewarm(cache, &arguments),
                 "codelattice_changed_symbols" => handle_changed_symbols(cache, &arguments),
                 "codelattice_project_insights" => handle_project_insights(cache, &arguments),
+                "codelattice_review_plan" => handle_review_plan(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

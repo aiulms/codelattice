@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 23 tools + source snippet + cache behavior + doc association.
+# Exercises all 24 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -128,8 +128,8 @@ if [ "$TOOL_COUNT" -ge 21 ]; then
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 23, got $TOOL_COUNT)")
-    echo "   → expected >= 23 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 24, got $TOOL_COUNT)")
+    echo "   → expected >= 24 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -290,11 +290,19 @@ check_tool "codelattice_project_insights" \
     "isinstance(data.get('summary'), dict) and data['summary'].get('language') == 'rust' and isinstance(data.get('hotspotFiles'), list) and isinstance(data.get('hotspotSymbols'), list) and isinstance(data.get('readFirst'), list) and isinstance(data.get('reviewFirst'), list) and data.get('generatedFrom', {}).get('graphBased') == True"
 
 # ============================================================
+# v0.9: AI Review Plan
+# ============================================================
+echo "24. codelattice_review_plan (onboarding)"
+check_tool "codelattice_review_plan" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"onboarding\"}" \
+    "isinstance(data.get('summary'), dict) and data['mode'] == 'onboarding' and isinstance(data.get('readPlan'), list) and isinstance(data.get('riskReviewPlan'), list) and isinstance(data.get('recommendedMcpCalls'), list) and data.get('generatedFrom', {}).get('graphBased') == True"
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.8 Dogfood Results"
+echo " MCP v0.9 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"

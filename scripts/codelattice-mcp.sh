@@ -245,10 +245,10 @@ for line in sys.stdin:
             break
     except: pass
 " 2>/dev/null || echo "0")
-    if [[ "$TOOL_COUNT" -ge 23 ]]; then
+    if [[ "$TOOL_COUNT" -ge 24 ]]; then
         echo "  tools/list: OK ($TOOL_COUNT tools)"
     else
-        echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= 23)"
+        echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= 24)"
         exit 1
     fi
 
