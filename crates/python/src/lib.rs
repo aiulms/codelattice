@@ -23,6 +23,7 @@
 
 pub mod extractors;
 pub mod graph;
+pub mod module_resolution;
 pub mod project;
 
 // Re-export key types for convenience
@@ -33,6 +34,7 @@ pub use extractors::{
     PythonSymbolKind, PythonVisibility,
 };
 pub use graph::{build_python_graph, PythonEdgeKind, PythonGraphOutput, PythonNodeKind};
+pub use module_resolution::{ImportDiagnostic, PythonModuleIndex, ReExportInfo, ResolvedImport};
 pub use project::{
     find_python_project_root, list_python_source_files, PythonProject, PythonProjectKind,
 };

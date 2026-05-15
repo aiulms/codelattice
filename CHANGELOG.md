@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Python Import Resolution Refinement** (v0.15): Enhanced Python graph quality with package-aware import resolution, replacing synthetic module nodes with real file/symbol targets.
+  - New `PythonModuleIndex` in `crates/python/src/module_resolution.rs` — builds module↔file mapping from project structure, detects src-layout vs flat-layout, extracts `__init__.py` re-exports.
+  - Resolves: absolute imports (`from shop.models import Order`), relative imports (`from .services import X`), parent-relative (`from ..config import Y`), sibling imports (`from . import config`), aliases (`from .config import X as Y`), and `__init__.py` re-export chains (`from shop import create_order`).
+  - Import edges now target real file nodes and symbol nodes instead of synthetic `py:mod:` placeholders.
+  - Confidence tiers: exact module 0.90, exact symbol 0.85, alias 0.80, re-export 0.75, star import diagnostic only.
+  - Unresolved imports emit diagnostics (no dangling edges created).
+  - Import alias map enhances call resolution — calls via aliases now resolve to the real target symbol.
+  - `PythonGraphOutput` now includes a `diagnostics` field (schema version bumped to v0.2).
+  - New fixture `fixtures/python/import-resolution/` (10 files, src-layout package with re-exports, star import, dynamic import).
+  - 11 new Python crate tests + 3 new MCP integration tests.
+  - No new dependencies. Backward compatible (synthetic nodes used when module index is not provided).
+
 - **Unified Quality Metrics Pack** (v0.14): Cross-language quality metrics (`qualityMetrics`) added to MCP tool outputs.
   - New `compute_quality_metrics()` pure function in `mcp_server.rs` — computes graph completeness, edge confidence distribution, call quality, dependency quality, and diagnostic classification from graph data only (no LLM calls).
   - `qualityMetrics` field added to: `codelattice_project_overview` (compact + full), `codelattice_project_insights`, `codelattice_review_plan` (release_check mode), `codelattice_production_assist`.
@@ -17,6 +29,17 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
   - Real-project corpus smoke script updated with quality budget comparison: rate thresholds (warn >=30%, fail >=50%) and dangling edge fail gate (>0).
   - 6 new MCP tests for quality metrics + 4 new Python unit tests for quality budget comparison.
   - Updated docs: MCP contract (v0.14 qualityMetrics section), unified output contract (section 7), real-project corpus (quality budgets), CHANGELOG.
+
+- **Python Import Resolution Refinement** (v0.15): Package/module import resolution for Python projects.
+  - New `module_resolution.rs` in Python crate — `PythonModuleIndex` maps .py files to module names, detects src-layout/flat-layout package roots, resolves relative imports, `__init__.py` re-exports, and import aliases.
+  - Import edges now target real file/symbol nodes instead of synthetic `py:mod:` placeholders.
+  - `__init__.py` simple re-exports resolved: `from shop import create_order` chains through `shop/__init__.py`.
+  - Import alias map improves call resolution: `format_price(...)` resolves through `from .utils import format_price`.
+  - Unresolved imports emit diagnostics (no dangling edges): star imports, dynamic imports, missing modules.
+  - Confidence tiers: exact module 0.90, exact symbol 0.85, re-export 0.75, alias 0.80.
+  - New fixture: `fixtures/python/import-resolution/` (10 files covering src-layout, relative imports, re-exports, star/dynamic imports).
+  - 11 new Python crate tests + 3 new MCP integration tests.
+  - pip-python real-project corpus dry-run verified (no cache for actual compare this round).
 
 - **Real project corpus smoke**: `scripts/real-project-corpus-smoke.py` plus `docs/real-project-corpus.json` / `docs/real-project-corpus.md`. The default GitCode corpus covers Redis (C), Catch2 (C++), and pip (Python), with optional TypeScript / ArkTS / Cangjie / Rust targets for broader multi-language hardening.
 - **Real project regression baseline**: `docs/real-project-corpus-baseline.json` plus `--compare-baseline`, `--accept-baseline`, `--strict-baseline`, and markdown report output for `scripts/real-project-corpus-smoke.py`. This turns the GitCode corpus into a loose quality budget gate for graph-count and runtime regressions.

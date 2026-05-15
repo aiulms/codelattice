@@ -7949,4 +7949,129 @@ def add(a, b):
             "qualityMetrics should be null in onboarding mode"
         );
     }
+
+    // ============================================================
+    // Import Resolution Tests (fixture: fixtures/python/import-resolution)
+    // ============================================================
+
+    #[allow(dead_code)]
+    fn import_resolution_dir() -> std::path::PathBuf {
+        workspace_root()
+            .join("fixtures")
+            .join("python")
+            .join("import-resolution")
+    }
+
+    /// Import resolution fixture: project_overview should succeed with nodes/edges.
+    #[test]
+    fn mcp_python_import_resolution_project_overview() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = import_resolution_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 36001,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python",
+                    "compact": true,
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        assert!(
+            data["nodeCount"].as_u64().unwrap_or(0) > 0,
+            "import resolution fixture should produce nodes"
+        );
+        assert!(
+            data["sourceFileCount"].as_u64().unwrap_or(0) >= 8,
+            "import resolution fixture should have >= 8 source files"
+        );
+        assert!(
+            data["qualityMetrics"].is_object(),
+            "project_overview should include qualityMetrics"
+        );
+    }
+
+    /// Import resolution fixture: analyze should produce a valid graph.
+    #[test]
+    fn mcp_python_import_resolution_analyze() {
+        let root = import_resolution_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "python",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "Python import-resolution analyze should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("analyze output should be valid JSON");
+        let summary = &data["summary"];
+        assert!(
+            summary["nodeCount"].as_u64().unwrap() > 0,
+            "analyze should produce nodes"
+        );
+        assert!(
+            summary["edgeCount"].as_u64().unwrap() > 0,
+            "analyze should produce edges"
+        );
+    }
+
+    /// Import resolution fixture: quality metrics should be valid.
+    #[test]
+    fn mcp_python_import_resolution_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = import_resolution_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 36002,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        let qm = data
+            .get("qualityMetrics")
+            .expect("should have qualityMetrics");
+        assert!(
+            qm["edgeConfidence"]["totalConfidenceEdgeCount"]
+                .as_u64()
+                .unwrap_or(0)
+                > 0,
+            "should have confidence edges"
+        );
+        // Call edges may be 0 if the fixture only has imports/definitions
+        assert!(
+            qm["callQuality"]["callEdgeCount"].is_number(),
+            "should have callEdgeCount field"
+        );
+    }
 }

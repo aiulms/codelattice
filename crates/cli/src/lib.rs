@@ -1089,12 +1089,17 @@ fn run_python_analysis(
         }
     }
 
-    // 5. Build graph
+    // 5. Build module index for import resolution
+    let module_index =
+        gitnexus_python::PythonModuleIndex::build(&project.root, &project.source_files);
+
+    // 6. Build graph
     let graph = gitnexus_python::build_python_graph(
         &project,
         &symbols_by_file,
         &imports_by_file,
         &calls_by_file,
+        Some(&module_index),
     );
 
     let json_val = serde_json::to_value(&graph)
