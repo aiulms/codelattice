@@ -70,14 +70,20 @@ struct McpSession {
 
 impl McpSession {
     fn start() -> Self {
+        Self::start_with_cache_dir(None)
+    }
+
+    fn start_with_cache_dir(cache_dir: Option<&std::path::Path>) -> Self {
         let bin = cli_binary();
-        let mut child = Command::new(bin)
-            .arg("mcp")
+        let mut cmd = Command::new(bin);
+        cmd.arg("mcp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .expect("Failed to start MCP server");
+            .stderr(Stdio::piped());
+        if let Some(dir) = cache_dir {
+            cmd.env("CODELATTICE_CACHE_DIR", dir);
+        }
+        let mut child = cmd.spawn().expect("Failed to start MCP server");
 
         let stdin = child.stdin.take().expect("Failed to get stdin");
         let stdout = child.stdout.take().expect("Failed to get stdout");
@@ -1381,9 +1387,10 @@ fn mcp_cache_status_empty() {
     assert_eq!(resp["id"], 301);
     let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(content_text).expect("should be valid JSON");
-    assert_eq!(data["entryCount"], 0);
-    assert_eq!(data["totalHits"], 0);
-    assert_eq!(data["totalMisses"], 0);
+    let mem = &data["memory"];
+    assert_eq!(mem["entryCount"], 0);
+    assert_eq!(mem["totalHits"], 0);
+    assert_eq!(mem["totalMisses"], 0);
 }
 
 #[test]
@@ -1423,8 +1430,9 @@ fn mcp_cache_status_after_analyze() {
     assert_eq!(resp["id"], 303);
     let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(content_text).expect("should be valid JSON");
-    assert_eq!(data["entryCount"], 1);
-    assert_eq!(data["totalMisses"], 1);
+    let mem = &data["memory"];
+    assert_eq!(mem["entryCount"], 1);
+    assert_eq!(mem["totalMisses"], 1);
 }
 
 #[test]
@@ -1571,7 +1579,10 @@ fn mcp_cache_clear_empties_cache() {
     let resp2 = session.recv();
     let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
-    assert_eq!(data2["entryCount"], 0, "cache should be empty after clear");
+    assert_eq!(
+        data2["memory"]["entryCount"], 0,
+        "cache should be empty after clear"
+    );
 }
 
 #[test]
@@ -1786,12 +1797,13 @@ fn mcp_cache_status_shows_hit_count() {
     let resp = session.recv();
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
-    assert_eq!(data["entryCount"], 1);
+    let mem = &data["memory"];
+    assert_eq!(mem["entryCount"], 1);
     assert_eq!(
-        data["totalHits"], 2,
+        mem["totalHits"], 2,
         "should have 2 hits after 3 analyze calls"
     );
-    assert_eq!(data["totalMisses"], 1, "should have 1 miss");
+    assert_eq!(mem["totalMisses"], 1, "should have 1 miss");
 }
 
 #[test]
@@ -1853,7 +1865,7 @@ fn mcp_cache_different_roots_are_separate() {
     let text2 = resp2["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data2: serde_json::Value = serde_json::from_str(text2).expect("valid JSON");
     assert!(
-        data2["entryCount"].as_u64().unwrap_or(0) >= 2,
+        data2["memory"]["entryCount"].as_u64().unwrap_or(0) >= 2,
         "should have at least 2 cache entries"
     );
 }
@@ -2086,7 +2098,7 @@ fn mcp_cache_mtime_invalidation() {
     assert_eq!(resp["id"], 500);
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
-    assert_eq!(data["entryCount"], 0, "should start empty");
+    assert_eq!(data["memory"]["entryCount"], 0, "should start empty");
 
     // Trigger analyze to populate cache (uses codelattice_analyze which goes through cache)
     session.send(&serde_json::json!({
@@ -2140,13 +2152,14 @@ fn mcp_cache_mtime_invalidation() {
     assert_eq!(resp["id"], 503);
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
-    assert_eq!(data["entryCount"], 1);
-    assert!(data["maxEntries"].is_number(), "should have maxEntries");
+    let mem = &data["memory"];
+    assert_eq!(mem["entryCount"], 1);
+    assert!(mem["maxEntries"].is_number(), "should have maxEntries");
     assert!(
-        data["totalEvictions"].is_number(),
+        mem["totalEvictions"].is_number(),
         "should have totalEvictions"
     );
-    assert!(data["totalHits"].is_number(), "should have totalHits");
+    assert!(mem["totalHits"].is_number(), "should have totalHits");
 }
 
 #[test]
@@ -5059,4 +5072,420 @@ fn mcp_typescript_production_assist() {
         "TypeScript production_assist must have edges: {:?}",
         data
     );
+}
+
+// ─── v0.8 Persistent Cache Tests ──────────────────────────────────────────
+
+/// Helper: create an isolated temp cache dir for a test.
+fn make_isolated_cache_dir(test_name: &str) -> std::path::PathBuf {
+    use std::time::SystemTime;
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let dir = std::env::temp_dir().join(format!(
+        "codelattice-test-cache-{}-{}-{}",
+        test_name,
+        std::process::id(),
+        ts
+    ));
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::create_dir_all(&dir);
+    dir
+}
+
+/// Copy a fixture directory to an isolated temp dir so parallel tests
+/// can't interfere with mtime/stale detection.
+fn copy_fixture_to_temp(fixture: &std::path::Path, tag: &str) -> std::path::PathBuf {
+    use std::time::SystemTime;
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let tmp = std::env::temp_dir().join(format!(
+        "codelattice-fixture-{}-{}-{}",
+        tag,
+        std::process::id(),
+        ts
+    ));
+    // Copy directory recursively
+    fn copy_dir(src: &std::path::Path, dst: &std::path::Path) {
+        let _ = std::fs::create_dir_all(dst);
+        if let Ok(entries) = std::fs::read_dir(src) {
+            for entry in entries.flatten() {
+                let src_path = entry.path();
+                let dst_path = dst.join(entry.file_name());
+                if src_path.is_dir() {
+                    copy_dir(&src_path, &dst_path);
+                } else {
+                    let _ = std::fs::copy(&src_path, &dst_path);
+                }
+            }
+        }
+    }
+    copy_dir(fixture, &tmp);
+    tmp
+}
+
+#[test]
+fn mcp_persistent_cache_hit_on_new_process() {
+    // Use an isolated copy of the fixture so parallel tests can't change
+    // its files between session 1 and session 2 (mtime/stale interference).
+    let _root = portable_smoke_dir();
+    let root = copy_fixture_to_temp(&_root, "hit");
+    let cache_dir = make_isolated_cache_dir("hit");
+
+    // Session 1: analyze to populate persistent cache
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8001,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        assert_eq!(data["cacheHit"], false, "first call should be miss");
+    }
+
+    // Session 2: should hit persistent cache
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8002,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        assert!(
+            data["cacheHit"].as_bool().unwrap_or(false),
+            "second process should hit persistent cache: {:?}",
+            data
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn mcp_persistent_cache_status_shows_layers() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("status");
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Analyze to populate cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Check status has both memory and persistent
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(data["memory"].is_object(), "should have memory layer");
+    assert!(
+        data["persistent"].is_object(),
+        "should have persistent layer"
+    );
+    assert_eq!(
+        data["memory"]["entryCount"], 1,
+        "memory should have 1 entry"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_persistent_cache_clear_layer() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("clear");
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Populate cache
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8020,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    // Clear persistent layer only
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8021,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_clear",
+            "arguments": {
+                "layer": "persistent"
+            }
+        }
+    }));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["clearedCount"].as_u64().unwrap_or(0) >= 1,
+        "should clear at least 1 persistent entry"
+    );
+
+    // Memory should still have entry
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8022,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp2 = session.recv();
+    let data2 = extract_tool_data(&resp2);
+    assert_eq!(
+        data2["memory"]["entryCount"], 1,
+        "memory should still have 1 entry after clearing persistent only"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_persistent_cache_corruption_graceful() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("corrupt");
+
+    // Session 1: analyze to create persistent cache file
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8030,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let _ = session.recv();
+    }
+
+    // Corrupt the persistent cache file
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("json") {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with("cl-cache-") {
+                        let _ = std::fs::write(&path, "CORRUPTED{not valid json!!!");
+                    }
+                }
+            }
+        }
+    }
+
+    // Session 2: should NOT panic, should re-analyze
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8031,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        assert!(
+            data["summary"]["nodeCount"].as_u64().unwrap_or(0) > 0,
+            "should still produce valid analysis after cache corruption, got: {:?}",
+            data
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_persistent_cache_manifest_change_stale() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("manifest");
+
+    // Session 1: analyze
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 8040,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let _ = session.recv();
+    }
+
+    // Touch Cargo.toml to change manifest hash
+    let cargo_toml = root.join("Cargo.toml");
+    if cargo_toml.exists() {
+        // Append a comment to change the hash
+        let original = std::fs::read_to_string(&cargo_toml).unwrap_or_default();
+        let modified = original.clone() + "\n# cache-test-perturbation\n";
+        let _ = std::fs::write(&cargo_toml, modified);
+
+        // Session 2: should re-analyze (stale manifest)
+        {
+            let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+            session.initialize();
+            session.send_notification_initialized();
+
+            session.send(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": 8041,
+                "method": "tools/call",
+                "params": {
+                    "name": "codelattice_analyze",
+                    "arguments": {
+                        "root": root.to_string_lossy(),
+                        "language": "rust"
+                    }
+                }
+            }));
+            let resp = session.recv();
+            let data = extract_tool_data(&resp);
+            assert_eq!(
+                data["cacheHit"], false,
+                "should be miss after manifest change"
+            );
+        }
+
+        // Restore original
+        let _ = std::fs::write(&cargo_toml, original);
+    }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_cache_layer_field_in_output() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("layer");
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    // First call — miss, should show layer=none
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8050,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp1 = session.recv();
+    let data1 = extract_tool_data(&resp1);
+    assert_eq!(
+        data1["cacheLayer"], "none",
+        "first call should be layer=none"
+    );
+
+    // Second call — memory hit
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 8051,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp2 = session.recv();
+    let data2 = extract_tool_data(&resp2);
+    assert_eq!(
+        data2["cacheLayer"], "memory",
+        "second call should be layer=memory"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
 }

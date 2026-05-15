@@ -1,9 +1,9 @@
 # MCP Contract — CodeLattice AI Layer
 
-> **日期：** 2026-05-11
-> **版本：** v0.12.0
-> **状态：** Active (MCP v0.12 TypeScript Phase A)
-> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/缓存/mtime invalidation/LRU/源码片段/production assist/compare runs/Code ↔ Docs Association 能力
+> **日期：** 2026-05-15
+> **版本：** v0.13.0
+> **状态：** Active (MCP v0.13 Persistent Cache Pack)
+> **定位：** AI agent 可通过 MCP JSON-RPC 调用 CodeLattice CLI 的分析/质量/概要/Smoke/查询/导出/本地图谱智能/两层缓存（memory + persistent）/指纹过期检测/stale reason/源码片段/production assist/compare runs/Code ↔ Docs Association 能力
 
 ---
 
@@ -12,10 +12,10 @@
 MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 
 - **Read-only** — 只读项目分析，不写源码
-- **Rust/Cangjie only** — 仅支持 Rust 和 Cangjie 两种语言
+- **Multi-language** — 支持 Rust、Cangjie、ArkTS、TypeScript
 - **Not GitNexus-RC replacement** — 不替代 GitNexus-RC MCP server
 - **Not default tool switch** — 显式 opt-in
-- **No persistence** — 不做 graph 存储、repo 注册、embeddings
+- **Persistent cache opt-in** — 通过 `CODELATTICE_CACHE_DIR` 环境变量启用持久化分析缓存
 - **No Cypher parser** — query_graph 仅支持参数化查询，不接受任意查询字符串
 - **No rename apply** — rename_preview 只预览，不写文件
 - **No cross-repo** — 不做跨仓库语义边
@@ -636,36 +636,80 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 }
 ```
 
-### 3.17 `codelattice_cache_status` *(v0.3)*
+### 3.17 `codelattice_cache_status` *(v0.3, enhanced v0.13)*
 
-查询进程内分析缓存的当前状态。可选按 root/language 过滤。
+查询进程内分析缓存的状态，包含内存层和持久化层。可选按 root/language 过滤。不触发分析。
 
 **Input Schema:**
 ```json
 {
   "type": "object",
   "properties": {
-    "root": { "type": "string", "description": "可选：按根路径过滤" },
+    "root": { "type": "string", "description": "可选：按根路径过滤（substring match）" },
     "language": { "type": "string", "description": "可选：按语言过滤" }
   }
 }
 ```
 
-**Output (success):**
+**Output (success, nested two-layer format):**
 ```json
 {
-  "entryCount": 2,
-  "entries": [
-    { "root": "/path/to/project", "language": "rust", "strict": false, "hitCount": 3, "analysisDurationMs": 58 }
-  ],
-  "totalHits": 5,
-  "totalMisses": 2
+  "memory": {
+    "entryCount": 2,
+    "maxEntries": 16,
+    "entries": [
+      {
+        "root": "/path/to/project",
+        "language": "rust",
+        "strict": false,
+        "cacheKey": "/path/to/project:rust:false",
+        "layer": "memory",
+        "createdAtMs": 5230,
+        "lastUsedAtMs": 120,
+        "hitCount": 3,
+        "analysisDurationMs": 58,
+        "trackedFiles": 12
+      }
+    ],
+    "totalHits": 5,
+    "totalMisses": 2,
+    "totalEvictions": 0,
+    "persistentHits": 1,
+    "persistentMisses": 0
+  },
+  "persistent": {
+    "enabled": true,
+    "cacheDir": "/path/to/cache-dir",
+    "entryCount": 1,
+    "totalSizeBytes": 24576,
+    "entries": [
+      {
+        "root": "/path/to/project",
+        "language": "rust",
+        "createdAt": "2026-05-15T12:00:00",
+        "analysisDurationMs": 58,
+        "trackedFiles": 12,
+        "sizeBytes": 24576
+      }
+    ]
+  }
 }
 ```
 
-### 3.18 `codelattice_cache_clear` *(v0.3)*
+持久化层未启用时：
+```json
+{
+  "memory": { "entryCount": 0, "maxEntries": 16, "entries": [], "totalHits": 0, "totalMisses": 0, "totalEvictions": 0, "persistentHits": 0, "persistentMisses": 0 },
+  "persistent": {
+    "enabled": false,
+    "reason": "CODELATTICE_CACHE=off or directory unavailable"
+  }
+}
+```
 
-清空进程内分析缓存。可选按 root/language 过滤（不清除匹配外的条目）。
+### 3.18 `codelattice_cache_clear` *(v0.3, enhanced v0.13)*
+
+清空分析缓存，支持选择清除内存层、持久化层或两者。可选按 root/language 过滤。不影响 Tool registry 或源文件。
 
 **Input Schema:**
 ```json
@@ -673,7 +717,8 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "可选：只清除指定根路径的缓存" },
-    "language": { "type": "string", "description": "可选：只清除指定语言的缓存" }
+    "language": { "type": "string", "description": "可选：只清除指定语言的缓存" },
+    "layer": { "type": "string", "enum": ["memory", "persistent", "both"], "default": "memory", "description": "要清除的缓存层。使用 'persistent' 或 'both' 同时清除磁盘缓存。" }
   }
 }
 ```
@@ -681,14 +726,15 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 **Output (success):**
 ```json
 {
-  "clearedCount": 1,
-  "remainingCount": 0
+  "clearedCount": 2,
+  "remainingCount": 0,
+  "layer": "both"
 }
 ```
 
 ---
 
-> **v0.3 Cache Signal**: All v0.2+ tools (3.9–3.16) now include `cacheHit` (boolean) and `analysisDurationMs` (u64, only on miss) in their output JSON. First call for a given root+language+strict is always a cache miss; subsequent calls return `cacheHit: true` without re-running the analyze subprocess. The `codelattice_analyze` (3.1) tool also includes these signals.
+> **v0.13 Cache Signal**: All v0.2+ tools (3.9–3.16) include `cacheHit` (boolean) and `analysisDurationMs` (u64, only on miss) in their output JSON. First call for a given root+language+strict is always a cache miss; subsequent calls return `cacheHit: true` without re-running the analyze subprocess. The `codelattice_analyze` (3.1) tool also includes these signals. **v0.13 adds persistent cache**: when `CODELATTICE_CACHE_DIR` is set, analysis results survive process restarts. The lookup order is memory → persistent → fresh analyze. The `codelattice_cache_status` tool returns nested `{memory, persistent}` status. The `codelattice_cache_clear` tool accepts a `layer` parameter ("memory"/"persistent"/"both").
 
 ### 3.19 `codelattice_production_assist` *(enhanced v0.11)*
 

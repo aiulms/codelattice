@@ -222,7 +222,7 @@ check_tool "codelattice_rename_preview" \
 echo "18. codelattice_cache_status (empty)"
 check_tool "codelattice_cache_status" \
     "{}" \
-    "data.get('entryCount') == 0 and data.get('totalHits') == 0"
+    "data.get('memory',{}).get('entryCount') == 0 and data.get('memory',{}).get('totalHits') == 0"
 
 echo "19. codelattice_cache_clear"
 check_tool "codelattice_cache_clear" \

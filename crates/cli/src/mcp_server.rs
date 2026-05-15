@@ -1,4 +1,4 @@
-//! MCP v0.5 Daily-use Candidate Pack for CodeLattice CLI
+//! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
 //! Provides 22 tools:
@@ -16,8 +16,11 @@
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
 //!           and the smoke script for smoke.
-//! Cache: process-local analysis cache with mtime-based staleness detection
-//!        and LRU eviction (max 16 entries).
+//! Cache: two-layer analysis cache (process-local memory + persistent disk)
+//!        with fingerprint-based stale detection, structured stale reasons,
+//!        and LRU eviction (max 16 in-memory entries).
+//!        Persistent cache: ${TMPDIR}/codelattice-cache/ or CODELATTICE_CACHE_DIR.
+//!        Disable with CODELATTICE_CACHE=off.
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         All tools are read-only.
 
@@ -190,7 +193,7 @@ fn inject_cache_meta(data: &mut Value, cache_hit: bool, duration_ms: u64) {
 }
 
 // ============================================================
-// Process-Local Analysis Cache (v0.3)
+// Two-Layer Analysis Cache (v0.3 memory + v0.8 persistent)
 // ============================================================
 
 /// Merge cache_meta into a json output and wrap in tool_result.
@@ -206,7 +209,7 @@ fn merge_cache_and_result(data: &Value, cache_meta: &Value) -> Value {
 
 /// Read a source code snippet from a file relative to root.
 /// Returns a JSON object with `lines`, `startLine`, `endLine`, and optional `warning`.
-/// Context lines are added before/after the symbol range (default 3).
+/// Context lines: number of lines before/after the symbol.
 /// Max snippet size: 50 lines to avoid huge outputs.
 fn read_source_snippet(
     root: &str,
@@ -308,27 +311,102 @@ struct CacheEntry {
     file_mtimes: HashMap<String, u64>,
     /// Absolute root path (canonical) used for file resolution.
     root_canonical: String,
+    /// Stale reason from last check (None = fresh).
+    stale_reason: Option<String>,
 }
 
 /// Default maximum cache entries (LRU eviction kicks in above this).
 const CACHE_MAX_ENTRIES: usize = 16;
 
-/// Process-local cache for MCP server. Not persisted, not shared across processes.
-struct McpCache {
-    entries: HashMap<CacheKey, CacheEntry>,
-    total_hits: u64,
-    total_misses: u64,
-    total_evictions: u64,
+/// CodeLattice binary version, embedded in fingerprint for cross-version safety.
+const CODELATTICE_CACHE_VERSION: &str = "0.13.0";
+
+/// Persistent cache schema version.
+const CACHE_SCHEMA_VERSION: u32 = 1;
+
+/// All source file extensions tracked for stale detection across all languages.
+const SOURCE_EXTENSIONS: &[&str] = &[
+    "rs", "cj", "ets", "ts", "tsx", "js", "jsx", "json", "json5", "toml", "md",
+];
+
+/// Manifest file basenames that trigger re-analysis when changed.
+const MANIFEST_FILES: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "cjpm.toml",
+    "oh-package.json5",
+    "tsconfig.json",
+    "package.json",
+];
+
+/// Structured stale reason explaining why a cache entry is invalid.
+#[derive(Debug, Clone)]
+enum StaleReason {
+    FileAdded(Vec<String>),
+    FileRemoved(Vec<String>),
+    FileModified(Vec<String>),
+    ManifestChanged,
+    DocsChanged,
+    VersionChanged,
+    CacheMissing,
+    CacheCorrupted(String),
+}
+
+impl StaleReason {
+    fn to_json(&self) -> Value {
+        match self {
+            StaleReason::FileAdded(files) => json!({
+                "staleReason": "file_added",
+                "changedFiles": files,
+            }),
+            StaleReason::FileRemoved(files) => json!({
+                "staleReason": "file_removed",
+                "changedFiles": files,
+            }),
+            StaleReason::FileModified(files) => json!({
+                "staleReason": "file_modified",
+                "changedFiles": files,
+            }),
+            StaleReason::ManifestChanged => json!({
+                "staleReason": "manifest_changed",
+            }),
+            StaleReason::DocsChanged => json!({
+                "staleReason": "docs_changed",
+            }),
+            StaleReason::VersionChanged => json!({
+                "staleReason": "version_changed",
+            }),
+            StaleReason::CacheMissing => json!({
+                "staleReason": "cache_missing",
+            }),
+            StaleReason::CacheCorrupted(detail) => json!({
+                "staleReason": "cache_corrupted",
+                "detail": detail,
+            }),
+        }
+    }
+
+    fn reason_code(&self) -> &str {
+        match self {
+            StaleReason::FileAdded(_) => "file_added",
+            StaleReason::FileRemoved(_) => "file_removed",
+            StaleReason::FileModified(_) => "file_modified",
+            StaleReason::ManifestChanged => "manifest_changed",
+            StaleReason::DocsChanged => "docs_changed",
+            StaleReason::VersionChanged => "version_changed",
+            StaleReason::CacheMissing => "cache_missing",
+            StaleReason::CacheCorrupted(_) => "cache_corrupted",
+        }
+    }
 }
 
 /// Scan source files under root and collect their mtimes.
 /// Returns a map of relative_path → mtime_ms.
-/// Only scans common source file extensions (.rs, .cj, .toml, .json).
+/// Tracks all language extensions: .rs, .cj, .ets, .ts, .tsx, .js, .jsx, .json, .json5, .toml, .md.
 fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
     let mut mtimes = HashMap::new();
-    let extensions = ["rs", "cj", "toml", "json"];
 
-    fn walk_dir(dir: &Path, root: &Path, mtimes: &mut HashMap<String, u64>, extensions: &[&str]) {
+    fn walk_dir(dir: &Path, root: &Path, mtimes: &mut HashMap<String, u64>) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
@@ -339,10 +417,10 @@ fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
                             continue;
                         }
                     }
-                    walk_dir(&path, root, mtimes, extensions);
+                    walk_dir(&path, root, mtimes);
                 } else {
                     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                    if extensions.contains(&ext) {
+                    if SOURCE_EXTENSIONS.contains(&ext) {
                         if let Ok(meta) = std::fs::metadata(&path) {
                             if let Ok(modified) = meta.modified() {
                                 let ms = modified
@@ -360,24 +438,493 @@ fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
         }
     }
 
-    walk_dir(root, root, &mut mtimes, &extensions);
+    walk_dir(root, root, &mut mtimes);
     mtimes
 }
 
-/// Check if cached mtimes are still fresh by comparing with current filesystem.
-/// Returns true if any file was added, removed, or modified.
-fn mtimes_are_stale(root: &Path, cached_mtimes: &HashMap<String, u64>) -> bool {
-    let current = scan_file_mtimes(root);
-    if current.len() != cached_mtimes.len() {
-        return true; // files added or removed
+/// Compute a fast hash of manifest file content for change detection.
+/// Returns a map of manifest_relative_path → content_hash.
+fn compute_manifest_hashes(root: &Path) -> HashMap<String, u64> {
+    let mut hashes = HashMap::new();
+    for manifest_name in MANIFEST_FILES {
+        let path = root.join(manifest_name);
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                // Simple FNV-1a-like hash for speed (no dependency needed)
+                let mut hash: u64 = 0xcbf29ce484222325;
+                for byte in content.bytes() {
+                    hash ^= byte as u64;
+                    hash = hash.wrapping_mul(0x100000001b3);
+                }
+                hashes.insert(manifest_name.to_string(), hash);
+            }
+        }
     }
+    hashes
+}
+
+/// Check if cached mtimes are still fresh by comparing with current filesystem.
+/// Returns Some(StaleReason) if stale, None if fresh.
+fn check_stale(root: &Path, cached_mtimes: &HashMap<String, u64>) -> Option<StaleReason> {
+    let current = scan_file_mtimes(root);
+
+    // Detect added files
+    let added: Vec<String> = current
+        .keys()
+        .filter(|p| !cached_mtimes.contains_key(*p))
+        .cloned()
+        .collect();
+    if !added.is_empty() {
+        return Some(StaleReason::FileAdded(added));
+    }
+
+    // Detect removed and modified files
+    let mut removed = Vec::new();
+    let mut modified = Vec::new();
     for (path, mtime) in cached_mtimes {
         match current.get(path) {
             Some(current_mtime) if *current_mtime == *mtime => {}
-            _ => return true, // modified or removed
+            Some(_) => modified.push(path.clone()),
+            None => removed.push(path.clone()),
         }
     }
-    false
+    if !removed.is_empty() {
+        return Some(StaleReason::FileRemoved(removed));
+    }
+    if !modified.is_empty() {
+        return Some(StaleReason::FileModified(modified));
+    }
+
+    None
+}
+
+/// Check if manifest files changed since cached.
+fn check_manifest_stale(
+    root: &Path,
+    cached_manifests: &HashMap<String, u64>,
+) -> Option<StaleReason> {
+    let current = compute_manifest_hashes(root);
+    if current != *cached_manifests {
+        return Some(StaleReason::ManifestChanged);
+    }
+    None
+}
+
+/// Check if docs (markdown files) changed since cached.
+fn check_docs_stale(root: &Path, cached_docs: &HashMap<String, u64>) -> Option<StaleReason> {
+    let current: HashMap<String, u64> = scan_file_mtimes(root)
+        .into_iter()
+        .filter(|(p, _)| p.ends_with(".md"))
+        .collect();
+    if current != *cached_docs {
+        return Some(StaleReason::DocsChanged);
+    }
+    None
+}
+
+// ============================================================
+// Persistent Cache (v0.8)
+// ============================================================
+
+/// Compute a safe filename for a cache entry from the key components.
+/// Uses a simple hash to avoid path traversal and special characters.
+fn persistent_cache_filename(root: &str, language: &str) -> String {
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for byte in root.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    for byte in language.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("cl-cache-{:016x}.json", hash)
+}
+
+/// Get the persistent cache directory.
+/// Controlled by CODELATTICE_CACHE_DIR env. If not set, persistent cache is disabled.
+/// Disable explicitly with CODELATTICE_CACHE=off.
+/// Returns None if persistent caching is disabled.
+fn get_persistent_cache_dir() -> Option<PathBuf> {
+    // Check if caching is disabled
+    if std::env::var("CODELATTICE_CACHE").as_deref() == Ok("off") {
+        return None;
+    }
+
+    // Only enable persistent cache if explicitly configured
+    match std::env::var("CODELATTICE_CACHE_DIR") {
+        Ok(custom) => {
+            let dir = PathBuf::from(custom);
+            let _ = std::fs::create_dir_all(&dir);
+            Some(dir)
+        }
+        Err(_) => {
+            // No explicit cache dir — persistent cache disabled by default
+            // This ensures test isolation and avoids surprising disk writes
+            None
+        }
+    }
+}
+
+/// A serialized persistent cache entry stored on disk.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistentCacheEntry {
+    /// Cache schema version for forward compatibility.
+    schema_version: u32,
+    /// CodeLattice version that created this entry.
+    version: String,
+    /// Project root (canonical path at cache time).
+    root: String,
+    /// Language used for analysis.
+    language: String,
+    /// Full analyze result JSON.
+    analyze_result: Value,
+    /// File mtimes at cache time.
+    file_mtimes: HashMap<String, u64>,
+    /// Manifest hashes at cache time.
+    manifest_hashes: HashMap<String, u64>,
+    /// Docs file mtimes at cache time.
+    docs_mtimes: HashMap<String, u64>,
+    /// Creation timestamp (ISO 8601).
+    created_at: String,
+    /// Analysis duration in ms.
+    analysis_duration_ms: u64,
+}
+
+/// Try to load a cached analysis from the persistent cache layer.
+/// `cache_key_str` is the combined key for filename lookup.
+/// `canonical_root` is the actual filesystem path for stale checks.
+/// Returns None if: cache disabled, file missing, stale, corrupted, or version mismatch.
+fn try_load_persistent(
+    cache_key_str: &str,
+    language: &str,
+    canonical_root: &Path,
+) -> Option<(
+    Value,
+    HashMap<String, u64>,
+    HashMap<String, u64>,
+    HashMap<String, u64>,
+    u64,
+)> {
+    let cache_dir = get_persistent_cache_dir()?;
+    let filename = persistent_cache_filename(cache_key_str, language);
+    let path = cache_dir.join(&filename);
+
+    if !path.exists() {
+        return None;
+    }
+
+    let content = std::fs::read_to_string(&path).ok()?;
+    let entry: PersistentCacheEntry = match serde_json::from_str(&content) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("[mcp] persistent cache corrupted: {}, removing", e);
+            let _ = std::fs::remove_file(&path);
+            return None;
+        }
+    };
+
+    // Version check
+    if entry.version != CODELATTICE_CACHE_VERSION {
+        eprintln!(
+            "[mcp] persistent cache version mismatch: {} vs {}, removing",
+            entry.version, CODELATTICE_CACHE_VERSION
+        );
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+
+    // Schema check
+    if entry.schema_version != CACHE_SCHEMA_VERSION {
+        eprintln!(
+            "[mcp] persistent cache schema mismatch: {} vs {}, removing",
+            entry.schema_version, CACHE_SCHEMA_VERSION
+        );
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+
+    // Root match check — compare stored canonical root with current canonical root
+    if entry.root != canonical_root.to_string_lossy().as_ref() {
+        return None; // Hash collision or different project — skip
+    }
+
+    // Stale checks using the actual filesystem path
+    if !canonical_root.exists() {
+        return None;
+    }
+
+    if check_stale(canonical_root, &entry.file_mtimes).is_some() {
+        // Stale — remove and return None
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+
+    if check_manifest_stale(canonical_root, &entry.manifest_hashes).is_some() {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+
+    if check_docs_stale(canonical_root, &entry.docs_mtimes).is_some() {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+
+    Some((
+        entry.analyze_result,
+        entry.file_mtimes,
+        entry.manifest_hashes,
+        entry.docs_mtimes,
+        entry.analysis_duration_ms,
+    ))
+}
+
+/// Save an analysis result to the persistent cache layer.
+/// `cache_key_str` is the combined key for filename lookup.
+/// `canonical_root` is the actual filesystem path stored in the entry for root match.
+/// Silently fails if caching is disabled or write fails (non-critical).
+fn save_persistent(
+    cache_key_str: &str,
+    canonical_root: &str,
+    language: &str,
+    analyze_result: &Value,
+    file_mtimes: &HashMap<String, u64>,
+    manifest_hashes: &HashMap<String, u64>,
+    docs_mtimes: &HashMap<String, u64>,
+    analysis_duration_ms: u64,
+) {
+    let cache_dir = match get_persistent_cache_dir() {
+        Some(d) => d,
+        None => return, // Caching disabled
+    };
+
+    let filename = persistent_cache_filename(cache_key_str, language);
+    let path = cache_dir.join(&filename);
+
+    // Safety check: ensure path is under cache dir (no traversal)
+    if let Ok(canonical_dir) = cache_dir.canonicalize() {
+        if let Some(parent) = path.parent() {
+            if let Ok(parent_canonical) = parent.canonicalize() {
+                if parent_canonical != canonical_dir {
+                    eprintln!("[mcp] persistent cache path traversal rejected");
+                    return;
+                }
+            }
+        }
+    }
+
+    let entry = PersistentCacheEntry {
+        schema_version: CACHE_SCHEMA_VERSION,
+        version: CODELATTICE_CACHE_VERSION.to_string(),
+        root: canonical_root.to_string(),
+        language: language.to_string(),
+        analyze_result: analyze_result.clone(),
+        file_mtimes: file_mtimes.clone(),
+        manifest_hashes: manifest_hashes.clone(),
+        docs_mtimes: docs_mtimes.clone(),
+        created_at: chrono_now_iso(),
+        analysis_duration_ms,
+    };
+
+    let json_str = match serde_json::to_string(&entry) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("[mcp] failed to serialize persistent cache: {}", e);
+            return;
+        }
+    };
+
+    if let Err(e) = std::fs::write(&path, json_str) {
+        eprintln!("[mcp] failed to write persistent cache: {}", e);
+    }
+}
+
+/// Delete a specific persistent cache entry.
+fn delete_persistent(root: &str, language: &str) -> bool {
+    let cache_dir = match get_persistent_cache_dir() {
+        Some(d) => d,
+        None => return false,
+    };
+    let filename = persistent_cache_filename(root, language);
+    let path = cache_dir.join(&filename);
+    if path.exists() {
+        std::fs::remove_file(&path).is_ok()
+    } else {
+        false
+    }
+}
+
+/// Delete all persistent cache entries, optionally filtered.
+/// Returns count of deleted entries.
+fn clear_persistent(filter_root: Option<&str>, filter_lang: Option<&str>) -> usize {
+    let cache_dir = match get_persistent_cache_dir() {
+        Some(d) => d,
+        None => return 0,
+    };
+
+    let mut deleted = 0;
+    if let Ok(entries) = std::fs::read_dir(&cache_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if !filename.starts_with("cl-cache-") {
+                    continue;
+                }
+            }
+
+            // Read to check root/language match
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(cached) = serde_json::from_str::<PersistentCacheEntry>(&content) {
+                    let matches_root = filter_root.map(|r| cached.root.contains(r)).unwrap_or(true);
+                    let matches_lang = filter_lang.map(|l| cached.language == l).unwrap_or(true);
+                    if matches_root && matches_lang {
+                        if std::fs::remove_file(&path).is_ok() {
+                            deleted += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    deleted
+}
+
+/// Get persistent cache status summary.
+fn persistent_cache_status(filter_root: Option<&str>, filter_lang: Option<&str>) -> Value {
+    let cache_dir = match get_persistent_cache_dir() {
+        Some(d) => d,
+        None => {
+            return json!({
+                "enabled": false,
+                "reason": "CODELATTICE_CACHE=off or directory unavailable",
+            });
+        }
+    };
+
+    let mut entries = Vec::new();
+    let mut total_size: u64 = 0;
+
+    if let Ok(dir_entries) = std::fs::read_dir(&cache_dir) {
+        for entry in dir_entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+                if !filename.starts_with("cl-cache-") {
+                    continue;
+                }
+            }
+
+            let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            total_size += file_size;
+
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(cached) = serde_json::from_str::<PersistentCacheEntry>(&content) {
+                    let matches_root = filter_root.map(|r| cached.root.contains(r)).unwrap_or(true);
+                    let matches_lang = filter_lang.map(|l| cached.language == l).unwrap_or(true);
+                    if matches_root && matches_lang {
+                        entries.push(json!({
+                            "root": cached.root,
+                            "language": cached.language,
+                            "createdAt": cached.created_at,
+                            "analysisDurationMs": cached.analysis_duration_ms,
+                            "trackedFiles": cached.file_mtimes.len(),
+                            "sizeBytes": file_size,
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    json!({
+        "enabled": true,
+        "cacheDir": cache_dir.to_string_lossy(),
+        "entryCount": entries.len(),
+        "totalSizeBytes": total_size,
+        "entries": entries,
+    })
+}
+
+/// Simple ISO 8601 timestamp without external dependency.
+fn chrono_now_iso() -> String {
+    use std::time::SystemTime;
+    let duration = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+    // Simple formatting without chrono
+    let days_since_epoch = secs / 86400;
+    let time_of_day = secs % 86400;
+    let hours = time_of_day / 3600;
+    let minutes = (time_of_day % 3600) / 60;
+    let seconds = time_of_day % 60;
+
+    // Convert days since epoch to year-month-day (approximate but good enough for cache metadata)
+    let (year, month, day) = days_to_ymd(days_since_epoch);
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
+        year, month, day, hours, minutes, seconds
+    )
+}
+
+/// Convert days since UNIX epoch to (year, month, day).
+fn days_to_ymd(mut days: u64) -> (u64, u64, u64) {
+    // 1970-01-01 = day 0
+    let mut year = 1970u64;
+    loop {
+        let days_in_year = if is_leap_year(year) { 366 } else { 365 };
+        if days < days_in_year {
+            break;
+        }
+        days -= days_in_year;
+        year += 1;
+    }
+
+    let leap = is_leap_year(year);
+    let month_days: [u64; 12] = if leap {
+        [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    } else {
+        [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+    };
+
+    let mut month = 0u64;
+    for (i, &md) in month_days.iter().enumerate() {
+        if days < md {
+            month = i as u64 + 1;
+            break;
+        }
+        days -= md;
+    }
+    if month == 0 {
+        month = 12;
+    }
+
+    (year, month, days + 1)
+}
+
+fn is_leap_year(year: u64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || year % 400 == 0
+}
+
+// ============================================================
+// Two-Layer Cache Container
+// ============================================================
+
+/// Two-layer analysis cache: process-local memory + persistent disk.
+struct McpCache {
+    /// In-memory layer (existing v0.3 behavior, enhanced).
+    entries: HashMap<CacheKey, CacheEntry>,
+    total_hits: u64,
+    total_misses: u64,
+    total_evictions: u64,
+    /// Counters for persistent layer.
+    persistent_hits: u64,
+    persistent_misses: u64,
 }
 
 impl McpCache {
@@ -387,11 +934,14 @@ impl McpCache {
             total_hits: 0,
             total_misses: 0,
             total_evictions: 0,
+            persistent_hits: 0,
+            persistent_misses: 0,
         }
     }
 
     /// Get cached analysis or run fresh analyze subprocess.
-    /// Returns (graph_view_clone, analyze_result_clone, cache_meta_json).
+    /// Two-layer lookup: memory → persistent → fresh analyze.
+    /// Returns (graph_view, analyze_result, cache_meta_json).
     fn get_or_analyze(
         &mut self,
         root: &Path,
@@ -409,31 +959,107 @@ impl McpCache {
             language: language.to_string(),
             strict,
         };
+        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
 
+        // Layer 1: Check process-local memory cache
         if let Some(entry) = self.entries.get_mut(&key) {
-            // Check mtime freshness
             let root_path = Path::new(&entry.root_canonical);
-            if mtimes_are_stale(root_path, &entry.file_mtimes) {
-                // Invalidate stale entry — remove it and fall through to re-analyze
+            if let Some(reason) = check_stale(root_path, &entry.file_mtimes) {
+                // Stale — invalidate and fall through
+                entry.stale_reason = Some(reason.reason_code().to_string());
                 self.entries.remove(&key);
-                // Don't count as hit or miss yet; the re-analyze below will count as miss
             } else {
-                entry.hit_count += 1;
-                entry.last_used_at = Instant::now();
-                self.total_hits += 1;
-                let meta = json!({
-                    "cacheHit": true,
-                    "cacheKey": format!("{}:{}:{}", key.root, key.language, key.strict),
-                    "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
-                    "analysisDurationMs": entry.analysis_duration_ms,
-                });
-                return Ok((
-                    entry.graph_view.clone_shallow(),
-                    entry.analyze_result.clone(),
-                    meta,
-                ));
+                // Also check manifest and docs
+                let manifest_stale = check_manifest_stale(
+                    root_path,
+                    &entry
+                        .analyze_result
+                        .get("__manifest_hashes")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok())
+                        .unwrap_or_default(),
+                );
+                if manifest_stale.is_some()
+                    || check_docs_stale(
+                        root_path,
+                        &entry
+                            .file_mtimes
+                            .iter()
+                            .filter(|(p, _)| p.ends_with(".md"))
+                            .map(|(k, v)| (k.clone(), *v))
+                            .collect(),
+                    )
+                    .is_some()
+                {
+                    self.entries.remove(&key);
+                } else {
+                    // Fresh memory hit
+                    entry.hit_count += 1;
+                    entry.last_used_at = Instant::now();
+                    self.total_hits += 1;
+                    let meta = json!({
+                        "cacheHit": true,
+                        "cacheLayer": "memory",
+                        "cacheKey": cache_key_str,
+                        "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
+                        "analysisDurationMs": entry.analysis_duration_ms,
+                    });
+                    return Ok((
+                        entry.graph_view.clone_shallow(),
+                        entry.analyze_result.clone(),
+                        meta,
+                    ));
+                }
             }
         }
+
+        // Layer 2: Check persistent disk cache
+        if let Some((result, file_mtimes, manifest_hashes, docs_mtimes, duration_ms)) =
+            try_load_persistent(&cache_key_str, language, &canonical)
+        {
+            // Persistent hit — build GraphView and load into memory cache
+            let mut graph_view = GraphView::build(&result);
+            graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
+
+            // Store in memory cache for future fast access
+            self.insert_memory_entry(
+                key.clone(),
+                result.clone(),
+                graph_view.clone_shallow(),
+                file_mtimes.clone(),
+                &canonical,
+                duration_ms,
+                // Also persist manifest/docs hashes in the analyze_result for memory-layer checks
+            );
+
+            // Patch manifest_hashes into the cached result for memory-layer stale checks
+            if let Some(obj) = self.entries.get_mut(&key) {
+                obj.analyze_result.as_object_mut().map(|o| {
+                    o.insert(
+                        "__manifest_hashes".to_string(),
+                        serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
+                    );
+                    o.insert(
+                        "__docs_mtimes".to_string(),
+                        serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
+                    );
+                });
+            }
+
+            self.persistent_hits += 1;
+            self.total_hits += 1;
+
+            let meta = json!({
+                "cacheHit": true,
+                "cacheLayer": "persistent",
+                "cacheKey": cache_key_str,
+                "analysisDurationMs": duration_ms,
+            });
+            return Ok((graph_view, result, meta));
+        }
+
+        // Layer 3: Cache miss — run fresh analyze
+        self.persistent_misses += 1;
+        self.total_misses += 1;
 
         // LRU eviction if over limit
         if self.entries.len() >= CACHE_MAX_ENTRIES {
@@ -448,7 +1074,6 @@ impl McpCache {
             }
         }
 
-        // Cache miss — run analyze
         let start = Instant::now();
         let result = run_analyze_subprocess(root, language, "json", strict)?;
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -457,36 +1082,95 @@ impl McpCache {
         // Scan file mtimes for future freshness checks
         let file_mtimes = scan_file_mtimes(&canonical);
 
+        // Compute manifest and docs hashes
+        let manifest_hashes = compute_manifest_hashes(&canonical);
+        let docs_mtimes: HashMap<String, u64> = file_mtimes
+            .iter()
+            .filter(|(p, _)| p.ends_with(".md"))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+
         // Build doc scanner for code ↔ docs association and attach to GraphView
         graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
-        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
+        // Store in memory cache
+        let mut result_with_meta = result.clone();
+        if let Some(obj) = result_with_meta.as_object_mut() {
+            obj.insert(
+                "__manifest_hashes".to_string(),
+                serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
+            );
+            obj.insert(
+                "__docs_mtimes".to_string(),
+                serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
+            );
+        }
+
         self.entries.insert(
-            key,
+            key.clone(),
             CacheEntry {
-                analyze_result: result.clone(),
+                analyze_result: result_with_meta.clone(),
                 graph_view: graph_view.clone_shallow(),
                 created_at: Instant::now(),
                 last_used_at: Instant::now(),
                 hit_count: 0,
                 analysis_duration_ms: duration_ms,
-                file_mtimes,
+                file_mtimes: file_mtimes.clone(),
                 root_canonical: canonical.to_string_lossy().to_string(),
+                stale_reason: None,
             },
         );
-        self.total_misses += 1;
+
+        // Save to persistent cache (best-effort, non-blocking)
+        save_persistent(
+            &cache_key_str,
+            &canonical.to_string_lossy(),
+            language,
+            &result,
+            &file_mtimes,
+            &manifest_hashes,
+            &docs_mtimes,
+            duration_ms,
+        );
 
         let meta = json!({
             "cacheHit": false,
+            "cacheLayer": "none",
             "cacheKey": cache_key_str,
             "analysisDurationMs": duration_ms,
         });
         Ok((graph_view, result, meta))
     }
 
-    /// Get cache status, optionally filtered by root/language.
+    /// Insert entry into memory cache (helper for persistent → memory promotion).
+    fn insert_memory_entry(
+        &mut self,
+        key: CacheKey,
+        analyze_result: Value,
+        graph_view: GraphView,
+        file_mtimes: HashMap<String, u64>,
+        canonical: &Path,
+        duration_ms: u64,
+    ) {
+        self.entries.insert(
+            key,
+            CacheEntry {
+                analyze_result,
+                graph_view,
+                created_at: Instant::now(),
+                last_used_at: Instant::now(),
+                hit_count: 0,
+                analysis_duration_ms: duration_ms,
+                file_mtimes,
+                root_canonical: canonical.to_string_lossy().to_string(),
+                stale_reason: None,
+            },
+        );
+    }
+
+    /// Get cache status for both memory and persistent layers.
     fn status(&self, filter_root: Option<&str>, filter_lang: Option<&str>) -> Value {
-        let mut entries = Vec::new();
+        let mut memory_entries = Vec::new();
         for (key, entry) in &self.entries {
             if let Some(r) = filter_root {
                 if !key.root.contains(r) {
@@ -498,11 +1182,13 @@ impl McpCache {
                     continue;
                 }
             }
-            entries.push(json!({
+
+            memory_entries.push(json!({
                 "root": key.root,
                 "language": key.language,
                 "strict": key.strict,
                 "cacheKey": format!("{}:{}:{}", key.root, key.language, key.strict),
+                "layer": "memory",
                 "createdAtMs": entry.created_at.elapsed().as_millis() as u64,
                 "lastUsedAtMs": entry.last_used_at.elapsed().as_millis() as u64,
                 "hitCount": entry.hit_count,
@@ -510,34 +1196,61 @@ impl McpCache {
                 "trackedFiles": entry.file_mtimes.len(),
             }));
         }
+
+        let persistent_status = persistent_cache_status(filter_root, filter_lang);
+
         json!({
-            "entryCount": entries.len(),
-            "maxEntries": CACHE_MAX_ENTRIES,
-            "entries": entries,
-            "totalHits": self.total_hits,
-            "totalMisses": self.total_misses,
-            "totalEvictions": self.total_evictions,
+            "memory": {
+                "entryCount": memory_entries.len(),
+                "maxEntries": CACHE_MAX_ENTRIES,
+                "entries": memory_entries,
+                "totalHits": self.total_hits,
+                "totalMisses": self.total_misses,
+                "totalEvictions": self.total_evictions,
+                "persistentHits": self.persistent_hits,
+                "persistentMisses": self.persistent_misses,
+            },
+            "persistent": persistent_status,
         })
     }
 
-    /// Clear cache entries, optionally filtered by root/language.
-    fn clear(&mut self, filter_root: Option<&str>, filter_lang: Option<&str>) -> (usize, usize) {
-        let before = self.entries.len();
-        self.entries.retain(|key, _| {
-            if let Some(r) = filter_root {
-                if !key.root.contains(r) {
-                    return true;
+    /// Clear cache entries from both layers, optionally filtered.
+    /// `layer`: "memory" | "persistent" | "both"
+    fn clear(
+        &mut self,
+        filter_root: Option<&str>,
+        filter_lang: Option<&str>,
+        layer: &str,
+    ) -> (usize, usize) {
+        let memory_cleared = if layer == "memory" || layer == "both" {
+            let before = self.entries.len();
+            self.entries.retain(|key, _| {
+                if let Some(r) = filter_root {
+                    if !key.root.contains(r) {
+                        return true;
+                    }
                 }
-            }
-            if let Some(l) = filter_lang {
-                if key.language != l {
-                    return true;
+                if let Some(l) = filter_lang {
+                    if key.language != l {
+                        return true;
+                    }
                 }
-            }
-            false
-        });
-        let cleared = before - self.entries.len();
-        (cleared, self.entries.len())
+                false
+            });
+            before - self.entries.len()
+        } else {
+            0
+        };
+
+        let persistent_cleared = if layer == "persistent" || layer == "both" {
+            clear_persistent(filter_root, filter_lang)
+        } else {
+            0
+        };
+
+        let total_cleared = memory_cleared + persistent_cleared;
+        let remaining = self.entries.len();
+        (total_cleared, remaining)
     }
 }
 
@@ -5186,10 +5899,12 @@ fn handle_cache_status(cache: &mut McpCache, params: &Value) -> Result<Value, Va
 fn handle_cache_clear(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let filter_root = params["root"].as_str();
     let filter_lang = params["language"].as_str();
-    let (cleared, remaining) = cache.clear(filter_root, filter_lang);
+    let layer = params["layer"].as_str().unwrap_or("memory");
+    let (cleared, remaining) = cache.clear(filter_root, filter_lang, layer);
     Ok(tool_result(&json!({
         "clearedCount": cleared,
         "remainingCount": remaining,
+        "layer": layer,
     })))
 }
 
@@ -5469,7 +6184,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_cache_status",
-                "description": "Query the process-local analysis cache status. Shows cached entries, hit/miss counts. Does not trigger analysis.",
+                "description": "Query the analysis cache status for both memory and persistent layers. Shows cached entries, hit/miss counts, stale detection info, and persistent cache file sizes. Does not trigger analysis.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -5480,12 +6195,13 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_cache_clear",
-                "description": "Clear the process-local analysis cache. Does not delete disk files or affect Tool registry. Only clears cache in the current MCP server process.",
+                "description": "Clear analysis cache entries. Supports memory-only (default), persistent-only, or both layers. Does not affect Tool registry or source files.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Filter by root path (substring match). Omit to clear all." },
-                        "language": { "type": "string", "description": "Filter by language. Omit to clear all." }
+                        "language": { "type": "string", "description": "Filter by language. Omit to clear all." },
+                        "layer": { "type": "string", "enum": ["memory", "persistent", "both"], "default": "memory", "description": "Which cache layer to clear. Use 'persistent' or 'both' to also clear disk cache." }
                     }
                 }
              },
@@ -5615,7 +6331,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "codelattice",
-                        "version": "0.12.0",
+                        "version": "0.13.0",
                         "cangjieSupport": cangjie_support,
                         "toolCount": 22
                     }
@@ -5689,7 +6405,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
 // ============================================================
 
 pub fn run_mcp_server() -> Result<(), String> {
-    eprintln!("[mcp] CodeLattice MCP v0.3 server starting on stdin/stdout");
+    eprintln!("[mcp] CodeLattice MCP v0.8 server starting on stdin/stdout");
 
     let mut cache = McpCache::new();
     let stdin = std::io::stdin();

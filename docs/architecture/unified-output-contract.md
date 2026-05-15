@@ -266,4 +266,68 @@ struct QualityGateResult {
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-05-15 | 1.1.0 | 新增 MCP 缓存元数据说明（第六节） |
 | 2026-05-09 | 1.0.0 | 初始版本：定义 LanguageAnalysisResult / GraphSummary / QualityGateResult / Node/Edge 兼容性期望 / CLI 输出协议 |
+
+---
+
+## 六、MCP 缓存元数据（v0.13）
+
+MCP 工具在分析结果中附带缓存信号，供 AI 侧理解缓存行为。这些字段不影响 `LanguageAnalysisResult` 的 CLI 输出。
+
+### 6.1 工具输出中的缓存信号
+
+所有 v0.2+ 分析类工具（`codelattice_analyze`、`codelattice_summary` 等）在输出中包含：
+
+```json
+{
+  "cacheHit": true,
+  "cacheLayer": "memory",
+  "analysisDurationMs": 0
+}
+```
+
+- `cacheHit`：布尔值，本次是否命中缓存
+- `cacheLayer`：命中层 `"memory"` / `"persistent"`，或未命中时为 `null`
+- `analysisDurationMs`：仅未命中时返回实际分析耗时（毫秒）
+
+### 6.2 cache_status 嵌套格式
+
+`codelattice_cache_status` 返回双层嵌套结构：
+
+```json
+{
+  "memory": {
+    "entryCount": 2,
+    "maxEntries": 16,
+    "entries": ["..."],
+    "totalHits": 5,
+    "totalMisses": 2,
+    "totalEvictions": 0,
+    "persistentHits": 1,
+    "persistentMisses": 0
+  },
+  "persistent": {
+    "enabled": true,
+    "cacheDir": "/path/to/cache-dir",
+    "entryCount": 1,
+    "totalSizeBytes": 24576,
+    "entries": ["..."]
+  }
+}
+```
+
+### 6.3 失效原因（staleReasons）
+
+缓存条目失效时返回结构化原因列表：
+
+| staleReason | 说明 |
+|-------------|------|
+| `file_added` | 新源文件出现 |
+| `file_removed` | 已跟踪文件消失 |
+| `file_modified` | 文件 mtime 变化 |
+| `manifest_changed` | Cargo.toml / cjpm.toml 等配置 hash 变化 |
+| `docs_changed` | 文档文件变化 |
+| `version_changed` | CodeLattice 版本升级 |
+| `cache_missing` | 缓存文件不存在 |
+| `cache_corrupted` | 缓存文件 JSON 解析失败 |

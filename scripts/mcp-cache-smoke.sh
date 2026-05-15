@@ -157,6 +157,64 @@ else
 fi
 echo ""
 
+# --- Test 5: Persistent cache (cross-process hit) ---
+echo "Test 5: Persistent cache — cross-process hit"
+CACHE_DIR="$(mktemp -d /tmp/codelattice-smoke-cache-XXXXXX)"
+# Session 1: miss → populate persistent cache
+HIT_S1=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_analyze","arguments":{"root":"%s","language":"rust"}}}\n' "$FIXTURE_ABS" \
+    | CODELATTICE_CACHE_DIR="$CACHE_DIR" "$BIN" mcp 2>/dev/null \
+    | python3 -c "import json,sys; d=json.loads(sys.stdin.readline()); data=json.loads(d['result']['content'][0]['text']); print(data.get('cacheHit','N/A'))" 2>/dev/null)
+
+# Session 2: should hit persistent cache
+HIT_S2=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_analyze","arguments":{"root":"%s","language":"rust"}}}\n' "$FIXTURE_ABS" \
+    | CODELATTICE_CACHE_DIR="$CACHE_DIR" "$BIN" mcp 2>/dev/null \
+    | python3 -c "import json,sys; d=json.loads(sys.stdin.readline()); data=json.loads(d['result']['content'][0]['text']); print(data.get('cacheHit','N/A'))" 2>/dev/null)
+
+echo "  Session 1: cacheHit=$HIT_S1"
+echo "  Session 2: cacheHit=$HIT_S2"
+
+if [[ "$HIT_S1" == "False" && "$HIT_S2" == "True" ]]; then
+    echo "  PASS"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL — expected session1=False, session2=True (persistent hit)"
+    FAIL=$((FAIL + 1))
+fi
+rm -rf "$CACHE_DIR"
+echo ""
+
+# --- Test 6: cache_status shows both layers ---
+echo "Test 6: cache_status shows memory + persistent layers"
+CACHE_DIR2="$(mktemp -d /tmp/codelattice-smoke-cache-XXXXXX)"
+STATUS_RESULT=$(printf '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_analyze","arguments":{"root":"%s","language":"rust"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' "$FIXTURE_ABS" \
+    | CODELATTICE_CACHE_DIR="$CACHE_DIR2" "$BIN" mcp 2>/dev/null \
+    | python3 -c "
+import json, sys
+for line in sys.stdin:
+    line = line.strip()
+    if not line: continue
+    d = json.loads(line)
+    if d.get('id') == 2:
+        data = json.loads(d['result']['content'][0]['text'])
+        has_mem = 'memory' in data
+        has_pers = 'persistent' in data
+        mem_count = data.get('memory',{}).get('entryCount', 0)
+        pers_enabled = data.get('persistent',{}).get('enabled', False)
+        print(f'memory={has_mem} persistent={has_pers} memEntries={mem_count} persEnabled={pers_enabled}')
+" 2>/dev/null)
+
+echo "  $STATUS_RESULT"
+STATUS_OK=$(echo "$STATUS_RESULT" | grep -c "memory=True persistent=True" || true)
+if [[ "$STATUS_OK" -eq 1 ]]; then
+    echo "  PASS"
+    PASS=$((PASS + 1))
+else
+    echo "  FAIL — expected both layers in cache_status"
+    FAIL=$((FAIL + 1))
+fi
+rm -rf "$CACHE_DIR2"
+echo ""
+
 # --- Summary ---
 echo "============================================"
 echo " Cache Smoke Results"

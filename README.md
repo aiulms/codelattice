@@ -260,8 +260,8 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_project_overview` | 项目级概览，适合 AI 快速建模 |
 | `codelattice_repo_registry` | 只读 repo registry/status 视图 |
 | `codelattice_rename_preview` | 重命名预览，只读，不写文件 |
-| `codelattice_cache_status` | 查看 process-local cache 状态 |
-| `codelattice_cache_clear` | 清空 process-local cache |
+| `codelattice_cache_status` | 查看 process-local cache 状态（内存 + 持久化双层） |
+| `codelattice_cache_clear` | 清空 cache，支持 memory / persistent / both 层选择 |
 | `codelattice_production_assist` | 汇总质量门、未解析调用、diagnostics、改动风险和审查清单；自动从 git diff 检测 changed symbols |
 | `codelattice_compare_runs` | 对比两次 bridge/run artifact 的节点和边变化 |
 | `codelattice_cache_prewarm` | 预热 process-local cache，改善真实客户端首次交互体验 |
@@ -358,6 +358,35 @@ cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bins
 - trait / interface solving
 - macro expansion
 - 完整 cfg evaluator
+
+## 缓存与性能
+
+CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
+
+1. **内存层**（默认启用）— 进程内 LRU 缓存，最多 16 条目。同一进程内的重复调用直接命中，不重新分析。
+2. **持久化层**（opt-in）— 跨进程的磁盘缓存。设置 `CODELATTICE_CACHE_DIR` 环境变量启用。
+
+缓存查找顺序：内存 → 持久化 → 重新分析。
+
+### 持久化缓存配置
+
+| 环境变量 | 说明 |
+|----------|------|
+| `CODELATTICE_CACHE_DIR` | 持久化缓存目录路径。设置后启用持久化缓存。未设置时仅使用内存缓存。 |
+| `CODELATTICE_CACHE` | 设为 `off` 可完全禁用缓存（包括内存层）。 |
+
+缓存文件格式：`${CODELATTICE_CACHE_DIR}/cl-cache-{fnv_hash}.json`，包含分析结果、文件 mtime 指纹和 manifest hash。
+
+### 失效检测
+
+当以下条件变化时缓存自动失效：
+
+- 源文件新增 / 删除 / 修改（通过 mtime 检测 `.rs`/`.cj`/`.ets`/`.ts`/`.tsx`/`.js`/`.json`/`.toml`/`.md` 等）
+- 构建配置变更（Cargo.toml / Cargo.lock / cjpm.toml / oh-package.json5 / tsconfig.json / package.json）
+- CodeLattice 版本升级
+- 缓存文件损坏
+
+失效时返回结构化的 `staleReasons`（如 `file_modified`、`manifest_changed`、`version_changed`），供 AI 侧理解缓存行为。
 
 ## 输出内容
 
