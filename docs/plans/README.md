@@ -907,3 +907,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - MCP contract v0.10.0
     - Plan: `docs/plans/2026-05-13-better-impact-risk-reasons-preflight.md`
     - Closure: `docs/plans/2026-05-13-better-impact-risk-reasons-closure.md`
+
+69. **Real Project Regression Baseline** ✅ 完成（2026-05-15）：
+    - `docs/real-project-corpus-baseline.json`：Redis / Catch2 / pip 的真实项目图谱基线
+    - `scripts/real-project-corpus-smoke.py --compare-baseline`：按预算比较 node/edge/symbol/file/runtime
+    - `--accept-baseline`：显式刷新基线；`--strict-baseline`：将 warning 升级为失败
+    - JSON + Markdown 报告输出，方便 AI / 人类复核
+    - Plan: `docs/plans/2026-05-15-real-project-regression-baseline-preflight.md`
+    - Closure: `docs/plans/2026-05-15-real-project-regression-baseline-closure.md`

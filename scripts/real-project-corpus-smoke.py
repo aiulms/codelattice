@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -21,10 +22,18 @@ from typing import Any
 SCRIPT_DIR = Path(__file__).resolve().parent
 REPO_ROOT = SCRIPT_DIR.parent
 DEFAULT_CONFIG = REPO_ROOT / "docs" / "real-project-corpus.json"
+DEFAULT_BASELINE = REPO_ROOT / "docs" / "real-project-corpus-baseline.json"
 ALL_LANGUAGE_FEATURES = (
     "tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,"
     "tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 )
+COUNT_METRICS = ("nodeCount", "edgeCount", "symbolCount", "sourceFileCount")
+DEFAULT_BASELINE_BUDGETS = {
+    "countDropWarnPercent": 10.0,
+    "countDropFailPercent": 20.0,
+    "elapsedIncreaseWarnPercent": 50.0,
+    "elapsedIncreaseFailPercent": 150.0,
+}
 
 
 def run_cmd(
@@ -51,6 +60,191 @@ def load_config(path: Path) -> dict[str, Any]:
     if not isinstance(data.get("targets"), list):
         raise SystemExit(f"invalid corpus config, missing targets array: {path}")
     return data
+
+
+def load_baseline(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as fh:
+        data = json.load(fh)
+    if not isinstance(data.get("targets"), dict):
+        raise SystemExit(f"invalid baseline, missing targets object: {path}")
+    return data
+
+
+def baseline_budgets(baseline: dict[str, Any] | None) -> dict[str, float]:
+    budgets = dict(DEFAULT_BASELINE_BUDGETS)
+    if baseline:
+        budgets.update(baseline.get("budgets") or {})
+    return {key: float(value) for key, value in budgets.items()}
+
+
+def percent_delta(actual: float, expected: float) -> float:
+    if expected == 0:
+        return 0.0
+    return ((actual - expected) / expected) * 100.0
+
+
+def compare_result_to_baseline(
+    result: dict[str, Any],
+    baseline: dict[str, Any],
+    *,
+    strict: bool,
+) -> dict[str, Any]:
+    target_id = result["id"]
+    entry = baseline.get("targets", {}).get(target_id)
+    if not entry:
+        status = "fail" if strict else "warn"
+        return {
+            "status": status,
+            "issues": [f"missing baseline for {target_id}"],
+        }
+
+    budgets = baseline_budgets(baseline)
+    baseline_metrics = entry.get("metrics") or {}
+    metrics = result.get("metrics") or {}
+    issues: list[str] = []
+    status = "pass"
+
+    def mark_issue(severity: str, message: str) -> None:
+        nonlocal status
+        issues.append(message)
+        if severity == "fail":
+            status = "fail"
+        elif status == "pass":
+            status = "warn"
+
+    for metric_name in COUNT_METRICS:
+        expected = float(baseline_metrics.get(metric_name, 0) or 0)
+        actual = float(metrics.get(metric_name, 0) or 0)
+        if expected <= 0:
+            continue
+        drop_percent = -percent_delta(actual, expected)
+        if drop_percent >= budgets["countDropFailPercent"]:
+            mark_issue(
+                "fail",
+                f"{metric_name} dropped {drop_percent:.1f}% from baseline "
+                f"({int(actual)} < {int(expected)})",
+            )
+        elif drop_percent >= budgets["countDropWarnPercent"]:
+            mark_issue(
+                "warn",
+                f"{metric_name} dropped {drop_percent:.1f}% from baseline "
+                f"({int(actual)} < {int(expected)})",
+            )
+
+    expected_elapsed = float(entry.get("elapsedSeconds", 0) or 0)
+    actual_elapsed = float(result.get("elapsedSeconds", 0) or 0)
+    if expected_elapsed > 0 and actual_elapsed > 0:
+        increase_percent = percent_delta(actual_elapsed, expected_elapsed)
+        if increase_percent >= budgets["elapsedIncreaseFailPercent"]:
+            mark_issue(
+                "fail",
+                f"elapsedSeconds increased {increase_percent:.1f}% from baseline "
+                f"({actual_elapsed:.2f}s > {expected_elapsed:.2f}s)",
+            )
+        elif increase_percent >= budgets["elapsedIncreaseWarnPercent"]:
+            mark_issue(
+                "warn",
+                f"elapsedSeconds increased {increase_percent:.1f}% from baseline "
+                f"({actual_elapsed:.2f}s > {expected_elapsed:.2f}s)",
+            )
+
+    if strict and status == "warn":
+        status = "fail"
+    return {
+        "status": status,
+        "issues": issues,
+        "baselineMetrics": baseline_metrics,
+        "baselineElapsedSeconds": entry.get("elapsedSeconds"),
+        "budgets": budgets,
+    }
+
+
+def apply_baseline_comparison(
+    result: dict[str, Any],
+    baseline: dict[str, Any],
+    *,
+    strict: bool,
+) -> None:
+    if result.get("status") != "pass":
+        return
+    comparison = compare_result_to_baseline(result, baseline, strict=strict)
+    result["baselineComparison"] = comparison
+    if comparison["status"] in {"warn", "fail"}:
+        result["status"] = comparison["status"]
+
+
+def write_baseline(
+    path: Path,
+    results: list[dict[str, Any]],
+    *,
+    existing: dict[str, Any] | None,
+) -> None:
+    baseline = {
+        "version": 1,
+        "generatedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "description": (
+            "CodeLattice GitCode real-project regression baseline. Update with "
+            "scripts/real-project-corpus-smoke.py --accept-baseline after "
+            "intentional analyzer changes."
+        ),
+        "budgets": baseline_budgets(existing),
+        "targets": {},
+    }
+    for result in results:
+        if result.get("status") not in {"pass", "warn"}:
+            continue
+        metrics = result.get("metrics")
+        if not metrics:
+            continue
+        baseline["targets"][result["id"]] = {
+            "name": result.get("name", result["id"]),
+            "language": result.get("language"),
+            "metrics": {key: int(metrics.get(key, 0) or 0) for key in COUNT_METRICS},
+            "elapsedSeconds": float(result.get("elapsedSeconds", 0) or 0),
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n")
+
+
+def write_markdown_report(path: Path, output: dict[str, Any]) -> None:
+    lines = [
+        "# CodeLattice Real Project Corpus Report",
+        "",
+        "## Summary",
+        "",
+        "| Total | Passed | Warned | Failed | Dry Run |",
+        "|------:|-------:|-------:|-------:|--------:|",
+        "| {total} | {passed} | {warned} | {failed} | {dryRun} |".format(
+            **output["summary"]
+        ),
+        "",
+        "## Targets",
+        "",
+        "| Target | Language | Status | Nodes | Edges | Symbols | Files | Elapsed | Baseline |",
+        "|--------|----------|--------|------:|------:|--------:|------:|--------:|----------|",
+    ]
+    for result in output["results"]:
+        metrics = result.get("metrics") or {}
+        comparison = result.get("baselineComparison") or {}
+        baseline_status = comparison.get("status", "-")
+        baseline_issues = "; ".join(comparison.get("issues") or [])
+        if baseline_issues:
+            baseline_status = f"{baseline_status}: {baseline_issues}"
+        lines.append(
+            "| {id} | {language} | {status} | {nodes} | {edges} | {symbols} | {files} | {elapsed:.2f}s | {baseline} |".format(
+                id=result["id"],
+                language=result.get("language", ""),
+                status=result.get("status", ""),
+                nodes=metrics.get("nodeCount", "-"),
+                edges=metrics.get("edgeCount", "-"),
+                symbols=metrics.get("symbolCount", "-"),
+                files=metrics.get("sourceFileCount", "-"),
+                elapsed=float(result.get("elapsedSeconds", 0) or 0),
+                baseline=baseline_status,
+            )
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def default_cache_dir() -> Path:
@@ -363,7 +557,12 @@ def run_target(binary: Path, target: dict[str, Any], args: argparse.Namespace) -
 
 def print_result(result: dict[str, Any]) -> None:
     status = result["status"].upper()
-    prefix = "PASS" if result["status"] == "pass" else status
+    if result["status"] == "pass":
+        prefix = "PASS"
+    elif result["status"] == "warn":
+        prefix = "WARN"
+    else:
+        prefix = status
     print(f"{prefix}: {result['id']} ({result.get('language')})")
     if "checkout" in result:
         print(f"  checkout: {result['checkout']}")
@@ -385,6 +584,11 @@ def print_result(result: dict[str, Any]) -> None:
         )
     if result.get("thresholdFailures"):
         print("  threshold failures: " + "; ".join(result["thresholdFailures"]))
+    comparison = result.get("baselineComparison") or {}
+    if comparison:
+        print(f"  baseline: {comparison.get('status', 'unknown')}")
+        for issue in comparison.get("issues") or []:
+            print(f"    - {issue}")
     if result.get("error"):
         print("  error: " + result["error"])
     if "elapsedSeconds" in result:
@@ -396,6 +600,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         description="Run CodeLattice against GitCode real-project smoke corpus."
     )
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
+    parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--cache-dir", type=Path, default=default_cache_dir())
     parser.add_argument("--bin", help="Path to codelattice binary")
     parser.add_argument("--build", action="store_true", help="Build release binary if missing")
@@ -413,6 +618,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--clone-timeout", type=int, default=300)
     parser.add_argument("--max-targets", type=int)
     parser.add_argument("--json-out", type=Path, help="Write full result JSON to this path")
+    parser.add_argument("--markdown-out", type=Path, help="Write a markdown result report")
+    parser.add_argument(
+        "--compare-baseline",
+        action="store_true",
+        help="Compare successful target results against the saved baseline",
+    )
+    parser.add_argument(
+        "--accept-baseline",
+        action="store_true",
+        help="Write current successful target results as the new baseline",
+    )
+    parser.add_argument(
+        "--strict-baseline",
+        action="store_true",
+        help="Treat baseline warnings as failures",
+    )
     parser.add_argument("--fail-fast", action="store_true")
     return parser.parse_args(argv)
 
@@ -420,9 +641,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str]) -> int:
     args = parse_args(argv)
     args.config = args.config.resolve()
+    args.baseline = args.baseline.expanduser().resolve()
     args.cache_dir = args.cache_dir.expanduser().resolve()
     config = load_config(args.config)
     targets = selected_targets(config, args)
+    baseline = None
+    if args.compare_baseline:
+        baseline = load_baseline(args.baseline)
 
     if args.list:
         print_targets(targets)
@@ -431,6 +656,8 @@ def main(argv: list[str]) -> int:
     binary = find_binary(args.bin, args.build)
     print("=== CodeLattice Real Project Corpus Smoke ===")
     print(f"config:    {args.config}")
+    if args.compare_baseline or args.accept_baseline:
+        print(f"baseline:  {args.baseline}")
     print(f"cacheDir:  {args.cache_dir}")
     print(f"binary:    {binary}")
     print(f"targets:   {len(targets)}")
@@ -440,6 +667,12 @@ def main(argv: list[str]) -> int:
     for target in targets:
         print(f"--- {target['id']} ---")
         result = run_target(binary, target, args)
+        if baseline is not None:
+            apply_baseline_comparison(
+                result,
+                baseline,
+                strict=args.strict_baseline,
+            )
         results.append(result)
         print_result(result)
         print("")
@@ -449,6 +682,7 @@ def main(argv: list[str]) -> int:
     summary = {
         "total": len(results),
         "passed": sum(1 for r in results if r["status"] == "pass"),
+        "warned": sum(1 for r in results if r["status"] == "warn"),
         "failed": sum(1 for r in results if r["status"] == "fail"),
         "dryRun": sum(1 for r in results if r["status"] == "dry-run"),
     }
@@ -457,9 +691,16 @@ def main(argv: list[str]) -> int:
         args.json_out.parent.mkdir(parents=True, exist_ok=True)
         args.json_out.write_text(json.dumps(output, indent=2, ensure_ascii=False) + "\n")
         print(f"wrote: {args.json_out}")
+    if args.markdown_out:
+        write_markdown_report(args.markdown_out, output)
+        print(f"wrote: {args.markdown_out}")
+    if args.accept_baseline:
+        existing = load_baseline(args.baseline) if args.baseline.exists() else None
+        write_baseline(args.baseline, results, existing=existing)
+        print(f"accepted baseline: {args.baseline}")
 
     print(
-        "Summary: total={total} passed={passed} failed={failed} dryRun={dryRun}".format(
+        "Summary: total={total} passed={passed} warned={warned} failed={failed} dryRun={dryRun}".format(
             **summary
         )
     )

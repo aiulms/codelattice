@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "generatedAt": "2026-05-15T00:00:00+00:00",
+  "description": "CodeLattice GitCode real-project regression baseline. Update with scripts/real-project-corpus-smoke.py --accept-baseline after intentional analyzer changes.",
+  "budgets": {
+    "countDropWarnPercent": 10.0,
+    "countDropFailPercent": 20.0,
+    "elapsedIncreaseWarnPercent": 50.0,
+    "elapsedIncreaseFailPercent": 150.0
+  },
+  "targets": {
+    "redis-c": {
+      "name": "Redis",
+      "language": "c",
+      "metrics": {
+        "nodeCount": 10967,
+        "edgeCount": 11486,
+        "symbolCount": 10751,
+        "sourceFileCount": 133
+      },
+      "elapsedSeconds": 3.0
+    },
+    "catch2-cpp": {
+      "name": "Catch2",
+      "language": "cpp",
+      "metrics": {
+        "nodeCount": 7522,
+        "edgeCount": 21155,
+        "symbolCount": 7076,
+        "sourceFileCount": 225
+      },
+      "elapsedSeconds": 14.5
+    },
+    "pip-python": {
+      "name": "pip",
+      "language": "python",
+      "metrics": {
+        "nodeCount": 34626,
+        "edgeCount": 63471,
+        "symbolCount": 33993,
+        "sourceFileCount": 632
+      },
+      "elapsedSeconds": 30.9
+    }
+  }
+}

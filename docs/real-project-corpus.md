@@ -75,9 +75,25 @@ python3 scripts/real-project-corpus-smoke.py \
   --json-out /tmp/codelattice-real-corpus-results.json
 ```
 
+Compare against the saved regression baseline:
+
+```bash
+python3 scripts/real-project-corpus-smoke.py \
+  --compare-baseline \
+  --json-out /tmp/codelattice-real-corpus-results.json \
+  --markdown-out /tmp/codelattice-real-corpus-results.md
+```
+
+Refresh the baseline after an intentional analyzer change:
+
+```bash
+python3 scripts/real-project-corpus-smoke.py --accept-baseline
+```
+
 ## Initial Baseline
 
-Validated on 2026-05-15 with `target/release/codelattice` from commit `597db2e`:
+Saved in `docs/real-project-corpus-baseline.json` and validated on 2026-05-15
+with `target/release/codelattice` after commit `f99138d`:
 
 | Target | Status | Nodes | Edges | Symbols | Files |
 |--------|--------|------:|------:|--------:|------:|
@@ -88,6 +104,17 @@ Validated on 2026-05-15 with `target/release/codelattice` from commit `597db2e`:
 These are smoke baselines, not precision guarantees. A future run should be
 investigated if counts drop sharply, explode unexpectedly, or the command
 starts failing.
+
+The baseline budget is intentionally loose:
+
+| Metric group | Warn | Fail |
+|--------------|------|------|
+| Count metrics (`nodeCount`, `edgeCount`, `symbolCount`, `sourceFileCount`) | 10% drop | 20% drop |
+| Runtime (`elapsedSeconds`) | 50% slower | 150% slower |
+
+Warnings keep the command successful by default so local hardware variance does
+not block development. Use `--strict-baseline` when a release gate should treat
+warnings as failures.
 
 ## Why This Exists
 
