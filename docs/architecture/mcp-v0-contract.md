@@ -559,6 +559,14 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "packageCount": 2,
   "topNodeKinds": [ { "kind": "symbol", "count": 2 }, { "kind": "package", "count": 1 } ],
   "qualitySummary": { "total": 7, "passed": 7, "failed": 0 },
+  "qualityMetrics": {
+    "graphCompleteness": { "nodeCount": 7, "edgeCount": 6, "symbolCount": 2, "sourceFileCount": 1, "danglingEdgeCount": 0 },
+    "edgeConfidence": { "totalConfidenceEdgeCount": 4, "highConfidenceEdgeCount": 3, "mediumConfidenceEdgeCount": 1, "lowConfidenceEdgeCount": 0, "unknownConfidenceEdgeCount": 2, "lowConfidenceEdgeRate": 0.0, "unknownConfidenceEdgeRate": 0.33 },
+    "callQuality": { "callEdgeCount": 2, "highConfidenceCallEdgeCount": 2, "mediumConfidenceCallEdgeCount": 0, "lowConfidenceCallEdgeCount": 0, "unknownConfidenceCallEdgeCount": 0, "lowConfidenceCallRate": 0.0 },
+    "dependencyQuality": { "importEdgeCount": 1, "includeEdgeCount": 0, "unresolvedImportOrIncludeCount": 0 },
+    "diagnostics": { "diagnosticCount": 1, "unresolvedDiagnosticCount": 0, "parseDiagnosticCount": 0 },
+    "generatedFrom": { "graphBased": true, "compilerVerified": false, "heuristic": true }
+  },
   "diagnosticsSummary": { "total": 1, "bySeverity": { "info": 1 } },
   "hotspots": [],
   "denseFiles": [],
@@ -574,6 +582,8 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 ```
 
 > **v0.11 变更**: 新增 `docs` 对象字段。基于静态 markdown 扫描，提供文档统计摘要。无 markdown 文件时返回空对象 `{}`。
+>
+> **v0.14 变更**: 新增 `qualityMetrics` 对象字段。跨语言统一质量指标，包含图完整性、边置信度分布、调用质量、依赖质量和诊断分类。`project_overview`（compact 和 full 模式）、`project_insights`、`review_plan`（release_check 模式）和 `production_assist` 均返回此字段。
 
 ### 3.15 `codelattice_repo_registry` *(v0.2)*
 

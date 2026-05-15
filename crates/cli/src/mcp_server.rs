@@ -2487,6 +2487,250 @@ impl GraphView {
     }
 }
 
+/// Compute quality metrics from a GraphView for MCP tool output.
+/// Pure function: no side effects, returns a serde_json::Value.
+fn compute_quality_metrics(gv: &GraphView) -> Value {
+    // Flatten all edges
+    let all_edges: Vec<&Value> = gv.outgoing.values().flatten().collect();
+    let total_edge_count: usize = all_edges.len();
+
+    // graphCompleteness
+    let node_count = gv.nodes_by_id.len();
+    let symbol_count = gv
+        .nodes_by_id
+        .values()
+        .filter(|n| n["label"].as_str() == Some("symbol") || n["kind"].as_str() == Some("symbol"))
+        .count();
+    let source_file_count = gv
+        .nodes_by_id
+        .values()
+        .filter(|n| {
+            n["label"].as_str() == Some("source-file") || n["kind"].as_str() == Some("sourceFile")
+        })
+        .count();
+    let dangling_edge_count = all_edges
+        .iter()
+        .filter(|e| {
+            let src = e
+                .get("source")
+                .and_then(|v| v.as_str())
+                .or_else(|| e.get("sourceId").and_then(|v| v.as_str()));
+            match src {
+                None => true,
+                Some(id) => !gv.nodes_by_id.contains_key(id),
+            }
+        })
+        .count();
+
+    // edgeConfidence
+    let edges_with_confidence: Vec<(&Value, Option<f64>)> = all_edges
+        .iter()
+        .map(|e| {
+            let conf = e
+                .get("properties")
+                .and_then(|p| p.get("confidence"))
+                .and_then(|c| c.as_f64());
+            (*e, conf)
+        })
+        .collect();
+
+    let total_confidence_edge_count = edges_with_confidence
+        .iter()
+        .filter(|(_, c)| c.is_some())
+        .count();
+    let high_confidence_edge_count = edges_with_confidence
+        .iter()
+        .filter(|(_, c)| c.map(|v| v >= 0.80).unwrap_or(false))
+        .count();
+    let medium_confidence_edge_count = edges_with_confidence
+        .iter()
+        .filter(|(_, c)| c.map(|v| v >= 0.60 && v < 0.80).unwrap_or(false))
+        .count();
+    let low_confidence_edge_count = edges_with_confidence
+        .iter()
+        .filter(|(_, c)| c.map(|v| v < 0.60).unwrap_or(false))
+        .count();
+    let unknown_confidence_edge_count = total_edge_count - total_confidence_edge_count;
+    let low_confidence_edge_rate = if total_confidence_edge_count > 0 {
+        low_confidence_edge_count as f64 / total_confidence_edge_count as f64
+    } else {
+        0.0
+    };
+    let unknown_confidence_edge_rate = if total_edge_count > 0 {
+        unknown_confidence_edge_count as f64 / total_edge_count as f64
+    } else {
+        0.0
+    };
+
+    // callQuality
+    let call_edges: Vec<&Value> = all_edges
+        .iter()
+        .filter(|e| {
+            let t = e
+                .get("type")
+                .and_then(|v| v.as_str())
+                .or_else(|| e.get("kind").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            t == "CALLS"
+        })
+        .copied()
+        .collect();
+    let call_edge_count = call_edges.len();
+    let call_conf: Vec<Option<f64>> = call_edges
+        .iter()
+        .map(|e| {
+            e.get("properties")
+                .and_then(|p| p.get("confidence"))
+                .and_then(|c| c.as_f64())
+        })
+        .collect();
+    let high_confidence_call_count = call_conf
+        .iter()
+        .filter(|c| c.map(|v| v >= 0.80).unwrap_or(false))
+        .count();
+    let medium_confidence_call_count = call_conf
+        .iter()
+        .filter(|c| c.map(|v| v >= 0.60 && v < 0.80).unwrap_or(false))
+        .count();
+    let low_confidence_call_count = call_conf
+        .iter()
+        .filter(|c| c.map(|v| v < 0.60).unwrap_or(false))
+        .count();
+    let unknown_confidence_call_count = call_conf.iter().filter(|c| c.is_none()).count();
+    let low_confidence_call_rate = if call_edge_count > 0 {
+        low_confidence_call_count as f64 / call_edge_count as f64
+    } else {
+        0.0
+    };
+
+    // dependencyQuality
+    let import_edge_count = all_edges
+        .iter()
+        .filter(|e| {
+            let t = e
+                .get("type")
+                .and_then(|v| v.as_str())
+                .or_else(|| e.get("kind").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            t.contains("IMPORT")
+        })
+        .count();
+    let include_edge_count = all_edges
+        .iter()
+        .filter(|e| {
+            let t = e
+                .get("type")
+                .and_then(|v| v.as_str())
+                .or_else(|| e.get("kind").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            t.contains("INCLUDE")
+        })
+        .count();
+    let unresolved_import_or_include_count = all_edges
+        .iter()
+        .filter(|e| {
+            let t = e
+                .get("type")
+                .and_then(|v| v.as_str())
+                .or_else(|| e.get("kind").and_then(|v| v.as_str()))
+                .unwrap_or("");
+            let is_import_or_include = t.contains("IMPORT") || t.contains("INCLUDE");
+            if !is_import_or_include {
+                return false;
+            }
+            let reason = e
+                .get("properties")
+                .and_then(|p| p.get("reason"))
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            reason.contains("unresolved") || reason.contains("missing")
+        })
+        .count();
+
+    // diagnostics
+    let diagnostic_count = gv.diagnostics.len();
+    let unresolved_diagnostic_count = gv
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            let code = d
+                .get("properties")
+                .and_then(|p| p.get("code"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let reason = d
+                .get("properties")
+                .and_then(|p| p.get("reason"))
+                .and_then(|r| r.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            code.contains("unresolved") || reason.contains("unresolved")
+        })
+        .count();
+    let parse_diagnostic_count = gv
+        .diagnostics
+        .iter()
+        .filter(|d| {
+            let code = d
+                .get("properties")
+                .and_then(|p| p.get("code"))
+                .and_then(|c| c.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            let severity = d
+                .get("severity")
+                .and_then(|s| s.as_str())
+                .unwrap_or("")
+                .to_lowercase();
+            code.contains("parse") || severity.contains("parse")
+        })
+        .count();
+
+    json!({
+        "graphCompleteness": {
+            "nodeCount": node_count,
+            "edgeCount": total_edge_count,
+            "symbolCount": symbol_count,
+            "sourceFileCount": source_file_count,
+            "danglingEdgeCount": dangling_edge_count,
+        },
+        "edgeConfidence": {
+            "totalConfidenceEdgeCount": total_confidence_edge_count,
+            "highConfidenceEdgeCount": high_confidence_edge_count,
+            "mediumConfidenceEdgeCount": medium_confidence_edge_count,
+            "lowConfidenceEdgeCount": low_confidence_edge_count,
+            "unknownConfidenceEdgeCount": unknown_confidence_edge_count,
+            "lowConfidenceEdgeRate": low_confidence_edge_rate,
+            "unknownConfidenceEdgeRate": unknown_confidence_edge_rate,
+        },
+        "callQuality": {
+            "callEdgeCount": call_edge_count,
+            "highConfidenceCallEdgeCount": high_confidence_call_count,
+            "mediumConfidenceCallEdgeCount": medium_confidence_call_count,
+            "lowConfidenceCallEdgeCount": low_confidence_call_count,
+            "unknownConfidenceCallEdgeCount": unknown_confidence_call_count,
+            "lowConfidenceCallRate": low_confidence_call_rate,
+        },
+        "dependencyQuality": {
+            "importEdgeCount": import_edge_count,
+            "includeEdgeCount": include_edge_count,
+            "unresolvedImportOrIncludeCount": unresolved_import_or_include_count,
+        },
+        "diagnostics": {
+            "diagnosticCount": diagnostic_count,
+            "unresolvedDiagnosticCount": unresolved_diagnostic_count,
+            "parseDiagnosticCount": parse_diagnostic_count,
+        },
+        "generatedFrom": {
+            "graphBased": true,
+            "compilerVerified": false,
+            "heuristic": true,
+        }
+    })
+}
+
 /// Build a GraphView by running analyze and parsing the result.
 #[allow(dead_code)]
 fn build_graph_view(root: &Path, language: &str) -> Result<GraphView, Value> {
@@ -4565,6 +4809,7 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
                 "packageCount": package_count,
                 "sourceFileCount": file_count,
                 "diagnosticsCount": diagnostics_count,
+                "qualityMetrics": compute_quality_metrics(&gv),
                 "compact": true
             }),
             &cache_meta,
@@ -4631,6 +4876,7 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
                 "packageCount": package_count,
                 "sourceFileCount": file_count,
                 "diagnosticsCount": gv.diagnostics.len(),
+                "qualityMetrics": compute_quality_metrics(&gv),
                 "compact": true
             }),
             &cache_meta,
@@ -4667,6 +4913,7 @@ fn handle_project_overview(cache: &mut McpCache, params: &Value) -> Result<Value
                 },
                 "hotspots": hotspots,
                 "denseFiles": dense_files,
+                "qualityMetrics": compute_quality_metrics(&gv),
                 "docs": if let Some(ds) = gv.doc_scanner() { ds.summary_json() } else { json!({}) }
             }),
             &cache_meta,
@@ -5667,6 +5914,27 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
         ));
     }
 
+    // Quality metrics
+    let quality_metrics = compute_quality_metrics(&gv);
+
+    // Add quality-metrics-based checklist items
+    let dangling_count = quality_metrics["graphCompleteness"]["danglingEdgeCount"]
+        .as_u64()
+        .unwrap_or(0);
+    let low_conf_call_rate = quality_metrics["callQuality"]["lowConfidenceCallRate"]
+        .as_f64()
+        .unwrap_or(0.0);
+    if dangling_count > 0 {
+        review_checklist.push(format!(
+            "Dangling edges detected: {} edges reference non-existent source nodes",
+            dangling_count
+        ));
+    }
+    if low_conf_call_rate > 0.3 {
+        review_checklist
+            .push("High low-confidence call rate: check call resolution quality".to_string());
+    }
+
     Ok(merge_cache_and_result(
         &json!({
             "root": root,
@@ -5694,6 +5962,7 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
             "reviewChecklist": review_checklist,
             "docsLikelyNeedUpdate": docs_likely_need_update,
             "docAssociationSummary": doc_association_summary,
+            "qualityMetrics": quality_metrics,
             "dryRun": true,
             "noWrites": true,
         }),
@@ -6459,6 +6728,9 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
 
     let source_file_count = file_metrics.len();
 
+    // Quality metrics (computed once, used in both compact and full)
+    let quality_metrics = compute_quality_metrics(&gv);
+
     let result_data = if compact {
         json!({
             "summary": {
@@ -6479,6 +6751,7 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
             "readFirst": read_first,
             "reviewFirst": review_first,
             "docsSignals": docs_signals,
+            "qualityMetrics": quality_metrics,
             "generatedFrom": {
                 "graphBased": true,
                 "compilerVerified": false,
@@ -6537,6 +6810,7 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                     "riskReasons": reasons,
                 })
             }).collect::<Vec<Value>>(),
+            "qualityMetrics": quality_metrics,
             "generatedFrom": {
                 "graphBased": true,
                 "compilerVerified": false,
@@ -7045,6 +7319,7 @@ fn handle_review_plan(cache: &mut McpCache, params: &Value) -> Result<Value, Val
             "mode":mode,"summary":summary,"readPlan":read_plan,"riskReviewPlan":risk_review_plan,
             "testHints":test_hints,"docUpdateHints":doc_update_hints,"questionsToAskBeforeEdit":questions_to_ask,
             "manualReviewRequired":manual_review_required,"recommendedMcpCalls":recommended_mcp_calls,
+            "qualityMetrics": if mode == "release_check" { compute_quality_metrics(&gv) } else { Value::Null },
             "generatedFrom":{"projectInsights":true,"impactPreview":true,"changedSymbols":true,"docGraph":true,"graphBased":true,"compilerVerified":false,"previewOnly":true},
             "compact":compact
         }),

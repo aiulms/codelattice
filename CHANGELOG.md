@@ -8,6 +8,16 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Unified Quality Metrics Pack** (v0.14): Cross-language quality metrics (`qualityMetrics`) added to MCP tool outputs.
+  - New `compute_quality_metrics()` pure function in `mcp_server.rs` — computes graph completeness, edge confidence distribution, call quality, dependency quality, and diagnostic classification from graph data only (no LLM calls).
+  - `qualityMetrics` field added to: `codelattice_project_overview` (compact + full), `codelattice_project_insights`, `codelattice_review_plan` (release_check mode), `codelattice_production_assist`.
+  - Confidence tiers: high (>=0.80), medium (0.60–0.79), low (<0.60), unknown (missing).
+  - `production_assist` adds checklist items for dangling edges (>0) and high low-confidence call rate (>30%).
+  - `review_plan` release_check mode includes qualityMetrics; onboarding/after_edit modes do not (to save tokens).
+  - Real-project corpus smoke script updated with quality budget comparison: rate thresholds (warn >=30%, fail >=50%) and dangling edge fail gate (>0).
+  - 6 new MCP tests for quality metrics + 4 new Python unit tests for quality budget comparison.
+  - Updated docs: MCP contract (v0.14 qualityMetrics section), unified output contract (section 7), real-project corpus (quality budgets), CHANGELOG.
+
 - **Real project corpus smoke**: `scripts/real-project-corpus-smoke.py` plus `docs/real-project-corpus.json` / `docs/real-project-corpus.md`. The default GitCode corpus covers Redis (C), Catch2 (C++), and pip (Python), with optional TypeScript / ArkTS / Cangjie / Rust targets for broader multi-language hardening.
 - **Real project regression baseline**: `docs/real-project-corpus-baseline.json` plus `--compare-baseline`, `--accept-baseline`, `--strict-baseline`, and markdown report output for `scripts/real-project-corpus-smoke.py`. This turns the GitCode corpus into a loose quality budget gate for graph-count and runtime regressions.
 - **MCP tool `codelattice_project_insights`** (v0.8): Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry point candidates, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.

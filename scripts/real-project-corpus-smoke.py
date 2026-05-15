@@ -28,11 +28,15 @@ ALL_LANGUAGE_FEATURES = (
     "tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 )
 COUNT_METRICS = ("nodeCount", "edgeCount", "symbolCount", "sourceFileCount")
+QUALITY_RATE_METRICS = ("lowConfidenceCallRate", "lowConfidenceEdgeRate", "unknownConfidenceEdgeRate")
 DEFAULT_BASELINE_BUDGETS = {
     "countDropWarnPercent": 10.0,
     "countDropFailPercent": 20.0,
     "elapsedIncreaseWarnPercent": 50.0,
     "elapsedIncreaseFailPercent": 150.0,
+    "qualityRateWarnThreshold": 0.30,
+    "qualityRateFailThreshold": 0.50,
+    "danglingEdgeFailThreshold": 0,
 }
 
 
@@ -148,6 +152,33 @@ def compare_result_to_baseline(
                 f"({actual_elapsed:.2f}s > {expected_elapsed:.2f}s)",
             )
 
+    # Quality metrics comparison (rate-based thresholds)
+    actual_quality = result.get("qualityMetrics") or {}
+    baseline_quality = entry.get("qualityMetrics") or {}
+    if actual_quality:
+        for rate_name in QUALITY_RATE_METRICS:
+            rate = float(actual_quality.get(rate_name, 0) or 0)
+            if rate >= budgets["qualityRateFailThreshold"]:
+                mark_issue(
+                    "fail",
+                    f"{rate_name} {rate:.2%} exceeds fail threshold "
+                    f"{budgets['qualityRateFailThreshold']:.2%}",
+                )
+            elif rate >= budgets["qualityRateWarnThreshold"]:
+                mark_issue(
+                    "warn",
+                    f"{rate_name} {rate:.2%} exceeds warn threshold "
+                    f"{budgets['qualityRateWarnThreshold']:.2%}",
+                )
+
+        dangling = int(actual_quality.get("danglingEdgeCount", 0) or 0)
+        dangling_limit = int(budgets.get("danglingEdgeFailThreshold", 0))
+        if dangling > dangling_limit:
+            mark_issue(
+                "fail",
+                f"danglingEdgeCount {dangling} exceeds threshold {dangling_limit}",
+            )
+
     if strict and status == "warn":
         status = "fail"
     return {
@@ -155,6 +186,7 @@ def compare_result_to_baseline(
         "issues": issues,
         "baselineMetrics": baseline_metrics,
         "baselineElapsedSeconds": entry.get("elapsedSeconds"),
+        "baselineQualityMetrics": baseline_quality or None,
         "budgets": budgets,
     }
 
@@ -196,12 +228,20 @@ def write_baseline(
         metrics = result.get("metrics")
         if not metrics:
             continue
-        baseline["targets"][result["id"]] = {
+        quality_metrics = result.get("qualityMetrics") or {}
+        quality_rates = {k: float(quality_metrics.get(k, 0) or 0) for k in QUALITY_RATE_METRICS}
+        quality_counts = {
+            "danglingEdgeCount": int(quality_metrics.get("danglingEdgeCount", 0) or 0),
+            "callEdgeCount": int(quality_metrics.get("callEdgeCount", 0) or 0),
+        }
+        entry_value: dict[str, Any] = {
             "name": result.get("name", result["id"]),
             "language": result.get("language"),
             "metrics": {key: int(metrics.get(key, 0) or 0) for key in COUNT_METRICS},
+            "qualityMetrics": {**quality_rates, **quality_counts},
             "elapsedSeconds": float(result.get("elapsedSeconds", 0) or 0),
         }
+        baseline["targets"][result["id"]] = entry_value
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(baseline, indent=2, ensure_ascii=False) + "\n")
 
@@ -220,8 +260,8 @@ def write_markdown_report(path: Path, output: dict[str, Any]) -> None:
         "",
         "## Targets",
         "",
-        "| Target | Language | Status | Nodes | Edges | Symbols | Files | Elapsed | Baseline |",
-        "|--------|----------|--------|------:|------:|--------:|------:|--------:|----------|",
+        "| Target | Language | Status | Nodes | Edges | Symbols | Files | Quality | Elapsed | Baseline |",
+        "|--------|----------|--------|------:|------:|--------:|------:|---------|--------:|----------|",
     ]
     for result in output["results"]:
         metrics = result.get("metrics") or {}
@@ -230,8 +270,15 @@ def write_markdown_report(path: Path, output: dict[str, Any]) -> None:
         baseline_issues = "; ".join(comparison.get("issues") or [])
         if baseline_issues:
             baseline_status = f"{baseline_status}: {baseline_issues}"
+        quality = result.get("qualityMetrics") or {}
+        quality_parts = []
+        if quality.get("danglingEdgeCount"):
+            quality_parts.append(f"dng={quality['danglingEdgeCount']}")
+        if quality.get("lowConfidenceCallRate"):
+            quality_parts.append(f"lcr={quality['lowConfidenceCallRate']:.0%}")
+        quality_str = " ".join(quality_parts) if quality_parts else "ok"
         lines.append(
-            "| {id} | {language} | {status} | {nodes} | {edges} | {symbols} | {files} | {elapsed:.2f}s | {baseline} |".format(
+            "| {id} | {language} | {status} | {nodes} | {edges} | {symbols} | {files} | {quality} | {elapsed:.2f}s | {baseline} |".format(
                 id=result["id"],
                 language=result.get("language", ""),
                 status=result.get("status", ""),
@@ -239,6 +286,7 @@ def write_markdown_report(path: Path, output: dict[str, Any]) -> None:
                 edges=metrics.get("edgeCount", "-"),
                 symbols=metrics.get("symbolCount", "-"),
                 files=metrics.get("sourceFileCount", "-"),
+                quality=quality_str,
                 elapsed=float(result.get("elapsedSeconds", 0) or 0),
                 baseline=baseline_status,
             )
@@ -486,6 +534,26 @@ def analyze_target(
         "sourceFileCount": int(overview.get("sourceFileCount", 0) or 0),
     }
 
+    # Extract qualityMetrics from overview response
+    raw_quality = overview.get("qualityMetrics") or {}
+    quality_metrics: dict[str, Any] = {
+        "danglingEdgeCount": int(
+            raw_quality.get("graphCompleteness", {}).get("danglingEdgeCount", 0) or 0
+        ),
+        "lowConfidenceEdgeRate": float(
+            raw_quality.get("edgeConfidence", {}).get("lowConfidenceEdgeRate", 0) or 0
+        ),
+        "unknownConfidenceEdgeRate": float(
+            raw_quality.get("edgeConfidence", {}).get("unknownConfidenceEdgeRate", 0) or 0
+        ),
+        "callEdgeCount": int(
+            raw_quality.get("callQuality", {}).get("callEdgeCount", 0) or 0
+        ),
+        "lowConfidenceCallRate": float(
+            raw_quality.get("callQuality", {}).get("lowConfidenceCallRate", 0) or 0
+        ),
+    }
+
     insights_summary: dict[str, Any] = {}
     if not skip_insights:
         insights_args = {
@@ -508,6 +576,7 @@ def analyze_target(
         "root": str(root),
         "status": status,
         "metrics": metrics,
+        "qualityMetrics": quality_metrics,
         "insightsSummary": insights_summary,
         "thresholdFailures": threshold_failures,
     }
@@ -582,6 +651,17 @@ def print_result(result: dict[str, Any]) -> None:
                 lc=insights.get("lowConfidenceZoneCount", 0),
             )
         )
+    quality = result.get("qualityMetrics") or {}
+    if quality:
+        parts = []
+        if quality.get("danglingEdgeCount"):
+            parts.append(f"dangling={quality['danglingEdgeCount']}")
+        if quality.get("lowConfidenceCallRate"):
+            parts.append(f"lowConfCallRate={quality['lowConfidenceCallRate']:.1%}")
+        if quality.get("unknownConfidenceEdgeRate"):
+            parts.append(f"unknownConfRate={quality['unknownConfidenceEdgeRate']:.1%}")
+        if parts:
+            print(f"  quality: {' '.join(parts)}")
     if result.get("thresholdFailures"):
         print("  threshold failures: " + "; ".join(result["thresholdFailures"]))
     comparison = result.get("baselineComparison") or {}

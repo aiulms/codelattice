@@ -111,6 +111,8 @@ The baseline budget is intentionally loose:
 |--------------|------|------|
 | Count metrics (`nodeCount`, `edgeCount`, `symbolCount`, `sourceFileCount`) | 10% drop | 20% drop |
 | Runtime (`elapsedSeconds`) | 50% slower | 150% slower |
+| Quality rates (`lowConfidenceCallRate`, `lowConfidenceEdgeRate`, `unknownConfidenceEdgeRate`) | >= 30% | >= 50% |
+| Dangling edges (`danglingEdgeCount`) | — | > 0 |
 
 Warnings keep the command successful by default so local hardware variance does
 not block development. Use `--strict-baseline` when a release gate should treat

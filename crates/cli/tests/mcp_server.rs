@@ -7715,4 +7715,238 @@ def add(a, b):
             "auto-detect should identify Python project as 'python'"
         );
     }
+
+    // ============================================================
+    // Quality Metrics Tests
+    // ============================================================
+
+    /// project_overview (full mode) should include qualityMetrics with valid sub-objects.
+    #[test]
+    fn mcp_project_overview_returns_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9701,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+
+        let qm = &data["qualityMetrics"];
+        assert!(qm.is_object(), "qualityMetrics should be an object");
+
+        // graphCompleteness
+        assert!(
+            qm["graphCompleteness"]["nodeCount"].as_u64().unwrap_or(0) > 0,
+            "nodeCount should be > 0"
+        );
+        assert!(qm["graphCompleteness"]["edgeCount"].is_number());
+        assert!(qm["graphCompleteness"]["symbolCount"].is_number());
+        assert!(qm["graphCompleteness"]["sourceFileCount"].is_number());
+        assert!(qm["graphCompleteness"]["danglingEdgeCount"].is_number());
+
+        // edgeConfidence
+        assert!(qm["edgeConfidence"]["totalConfidenceEdgeCount"].is_number());
+        assert!(qm["edgeConfidence"]["highConfidenceEdgeCount"].is_number());
+        assert!(qm["edgeConfidence"]["lowConfidenceEdgeRate"].is_number());
+
+        // callQuality
+        assert!(qm["callQuality"]["callEdgeCount"].is_number());
+        assert!(qm["callQuality"]["lowConfidenceCallRate"].is_number());
+
+        // dependencyQuality
+        assert!(qm["dependencyQuality"]["importEdgeCount"].is_number());
+
+        // diagnostics
+        assert!(qm["diagnostics"]["diagnosticCount"].is_number());
+
+        // generatedFrom
+        assert_eq!(qm["generatedFrom"]["graphBased"], true);
+        assert_eq!(qm["generatedFrom"]["compilerVerified"], false);
+        assert_eq!(qm["generatedFrom"]["heuristic"], true);
+    }
+
+    /// project_overview in compact mode should still include qualityMetrics.
+    #[test]
+    fn mcp_project_overview_compact_returns_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9702,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust",
+                    "compact": true
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+
+        assert_eq!(data["compact"], true);
+        let qm = &data["qualityMetrics"];
+        assert!(
+            qm.is_object(),
+            "qualityMetrics should exist even in compact mode"
+        );
+        assert!(
+            qm["graphCompleteness"]["nodeCount"].as_u64().unwrap_or(0) > 0,
+            "compact qualityMetrics nodeCount should be > 0"
+        );
+    }
+
+    /// project_insights should include qualityMetrics at the top level.
+    #[test]
+    fn mcp_project_insights_returns_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9703,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_insights",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+
+        let qm = &data["qualityMetrics"];
+        assert!(
+            qm.is_object(),
+            "qualityMetrics should exist at top level of project_insights"
+        );
+        assert!(qm["graphCompleteness"]["nodeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(qm["callQuality"]["callEdgeCount"].is_number());
+    }
+
+    /// review_plan in release_check mode should include qualityMetrics.
+    #[test]
+    fn mcp_review_plan_release_check_returns_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9704,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_review_plan",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust",
+                    "mode": "release_check"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+
+        assert_eq!(data["mode"], "release_check");
+        let qm = &data["qualityMetrics"];
+        assert!(
+            qm.is_object(),
+            "qualityMetrics should exist in release_check mode"
+        );
+        assert!(qm["graphCompleteness"]["nodeCount"].as_u64().unwrap_or(0) > 0);
+        assert_eq!(qm["generatedFrom"]["graphBased"], true);
+    }
+
+    /// production_assist should include qualityMetrics.
+    #[test]
+    fn mcp_production_assist_returns_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9705,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_production_assist",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+
+        let qm = &data["qualityMetrics"];
+        assert!(
+            qm.is_object(),
+            "qualityMetrics should exist in production_assist output"
+        );
+        assert!(qm["graphCompleteness"]["nodeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(qm["edgeConfidence"]["totalConfidenceEdgeCount"].is_number());
+        assert!(qm["callQuality"]["lowConfidenceCallRate"].is_number());
+        assert!(qm["diagnostics"]["diagnosticCount"].is_number());
+    }
+
+    /// review_plan in onboarding mode should NOT include qualityMetrics (null).
+    #[test]
+    fn mcp_review_plan_onboarding_no_quality_metrics() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 9706,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_review_plan",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust",
+                    "mode": "onboarding"
+                }
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+
+        assert_eq!(data["mode"], "onboarding");
+        assert!(
+            data["qualityMetrics"].is_null(),
+            "qualityMetrics should be null in onboarding mode"
+        );
+    }
 }

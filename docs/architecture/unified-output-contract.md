@@ -333,4 +333,176 @@ MCP 工具在分析结果中附带缓存信号，供 AI 侧理解缓存行为。
 | `docs_changed` | 文档文件变化 |
 | `version_changed` | CodeLattice 版本升级 |
 | `cache_missing` | 缓存文件不存在 |
+
+---
+
+## 七、Unified Quality Metrics
+
+> **Added:** v0.14.0 (Unified Quality Metrics Pack)
+
+MCP tools `codelattice_project_overview`, `codelattice_project_insights`, `codelattice_review_plan` (release_check mode), and `codelattice_production_assist` now include a cross-language `qualityMetrics` field.
+
+### 7.1 QualityMetrics 结构
+
+```json
+{
+  "qualityMetrics": {
+    "graphCompleteness": {
+      "nodeCount": 0,
+      "edgeCount": 0,
+      "symbolCount": 0,
+      "sourceFileCount": 0,
+      "danglingEdgeCount": 0
+    },
+    "edgeConfidence": {
+      "totalConfidenceEdgeCount": 0,
+      "highConfidenceEdgeCount": 0,
+      "mediumConfidenceEdgeCount": 0,
+      "lowConfidenceEdgeCount": 0,
+      "unknownConfidenceEdgeCount": 0,
+      "lowConfidenceEdgeRate": 0.0,
+      "unknownConfidenceEdgeRate": 0.0
+    },
+    "callQuality": {
+      "callEdgeCount": 0,
+      "highConfidenceCallEdgeCount": 0,
+      "mediumConfidenceCallEdgeCount": 0,
+      "lowConfidenceCallEdgeCount": 0,
+      "unknownConfidenceCallEdgeCount": 0,
+      "lowConfidenceCallRate": 0.0
+    },
+    "dependencyQuality": {
+      "importEdgeCount": 0,
+      "includeEdgeCount": 0,
+      "unresolvedImportOrIncludeCount": 0
+    },
+    "diagnostics": {
+      "diagnosticCount": 0,
+      "unresolvedDiagnosticCount": 0,
+      "parseDiagnosticCount": 0
+    },
+    "generatedFrom": {
+      "graphBased": true,
+      "compilerVerified": false,
+      "heuristic": true
+    }
+  }
+}
+```
+
+### 7.2 字段说明
+
+| 子对象 | 字段 | 说明 |
+|--------|------|------|
+| `graphCompleteness` | `danglingEdgeCount` | 边的 source 节点不在 nodes_by_id 中的边数 |
+| `edgeConfidence` | `totalConfidenceEdgeCount` | 带 confidence 属性的边总数 |
+| `edgeConfidence` | `highConfidenceEdgeCount` | confidence >= 0.80 |
+| `edgeConfidence` | `mediumConfidenceEdgeCount` | 0.60 <= confidence < 0.80 |
+| `edgeConfidence` | `lowConfidenceEdgeCount` | confidence < 0.60 |
+| `edgeConfidence` | `unknownConfidenceEdgeCount` | 无 confidence 属性 |
+| `callQuality` | `lowConfidenceCallRate` | 低置信调用占全部调用边的比例 |
+| `dependencyQuality` | `unresolvedImportOrIncludeCount` | reason 含 "unresolved"/"missing" 的 import/include 边 |
+| `diagnostics` | `unresolvedDiagnosticCount` | code 或 reason 含 "unresolved" 的诊断 |
+| `diagnostics` | `parseDiagnosticCount` | code 或 severity 含 "parse" 的诊断 |
+
+### 7.3 置信度阈值
+
+| Tier | Range | Label |
+|------|-------|-------|
+| High | >= 0.80 | `highConfidenceEdgeCount` |
+| Medium | 0.60 – 0.79 | `mediumConfidenceEdgeCount` |
+| Low | < 0.60 | `lowConfidenceEdgeCount` |
+| Unknown | missing/null | `unknownConfidenceEdgeCount` |
+
+### 7.4 生产辅助集成
+
+`codelattice_production_assist` 在 `reviewChecklist` 中自动追加：
+- `danglingEdgeCount > 0` → "Dangling edges detected: N edges reference non-existent source nodes"
+- `lowConfidenceCallRate > 0.3` → "High low-confidence call rate: check call resolution quality"
+
+### 7.5 基线比较预算
+
+Real-project corpus baseline 支持 quality 预算：
+
+| 预算项 | Warn | Fail |
+|--------|------|------|
+| `lowConfidenceCallRate` | >= 0.30 | >= 0.50 |
+| `lowConfidenceEdgeRate` | >= 0.30 | >= 0.50 |
+| `unknownConfidenceEdgeRate` | >= 0.30 | >= 0.50 |
+| `danglingEdgeCount` | - | > 0 |
+
+---
+
+## 七、Unified Quality Metrics（v0.14 新增）
+
+跨语言统一质量指标，由 MCP tool 输出（project_overview、project_insights、review_plan release_check、production_assist）。
+
+### 7.1 qualityMetrics 结构
+
+```json
+{
+  "graphCompleteness": {
+    "nodeCount": 0,
+    "edgeCount": 0,
+    "symbolCount": 0,
+    "sourceFileCount": 0,
+    "danglingEdgeCount": 0
+  },
+  "edgeConfidence": {
+    "totalConfidenceEdgeCount": 0,
+    "highConfidenceEdgeCount": 0,
+    "mediumConfidenceEdgeCount": 0,
+    "lowConfidenceEdgeCount": 0,
+    "unknownConfidenceEdgeCount": 0,
+    "lowConfidenceEdgeRate": 0.0,
+    "unknownConfidenceEdgeRate": 0.0
+  },
+  "callQuality": {
+    "callEdgeCount": 0,
+    "highConfidenceCallEdgeCount": 0,
+    "mediumConfidenceCallEdgeCount": 0,
+    "lowConfidenceCallEdgeCount": 0,
+    "unknownConfidenceCallEdgeCount": 0,
+    "lowConfidenceCallRate": 0.0
+  },
+  "dependencyQuality": {
+    "importEdgeCount": 0,
+    "includeEdgeCount": 0,
+    "unresolvedImportOrIncludeCount": 0
+  },
+  "diagnostics": {
+    "diagnosticCount": 0,
+    "unresolvedDiagnosticCount": 0,
+    "parseDiagnosticCount": 0
+  },
+  "generatedFrom": {
+    "graphBased": true,
+    "compilerVerified": false,
+    "heuristic": true
+  }
+}
+```
+
+### 7.2 置信度分级
+
+| Tier | Confidence Range | 含义 |
+|------|-----------------|------|
+| High | >= 0.80 | 直接匹配/高确定性调用 |
+| Medium | 0.60 – 0.80 | 部分匹配/推断调用 |
+| Low | < 0.60 | 模糊匹配/低确定性 |
+| Unknown | 无 confidence 字段 | 未分类 |
+
+### 7.3 比率计算规则
+
+- 分母为 0 时返回 0.0（不返回 NaN/null）
+- `lowConfidenceEdgeRate` = lowConfidenceEdgeCount / totalConfidenceEdgeCount
+- `unknownConfidenceEdgeRate` = unknownConfidenceEdgeCount / total edges
+- `lowConfidenceCallRate` = lowConfidenceCallEdgeCount / callEdgeCount
+
+### 7.4 Real-project baseline quality budgets
+
+| 指标 | Warn 阈值 | Fail 阈值 |
+|------|----------|----------|
+| Rate metrics (lowConfidenceCallRate, etc.) | >= 0.30 | >= 0.50 |
+| danglingEdgeCount | — | > 0 |
 | `cache_corrupted` | 缓存文件 JSON 解析失败 |
