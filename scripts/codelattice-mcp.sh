@@ -245,7 +245,7 @@ for line in sys.stdin:
         exit 1
     fi
 
-    CACHE_OK=$(echo "$MULTI_RESP" | python3 -c "
+     CACHE_OK=$(echo "$MULTI_RESP" | python3 -c "
 import json, sys
 for line in sys.stdin:
     line = line.strip()
@@ -254,7 +254,8 @@ for line in sys.stdin:
         d = json.loads(line)
         if d.get('id') == 3:
             t = json.loads(d['result']['content'][0]['text'])
-            print('yes' if 'maxEntries' in t and 'totalEvictions' in t else 'no')
+            mem = t.get('memory', {})
+            print('yes' if 'maxEntries' in mem and 'totalEvictions' in mem else 'no')
             break
     except: pass
 " 2>/dev/null || echo "no")

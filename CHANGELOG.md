@@ -8,8 +8,59 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-- GitCode Release installer script with checksum verification, stable runtime install, and wrapper self-test.
-- Release install documentation and README download/install path for `v0.1.0`.
+- `feat(mcp)`: add compact AI-sidecar outputs (`a7b1652`) - compact mode for MCP tools returns stripped-down results for AI context efficiency.
+- `feat(arkts)`: complete production trial analysis path (`559f44a`) - ArkTS/HarmonyOS analysis works end-to-end via tree-sitter-typescript, component/buildMethod extraction.
+- `feat(mcp)`: detect changed symbols from git diff (`9d0b157`) - auto-detect changed symbols from unstaged/staged/all git diff, map hunks to graph symbols.
+- `feat(mcp)`: explain impact risk for AI review (`c674d19`) - impact preview returns riskReasons, impactMetrics, confidenceSummary, reviewFocus.
+- `feat(mcp)`: associate code changes with docs (`7c19d41`) - static doc graph, DocScanner, code ↔ docs association for AI sidecar.
+- `feat(typescript)`: add Phase A local graph support (`fb3719c`) - TypeScript language adapter, symbols, imports, calls.
+- `feat(mcp)`: add persistent analysis cache (`c44b51d`) - two-layer cache (memory LRU + persistent disk), fingerprint stale detection, structured staleReasons.
+
+### Changed
+
+- (No breaking changes in this release cycle.)
+
+### Documentation
+
+- (Documentation updates tracked per feature above.)
+
+### Known Limitations
+
+- **TypeScript**: no path alias resolution, no monorepo/workspace support, no TSX framework hints.
+- **ArkTS**: struct keyword parsed as ERROR by tree-sitter-typescript, no @Builder/@Extend, no full ArkUI declarative syntax tree.
+- **Persistent cache**: no per-symbol incremental recompute.
+- **Call edges** are heuristic with confidence/reason, not compiler-verified.
+- **No project script execution**.
+- **Not a compiler, IDE, language server, or hosted service**.
+
+## [0.13.0-beta.1] - 2026-05-15
+
+### Added
+
+- `feat(mcp)`: add compact AI-sidecar outputs (`a7b1652`) - compact mode for MCP tools returns stripped-down results for AI context efficiency.
+- `feat(arkts)`: complete production trial analysis path (`559f44a`) - ArkTS/HarmonyOS analysis works end-to-end via tree-sitter-typescript, component/buildMethod extraction.
+- `feat(mcp)`: detect changed symbols from git diff (`9d0b157`) - auto-detect changed symbols from unstaged/staged/all git diff, map hunks to graph symbols.
+- `feat(mcp)`: explain impact risk for AI review (`c674d19`) - impact preview returns riskReasons, impactMetrics, confidenceSummary, reviewFocus.
+- `feat(mcp)`: associate code changes with docs (`7c19d41`) - static doc graph, DocScanner, code ↔ docs association for AI sidecar.
+- `feat(typescript)`: add Phase A local graph support (`fb3719c`) - TypeScript language adapter, symbols, imports, calls.
+- `feat(mcp)`: add persistent analysis cache (`c44b51d`) - two-layer cache (memory LRU + persistent disk), fingerprint stale detection, structured staleReasons.
+
+### Changed
+
+- (No breaking changes in this release cycle.)
+
+### Documentation
+
+- (Documentation updates tracked per feature above.)
+
+### Known Limitations
+
+- **TypeScript**: no path alias resolution, no monorepo/workspace support, no TSX framework hints.
+- **ArkTS**: struct keyword parsed as ERROR by tree-sitter-typescript, no @Builder/@Extend, no full ArkUI declarative syntax tree.
+- **Persistent cache**: no per-symbol incremental recompute.
+- **Call edges** are heuristic with confidence/reason, not compiler-verified.
+- **No project script execution**.
+- **Not a compiler, IDE, language server, or hosted service**.
 
 ## [0.1.0] - 2026-05-11
 

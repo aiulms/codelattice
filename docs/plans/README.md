@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-11（Release Download + Installer Pack）
+最后更新：2026-05-15（External Beta Packaging Pack）
 
 ## 用途
 
@@ -37,6 +37,14 @@
 - 📝 [`2026-05-11-release-readiness-pack-preflight.md`](2026-05-11-release-readiness-pack-preflight.md) — 非 WebUI 产品化 preflight：`codelattice` binary alias、release tarball、release smoke、getting-started/release docs。
 - 📝 [`2026-05-11-release-readiness-pack-execution-card.md`](2026-05-11-release-readiness-pack-execution-card.md) — TDD execution card：binary alias regression、tarball smoke、packaging script、docs、verification。
 - ✅ [`2026-05-11-release-readiness-pack-closure.md`](2026-05-11-release-readiness-pack-closure.md) — closure：`codelattice` public binary、release tarball、release smoke、active script migration、docs、LOW detect-changes。
+
+**External Beta Packaging Pack（2026-05-15，已完成）：**
+- 📝 [`2026-05-15-release-packaging-preflight.md`](2026-05-15-release-packaging-preflight.md) — 版本 bump、CHANGELOG 更新、release manifest、tarball 增强、升级/回滚文档、smoke 矩阵、README 外部 beta polish。
+- ✅ [`2026-05-15-release-packaging-closure.md`](2026-05-15-release-packaging-closure.md) — closure：version 0.13.0-beta.1、tarball + sha256、manifest、smoke matrix、upgrade docs、全部验证通过。
+
+**Incremental Cache Pack（2026-05-15，已完成）：**
+- 📝 [`2026-05-15-incremental-cache-preflight.md`](2026-05-15-incremental-cache-preflight.md) — MCP McpCache 审计、persistent cache 设计、fingerprint 模型。
+- ✅ Commit `c44b51d` feat(mcp): add persistent analysis cache with two-layer lookup — 89/89 tests, 6/6 cache smoke, 22/22 dogfood。
 
 **External Reuse Pack（2026-05-11，已完成）：**
 - 📝 [`2026-05-11-external-reuse-pack-preflight.md`](2026-05-11-external-reuse-pack-preflight.md) — fresh clone 可用性、portable MCP install、文档外部化、Cangjie project_overview compact count regression 的 preflight / execution card。

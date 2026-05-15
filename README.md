@@ -1,10 +1,10 @@
 # CodeLattice
 
-CodeLattice 是一个本地代码智能引擎，当前面向 Rust 与 Cangjie / 仓颉项目提供项目扫描、符号索引、调用关系解析、结构图、质量门检查和 MCP sidecar。它的目标很直接：让 AI 编程助手、代码审查和本地工程工具拿到可靠、可验证、可重复的代码上下文。
+CodeLattice 是一个本地代码分析器和 AI coding sidecar。它分析 Rust、Cangjie / 仓颉、ArkTS / HarmonyOS 和 TypeScript 项目，提取符号、调用关系、文档关联和影响风险，通过 CLI 和 MCP sidecar 提供给 AI 编程助手、代码审查和本地工程工具。
 
-它不是一个托管服务，也不会上传你的代码。CodeLattice 运行在本机，默认以只读方式分析项目，并通过 CLI 或 MCP stdio server 对外提供能力。
+CodeLattice 完全在本机运行，不上传代码。默认只读分析，通过 stdio JSON-RPC 对外提供能力。
 
-当前状态：**v0.1.0 已发布，本地 CLI / MCP 工作流已可进入生产使用**。核心分析链路、GitCode Release、release tarball、checksum、release smoke、fresh clone smoke 和 MCP sidecar 已经可以用于真实 Rust / Cangjie 项目的日常开发辅助。当前最大体验缺口是 WebUI；非 WebUI 方向后续重点是多平台发行包、自动化 release CI 和外部 beta 试用。
+**当前状态：External Beta (`v0.13.0-beta.1`)** — 本地 production trial 已通过，不是 GA release。参见 [CHANGELOG](CHANGELOG.md) 和 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
 ## 适合谁
 
@@ -22,26 +22,27 @@ CodeLattice 是一个本地代码智能引擎，当前面向 Rust 与 Cangjie / 
 | 调用解析 | 解析同模块、跨文件、import 绑定、部分关联函数和有限 receiver method |
 | 图输出 | 输出 repository / package / source file / symbol / diagnostic 节点和关系边；ArkTS 额外输出 component / buildMethod / UI call 节点 |
 | 质量门 | 检查 dangling edge、duplicate、统计一致性、stdout JSON purity、deterministic output |
-| MCP sidecar | 提供 21 个 MCP 工具，支持 AI client 查询项目概览、符号上下文、调用关系、影响预览 |
+| MCP sidecar | 提供 22 个 MCP 工具，支持 AI client 查询项目概览、符号上下文、调用关系、影响预览、改动检测、文档关联 |
+| 持久化缓存 | 两层缓存（内存 + 磁盘），fingerprint 失效检测，跨进程复用分析结果 |
 | 本地安全 | 默认只读；wrapper 与 stable runtime 可隔离；配置脚本只打印模板，不写真实客户端配置 |
 
 ## Quick Start
 
 ### 1. 从 GitCode Release 安装
 
-当前 `v0.1.0` 已发布 macOS Apple Silicon (`darwin-arm64`) 发行包：
+当前 `v0.13.0-beta.1` 已发布 macOS Apple Silicon (`darwin-arm64`) 发行包：
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.1.0 \
+  --version v0.13.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
 
-这个 installer 会下载 GitCode Release tarball，校验 `.sha256`，安装 stable MCP wrapper，并运行 self-test。它不会修改 Codex / opencode / Claude 配置。
+这个 installer 会下载 GitCode Release tarball，校验 `.sha256`，安装 stable MCP wrapper，并运行 self-test。它不会修改 Codex / opencode / Claude 配置。参见 [安装指南](docs/release-install.md) 和 [升级指南](docs/release/upgrade.md)。
 
 Linux 或其他平台当前可先走源码构建路径；多平台 release artifact 是下一步 packaging 工作。
 
@@ -289,6 +290,15 @@ AI 编程助手推荐使用以下工具链完成"改代码 → 检查影响 → 
 
 `codelattice_production_assist` 在不传 `changedSymbols` 参数时会自动调用 git diff 检测改动符号，返回 `autoDetectedChangedSymbols: true`。`reviewChecklist` 提供 AI 可执行建议：检查直接调用方、审查低置信度边、运行相关测试、复核 unknown hunks。
 
+## 支持的语言
+
+| 语言 | 状态 | Feature Flag |
+|------|------|-------------|
+| Rust | **Stable** | `tree-sitter-extraction`（默认启用） |
+| Cangjie / 仓颉 | **Stable** | `tree-sitter-cangjie` |
+| ArkTS / HarmonyOS | **Production Trial** | `tree-sitter-arkts` |
+| TypeScript | **Phase A** | `tree-sitter-typescript` |
+
 ## Rust 支持范围
 
 已支持：
@@ -420,6 +430,15 @@ CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
 - HAS_PARENT
 - ANNOTATES
 
+## 已知限制
+
+- CodeLattice 不是编译器、IDE 或语言服务器 — 不做类型推断、trait solving 或 macro expansion
+- 调用边是启发式的，带 confidence 和 reason 标注，非编译器验证
+- **TypeScript**：无 path alias 解析、无 monorepo/workspace 支持、无 TSX framework hints
+- **ArkTS**：struct 关键字解析为 ERROR 节点（已通过模式匹配恢复），无 @Builder/@Extend
+- 不执行用户项目脚本
+- 不做 per-symbol incremental recompute（当前为 project-level 全量重分析）
+
 ## 安全模型
 
 - CodeLattice 默认在本机运行，不上传项目代码。
@@ -430,11 +449,15 @@ CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
 
 ## 项目状态与路线图
 
+**External Beta (`v0.13.0-beta.1`)** — 本地 production trial 已通过，不是 GA。
+
 当前可以依赖的部分：
 
-- Rust / Cangjie CLI 分析
-- Rust / Cangjie 质量门
-- MCP sidecar 21 工具
+- Rust / Cangjie CLI 分析（Stable）
+- ArkTS CLI 分析（Production Trial）
+- TypeScript CLI 分析（Phase A）
+- MCP sidecar 22 工具
+- 两层持久化缓存
 - stable runtime promote
 - release tarball packaging + release smoke
 - fresh clone smoke
@@ -442,16 +465,27 @@ CodeLattice 提供两层分析缓存，加速重复 MCP 调用：
 
 正在补齐的部分：
 
-- WebUI
-- 正式发布流程与版本资产发布
-- Cargo package 名称的 CodeLattice 迁移
-- 更多平台和外部环境验证
-- 更丰富的 Rust method dispatch 与 Cangjie diagnostics 能力
+- 多平台发行包（Linux、Windows）
+- 自动化 release CI
+- TypeScript path alias / monorepo 支持
+- TSX framework hints
+- 更深层的 per-symbol incremental recompute
 
 长期方向：
 
 - 成为一个可嵌入、可验证、可扩展的多语言代码智能核心
 - 为本地代码理解、影响分析、重构辅助和 AI agent 工作流提供基础设施
+
+## 文档
+
+- [CHANGELOG](CHANGELOG.md) — 版本变化记录
+- [MCP Contract](docs/architecture/mcp-v0-contract.md) — MCP 工具输入/输出合约
+- [Unified Output Contract](docs/architecture/unified-output-contract.md) — CLI 输出格式
+- [Release Versioning](docs/release-versioning.md) — 版本规则
+- [Install Guide](docs/release-install.md) — tarball 安装
+- [Upgrade Guide](docs/release/upgrade.md) — 升级/回滚/cache 清理
+- [Smoke Matrix](docs/release/smoke-matrix.md) — 验证矩阵
+- [Getting Started](docs/getting-started.md) — 详细入门
 
 ## 开发与验证
 

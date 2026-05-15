@@ -98,3 +98,34 @@ For a version bump:
 ## Compatibility Naming
 
 `codelattice` is the primary public binary. `gitnexus-rust-core-cli` remains a compatibility binary for existing scripts and should be removed only through an announced deprecation path in a future major release.
+
+## Release Status
+
+Current product status: **External Beta**.
+
+- Local production trial has passed for Rust and Cangjie projects.
+- ArkTS and TypeScript support are in production trial / Phase A respectively.
+- This is not a GA release. Breaking changes to CLI output, MCP contract, or quality gates may occur in minor versions during beta.
+- Users should pin to a specific version and verify after upgrades.
+
+## Language Support Labels
+
+| Language | Crate Feature | Status | Notes |
+|----------|--------------|--------|-------|
+| Rust | `tree-sitter-extraction` (default) | **Stable** | Full symbol extraction, import/call resolution, quality gates |
+| Cangjie / 仓颉 | `tree-sitter-cangjie` | **Stable** | Symbol extraction, import/call reference, diagnostics runner, quality gates |
+| ArkTS / HarmonyOS | `tree-sitter-arkts` | **Production Trial** | Component/buildMethod extraction, import edges, no @Builder/@Extend, struct→ERROR workaround |
+| TypeScript | `tree-sitter-typescript` | **Phase A** | Symbol extraction, imports, calls; no path alias, no monorepo, no TSX framework hints |
+
+Status definitions:
+- **Stable**: Used in production, tested with real projects, quality gates pass.
+- **Production Trial**: End-to-end path works on real projects; known limitations documented.
+- **Phase A**: Basic analysis pipeline works; active development, expect gaps.
+
+## MCP Contract Versioning
+
+The MCP `serverVersion` (returned by `initialize`) tracks the sidecar tool/profile contract independently from the product version. When a new MCP tool is added or an existing tool's output schema changes, the `serverVersion` advances.
+
+Breaking MCP output changes (removed fields, renamed keys) bump the major version. Additive changes (new fields, new tools) bump the minor version.
+
+Product version and MCP `serverVersion` may advance at different rates.

@@ -298,7 +298,7 @@ if [[ "$ACTION" == "doctor" ]]; then
 
         # 5. cache_status
         CACHE_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$BIN_PATH" mcp 2>/dev/null | tail -1)
-        HAS_MAX=$(echo "$CACHE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); t=d['result']['content'][0]['text']; j=json.loads(t); print('yes' if 'maxEntries' in j else 'no')" 2>/dev/null || echo "no")
+        HAS_MAX=$(echo "$CACHE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); t=d['result']['content'][0]['text']; j=json.loads(t); m=j.get('memory',{}); print('yes' if 'maxEntries' in m else 'no')" 2>/dev/null || echo "no")
         if [[ "$HAS_MAX" == "yes" ]]; then
             echo "PASS: cache_status has maxEntries"
             PASS=$((PASS + 1))
