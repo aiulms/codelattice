@@ -10,9 +10,9 @@ set -euo pipefail
 FIXTURE="${1:-fixtures/call-resolution/c1-same-module}"
 FIXTURE_ABS="$(cd "$(dirname "$0")/.." && pwd)/$FIXTURE"
 
-# Build the binary first (with cangjie feature for full coverage)
+# Build the binary first with all optional language adapters for full profile coverage.
 echo "--- Building ---"
-cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins --quiet 2>/dev/null
+cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/codelattice"
 
 echo "--- MCP v0.12 Dogfood ---"
@@ -122,14 +122,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 21 ]; then
+if [ "$TOOL_COUNT" -ge 24 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
     RESULTS+=("FAIL: tools/list (expected >= 24, got $TOOL_COUNT)")
-    echo "   → expected >= 21 tools, got $TOOL_COUNT"
+    echo "   → expected >= 24 tools, got $TOOL_COUNT"
 fi
 ID=3
 

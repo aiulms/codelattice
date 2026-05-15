@@ -40,7 +40,7 @@ The package includes:
   CHANGELOG.md
   docs/getting-started.md, release docs, and selected MCP architecture docs when present
   docs/platforms/linux-openeuler.md and scripts/linux-source-build-smoke.sh when present
-  portable Rust/Cangjie/ArkTS/TypeScript fixtures for release smoke
+  portable Rust/Cangjie/ArkTS/TypeScript/C/C++/Python fixtures for release smoke
 HELP
 }
 
@@ -142,7 +142,7 @@ echo "Platform: $PLATFORM"
 echo "Dist:     $DIST_DIR"
 echo ""
 
-RELEASE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript"
+RELEASE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 
 if [[ "$SKIP_BUILD" != "true" ]]; then
     echo "--- Build release binaries (all language adapters) ---"
@@ -175,7 +175,10 @@ mkdir -p \
     "$STAGE_DIR/fixtures/rust" \
     "$STAGE_DIR/fixtures/cangjie" \
     "$STAGE_DIR/fixtures/arkts" \
-    "$STAGE_DIR/fixtures/typescript"
+    "$STAGE_DIR/fixtures/typescript" \
+    "$STAGE_DIR/fixtures/c" \
+    "$STAGE_DIR/fixtures/cpp" \
+    "$STAGE_DIR/fixtures/python"
 cp "$BIN_CODELATTICE" "$STAGE_DIR/bin/codelattice"
 cp "$BIN_COMPAT" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
 chmod +x "$STAGE_DIR/bin/codelattice" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
@@ -213,6 +216,9 @@ cp -R "$REPO_ROOT/fixtures/rust/portable-smoke" "$STAGE_DIR/fixtures/rust/portab
 cp -R "$REPO_ROOT/fixtures/cangjie/portable-smoke" "$STAGE_DIR/fixtures/cangjie/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/arkts/portable-smoke" "$STAGE_DIR/fixtures/arkts/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/typescript/portable-smoke" "$STAGE_DIR/fixtures/typescript/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/c/portable-smoke" "$STAGE_DIR/fixtures/c/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/cpp/portable-smoke" "$STAGE_DIR/fixtures/cpp/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/python/portable-smoke" "$STAGE_DIR/fixtures/python/portable-smoke"
 
 cat > "$STAGE_DIR/codelattice-mcp.sh" <<'WRAPPER'
 #!/usr/bin/env bash
@@ -230,9 +236,20 @@ if [[ ! -x "$BIN" ]]; then
 fi
 
 profile_json() {
-    echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-release-profile","version":"1.0"}}}' \
+    printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-release-profile","version":"1.0"}}}' \
         | "$BIN" mcp 2>/dev/null \
-        | head -1
+        | python3 -c 'import json, sys
+for line in sys.stdin:
+    text = line.strip()
+    if not text:
+        continue
+    try:
+        doc = json.loads(text)
+    except Exception:
+        continue
+    if doc.get("id") == 1:
+        print(json.dumps(doc, separators=(",", ":")))
+        break'
 }
 
 if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
@@ -268,6 +285,9 @@ print("  serverVersion: {}".format(s.get("version", "unknown")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport", "unknown")))
 print("  arktsSupport: {}".format(s.get("arktsSupport", "unknown")))
 print("  typescriptSupport: {}".format(s.get("typescriptSupport", "unknown")))
+print("  cSupport: {}".format(s.get("cSupport", "unknown")))
+print("  cppSupport: {}".format(s.get("cppSupport", "unknown")))
+print("  pythonSupport: {}".format(s.get("pythonSupport", "unknown")))
 print("  toolCount: {}".format(s.get("toolCount", "unknown")))'
     exit 0
 fi
@@ -281,15 +301,21 @@ if [[ "${1:-}" == "--self-test" ]]; then
 d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
-assert int(s.get("toolCount", 0)) >= 21
+assert int(s.get("toolCount", 0)) >= 24
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
+assert s.get("cSupport") is True
+assert s.get("cppSupport") is True
+assert s.get("pythonSupport") is True
 print("  serverVersion: {}".format(s.get("version")))
 print("  toolCount: {}".format(s.get("toolCount")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
 print("  arktsSupport: {}".format(s.get("arktsSupport")))
-print("  typescriptSupport: {}".format(s.get("typescriptSupport")))'
+print("  typescriptSupport: {}".format(s.get("typescriptSupport")))
+print("  cSupport: {}".format(s.get("cSupport")))
+print("  cppSupport: {}".format(s.get("cppSupport")))
+print("  pythonSupport: {}".format(s.get("pythonSupport")))'
     echo "Self-test passed."
     exit 0
 fi
@@ -303,11 +329,25 @@ SOURCE_REMOTE="$(git -C "$REPO_ROOT" remote get-url gitcode 2>/dev/null || git -
 PACKAGED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 BINARY_SHA256="$(shasum -a 256 "$STAGE_DIR/bin/codelattice" | awk '{print $1}')"
 COMPAT_SHA256="$(shasum -a 256 "$STAGE_DIR/bin/gitnexus-rust-core-cli" | awk '{print $1}')"
-PROFILE_JSON="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-release","version":"1.0"}}}' | "$STAGE_DIR/bin/codelattice" mcp 2>/dev/null | head -1)"
+PROFILE_JSON="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-release","version":"1.0"}}}' | "$STAGE_DIR/bin/codelattice" mcp 2>/dev/null | python3 -c 'import json, sys
+for line in sys.stdin:
+    text=line.strip()
+    if not text:
+        continue
+    try:
+        doc=json.loads(text)
+    except Exception:
+        continue
+    if doc.get("id") == 1:
+        print(json.dumps(doc, separators=(",", ":")))
+        break')"
 SERVER_VERSION="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("version","unknown"))')"
 CANGJIE_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport", False)).lower())')"
 ARKTS_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport", False)).lower())')"
 TYPESCRIPT_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport", False)).lower())')"
+C_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cSupport", False)).lower())')"
+CPP_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cppSupport", False)).lower())')"
+PYTHON_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("pythonSupport", False)).lower())')"
 TOOL_COUNT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))')"
 
 cat > "$STAGE_DIR/manifest.json" <<JSON
@@ -330,7 +370,10 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "rustFixture": "fixtures/rust/portable-smoke",
     "cangjieFixture": "fixtures/cangjie/portable-smoke",
     "arktsFixture": "fixtures/arkts/portable-smoke",
-    "typescriptFixture": "fixtures/typescript/portable-smoke"
+    "typescriptFixture": "fixtures/typescript/portable-smoke",
+    "cFixture": "fixtures/c/portable-smoke",
+    "cppFixture": "fixtures/cpp/portable-smoke",
+    "pythonFixture": "fixtures/python/portable-smoke"
   },
   "checksums": {
     "binarySha256": "$BINARY_SHA256",
@@ -341,6 +384,9 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "cangjieSupport": $CANGJIE_SUPPORT,
     "arktsSupport": $ARKTS_SUPPORT,
     "typescriptSupport": $TYPESCRIPT_SUPPORT,
+    "cSupport": $C_SUPPORT,
+    "cppSupport": $CPP_SUPPORT,
+    "pythonSupport": $PYTHON_SUPPORT,
     "toolCount": $TOOL_COUNT
   }
 }

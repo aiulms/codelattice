@@ -24,6 +24,7 @@ REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BIN_NAME="codelattice"
 COMPAT_BIN_NAME="gitnexus-rust-core-cli"
 WRAPPER="$REPO_ROOT/scripts/codelattice-mcp.sh"
+ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
 INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
 
@@ -87,7 +88,7 @@ if [[ "$ACTION" == "build" ]]; then
         BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --bins"
     else
         echo "--- Building release binary (all language adapters) ---"
-        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins"
+        BUILD_CMD="cargo build --release -p gitnexus-rust-core-cli --features $ALL_LANGUAGE_FEATURES --bins"
     fi
 
     if [[ "$DRY_RUN" == "true" ]]; then
@@ -211,7 +212,7 @@ JSON
     echo "Notes:"
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - This script never writes client config; it only prints snippets"
-    echo "  - Supports Rust, Cangjie, ArkTS, and TypeScript when built with --build"
+    echo "  - Supports Rust, Cangjie, ArkTS, TypeScript, C, C++, and Python when built with --build"
     echo "  - 24 tools including process-local cache with mtime invalidation and prewarm"
     echo "  - Read-only — never modifies source code"
     echo "  - After config change, restart your AI client session to reload MCP tools"
@@ -278,8 +279,11 @@ if [[ "$ACTION" == "doctor" ]]; then
             CANGJIE_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
             ARKTS_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('arktsSupport','unknown'))" 2>/dev/null || echo "unknown")
             TYPESCRIPT_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('typescriptSupport','unknown'))" 2>/dev/null || echo "unknown")
+            C_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cSupport','unknown'))" 2>/dev/null || echo "unknown")
+            CPP_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cppSupport','unknown'))" 2>/dev/null || echo "unknown")
+            PYTHON_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('pythonSupport','unknown'))" 2>/dev/null || echo "unknown")
             TOOL_COUNT_INFO=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
-            echo "PASS: MCP handshake (server v$SERVER_VER, cangjie=$CANGJIE_SUPPORT, arkts=$ARKTS_SUPPORT, typescript=$TYPESCRIPT_SUPPORT, tools=$TOOL_COUNT_INFO)"
+            echo "PASS: MCP handshake (server v$SERVER_VER, cangjie=$CANGJIE_SUPPORT, arkts=$ARKTS_SUPPORT, typescript=$TYPESCRIPT_SUPPORT, c=$C_SUPPORT, cpp=$CPP_SUPPORT, python=$PYTHON_SUPPORT, tools=$TOOL_COUNT_INFO)"
             PASS=$((PASS + 1))
         else
             echo "FAIL: MCP handshake failed"
@@ -287,16 +291,19 @@ if [[ "$ACTION" == "doctor" ]]; then
             CANGJIE_SUPPORT="unknown"
             ARKTS_SUPPORT="unknown"
             TYPESCRIPT_SUPPORT="unknown"
+            C_SUPPORT="unknown"
+            CPP_SUPPORT="unknown"
+            PYTHON_SUPPORT="unknown"
         fi
 
         # 4. tools/list count
         TOOLS_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | "$BIN_PATH" mcp 2>/dev/null | tail -1)
         TOOL_COUNT=$(echo "$TOOLS_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-        if [[ "$TOOL_COUNT" -ge 21 ]]; then
+        if [[ "$TOOL_COUNT" -ge 24 ]]; then
             echo "PASS: tools/list returns $TOOL_COUNT tools"
             PASS=$((PASS + 1))
         else
-            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 21)"
+            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 24)"
             FAIL=$((FAIL + 1))
         fi
 
@@ -312,17 +319,17 @@ if [[ "$ACTION" == "doctor" ]]; then
         fi
 
         # 6. Language adapter support check
-        if [[ "$CANGJIE_SUPPORT" == "True" && "$ARKTS_SUPPORT" == "True" && "$TYPESCRIPT_SUPPORT" == "True" ]]; then
+        if [[ "$CANGJIE_SUPPORT" == "True" && "$ARKTS_SUPPORT" == "True" && "$TYPESCRIPT_SUPPORT" == "True" && "$C_SUPPORT" == "True" && "$CPP_SUPPORT" == "True" && "$PYTHON_SUPPORT" == "True" ]]; then
             echo "PASS: all optional language adapters compiled"
             PASS=$((PASS + 1))
-        elif [[ "$CANGJIE_SUPPORT" == "False" || "$ARKTS_SUPPORT" == "False" || "$TYPESCRIPT_SUPPORT" == "False" ]]; then
+        elif [[ "$CANGJIE_SUPPORT" == "False" || "$ARKTS_SUPPORT" == "False" || "$TYPESCRIPT_SUPPORT" == "False" || "$C_SUPPORT" == "False" || "$CPP_SUPPORT" == "False" || "$PYTHON_SUPPORT" == "False" ]]; then
             echo "FAIL: missing optional language adapter support"
-            echo "      cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT"
+            echo "      cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT c=$C_SUPPORT cpp=$CPP_SUPPORT python=$PYTHON_SUPPORT"
             echo "      Fix: bash $0 --build"
-            echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins"
+            echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features $ALL_LANGUAGE_FEATURES --bins"
             FAIL=$((FAIL + 1))
         else
-            echo "WARN: language support could not be fully detected (cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT)"
+            echo "WARN: language support could not be fully detected (cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT c=$C_SUPPORT cpp=$CPP_SUPPORT python=$PYTHON_SUPPORT)"
         fi
 
         # 7. Cangjie smoke test (only if support is true)

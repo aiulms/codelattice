@@ -16,7 +16,7 @@ Usage:
 
 Options:
   --features <list>          Cargo feature list to build/test with
-  --all-language-features    Use tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript
+  --all-language-features    Use all optional language adapters
   --target-dir <path>        Cargo target dir (default: temp dir)
   --skip-fmt                 Skip cargo fmt --check
   --skip-tests               Skip cargo test --test mcp_server
@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --all-language-features)
-            FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript"
+            FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
             shift
             ;;
         --target-dir)
@@ -229,8 +229,8 @@ for line in sys.stdin:
         break
 if tool_count is None:
     raise SystemExit("tools/list response not found")
-if tool_count < 22:
-    raise SystemExit(f"expected at least 22 tools, got {tool_count}")
+if tool_count < 24:
+    raise SystemExit(f"expected at least 24 tools, got {tool_count}")
 print(f"tools: {tool_count}")
 '
 

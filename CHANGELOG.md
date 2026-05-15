@@ -56,7 +56,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
-- (No unreleased changes yet.)
+- Local promotion, install, and release packaging scripts now build and validate the full optional language set: Cangjie, ArkTS, TypeScript, C, C++, and Python. This prevents promoted `CodeLattice-Tool` or tarball artifacts from silently losing the newer C/C++/Python adapters.
 
 ## [0.13.0-beta.2] - 2026-05-15
 

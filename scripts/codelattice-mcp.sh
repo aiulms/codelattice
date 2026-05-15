@@ -20,7 +20,7 @@
 #   3. target/debug/codelattice if exists
 #   4. target/release/gitnexus-rust-core-cli if exists (compat)
 #   5. target/debug/gitnexus-rust-core-cli if exists (compat)
-#   6. cargo run --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript -p gitnexus-rust-core-cli --bin codelattice -- mcp
+#   6. cargo run --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python -p gitnexus-rust-core-cli --bin codelattice -- mcp
 #
 # The MCP server speaks newline-delimited JSON-RPC over stdio.
 # Logging goes to stderr only — stdout is pure JSON-RPC.
@@ -34,18 +34,32 @@ DEFAULT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 CODELATTICE_ROOT="${CODELATTICE_ROOT:-$DEFAULT_ROOT}"
 CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
+ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 
 # --- Helper: get profile info from binary via MCP initialize ---
-# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_C, _PROFILE_TOOLS
+# Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_C, _PROFILE_CPP, _PROFILE_PYTHON, _PROFILE_TOOLS
 _get_profile() {
     local bin="$1"
     local init_resp
-    init_resp=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"profile","version":"1.0"}}}' | "$bin" mcp 2>/dev/null | head -1)
+    init_resp=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"profile","version":"1.0"}}}' | "$bin" mcp 2>/dev/null | python3 -c 'import json, sys
+for line in sys.stdin:
+    text = line.strip()
+    if not text:
+        continue
+    try:
+        doc = json.loads(text)
+    except Exception:
+        continue
+    if doc.get("id") == 1:
+        print(json.dumps(doc, separators=(",", ":")))
+        break')
     _PROFILE_VERSION=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
     _PROFILE_CANGJIE=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_ARKTS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('arktsSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_TYPESCRIPT=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('typescriptSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_C=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_CPP=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cppSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_PYTHON=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('pythonSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_TOOLS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
 }
 
@@ -87,7 +101,7 @@ _select_binary() {
         local bin="${entry%%:*}"
         local profile="${entry##*:}"
         _get_profile "$bin"
-        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" ]]; then
+        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" && "$_PROFILE_CPP" == "True" && "$_PROFILE_PYTHON" == "True" ]]; then
             SELECTED_BIN="$bin"
             SELECTED_SOURCE="$profile (all-languages=true)"
             return
@@ -101,7 +115,7 @@ _select_binary() {
         local profile="${entry##*:}"
         SELECTED_BIN="$bin"
         _get_profile "$bin"
-        SELECTED_SOURCE="$profile (cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT)"
+        SELECTED_SOURCE="$profile (cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON)"
         return
     fi
 
@@ -137,11 +151,11 @@ Binary selection:
   3. target/debug/codelattice (if exists, prefer all-language build)
   4. target/release/gitnexus-rust-core-cli (compat)
   5. target/debug/gitnexus-rust-core-cli (compat)
-  6. cargo run --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bin codelattice (fallback)
+  6. cargo run --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bin codelattice (fallback)
 
 Profile:
-  The wrapper detects cangjieSupport, arktsSupport, and typescriptSupport from
-  the binary's MCP initialize response.
+  The wrapper detects Cangjie, ArkTS, TypeScript, C, C++, and Python support
+  from the binary's MCP initialize response.
   If no all-language binary is found, it warns and suggests rebuild.
 
 Examples:
@@ -174,6 +188,9 @@ if [[ "${1:-}" == "--version" ]]; then
         echo "  cangjieSupport: $_PROFILE_CANGJIE"
         echo "  arktsSupport: $_PROFILE_ARKTS"
         echo "  typescriptSupport: $_PROFILE_TYPESCRIPT"
+        echo "  cSupport: $_PROFILE_C"
+        echo "  cppSupport: $_PROFILE_CPP"
+        echo "  pythonSupport: $_PROFILE_PYTHON"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback)"
@@ -208,6 +225,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
         echo "  arktsSupport: $_PROFILE_ARKTS"
         echo "  typescriptSupport: $_PROFILE_TYPESCRIPT"
         echo "  cSupport: $_PROFILE_C"
+        echo "  cppSupport: $_PROFILE_CPP"
+        echo "  pythonSupport: $_PROFILE_PYTHON"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback — no pre-built binary found)"
@@ -276,11 +295,11 @@ for line in sys.stdin:
     fi
 
     # Optional language support check
-    if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" ]]; then
-        echo "  languageSupport: OK (Cangjie, ArkTS, TypeScript compiled)"
-    elif [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" ]]; then
+    if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" && "$_PROFILE_CPP" == "True" && "$_PROFILE_PYTHON" == "True" ]]; then
+        echo "  languageSupport: OK (Cangjie, ArkTS, TypeScript, C, C++, Python compiled)"
+    elif [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" || "$_PROFILE_C" == "False" || "$_PROFILE_CPP" == "False" || "$_PROFILE_PYTHON" == "False" ]]; then
         echo "  languageSupport: WARN — optional language tools may not work"
-        echo "    cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT"
+        echo "    cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON"
         echo "    Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build"
     else
         echo "  languageSupport: unknown (could not detect)"
@@ -306,14 +325,14 @@ fi
 _select_binary
 if [[ -n "$SELECTED_BIN" ]]; then
     _get_profile "$SELECTED_BIN"
-    if [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" ]]; then
+    if [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" || "$_PROFILE_C" == "False" || "$_PROFILE_CPP" == "False" || "$_PROFILE_PYTHON" == "False" ]]; then
         echo "[codelattice] WARNING: optional language support missing in selected binary." >&2
-        echo "[codelattice] cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT" >&2
+        echo "[codelattice] cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON" >&2
         echo "[codelattice] Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build" >&2
     fi
     exec "$SELECTED_BIN" mcp
 else
     # Fallback: cargo run with all optional language adapters.
     echo "[codelattice] No pre-built binary found. Using cargo run with all language adapters..." >&2
-    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bin codelattice --quiet -- mcp
+    exec cargo run --manifest-path "$CODELATTICE_ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features "$ALL_LANGUAGE_FEATURES" --bin codelattice --quiet -- mcp
 fi

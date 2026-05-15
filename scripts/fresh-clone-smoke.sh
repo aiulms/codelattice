@@ -124,8 +124,8 @@ for line in sys.stdin:
         print(len(d["result"]["tools"]))
         break
 ')
-    if [[ "${count:-0}" -lt 21 ]]; then
-        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 21" >&2
+    if [[ "${count:-0}" -lt 24 ]]; then
+        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 24" >&2
         exit 1
     fi
     echo "PASS: tools/list returned $count tools"
@@ -166,18 +166,20 @@ for line in sys.stdin:
 ' | sed "s/^/PASS: $label project_overview /"
 }
 
-detect_cangjie_support() {
+detect_language_support() {
     local wrapper="$1"
+    local support_key="$2"
     json_rpc "$wrapper" '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"fresh-clone-smoke","version":"1.0"}}}' | python3 -c '
 import json, sys
+support_key = sys.argv[1]
 for line in sys.stdin:
     if not line.strip():
         continue
     d = json.loads(line)
     if d.get("id") == 1:
-        print("true" if d["result"]["serverInfo"].get("cangjieSupport") is True else "false")
+        print("true" if d["result"]["serverInfo"].get(support_key) is True else "false")
         break
-'
+' "$support_key"
 }
 
 step "Copy current checkout to a fresh temp tree"
@@ -206,7 +208,7 @@ else
     step "Run fresh clone MCP server smoke subset"
     echo "INFO: fresh copy excludes .git by design; skipping mcp_smoke_rust_only because alpha Tool import requires a git repo."
     run_in_fresh cargo test --test mcp_server mcp_initialize_returns_capabilities
-    run_in_fresh cargo test --test mcp_server mcp_tools_list_returns_twenty_tools
+    run_in_fresh cargo test --test mcp_server mcp_tools_list_returns_twenty_four_tools
     run_in_fresh cargo test --test mcp_server mcp_analyze_rust_portable_smoke
     run_in_fresh cargo test --test mcp_server mcp_project_overview_rust
 fi
@@ -233,11 +235,35 @@ step "Run Rust portable fixture project_overview"
 check_project_overview "$PROMOTED_WRAPPER" "$FRESH_DIR/fixtures/rust/portable-smoke" "rust" "Rust"
 
 step "Run Cangjie fixture smoke when supported"
-CANGJIE_SUPPORT="$(detect_cangjie_support "$PROMOTED_WRAPPER")"
+CANGJIE_SUPPORT="$(detect_language_support "$PROMOTED_WRAPPER" "cangjieSupport")"
 if [[ "$CANGJIE_SUPPORT" == "true" && -d "$FRESH_DIR/fixtures/cangjie/portable-smoke" ]]; then
     check_project_overview "$PROMOTED_WRAPPER" "$FRESH_DIR/fixtures/cangjie/portable-smoke" "cangjie" "Cangjie"
 else
     echo "SKIP: Cangjie fixture smoke (support=$CANGJIE_SUPPORT)"
+fi
+
+step "Run C fixture smoke when supported"
+C_SUPPORT="$(detect_language_support "$PROMOTED_WRAPPER" "cSupport")"
+if [[ "$C_SUPPORT" == "true" && -d "$FRESH_DIR/fixtures/c/portable-smoke" ]]; then
+    check_project_overview "$PROMOTED_WRAPPER" "$FRESH_DIR/fixtures/c/portable-smoke" "c" "C"
+else
+    echo "SKIP: C fixture smoke (support=$C_SUPPORT)"
+fi
+
+step "Run C++ fixture smoke when supported"
+CPP_SUPPORT="$(detect_language_support "$PROMOTED_WRAPPER" "cppSupport")"
+if [[ "$CPP_SUPPORT" == "true" && -d "$FRESH_DIR/fixtures/cpp/portable-smoke" ]]; then
+    check_project_overview "$PROMOTED_WRAPPER" "$FRESH_DIR/fixtures/cpp/portable-smoke" "cpp" "C++"
+else
+    echo "SKIP: C++ fixture smoke (support=$CPP_SUPPORT)"
+fi
+
+step "Run Python fixture smoke when supported"
+PYTHON_SUPPORT="$(detect_language_support "$PROMOTED_WRAPPER" "pythonSupport")"
+if [[ "$PYTHON_SUPPORT" == "true" && -d "$FRESH_DIR/fixtures/python/portable-smoke" ]]; then
+    check_project_overview "$PROMOTED_WRAPPER" "$FRESH_DIR/fixtures/python/portable-smoke" "python" "Python"
+else
+    echo "SKIP: Python fixture smoke (support=$PYTHON_SUPPORT)"
 fi
 
 echo ""

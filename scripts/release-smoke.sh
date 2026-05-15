@@ -107,6 +107,9 @@ RUST_FIXTURE="$RELEASE_DIR/fixtures/rust/portable-smoke"
 CANGJIE_FIXTURE="$RELEASE_DIR/fixtures/cangjie/portable-smoke"
 ARKTS_FIXTURE="$RELEASE_DIR/fixtures/arkts/portable-smoke"
 TYPESCRIPT_FIXTURE="$RELEASE_DIR/fixtures/typescript/portable-smoke"
+C_FIXTURE="$RELEASE_DIR/fixtures/c/portable-smoke"
+CPP_FIXTURE="$RELEASE_DIR/fixtures/cpp/portable-smoke"
+PYTHON_FIXTURE="$RELEASE_DIR/fixtures/python/portable-smoke"
 
 for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST" "$CHANGELOG" "$RELEASE_POLICY" "$RELEASE_INSTALL"; do
     if [[ ! -e "$path" ]]; then
@@ -157,10 +160,16 @@ s=d["result"]["serverInfo"]
 assert s.get("cangjieSupport") is True, "cangjieSupport must be true in release artifact"
 assert s.get("arktsSupport") is True, "arktsSupport must be true in release artifact"
 assert s.get("typescriptSupport") is True, "typescriptSupport must be true in release artifact"
-print("language support: OK cangjie={} arkts={} typescript={}".format(
+assert s.get("cSupport") is True, "cSupport must be true in release artifact"
+assert s.get("cppSupport") is True, "cppSupport must be true in release artifact"
+assert s.get("pythonSupport") is True, "pythonSupport must be true in release artifact"
+print("language support: OK cangjie={} arkts={} typescript={} c={} cpp={} python={}".format(
     s.get("cangjieSupport"),
     s.get("arktsSupport"),
     s.get("typescriptSupport"),
+    s.get("cSupport"),
+    s.get("cppSupport"),
+    s.get("pythonSupport"),
 ))'
 
 echo ""
@@ -238,6 +247,63 @@ assert d["summary"]["symbolCount"] > 0
 assert d["summary"]["sourceFileCount"] > 0
 assert d["summary"]["edgeCount"] > 0
 print("typescript: OK symbols={} files={} edges={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+))'
+
+echo ""
+echo "--- C fixture analyze ---"
+if [[ ! -d "$C_FIXTURE" ]]; then
+    echo "ERROR: missing packaged C fixture: $C_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$C_FIXTURE" --language c --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "c"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+print("c: OK symbols={} files={} edges={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+))'
+
+echo ""
+echo "--- C++ fixture analyze ---"
+if [[ ! -d "$CPP_FIXTURE" ]]; then
+    echo "ERROR: missing packaged C++ fixture: $CPP_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$CPP_FIXTURE" --language cpp --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "cpp"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+print("cpp: OK symbols={} files={} edges={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+))'
+
+echo ""
+echo "--- Python fixture analyze ---"
+if [[ ! -d "$PYTHON_FIXTURE" ]]; then
+    echo "ERROR: missing packaged Python fixture: $PYTHON_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$PYTHON_FIXTURE" --language python --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "python"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+print("python: OK symbols={} files={} edges={}".format(
     d["summary"]["symbolCount"],
     d["summary"]["sourceFileCount"],
     d["summary"]["edgeCount"],
