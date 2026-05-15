@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-15（Python Phase A Pack + C++ Phase A Pack + Large Project Insight Pack）
+最后更新：2026-05-15（Real Project Corpus Smoke + Python Phase A Pack + C++ Phase A Pack + Large Project Insight Pack）
 
 ## 用途
 
@@ -22,6 +22,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Real Project Corpus Smoke（2026-05-15，已完成）：**
+- 📝 [`2026-05-15-real-project-corpus-smoke-preflight.md`](2026-05-15-real-project-corpus-smoke-preflight.md) — GitCode 真实项目 corpus smoke 设计：目标清单、clone/cache 策略、MCP overview/insights 指标、风险边界。
+- ✅ [`2026-05-15-real-project-corpus-smoke-closure.md`](2026-05-15-real-project-corpus-smoke-closure.md) — closure：`docs/real-project-corpus.json`、`scripts/real-project-corpus-smoke.py`、Redis/Catch2/pip 初始基线。
 
 **Python Phase A Pack（2026-05-15，进行中）：**
 - 📝 [`2026-05-15-python-phase-a-preflight.md`](2026-05-15-python-phase-a-preflight.md) — Python Phase A 静态代码图谱支持 preflight：符号提取、调用关系、质量门、已知限制。

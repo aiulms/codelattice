@@ -1,0 +1,112 @@
+{
+  "version": 1,
+  "description": "GitCode-hosted real project smoke corpus for CodeLattice multi-language production hardening. Targets are cloned on demand by scripts/real-project-corpus-smoke.py and are not vendored into this repository.",
+  "defaultCacheDir": "${TMPDIR:-/tmp}/codelattice-real-project-corpus",
+  "targets": [
+    {
+      "id": "redis-c",
+      "name": "Redis",
+      "language": "c",
+      "tier": "tier1",
+      "enabledByDefault": true,
+      "repo": "https://gitcode.com/gh_mirrors/re/redis.git",
+      "projectPath": "src",
+      "reason": "Mature C server codebase with many source files, headers, macros, and cross-file calls.",
+      "min": {
+        "sourceFileCount": 10,
+        "symbolCount": 50,
+        "edgeCount": 50
+      }
+    },
+    {
+      "id": "catch2-cpp",
+      "name": "Catch2",
+      "language": "cpp",
+      "tier": "tier1",
+      "enabledByDefault": true,
+      "repo": "https://gitcode.com/gh_mirrors/ca/catch2.git",
+      "projectPath": ".",
+      "reason": "Header-heavy C++ project with classes, namespaces, tests, and templates.",
+      "min": {
+        "sourceFileCount": 5,
+        "symbolCount": 20,
+        "edgeCount": 10
+      }
+    },
+    {
+      "id": "pip-python",
+      "name": "pip",
+      "language": "python",
+      "tier": "tier1",
+      "enabledByDefault": true,
+      "repo": "https://gitcode.com/gh_mirrors/pi/pip.git",
+      "projectPath": ".",
+      "reason": "Large Python packaging project with packages, tests, imports, and CLI-style entry points.",
+      "min": {
+        "sourceFileCount": 20,
+        "symbolCount": 100,
+        "edgeCount": 50
+      }
+    },
+    {
+      "id": "vite-typescript",
+      "name": "Vite",
+      "language": "typescript",
+      "tier": "tier2",
+      "enabledByDefault": false,
+      "repo": "https://gitcode.com/gh_mirrors/vi/vite.git",
+      "projectPath": ".",
+      "reason": "Real-world TypeScript monorepo-style frontend/tooling project.",
+      "min": {
+        "sourceFileCount": 20,
+        "symbolCount": 100,
+        "edgeCount": 50
+      }
+    },
+    {
+      "id": "openharmony-app-samples-arkts",
+      "name": "OpenHarmony application samples",
+      "language": "arkts",
+      "tier": "tier2",
+      "enabledByDefault": false,
+      "repo": "https://gitcode.com/openharmony/applications_app_samples.git",
+      "projectPath": ".",
+      "reason": "OpenHarmony sample corpus with ArkTS/HarmonyOS application patterns.",
+      "min": {
+        "sourceFileCount": 5,
+        "symbolCount": 10,
+        "edgeCount": 10
+      }
+    },
+    {
+      "id": "cangjie-magic",
+      "name": "CangjieMagic",
+      "language": "cangjie",
+      "tier": "tier2",
+      "enabledByDefault": false,
+      "repo": "https://gitcode.com/Cangjie-TPC/CangjieMagic.git",
+      "projectPath": ".",
+      "reason": "Public GitCode Cangjie target for optional real-project Cangjie smoke.",
+      "min": {
+        "sourceFileCount": 3,
+        "symbolCount": 5,
+        "edgeCount": 5
+      }
+    },
+    {
+      "id": "codelattice-rust",
+      "name": "CodeLattice",
+      "language": "rust",
+      "tier": "tier2",
+      "enabledByDefault": false,
+      "repo": "https://gitcode.com/aiulms/codelattice.git",
+      "projectPath": ".",
+      "reason": "Self-hosted Rust target for regression comparison against CodeLattice's own codebase.",
+      "min": {
+        "sourceFileCount": 20,
+        "symbolCount": 100,
+        "edgeCount": 100
+      }
+    }
+  ]
+}

@@ -8,6 +8,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Real project corpus smoke**: `scripts/real-project-corpus-smoke.py` plus `docs/real-project-corpus.json` / `docs/real-project-corpus.md`. The default GitCode corpus covers Redis (C), Catch2 (C++), and pip (Python), with optional TypeScript / ArkTS / Cangjie / Rust targets for broader multi-language hardening.
 - **MCP tool `codelattice_project_insights`** (v0.8): Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry point candidates, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.
   - File metrics: symbolCount, edgeCount, callInCount, callOutCount, lowConfidenceEdgeCount, diagnosticCount, riskScore with reasons
   - Symbol metrics: fanIn, fanOut, crossFileImpactCount, lowConfidenceEdgeCount, isEntryLike, isPublic, riskScore with reasons

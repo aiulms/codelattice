@@ -97,6 +97,7 @@
 | `scripts/mcp-real-client-dry-run.sh` | Dry-run AI client config |
 | `scripts/cangjie-live-codelattice-smoke.sh` | Cangjie live project analysis |
 | `scripts/typescript-real-project-smoke.sh` | TypeScript real project analysis |
+| `python3 scripts/real-project-corpus-smoke.py` | GitCode real-project corpus smoke for C / C++ / Python defaults |
 | `scripts/alpha-trial-smoke.sh` | Alpha trial validation |
 | `scripts/linux-source-build-smoke.sh --all-language-features` | Linux / openEuler source-build compatibility smoke |
 
