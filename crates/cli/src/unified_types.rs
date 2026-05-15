@@ -119,6 +119,8 @@ pub enum DetectedLanguage {
     C,
     /// C++ project (CMakeLists.txt / .cpp/.hpp files; may include .h)
     Cpp,
+    /// Python project (pyproject.toml / setup.py / .py files)
+    Python,
     /// 多种清单存在，需要用户显式指定
     Ambiguous,
     /// 没有可识别的清单文件
@@ -135,6 +137,7 @@ impl DetectedLanguage {
             DetectedLanguage::TypeScript => "typescript",
             DetectedLanguage::C => "c",
             DetectedLanguage::Cpp => "cpp",
+            DetectedLanguage::Python => "python",
             DetectedLanguage::Ambiguous => "ambiguous",
             DetectedLanguage::Unknown => "unknown",
         }

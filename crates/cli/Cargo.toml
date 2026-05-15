@@ -20,6 +20,7 @@ tree-sitter-arkts = ["dep:gitnexus-arkts", "dep:gitnexus-typescript", "gitnexus-
 tree-sitter-typescript = ["dep:gitnexus-typescript", "gitnexus-typescript/tree-sitter-typescript"]
 tree-sitter-c = ["dep:gitnexus-c", "gitnexus-c/tree-sitter-c"]
 tree-sitter-cpp = ["dep:gitnexus-cpp", "gitnexus-cpp/tree-sitter-cpp"]
+tree-sitter-python = ["dep:gitnexus-python", "gitnexus-python/tree-sitter-python"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -31,6 +32,7 @@ gitnexus-arkts = { path = "../arkts", optional = true }
 gitnexus-typescript = { path = "../typescript", optional = true }
 gitnexus-c = { path = "../c", optional = true }
 gitnexus-cpp = { path = "../cpp", optional = true }
+gitnexus-python = { path = "../python", optional = true }
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -1496,6 +1496,17 @@ fn check_language_feature(language: &str) -> Result<(), Value> {
             ));
         }
     }
+    if language == "python" {
+        #[cfg(not(feature = "tree-sitter-python"))]
+        {
+            return Err(mcp_error_with_hint(
+                "python_disabled",
+                "Python language support not compiled",
+                "Python language was requested but tree-sitter-python feature is not enabled",
+                "Rebuild with --features tree-sitter-python",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -7331,7 +7342,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "strict": { "type": "boolean", "default": true, "description": "Mark quality gate failures as errors" },
                         "includeGraph": { "type": "boolean", "default": false, "description": "Include full graph in output (large, default off)" }
                     },
@@ -7345,7 +7356,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to check" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to check" }
                     },
                     "required": ["root"]
                 }
@@ -7357,7 +7368,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to summarize" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to summarize" }
                     },
                     "required": ["root"]
                 }
@@ -7379,7 +7390,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" }
                     },
                     "required": ["root"]
                 }
@@ -7391,7 +7402,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" },
                         "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit item detail arrays, return counts and reason breakdown only" }
                     },
@@ -7405,7 +7416,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to search" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to search" },
                         "query": { "type": "string", "description": "Search query (case-insensitive substring match)" },
                         "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, enum, interface, etc)" },
                         "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" },
@@ -7421,7 +7432,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp"], "description": "Language (must be explicit, not auto)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python"], "description": "Language (must be explicit, not auto)" },
                         "outputPath": { "type": "string", "description": "Output file path (must be under /tmp). Default: auto-generated in /tmp" }
                     },
                     "required": ["root", "language"]
@@ -7434,7 +7445,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "name": { "type": "string", "description": "Symbol name to look up" },
                         "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, etc)" },
                         "limit": { "type": "integer", "default": 10, "maximum": 50 },
@@ -7451,7 +7462,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Source symbol name" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
                         "limit": { "type": "integer", "default": 20, "maximum": 100 },
@@ -7469,7 +7480,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Target symbol name" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
                         "limit": { "type": "integer", "default": 20, "maximum": 100 },
@@ -7487,7 +7498,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Symbol name to analyze impact for" },
                         "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
                         "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
@@ -7504,7 +7515,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "nodeKind": { "type": "string", "description": "Filter nodes by kind (function, struct, class, package, etc)" },
                         "edgeKind": { "type": "string", "description": "Filter edges by type (CALLS, DEFINES, IMPORTS, etc)" },
                         "nameContains": { "type": "string", "description": "Filter nodes by name (case-insensitive substring)" },
@@ -7524,7 +7535,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit hotspots, dense files, top kinds; return counts only" }
                     },
                     "required": ["root"]
@@ -7538,7 +7549,7 @@ fn tools_list() -> Value {
                     "properties": {
                         "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
                         "root": { "type": "string", "description": "Project root (required for status action)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" }
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" }
                     }
                 }
             },
@@ -7549,7 +7560,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Current symbol name" },
                         "newName": { "type": "string", "description": "Proposed new name" },
                         "kind": { "type": "string", "description": "Symbol kind to disambiguate" }
@@ -7587,7 +7598,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "changedSymbols": {
                             "type": "array",
                             "items": { "type": "string" },
@@ -7604,7 +7615,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root (compares cached vs fresh if no bridge files provided)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file (must be under /tmp)" },
                         "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file (must be under /tmp)" }
                     }
@@ -7617,7 +7628,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "strict": { "type": "boolean", "default": false, "description": "Strict mode (quality gate failures as errors). Default false to match most other tools." }
                     },
                      "required": ["root"]
@@ -7630,7 +7641,7 @@ fn tools_list() -> Value {
                      "type": "object",
                      "properties": {
                          "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                          "compact": { "type": "boolean", "default": true, "description": "Compact output — each item retains id/name/kind/file/line/riskScore/reasons only" },
                          "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
                          "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signals (symbol ↔ doc associations)" },
@@ -7646,7 +7657,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "release_check"], "default": "onboarding", "description": "Review plan mode" },
                         "symbol": { "type": "string", "description": "Target symbol name (used in before_edit mode)" },
                         "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Explicit changed symbol names (after_edit mode; auto-detected if omitted)" },
@@ -7666,7 +7677,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path, must be a git repo)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
                         "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree", "description": "What to diff: working-tree (default, staged+unstaged), staged only, unstaged only, or HEAD" },
                         "baseRef": { "type": "string", "description": "Optional git ref to compare against (e.g., 'main', 'HEAD~3')" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact output — only id/name/kind/file/line/risk per symbol" },
@@ -7775,6 +7786,16 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     false
                 }
             };
+            let python_support = {
+                #[cfg(feature = "tree-sitter-python")]
+                {
+                    true
+                }
+                #[cfg(not(feature = "tree-sitter-python"))]
+                {
+                    false
+                }
+            };
             Some(make_response(
                 &id,
                 json!({
@@ -7788,6 +7809,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "typescriptSupport": typescript_support,
                         "cSupport": c_support,
                         "cppSupport": cpp_support,
+                        "pythonSupport": python_support,
                         "toolCount": 24
                     }
                 }),

@@ -54,7 +54,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "strict": { "type": "boolean", "default": true, "description": "质量门失败时标记为错误" },
     "includeGraph": { "type": "boolean", "default": false, "description": "是否包含完整 graph（默认关闭以减少 token）" }
   },
@@ -86,7 +86,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" }
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" }
   },
   "required": ["root"]
 }
@@ -114,7 +114,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" }
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" }
   },
   "required": ["root"]
 }
@@ -168,7 +168,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" }
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" }
   },
   "required": ["root"]
 }
@@ -201,7 +201,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
   },
   "required": ["root"]
@@ -244,7 +244,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "query": { "type": "string", "description": "搜索查询（大小写不敏感子串匹配）" },
     "kind": { "type": "string", "description": "按符号类型过滤（function, struct, class 等）" },
     "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100 }
@@ -273,7 +273,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp"], "description": "必须显式指定语言" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python"], "description": "必须显式指定语言" },
     "outputPath": { "type": "string", "description": "输出文件路径（必须在 /tmp 下）。默认自动生成" }
   },
   "required": ["root", "language"]
@@ -307,7 +307,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "name": { "type": "string", "description": "符号名称" },
     "kind": { "type": "string", "description": "按符号类型过滤" },
     "limit": { "type": "integer", "default": 10, "maximum": 50 },
@@ -367,7 +367,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "symbol": { "type": "string", "description": "源符号名称" },
     "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
     "limit": { "type": "integer", "default": 20, "maximum": 100 }
@@ -399,7 +399,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "symbol": { "type": "string", "description": "目标符号名称" },
     "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
     "limit": { "type": "integer", "default": 20, "maximum": 100 }
@@ -510,7 +510,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "nodeKind": { "type": "string", "description": "按节点类型过滤（function, struct, class, package 等）" },
     "edgeKind": { "type": "string", "description": "按边类型过滤（CALLS, DEFINES, IMPORTS 等）" },
     "nameContains": { "type": "string", "description": "按名称过滤（大小写不敏感子串）" },
@@ -542,7 +542,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" }
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" }
   },
   "required": ["root"]
 }
@@ -586,7 +586,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "properties": {
     "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
     "root": { "type": "string", "description": "项目根路径（status action 必填）" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" }
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" }
   }
 }
 ```
@@ -614,7 +614,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "symbol": { "type": "string", "description": "当前符号名称" },
     "newName": { "type": "string", "description": "建议的新名称" },
     "kind": { "type": "string", "description": "符号类型（用于消歧）" }
@@ -746,7 +746,7 @@ Dry-run production readiness assistant。Aggregates quality gates、unresolved c
   "type": "object",
   "properties": {
     "root": { "type": "string" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Optional list of symbol names you changed" }
   },
   "required": ["root"]
@@ -767,7 +767,7 @@ Compare two analysis results: nodes/edges/symbols/quality gates/diagnostics diff
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "Compare cached vs fresh (if no bridge files)" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file" },
     "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file" }
   }
@@ -788,7 +788,7 @@ Pre-warm the process-local analysis cache for a project. Runs analysis and store
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "Project root directory (absolute path)" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "cpp", "python", "auto"], "default": "auto" },
     "strict": { "type": "boolean", "default": false, "description": "Strict mode. Default false to match most other tools." }
   },
   "required": ["root"]

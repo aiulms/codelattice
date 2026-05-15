@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-15（C++ Phase A Pack + Large Project Insight Pack）
+最后更新：2026-05-15（Python Phase A Pack + C++ Phase A Pack + Large Project Insight Pack）
 
 ## 用途
 
@@ -23,7 +23,11 @@
 
 ## 当前状态总结
 
-**C++ Phase A Pack（2026-05-15，进行中）：**
+**Python Phase A Pack（2026-05-15，进行中）：**
+- 📝 [`2026-05-15-python-phase-a-preflight.md`](2026-05-15-python-phase-a-preflight.md) — Python Phase A 静态代码图谱支持 preflight：符号提取、调用关系、质量门、已知限制。
+- ⏳ [`2026-05-15-python-phase-a-closure.md`](2026-05-15-python-phase-a-closure.md) — closure：实现完成，待验证。
+
+**C++ Phase A Pack（2026-05-15，已完成）：**
 - 📝 [`2026-05-15-cpp-phase-a-preflight.md`](2026-05-15-cpp-phase-a-preflight.md) — C++ Phase A 静态代码图谱支持 preflight：符号提取、调用关系、质量门、已知限制。
 - ⏳ [`2026-05-15-cpp-phase-a-closure.md`](2026-05-15-cpp-phase-a-closure.md) — closure：实现完成，待验证。
 

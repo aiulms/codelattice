@@ -7107,3 +7107,612 @@ int add(int a, int b) {
         );
     }
 }
+
+#[cfg(feature = "tree-sitter-python")]
+#[cfg(test)]
+mod python_tests {
+    use super::*;
+
+    #[allow(dead_code)]
+    fn python_portable_smoke_dir() -> std::path::PathBuf {
+        workspace_root()
+            .join("fixtures")
+            .join("python")
+            .join("portable-smoke")
+    }
+
+    /// Python CLI analyze: portable-smoke fixture should produce valid JSON with nodes/edges.
+    #[test]
+    fn mcp_python_analyze_portable_smoke() {
+        let root = python_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "python",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "Python analyze should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("stdout should be valid JSON");
+        let summary = &data["summary"];
+        assert!(
+            summary["nodeCount"].as_u64().unwrap() > 0,
+            "Python analyze should produce nodes"
+        );
+        assert!(
+            summary["sourceFileCount"].as_u64().unwrap() > 0,
+            "Python analyze should report source files"
+        );
+        assert!(
+            summary["symbolCount"].as_u64().unwrap() > 0,
+            "Python analyze should extract symbols"
+        );
+    }
+
+    /// Python CLI quality: should return quality gates without error.
+    #[test]
+    fn mcp_python_quality_portable_smoke() {
+        let root = python_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "quality",
+                "--language",
+                "python",
+                "--root",
+                &root.to_string_lossy(),
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "Python quality should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("quality output should be valid JSON");
+        assert_eq!(data["language"], "python");
+        assert!(data["gates"].is_array(), "quality should have gates array");
+        assert!(
+            data["gates"].as_array().unwrap().len() > 0,
+            "quality should have gates"
+        );
+    }
+
+    /// Python CLI summary: should return graph + quality summary.
+    #[test]
+    fn mcp_python_summary_portable_smoke() {
+        let root = python_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "summary",
+                "--language",
+                "python",
+                "--root",
+                &root.to_string_lossy(),
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "Python summary should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("summary output should be valid JSON");
+        assert_eq!(data["language"], "python");
+        assert!(
+            data["graphSummary"].is_object(),
+            "summary should have graphSummary"
+        );
+        assert!(
+            data["qualitySummary"].is_object(),
+            "summary should have qualitySummary"
+        );
+    }
+
+    /// Python MCP project_overview: counts should be non-zero.
+    #[test]
+    fn mcp_python_project_overview() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35001,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_overview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35001);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python project_overview should succeed"
+        );
+        let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value = serde_json::from_str(content_text)
+            .expect("project_overview output should be valid JSON");
+        assert_eq!(data["language"], "python");
+        assert!(data["nodeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["edgeCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["symbolCount"].as_u64().unwrap_or(0) > 0);
+        assert!(data["sourceFileCount"].as_u64().unwrap_or(0) > 0);
+    }
+
+    /// Python MCP symbol_search: should find "add" function or "UserService" class.
+    #[test]
+    fn mcp_python_symbol_search() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35002,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_symbol_search",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python",
+                    "query": "add",
+                    "limit": 10
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35002);
+        let text = resp["result"]["content"][0]["text"].as_str().expect("text");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("symbol_search output should be valid JSON");
+        let count = data["matchCount"].as_u64().unwrap_or(0);
+        assert!(
+            count > 0,
+            "Python symbol_search(add) should find matches, got {}",
+            count
+        );
+    }
+
+    /// Python MCP symbol_context: should return context for "UserService".
+    #[test]
+    fn mcp_python_symbol_context() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35003,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_symbol_context",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python",
+                    "name": "UserService"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35003);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python symbol_context should succeed"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("symbol_context output should be valid JSON");
+        // Should have at least a file path and line number
+        assert!(
+            data["file"].as_str().is_some()
+                || data["filePath"].as_str().is_some()
+                || data.get("candidates").is_some(),
+            "Python symbol_context should have file/location info"
+        );
+    }
+
+    /// Python MCP query_graph: should return nodes.
+    #[test]
+    fn mcp_python_query_graph() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35004,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_query_graph",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35004);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python query_graph should not error"
+        );
+    }
+
+    /// Python MCP project_insights: should return readFirst/hotspots.
+    #[test]
+    fn mcp_python_project_insights() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35005,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_project_insights",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35005);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python project_insights should succeed"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("project_insights output should be valid JSON");
+        // Should have readFirst or hotspots arrays
+        assert!(
+            data["readFirst"].is_array()
+                || data["hotspots"].is_array()
+                || data.get("entryPoints").is_some(),
+            "Python project_insights should return readFirst/hotspots"
+        );
+    }
+
+    /// Python MCP review_plan (onboarding mode): should return readPlan.
+    #[test]
+    fn mcp_python_review_plan() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35006,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_review_plan",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python",
+                    "mode": "onboarding"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35006);
+        let data = extract_tool_data(&resp);
+        assert_eq!(data["mode"], "onboarding");
+        // Should produce a readPlan array
+        assert!(
+            data["readPlan"].is_array(),
+            "onboarding should produce readPlan array"
+        );
+    }
+
+    /// Python MCP impact_preview: should return risk or graceful preview for "add".
+    #[test]
+    fn mcp_python_impact_preview() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35007,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_impact_preview",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python",
+                    "symbol": "add"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35007);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python impact_preview should not error"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("impact_preview output should be valid JSON");
+        // Should have riskReasons or at least a graceful preview
+        assert!(
+            data["riskReasons"].is_array()
+                || data["risk"].is_string()
+                || data.get("affectedSymbols").is_some()
+                || data.get("candidates").is_some(),
+            "Python impact_preview should return risk info or graceful preview"
+        );
+    }
+
+    /// Python MCP changed_symbols: create temp git repo with .py file, modify, detect change.
+    #[test]
+    fn mcp_python_changed_symbols() {
+        let tmp = std::env::temp_dir().join(format!(
+            "codelattice-python-changed-symbols-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp dir");
+
+        // Write initial Python file
+        let py_file = tmp.join("example.py");
+        std::fs::write(
+            &py_file,
+            r#"# Initial version
+def add(a, b):
+    return a + b
+"#,
+        )
+        .expect("write initial file");
+
+        // git init, add, commit
+        let git = |args: &[&str]| {
+            std::process::Command::new("git")
+                .args(args)
+                .current_dir(&tmp)
+                .output()
+                .expect("git command")
+        };
+        git(&["init"]);
+        git(&["config", "user.email", "test@test.com"]);
+        git(&["config", "user.name", "Test"]);
+        git(&["add", "."]);
+        git(&["commit", "-m", "initial"]);
+
+        // Modify the file
+        std::fs::write(
+            &py_file,
+            r#"# Modified version
+def add(a, b):
+    return a + b + 1
+"#,
+        )
+        .expect("write modified file");
+
+        // Run changed_symbols via MCP
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35008,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_changed_symbols",
+                "arguments": {
+                    "root": tmp.to_string_lossy(),
+                    "language": "python"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35008);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python changed_symbols should succeed"
+        );
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value =
+            serde_json::from_str(text).expect("changed_symbols output should be valid JSON");
+        // Should detect at least one changed symbol or changed file
+        assert!(
+            data["changedSymbols"]
+                .as_array()
+                .map_or(false, |a| !a.is_empty())
+                || data["changedFiles"]
+                    .as_array()
+                    .map_or(false, |a| !a.is_empty())
+                || data["hunks"].as_array().map_or(false, |a| !a.is_empty()),
+            "Python changed_symbols should detect changes, got: {:?}",
+            data
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    /// Python MCP production_assist: should return reviewChecklist.
+    #[test]
+    fn mcp_python_production_assist() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35009,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_production_assist",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python"
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35009);
+        let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+        let data: serde_json::Value = serde_json::from_str(content_text)
+            .expect("production_assist output should be valid JSON");
+        assert!(
+            data["reviewChecklist"].is_array() || data["changedSymbols"].is_array(),
+            "production_assist should return reviewChecklist or changedSymbols"
+        );
+    }
+
+    /// Python MCP export_bridge: should write bridge JSON to /tmp.
+    #[test]
+    fn mcp_python_export_bridge() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        let root = python_portable_smoke_dir();
+        let bridge_path = format!(
+            "/tmp/codelattice-python-bridge-test-{}-{}.json",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::SystemTime::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35010,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_export_bridge",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "python",
+                    "outputPath": bridge_path
+                }
+            }
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35010);
+        assert!(
+            !resp
+                .get("result")
+                .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+            "Python export_bridge should succeed"
+        );
+        // Verify the file was written
+        let content = std::fs::read_to_string(&bridge_path).expect("bridge JSON file should exist");
+        let data: serde_json::Value =
+            serde_json::from_str(&content).expect("bridge file should be valid JSON");
+        assert_eq!(data["language"], "python");
+        assert!(
+            data["symbols"].is_array(),
+            "bridge should have symbols array"
+        );
+        let _ = std::fs::remove_file(&bridge_path);
+    }
+
+    /// Python MCP tools/list: language enums in schemas should contain "python".
+    #[test]
+    fn mcp_python_tools_list_includes_python() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 35011,
+            "method": "tools/list",
+            "params": {}
+        }));
+        let resp = session.recv();
+        assert_eq!(resp["id"], 35011);
+        let tools = resp["result"]["tools"]
+            .as_array()
+            .expect("tools should be array");
+        // Find a tool with a language parameter and verify "python" is in the enum
+        let mut found_python = false;
+        for tool in tools {
+            if let Some(props) = tool["inputSchema"]["properties"].as_object() {
+                if let Some(lang) = props.get("language") {
+                    if let Some(enum_vals) = lang["enum"].as_array() {
+                        for v in enum_vals {
+                            if v.as_str() == Some("python") {
+                                found_python = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if found_python {
+                break;
+            }
+        }
+        assert!(
+            found_python,
+            "At least one tool schema should list 'python' in its language enum"
+        );
+    }
+
+    /// Python auto-detect: analyze with --language auto on Python fixture should detect "python".
+    #[test]
+    fn mcp_python_auto_detect() {
+        let root = python_portable_smoke_dir();
+        let output = std::process::Command::new(cli_binary())
+            .args([
+                "analyze",
+                "--language",
+                "auto",
+                "--root",
+                &root.to_string_lossy(),
+                "--format",
+                "json",
+            ])
+            .output()
+            .expect("failed to run CLI");
+        assert!(
+            output.status.success(),
+            "Python auto-detect analyze should succeed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let data: serde_json::Value =
+            serde_json::from_str(&stdout).expect("auto-detect output should be valid JSON");
+        assert_eq!(
+            data["language"], "python",
+            "auto-detect should identify Python project as 'python'"
+        );
+    }
+}

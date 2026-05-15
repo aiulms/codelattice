@@ -1,0 +1,16 @@
+[package]
+name = "gitnexus-python"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+tree-sitter-python = ["dep:tree-sitter", "dep:tree-sitter-python"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tree-sitter = { version = "0.26", optional = true }
+tree-sitter-python = { version = "0.25", optional = true }

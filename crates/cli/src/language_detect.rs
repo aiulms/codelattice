@@ -6,8 +6,9 @@
 //! 3. 有 cjpm.toml → cangjie
 //! 4. 有 tsconfig.json 或 package.json（非 ArkTS/非 Rust/非 Cangjie）→ typescript
 //! 5. 有 C 项目标记且无 C++ 文件 → c
-//! 6. 多种存在 → 报错要求显式指定
-//! 7. 都没有 → 报错"无法检测语言"
+//! 6. 有 Python 项目标记 → python
+//! 7. 多种存在 → 报错要求显式指定
+//! 8. 都没有 → 报错"无法检测语言"
 
 use std::path::Path;
 
@@ -67,6 +68,11 @@ fn has_c_files(root: &Path) -> bool {
     walk_for_extension(root, &["c", "h"])
 }
 
+/// Check if any .py files exist in the tree.
+fn has_python_files(root: &Path) -> bool {
+    walk_for_extension(root, &["py"])
+}
+
 /// 从项目根目录检测语言
 ///
 /// 检查根目录下的清单文件存在性。
@@ -108,6 +114,20 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
             // Pure C project, no C++ files
             detected.push(DetectedLanguage::C);
         }
+    }
+
+    // Python: check for Python markers
+    let has_pyproject = root.join("pyproject.toml").is_file();
+    let has_setup_py = root.join("setup.py").is_file();
+    let has_setup_cfg = root.join("setup.cfg").is_file();
+    let has_requirements = root.join("requirements.txt").is_file();
+    let has_python_markers = has_pyproject
+        || has_setup_py
+        || has_setup_cfg
+        || has_requirements
+        || has_python_files(root);
+    if has_python_markers {
+        detected.push(DetectedLanguage::Python);
     }
 
     match detected.len() {

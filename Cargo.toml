@@ -8,6 +8,7 @@ members = [
     "crates/arkts",
     "crates/c",
     "crates/cpp",
+    "crates/python",
 ]
 
 [workspace.package]

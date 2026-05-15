@@ -16,6 +16,7 @@ pub use crate::arkts_bridge::convert_arkts_graph;
 pub use crate::c_bridge::convert_c_graph;
 pub use crate::cangjie_bridge::convert_cangjie_graph;
 pub use crate::cpp_bridge::convert_cpp_graph;
+pub use crate::python_bridge::convert_python_graph;
 pub use crate::rust_bridge::convert_rust_graph;
 
 // ============================================================
