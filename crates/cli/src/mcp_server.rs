@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 22 tools:
+//! Provides 23 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -12,6 +12,7 @@
 //!   v0.5: codelattice_production_assist, codelattice_compare_runs
 //!   v0.6: codelattice_cache_prewarm
 //!   v0.7: codelattice_changed_symbols
+//!   v0.8: codelattice_project_insights
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -5666,6 +5667,890 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     ))
 }
 
+// ============================================================
+// v0.8: Large Project Insight Pack
+// ============================================================
+
+/// Large project insight map: hotspots, entry points, risk map, read-first/review-first.
+///
+/// Provides graph-based heuristic insights for AI agents and humans onboarding
+/// onto unfamiliar large codebases. Not a compiler/IDE-level proof — signals only.
+fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(10).min(100) as usize;
+    let include_docs = params["includeDocs"].as_bool().unwrap_or(true);
+    let include_diagnostics = params["includeDiagnostics"].as_bool().unwrap_or(true);
+    check_language_feature(language)?;
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let (node_count, edge_count, symbol_count) = gv.stats();
+
+    // ---------------------------------------------------------------
+    // 1. Per-file metrics
+    // ---------------------------------------------------------------
+    struct FileMetrics {
+        symbol_count: usize,
+        edge_count: usize,
+        incoming_edge_count: usize,
+        outgoing_edge_count: usize,
+        call_in_count: usize,
+        call_out_count: usize,
+        low_confidence_edge_count: usize,
+        diagnostic_count: usize,
+    }
+
+    let mut file_metrics: HashMap<String, FileMetrics> = HashMap::new();
+
+    // Count symbols per file
+    for node in gv.nodes_by_id.values() {
+        let is_symbol = node["label"].as_str() == Some("symbol")
+            || node["kind"].as_str() == Some("symbol")
+            || node["properties"]["symbolKind"].as_str().is_some();
+        if is_symbol {
+            if let Some(f) = node["properties"]["sourcePath"].as_str() {
+                let fm = file_metrics.entry(f.to_string()).or_insert(FileMetrics {
+                    symbol_count: 0,
+                    edge_count: 0,
+                    incoming_edge_count: 0,
+                    outgoing_edge_count: 0,
+                    call_in_count: 0,
+                    call_out_count: 0,
+                    low_confidence_edge_count: 0,
+                    diagnostic_count: 0,
+                });
+                fm.symbol_count += 1;
+            }
+        }
+    }
+
+    // Count edges per file (source side)
+    for (src_id, edges) in &gv.outgoing {
+        let src_node = gv.nodes_by_id.get(src_id);
+        let src_file = src_node.and_then(|n| n["properties"]["sourcePath"].as_str());
+        for edge in edges {
+            let edge_type = edge["type"]
+                .as_str()
+                .or_else(|| edge["kind"].as_str())
+                .unwrap_or("");
+            let confidence = edge["properties"]["confidence"].as_f64().unwrap_or(1.0);
+            let is_calls = edge_type == "CALLS";
+
+            // Get target file
+            let tgt_id = edge["targetId"]
+                .as_str()
+                .or_else(|| edge["properties"]["targetId"].as_str())
+                .unwrap_or("");
+            let tgt_node = gv.nodes_by_id.get(tgt_id);
+            let tgt_file = tgt_node.and_then(|n| n["properties"]["sourcePath"].as_str());
+
+            // Outgoing edge for source file
+            if let Some(sf) = src_file {
+                let fm = file_metrics.entry(sf.to_string()).or_insert(FileMetrics {
+                    symbol_count: 0,
+                    edge_count: 0,
+                    incoming_edge_count: 0,
+                    outgoing_edge_count: 0,
+                    call_in_count: 0,
+                    call_out_count: 0,
+                    low_confidence_edge_count: 0,
+                    diagnostic_count: 0,
+                });
+                fm.edge_count += 1;
+                fm.outgoing_edge_count += 1;
+                if is_calls {
+                    fm.call_out_count += 1;
+                }
+                if confidence < 0.8 {
+                    fm.low_confidence_edge_count += 1;
+                }
+            }
+
+            // Incoming edge for target file
+            if let Some(tf) = tgt_file {
+                let fm = file_metrics.entry(tf.to_string()).or_insert(FileMetrics {
+                    symbol_count: 0,
+                    edge_count: 0,
+                    incoming_edge_count: 0,
+                    outgoing_edge_count: 0,
+                    call_in_count: 0,
+                    call_out_count: 0,
+                    low_confidence_edge_count: 0,
+                    diagnostic_count: 0,
+                });
+                fm.incoming_edge_count += 1;
+                if is_calls {
+                    fm.call_in_count += 1;
+                }
+                if confidence < 0.8 {
+                    fm.low_confidence_edge_count += 1;
+                }
+            }
+        }
+    }
+
+    // Count diagnostics per file
+    if include_diagnostics {
+        for diag in &gv.diagnostics {
+            if let Some(f) = diag["properties"]["sourcePath"]
+                .as_str()
+                .or_else(|| diag["properties"]["file"].as_str())
+            {
+                let fm = file_metrics.entry(f.to_string()).or_insert(FileMetrics {
+                    symbol_count: 0,
+                    edge_count: 0,
+                    incoming_edge_count: 0,
+                    outgoing_edge_count: 0,
+                    call_in_count: 0,
+                    call_out_count: 0,
+                    low_confidence_edge_count: 0,
+                    diagnostic_count: 0,
+                });
+                fm.diagnostic_count += 1;
+            }
+        }
+    }
+
+    // Compute file risk scores (weighted composite)
+    let mut file_risk: Vec<(String, f64, Vec<String>)> = file_metrics
+        .iter()
+        .map(|(file, fm)| {
+            let mut score: f64 = 0.0;
+            let mut reasons: Vec<String> = Vec::new();
+
+            // Symbol density
+            if fm.symbol_count > 20 {
+                score += 2.0;
+                reasons.push("high symbol count".to_string());
+            } else if fm.symbol_count > 10 {
+                score += 1.0;
+            }
+
+            // Edge density
+            if fm.edge_count > 40 {
+                score += 2.0;
+                reasons.push("high edge count".to_string());
+            } else if fm.edge_count > 15 {
+                score += 1.0;
+            }
+
+            // Fan-in (many callers → change ripples here)
+            if fm.call_in_count > 10 {
+                score += 3.0;
+                reasons.push("high call-in count".to_string());
+            } else if fm.call_in_count > 5 {
+                score += 1.5;
+            }
+
+            // Fan-out (orchestration → change ripples out)
+            if fm.call_out_count > 15 {
+                score += 2.0;
+                reasons.push("high call-out count".to_string());
+            } else if fm.call_out_count > 8 {
+                score += 1.0;
+            }
+
+            // Low confidence edges
+            if fm.low_confidence_edge_count > 5 {
+                score += 2.0;
+                reasons.push(format!(
+                    "{} low-confidence edges",
+                    fm.low_confidence_edge_count
+                ));
+            } else if fm.low_confidence_edge_count > 0 {
+                score += 0.5 * fm.low_confidence_edge_count as f64;
+            }
+
+            // Diagnostics nearby
+            if fm.diagnostic_count > 3 {
+                score += 1.5;
+                reasons.push(format!("{} diagnostics", fm.diagnostic_count));
+            }
+
+            // Downgrade test/generated/vendor files
+            let lower = file.to_lowercase();
+            if lower.contains("/test")
+                || lower.contains("\\test")
+                || lower.ends_with("_test.rs")
+                || lower.ends_with(".test.ts")
+                || lower.ends_with(".spec.ts")
+                || lower.ends_with("test.cj")
+            {
+                score *= 0.5;
+                reasons.push("test file (downweighted)".to_string());
+            }
+            if lower.contains("/generated")
+                || lower.contains("/vendor")
+                || lower.contains("/node_modules")
+                || lower.contains("/target/debug")
+            {
+                score *= 0.3;
+                reasons.push("generated/vendor (downweighted)".to_string());
+            }
+
+            (file.clone(), score, reasons)
+        })
+        .collect();
+
+    file_risk.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // ---------------------------------------------------------------
+    // 2. Per-symbol metrics
+    // ---------------------------------------------------------------
+    struct SymbolMetrics {
+        name: String,
+        kind: String,
+        file: String,
+        line: u64,
+        fan_in: usize,
+        fan_out: usize,
+        cross_file_impact_count: usize,
+        low_confidence_edge_count: usize,
+        is_entry_like: bool,
+        is_public: bool,
+        diagnostic_count: usize,
+    }
+
+    let mut symbol_metrics: Vec<SymbolMetrics> = Vec::new();
+
+    for (id, node) in &gv.nodes_by_id {
+        let is_symbol = node["label"].as_str() == Some("symbol")
+            || node["properties"]["symbolKind"].as_str().is_some();
+        if !is_symbol {
+            continue;
+        }
+
+        let name = node["properties"]["name"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let kind = node["properties"]["symbolKind"]
+            .as_str()
+            .or_else(|| node["properties"]["kind"].as_str())
+            .unwrap_or("symbol")
+            .to_string();
+        let file = node["properties"]["sourcePath"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let line = node["properties"]["lineStart"].as_u64().unwrap_or(0);
+
+        // Fan-out: outgoing CALLS edges
+        let out_calls: Vec<Value> = gv.edges_from(id, Some("CALLS"));
+        let fan_out = out_calls.len();
+
+        // Fan-in: incoming CALLS edges
+        let in_calls: Vec<Value> = gv.edges_to(id, Some("CALLS"));
+        let fan_in = in_calls.len();
+
+        // Cross-file impact: edges that cross file boundaries
+        let sym_file = file.clone();
+        let cross_file_impact_count = out_calls
+            .iter()
+            .chain(in_calls.iter())
+            .filter(|e| {
+                let other_id = if e["sourceId"].as_str() == Some(id.as_str()) {
+                    e["targetId"]
+                        .as_str()
+                        .or_else(|| e["properties"]["targetId"].as_str())
+                } else {
+                    e["sourceId"]
+                        .as_str()
+                        .or_else(|| e["properties"]["sourceId"].as_str())
+                };
+                if let Some(oid) = other_id {
+                    if let Some(on) = gv.nodes_by_id.get(oid) {
+                        let of = on["properties"]["sourcePath"].as_str().unwrap_or("");
+                        return of != sym_file;
+                    }
+                }
+                false
+            })
+            .count();
+
+        // Low confidence edges
+        let low_confidence_edge_count = out_calls
+            .iter()
+            .chain(in_calls.iter())
+            .filter(|e| {
+                e["properties"]["confidence"]
+                    .as_f64()
+                    .map(|c| c < 0.8)
+                    .unwrap_or(false)
+            })
+            .count();
+
+        // Entry-like detection
+        let is_entry_like = detect_entry_like(&name, &kind, &file, &gv.language, fan_out);
+
+        // Public/exported heuristic
+        let is_public = kind == "function"
+            && !name.starts_with('_')
+            && !name.contains("::test")
+            && !file.contains("/test");
+
+        // Diagnostics nearby
+        let diagnostic_count = gv.diagnostics_for(id).len();
+
+        symbol_metrics.push(SymbolMetrics {
+            name,
+            kind,
+            file,
+            line,
+            fan_in,
+            fan_out,
+            cross_file_impact_count,
+            low_confidence_edge_count,
+            is_entry_like,
+            is_public,
+            diagnostic_count,
+        });
+    }
+
+    // Compute symbol risk scores
+    let mut symbol_risk: Vec<(&SymbolMetrics, f64, Vec<String>)> = symbol_metrics
+        .iter()
+        .map(|sm| {
+            let mut score: f64 = 0.0;
+            let mut reasons: Vec<String> = Vec::new();
+
+            if sm.fan_in > 10 {
+                score += 3.0;
+                reasons.push("high fan-in".to_string());
+            } else if sm.fan_in > 5 {
+                score += 1.5;
+            }
+
+            if sm.fan_out > 10 {
+                score += 2.0;
+                reasons.push("high fan-out".to_string());
+            } else if sm.fan_out > 5 {
+                score += 1.0;
+            }
+
+            if sm.cross_file_impact_count > 5 {
+                score += 2.0;
+                reasons.push("cross-file impact".to_string());
+            } else if sm.cross_file_impact_count > 2 {
+                score += 1.0;
+            }
+
+            if sm.low_confidence_edge_count > 3 {
+                score += 1.5;
+                reasons.push(format!(
+                    "{} low-confidence edges",
+                    sm.low_confidence_edge_count
+                ));
+            }
+
+            if sm.is_public {
+                score += 0.5;
+            }
+
+            if sm.diagnostic_count > 0 {
+                score += 1.0;
+                reasons.push(format!("{} diagnostics nearby", sm.diagnostic_count));
+            }
+
+            (sm, score, reasons)
+        })
+        .collect();
+
+    symbol_risk.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // ---------------------------------------------------------------
+    // 3. Entry point candidates
+    // ---------------------------------------------------------------
+    let entry_candidates: Vec<Value> = symbol_metrics
+        .iter()
+        .filter(|sm| sm.is_entry_like)
+        .take(limit)
+        .map(|sm| {
+            let mut lang_reasons: Vec<String> = Vec::new();
+            let mut graph_reasons: Vec<String> = Vec::new();
+
+            if sm.name == "main" {
+                lang_reasons.push("main entry".to_string());
+            }
+            if sm.fan_out > 5 {
+                graph_reasons.push(format!("high fan-out orchestrator ({})", sm.fan_out));
+            }
+            if sm.fan_in > 3 {
+                graph_reasons.push(format!("{} direct callers", sm.fan_in));
+            }
+
+            let entry_risk = if sm.fan_out > 10 && sm.fan_in > 5 {
+                "MEDIUM"
+            } else {
+                "LOW"
+            };
+
+            json!({
+                "id": sm.name,
+                "name": sm.name,
+                "kind": sm.kind,
+                "file": sm.file,
+                "line": sm.line,
+                "languageReason": lang_reasons.join("; "),
+                "graphReason": graph_reasons.join("; "),
+                "riskScore": entry_risk,
+            })
+        })
+        .collect();
+
+    // ---------------------------------------------------------------
+    // 4. Hotspot files
+    // ---------------------------------------------------------------
+    let hotspot_files: Vec<Value> = file_risk
+        .iter()
+        .take(limit)
+        .map(|(file, score, reasons)| {
+            let fm = file_metrics.get(file);
+            json!({
+                "id": file,
+                "name": file,
+                "kind": "file",
+                "file": file,
+                "riskScore": (score * 10.0).round() / 10.0,
+                "reasons": reasons,
+                "symbolCount": fm.map(|m| m.symbol_count).unwrap_or(0),
+                "edgeCount": fm.map(|m| m.edge_count).unwrap_or(0),
+                "callInCount": fm.map(|m| m.call_in_count).unwrap_or(0),
+                "callOutCount": fm.map(|m| m.call_out_count).unwrap_or(0),
+                "lowConfidenceEdgeCount": fm.map(|m| m.low_confidence_edge_count).unwrap_or(0),
+                "diagnosticCount": fm.map(|m| m.diagnostic_count).unwrap_or(0),
+            })
+        })
+        .collect();
+
+    // ---------------------------------------------------------------
+    // 5. Hotspot symbols
+    // ---------------------------------------------------------------
+    let hotspot_symbols: Vec<Value> = symbol_risk
+        .iter()
+        .take(limit)
+        .map(|(sm, score, reasons)| {
+            json!({
+                "id": sm.name,
+                "name": sm.name,
+                "kind": sm.kind,
+                "file": sm.file,
+                "line": sm.line,
+                "riskScore": (score * 10.0).round() / 10.0,
+                "reasons": reasons,
+                "fanIn": sm.fan_in,
+                "fanOut": sm.fan_out,
+                "crossFileImpactCount": sm.cross_file_impact_count,
+                "isEntryLike": sm.is_entry_like,
+                "isPublic": sm.is_public,
+            })
+        })
+        .collect();
+
+    // ---------------------------------------------------------------
+    // 6. Risk map (top risky items with suggested actions)
+    // ---------------------------------------------------------------
+    let mut risk_items: Vec<Value> = Vec::new();
+
+    // Top risky files
+    for (file, score, reasons) in file_risk.iter().take(5) {
+        let action = if *score > 8.0 {
+            "avoid broad refactor — high coupling"
+        } else if *score > 4.0 {
+            "review before significant changes"
+        } else {
+            "monitor"
+        };
+        risk_items.push(json!({
+            "id": file,
+            "name": file,
+            "kind": "file",
+            "file": file,
+            "riskScore": (score * 10.0).round() / 10.0,
+            "reasons": reasons,
+            "suggestedReviewAction": action,
+        }));
+    }
+
+    // Top risky symbols
+    for (sm, score, reasons) in symbol_risk.iter().take(5) {
+        let action = if *score > 6.0 {
+            "inspect manually — high impact area"
+        } else if *score > 3.0 {
+            "run tests before modifying"
+        } else {
+            "low risk — standard review"
+        };
+        risk_items.push(json!({
+            "id": sm.name,
+            "name": sm.name,
+            "kind": sm.kind,
+            "file": sm.file,
+            "line": sm.line,
+            "riskScore": (score * 10.0).round() / 10.0,
+            "reasons": reasons,
+            "suggestedReviewAction": action,
+        }));
+    }
+
+    risk_items.sort_by(|a, b| {
+        let sa = a["riskScore"].as_f64().unwrap_or(0.0);
+        let sb = b["riskScore"].as_f64().unwrap_or(0.0);
+        sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
+    });
+    risk_items.truncate(limit);
+
+    // ---------------------------------------------------------------
+    // 7. Low confidence zones
+    // ---------------------------------------------------------------
+    let low_confidence_files: Vec<Value> = file_metrics
+        .iter()
+        .filter(|(_, fm)| fm.low_confidence_edge_count > 2)
+        .map(|(file, fm)| {
+            let example_edges: Vec<Value> = gv
+                .outgoing
+                .values()
+                .flatten()
+                .chain(gv.incoming.values().flatten())
+                .filter(|e| {
+                    e["properties"]["confidence"]
+                        .as_f64()
+                        .map(|c| c < 0.8)
+                        .unwrap_or(false)
+                })
+                .take(3)
+                .map(|e| {
+                    json!({
+                        "type": e["type"].as_str().or_else(|| e["kind"].as_str()).unwrap_or("unknown"),
+                        "confidence": e["properties"]["confidence"].as_f64().unwrap_or(0.0),
+                        "reason": e["properties"]["reason"].as_str().unwrap_or(""),
+                    })
+                })
+                .collect();
+
+            json!({
+                "file": file,
+                "lowConfidenceEdgeCount": fm.low_confidence_edge_count,
+                "exampleEdges": example_edges,
+                "recommendedAction": if fm.low_confidence_edge_count > 5 {
+                    "inspect manually"
+                } else {
+                    "run tests to validate"
+                },
+            })
+        })
+        .collect();
+
+    let low_confidence_symbols: Vec<Value> = symbol_risk
+        .iter()
+        .filter(|(sm, _, _)| sm.low_confidence_edge_count > 1)
+        .take(limit)
+        .map(|(sm, score, reasons)| {
+            json!({
+                "id": sm.name,
+                "name": sm.name,
+                "kind": sm.kind,
+                "file": sm.file,
+                "line": sm.line,
+                "lowConfidenceEdgeCount": sm.low_confidence_edge_count,
+                "reasons": reasons,
+                "recommendedAction": if sm.low_confidence_edge_count > 5 {
+                    "avoid broad refactor"
+                } else {
+                    "run tests"
+                },
+            })
+        })
+        .collect();
+
+    let low_confidence_zones = json!({
+        "fileZones": low_confidence_files,
+        "symbolZones": low_confidence_symbols,
+    });
+
+    // ---------------------------------------------------------------
+    // 8. Read first / Review first
+    // ---------------------------------------------------------------
+    let read_first: Vec<Value> = {
+        let mut items: Vec<Value> = Vec::new();
+
+        // Entry-like symbols first
+        for sm in symbol_metrics.iter().filter(|sm| sm.is_entry_like).take(5) {
+            let mut reason_parts: Vec<String> = Vec::new();
+            if sm.name == "main" {
+                reason_parts.push("entry-like function".to_string());
+            }
+            if sm.fan_out > 5 {
+                reason_parts.push(format!("high fan-out orchestrator ({})", sm.fan_out));
+            }
+            items.push(json!({
+                "id": sm.name,
+                "name": sm.name,
+                "kind": sm.kind,
+                "file": sm.file,
+                "line": sm.line,
+                "reason": reason_parts.join("; "),
+            }));
+        }
+
+        // High information density files (symbols + edges, not necessarily risky)
+        let mut info_files: Vec<(&String, &FileMetrics)> = file_metrics.iter().collect();
+        info_files.sort_by(|a, b| b.1.symbol_count.cmp(&a.1.symbol_count));
+        for (file, fm) in info_files.iter().take(3) {
+            if !items
+                .iter()
+                .any(|i| i["file"].as_str() == Some(file.as_str()))
+            {
+                items.push(json!({
+                    "id": file,
+                    "name": file,
+                    "kind": "file",
+                    "file": file,
+                    "line": 0,
+                    "reason": format!("high information density ({} symbols, {} edges)", fm.symbol_count, fm.edge_count),
+                }));
+            }
+        }
+
+        items.truncate(limit);
+        items
+    };
+
+    let review_first: Vec<Value> = {
+        let mut items: Vec<Value> = Vec::new();
+
+        // High fan-in symbols (change = widespread impact)
+        let mut by_fanin: Vec<&SymbolMetrics> = symbol_metrics.iter().collect();
+        by_fanin.sort_by(|a, b| b.fan_in.cmp(&a.fan_in));
+        for sm in by_fanin.iter().take(5).filter(|sm| sm.fan_in > 0) {
+            let mut reason_parts: Vec<String> = Vec::new();
+            if sm.fan_in > 5 {
+                reason_parts.push(format!("{} direct callers", sm.fan_in));
+            }
+            if sm.low_confidence_edge_count > 0 {
+                reason_parts.push(format!(
+                    "{} low-confidence edge(s)",
+                    sm.low_confidence_edge_count
+                ));
+            }
+            if sm.is_public {
+                reason_parts.push("public/exported symbol".to_string());
+            }
+            items.push(json!({
+                "id": sm.name,
+                "name": sm.name,
+                "kind": sm.kind,
+                "file": sm.file,
+                "line": sm.line,
+                "reason": if reason_parts.is_empty() { "high impact area".to_string() } else { reason_parts.join("; ") },
+            }));
+        }
+
+        // Files with most diagnostics
+        if include_diagnostics {
+            let mut diag_files: Vec<(&String, &FileMetrics)> = file_metrics
+                .iter()
+                .filter(|(_, fm)| fm.diagnostic_count > 0)
+                .collect();
+            diag_files.sort_by(|a, b| b.1.diagnostic_count.cmp(&a.1.diagnostic_count));
+            for (file, fm) in diag_files.iter().take(3) {
+                if !items
+                    .iter()
+                    .any(|i| i["file"].as_str() == Some(file.as_str()))
+                {
+                    items.push(json!({
+                        "id": file,
+                        "name": file,
+                        "kind": "file",
+                        "file": file,
+                        "line": 0,
+                        "reason": format!("{} diagnostic(s) nearby", fm.diagnostic_count),
+                    }));
+                }
+            }
+        }
+
+        items.truncate(limit);
+        items
+    };
+
+    // ---------------------------------------------------------------
+    // 9. Docs signals
+    // ---------------------------------------------------------------
+    let docs_signals: Vec<Value> = if include_docs {
+        if let Some(ds) = gv.doc_scanner() {
+            // Files/symbols mentioned in docs → review if they change
+            let top_symbol_names: Vec<&str> = symbol_risk
+                .iter()
+                .take(10)
+                .map(|(sm, _, _)| sm.name.as_str())
+                .collect();
+
+            let mut signals: Vec<Value> = Vec::new();
+            for name in top_symbol_names {
+                let matches = ds.find_related_docs(name, "", &[], 3);
+                if !matches.is_empty() {
+                    signals.push(json!({
+                        "id": name,
+                        "name": name,
+                        "kind": "symbol",
+                        "reason": format!("docs mention this symbol ({} doc hits)", matches.len()),
+                    }));
+                }
+            }
+            signals.truncate(limit);
+            signals
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
+
+    // ---------------------------------------------------------------
+    // 10. Summary
+    // ---------------------------------------------------------------
+    let hotspot_file_count = hotspot_files.len();
+    let hotspot_symbol_count = hotspot_symbols.len();
+    let entry_point_candidate_count = entry_candidates.len();
+    let low_confidence_zone_count = low_confidence_files
+        .iter()
+        .chain(low_confidence_symbols.iter())
+        .count();
+
+    let source_file_count = file_metrics.len();
+
+    let result_data = if compact {
+        json!({
+            "summary": {
+                "language": gv.language,
+                "sourceFileCount": source_file_count,
+                "symbolCount": symbol_count,
+                "edgeCount": edge_count,
+                "hotspotFileCount": hotspot_file_count,
+                "hotspotSymbolCount": hotspot_symbol_count,
+                "entryPointCandidateCount": entry_point_candidate_count,
+                "lowConfidenceZoneCount": low_confidence_zone_count,
+            },
+            "entryPointCandidates": entry_candidates,
+            "hotspotFiles": hotspot_files,
+            "hotspotSymbols": hotspot_symbols,
+            "riskMap": risk_items,
+            "lowConfidenceZones": low_confidence_zones,
+            "readFirst": read_first,
+            "reviewFirst": review_first,
+            "docsSignals": docs_signals,
+            "generatedFrom": {
+                "graphBased": true,
+                "compilerVerified": false,
+                "previewOnly": true,
+            },
+            "compact": true,
+        })
+    } else {
+        // Full mode: include additional breakdowns
+        let (file_count, _, _) = {
+            let mut fc: usize = 0;
+            for node in gv.nodes_by_id.values() {
+                if node["label"].as_str() == Some("source-file")
+                    || node["kind"].as_str() == Some("sourceFile")
+                {
+                    fc += 1;
+                }
+            }
+            (fc, 0, 0)
+        };
+
+        json!({
+            "summary": {
+                "language": gv.language,
+                "sourceFileCount": source_file_count,
+                "symbolCount": symbol_count,
+                "edgeCount": edge_count,
+                "hotspotFileCount": hotspot_file_count,
+                "hotspotSymbolCount": hotspot_symbol_count,
+                "entryPointCandidateCount": entry_point_candidate_count,
+                "lowConfidenceZoneCount": low_confidence_zone_count,
+                "totalFileCount": file_count,
+                "nodeCount": node_count,
+                "diagnosticsCount": gv.diagnostics.len(),
+                "documentationCoverageHint": if gv.doc_scanner().is_some() { "docs scanned" } else { "no doc scanner" },
+            },
+            "entryPointCandidates": entry_candidates,
+            "hotspotFiles": hotspot_files,
+            "hotspotSymbols": hotspot_symbols,
+            "riskMap": risk_items,
+            "lowConfidenceZones": low_confidence_zones,
+            "readFirst": read_first,
+            "reviewFirst": review_first,
+            "docsSignals": docs_signals,
+            "fileMetrics": file_risk.iter().take(limit).map(|(f, score, reasons)| {
+                let fm = file_metrics.get(f);
+                json!({
+                    "file": f,
+                    "symbolCount": fm.map(|m| m.symbol_count).unwrap_or(0),
+                    "edgeCount": fm.map(|m| m.edge_count).unwrap_or(0),
+                    "callInCount": fm.map(|m| m.call_in_count).unwrap_or(0),
+                    "callOutCount": fm.map(|m| m.call_out_count).unwrap_or(0),
+                    "lowConfidenceEdgeCount": fm.map(|m| m.low_confidence_edge_count).unwrap_or(0),
+                    "diagnosticCount": fm.map(|m| m.diagnostic_count).unwrap_or(0),
+                    "riskScore": (score * 10.0).round() / 10.0,
+                    "riskReasons": reasons,
+                })
+            }).collect::<Vec<Value>>(),
+            "generatedFrom": {
+                "graphBased": true,
+                "compilerVerified": false,
+                "previewOnly": true,
+            },
+            "compact": false,
+        })
+    };
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
+/// Detect whether a symbol looks like an entry point based on language heuristics.
+fn detect_entry_like(name: &str, kind: &str, file: &str, language: &str, fan_out: usize) -> bool {
+    match language {
+        "rust" => {
+            name == "main"
+                || (kind == "function" && file.ends_with("lib.rs") && !name.starts_with('_'))
+                || (kind == "function" && fan_out > 8) // high fan-out orchestrator
+                || (kind == "function" && file.ends_with("main.rs"))
+        }
+        "cangjie" => {
+            name == "main"
+                || (kind == "function" && !name.starts_with('_') && fan_out > 8)
+                || kind == "class" && file.ends_with("package.cj")
+        }
+        "arkts" => {
+            // ArkTS: @Entry components, build() methods, page-like files
+            name == "build"
+                || file.contains("Index.ets")
+                || file.contains("MainAbility/")
+                || (kind == "method" && name == "aboutToAppear")
+                || (kind == "function" && fan_out > 6)
+        }
+        "typescript" => {
+            name == "main"
+                || file.ends_with("index.ts")
+                || file.ends_with("main.ts")
+                || (kind == "function" && !name.starts_with('_') && fan_out > 6)
+                || file.ends_with(".tsx") && kind == "function"
+        }
+        _ => {
+            // Auto-detect: generic heuristics
+            name == "main" || (kind == "function" && fan_out > 8)
+        }
+    }
+}
+
 /// Compare two analysis runs: either two bridge JSON files or the same root.
 /// Returns differences in nodes, edges, symbols, diagnostics, quality gates.
 fn handle_compare_runs(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -6248,6 +7133,22 @@ fn tools_list() -> Value {
                      "required": ["root"]
                  }
               },
+              {
+                 "name": "codelattice_project_insights",
+                 "description": "Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry points, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.",
+                 "inputSchema": {
+                     "type": "object",
+                     "properties": {
+                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto", "description": "Language to analyze" },
+                         "compact": { "type": "boolean", "default": true, "description": "Compact output — each item retains id/name/kind/file/line/riskScore/reasons only" },
+                         "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
+                         "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signals (symbol ↔ doc associations)" },
+                         "includeDiagnostics": { "type": "boolean", "default": true, "description": "Include diagnostic counts in risk scoring" }
+                     },
+                     "required": ["root"]
+                 }
+              },
              {
                 "name": "codelattice_changed_symbols",
                 "description": "Detect changed symbols from git diff. Maps diff hunks to graph symbols, returning changed files, changed symbols, unknown hunks, and deleted/renamed files. Read-only, no writes. Ideal for AI agents to auto-detect what changed before impact analysis.",
@@ -6355,7 +7256,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cangjieSupport": cangjie_support,
                         "arktsSupport": arkts_support,
                         "typescriptSupport": typescript_support,
-                        "toolCount": 22
+                        "toolCount": 23
                     }
                 }),
             ))
@@ -6391,6 +7292,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_compare_runs" => handle_compare_runs(cache, &arguments),
                 "codelattice_cache_prewarm" => handle_cache_prewarm(cache, &arguments),
                 "codelattice_changed_symbols" => handle_changed_symbols(cache, &arguments),
+                "codelattice_project_insights" => handle_project_insights(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

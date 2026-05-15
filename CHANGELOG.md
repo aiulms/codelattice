@@ -8,7 +8,21 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-- (No unreleased changes yet.)
+- **MCP tool `codelattice_project_insights`** (v0.8): Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry point candidates, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.
+  - File metrics: symbolCount, edgeCount, callInCount, callOutCount, lowConfidenceEdgeCount, diagnosticCount, riskScore with reasons
+  - Symbol metrics: fanIn, fanOut, crossFileImpactCount, lowConfidenceEdgeCount, isEntryLike, isPublic, riskScore with reasons
+  - Risk scoring: weighted composite (fan-in, fan-out, low-confidence edges, cross-file impact, diagnostics) with test/generated/vendor downweighting
+  - Entry point detection: language-specific heuristics for Rust (`main`, lib.rs public API, high fan-out orchestrators), Cangjie, ArkTS (`@Entry`, `build()`), TypeScript
+  - Sections: `summary`, `entryPointCandidates`, `hotspotFiles`, `hotspotSymbols`, `riskMap`, `lowConfidenceZones`, `readFirst`, `reviewFirst`, `docsSignals`
+  - `compact=true` (default): id/name/kind/file/line/riskScore/reasons only
+  - `compact=false`: adds `fileMetrics` breakdown and extra summary fields
+  - `limit` parameter controls max items per category
+  - `includeDocs`/`includeDiagnostics` toggle doc and diagnostic signals
+  - `generatedFrom`: `graphBased=true, compilerVerified=false, previewOnly=true`
+- New smoke script: `scripts/project-insights-smoke.sh` (15 checks)
+- Updated `scripts/mcp-dogfood.sh` to include `codelattice_project_insights` (23 tool checks)
+- 7 new MCP integration tests for project_insights
+- Updated README.md: large project insight section, AI-sidecar workflow step 1
 
 ### Changed
 

@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-15（External Beta Packaging Pack）
+最后更新：2026-05-15（Large Project Insight Pack）
 
 ## 用途
 
@@ -22,6 +22,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Large Project Insight Pack（2026-05-15，已完成）：**
+- 📝 [`2026-05-15-large-project-insight-preflight.md`](2026-05-15-large-project-insight-preflight.md) — 大项目洞察地图设计：指标模型、入口点检测、热点识别、风险区域、先读/先审建议。
+- ✅ [`2026-05-15-large-project-insight-closure.md`](2026-05-15-large-project-insight-closure.md) — closure：`codelattice_project_insights` MCP tool (v0.8)、file/symbol metrics、risk scoring、entry point heuristics、96/96 tests、23/23 dogfood。
 
 **External Beta v0.13.0-beta.2 All-Language Pack（2026-05-15，已完成）：**
 - 📝 [`2026-05-15-beta2-all-language-release-preflight.md`](2026-05-15-beta2-all-language-release-preflight.md) — beta.1 预编译包缺少 ArkTS feature 的根因、修复边界、执行卡。

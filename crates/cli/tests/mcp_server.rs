@@ -1,9 +1,10 @@
-//! Integration tests for MCP v0.3 stdio server.
+//! Integration tests for MCP v0.8 stdio server.
 //!
 //! Tests start the binary with `mcp` subcommand, communicate via stdin/stdout
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
-//! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools) = 18 tools total.
+//! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) = 24 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -174,7 +175,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_twenty_two_tools() {
+fn mcp_tools_list_returns_twenty_three_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -191,7 +192,7 @@ fn mcp_tools_list_returns_twenty_two_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 22, "expected 22 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 23, "expected 23 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -269,6 +270,20 @@ fn mcp_tools_list_returns_twenty_two_tools() {
     assert!(
         names.contains(&"codelattice_cache_clear"),
         "missing codelattice_cache_clear"
+    );
+    // v0.5-v0.7 tools
+    assert!(
+        names.contains(&"codelattice_production_assist"),
+        "missing codelattice_production_assist"
+    );
+    assert!(
+        names.contains(&"codelattice_changed_symbols"),
+        "missing codelattice_changed_symbols"
+    );
+    // v0.8 tools
+    assert!(
+        names.contains(&"codelattice_project_insights"),
+        "missing codelattice_project_insights"
     );
 
     // Verify each tool has inputSchema
@@ -4692,9 +4707,9 @@ fn mcp_doc_scanner_excludes_hidden_dirs() {
     let docs = &data["docs"];
     // docCount should be reasonable (not hundreds from .agents or .claude)
     let doc_count = docs["docCount"].as_u64().unwrap_or(0);
-    // The codelattice repo has roughly 80-100 docs in docs/plans + a few others
+    // The codelattice repo has roughly 100-200 docs in docs/plans + a few others
     assert!(
-        doc_count < 200,
+        doc_count < 300,
         "doc count should be reasonable (excluded hidden dirs), got: {}",
         doc_count
     );
@@ -5500,4 +5515,320 @@ fn mcp_cache_layer_field_in_output() {
     );
 
     let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+// ============================================================
+// v0.8: codelattice_project_insights tests
+// ============================================================
+
+#[test]
+fn mcp_project_insights_basic_rust() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9001);
+    assert!(
+        !resp
+            .get("result")
+            .map_or(true, |r| r["isError"].as_bool().unwrap_or(false)),
+        "project_insights should succeed, got: {:?}",
+        resp
+    );
+
+    let data = extract_tool_data(&resp);
+
+    // Summary fields
+    assert_eq!(data["summary"]["language"], "rust");
+    assert!(
+        data["summary"]["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "symbolCount should be > 0"
+    );
+    assert!(
+        data["summary"]["edgeCount"].as_u64().unwrap_or(0) > 0,
+        "edgeCount should be > 0"
+    );
+    assert!(
+        data["summary"]["hotspotFileCount"].is_number(),
+        "hotspotFileCount should be a number"
+    );
+    assert!(
+        data["summary"]["hotspotSymbolCount"].is_number(),
+        "hotspotSymbolCount should be a number"
+    );
+    assert!(
+        data["summary"]["entryPointCandidateCount"].is_number(),
+        "entryPointCandidateCount should be a number"
+    );
+    assert!(
+        data["summary"]["lowConfidenceZoneCount"].is_number(),
+        "lowConfidenceZoneCount should be a number"
+    );
+
+    // Sections exist (may be empty arrays)
+    assert!(data["entryPointCandidates"].is_array());
+    assert!(data["hotspotFiles"].is_array());
+    assert!(data["hotspotSymbols"].is_array());
+    assert!(data["riskMap"].is_array());
+    assert!(data["lowConfidenceZones"].is_object());
+    assert!(data["readFirst"].is_array());
+    assert!(data["reviewFirst"].is_array());
+    assert!(data["docsSignals"].is_array());
+
+    // generatedFrom
+    assert_eq!(data["generatedFrom"]["graphBased"], true);
+    assert_eq!(data["generatedFrom"]["compilerVerified"], false);
+    assert_eq!(data["generatedFrom"]["previewOnly"], true);
+
+    // Compact default
+    assert_eq!(data["compact"], true);
+}
+
+#[test]
+fn mcp_project_insights_hotspot_symbols_have_risk_score() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // Each hotspot symbol item should have id/name/kind/file/line/riskScore/reasons
+    if let Some(symbols) = data["hotspotSymbols"].as_array() {
+        for sym in symbols {
+            assert!(
+                sym["name"].is_string() || sym["id"].is_string(),
+                "hotspot symbol should have name or id"
+            );
+            assert!(
+                sym["riskScore"].is_number(),
+                "hotspot symbol should have riskScore"
+            );
+            assert!(
+                sym["reasons"].is_array(),
+                "hotspot symbol should have reasons"
+            );
+        }
+    }
+}
+
+#[test]
+fn mcp_project_insights_read_first_has_reasons() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // readFirst items should have reason
+    if let Some(items) = data["readFirst"].as_array() {
+        for item in items {
+            assert!(
+                item["reason"].is_string(),
+                "readFirst item should have reason"
+            );
+        }
+    }
+
+    // reviewFirst items should have reason
+    if let Some(items) = data["reviewFirst"].as_array() {
+        for item in items {
+            assert!(
+                item["reason"].is_string(),
+                "reviewFirst item should have reason"
+            );
+        }
+    }
+}
+
+#[test]
+fn mcp_project_insights_low_confidence_zones_stable() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // lowConfidenceZones should have fileZones and symbolZones (may be empty)
+    assert!(
+        data["lowConfidenceZones"]["fileZones"].is_array(),
+        "lowConfidenceZones.fileZones should be array"
+    );
+    assert!(
+        data["lowConfidenceZones"]["symbolZones"].is_array(),
+        "lowConfidenceZones.symbolZones should be array"
+    );
+}
+
+#[test]
+fn mcp_project_insights_limit_parameter_works() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "limit": 2
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // Categories should respect limit
+    if let Some(hf) = data["hotspotFiles"].as_array() {
+        assert!(
+            hf.len() <= 2,
+            "hotspotFiles should respect limit=2, got {}",
+            hf.len()
+        );
+    }
+    if let Some(hs) = data["hotspotSymbols"].as_array() {
+        assert!(
+            hs.len() <= 2,
+            "hotspotSymbols should respect limit=2, got {}",
+            hs.len()
+        );
+    }
+}
+
+#[test]
+fn mcp_project_insights_full_mode() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // Full mode should have fileMetrics
+    assert!(
+        data["fileMetrics"].is_array(),
+        "full mode should have fileMetrics"
+    );
+    assert_eq!(data["compact"], false);
+    // Summary should have extra fields
+    assert!(
+        data["summary"]["totalFileCount"].is_number(),
+        "full mode summary should have totalFileCount"
+    );
+    assert!(
+        data["summary"]["nodeCount"].is_number(),
+        "full mode summary should have nodeCount"
+    );
+}
+
+#[test]
+fn mcp_project_insights_docs_signals_stable() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "includeDocs": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+
+    // docsSignals should be array (may be empty if no docs match)
+    assert!(
+        data["docsSignals"].is_array(),
+        "docsSignals should be array"
+    );
 }

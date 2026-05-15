@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# MCP v0.5 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 22 tools + source snippet + cache behavior + doc association.
+# MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
+# Exercises all 23 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -15,7 +15,7 @@ echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie --bins --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/codelattice"
 
-echo "--- MCP v0.11 Dogfood ---"
+echo "--- MCP v0.12 Dogfood ---"
 echo "Binary: $BIN"
 echo "Fixture: $FIXTURE_ABS"
 echo ""
@@ -128,8 +128,8 @@ if [ "$TOOL_COUNT" -ge 21 ]; then
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 21, got $TOOL_COUNT)")
-    echo "   → expected >= 21 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 23, got $TOOL_COUNT)")
+    echo "   → expected >= 23 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -282,11 +282,19 @@ else
 fi
 
 # ============================================================
+# v0.8: Large Project Insight
+# ============================================================
+echo "23. codelattice_project_insights"
+check_tool "codelattice_project_insights" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true}" \
+    "isinstance(data.get('summary'), dict) and data['summary'].get('language') == 'rust' and isinstance(data.get('hotspotFiles'), list) and isinstance(data.get('hotspotSymbols'), list) and isinstance(data.get('readFirst'), list) and isinstance(data.get('reviewFirst'), list) and data.get('generatedFrom', {}).get('graphBased') == True"
+
+# ============================================================
 # Summary
 # ============================================================
 echo ""
 echo "============================================"
-echo " MCP v0.7 Dogfood Results"
+echo " MCP v0.8 Dogfood Results"
 echo "============================================"
 for r in "${RESULTS[@]}"; do
     echo "  $r"
@@ -297,7 +305,7 @@ echo "  FAIL: $FAIL"
 echo ""
 
 if [ "$FAIL" -eq 0 ]; then
-    echo "All checks passed — MCP v0.11 dogfood successful."
+    echo "All checks passed — MCP v0.12 dogfood successful."
     exit 0
 else
     echo "Some checks failed — see above for details."
