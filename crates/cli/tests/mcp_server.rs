@@ -5123,6 +5123,283 @@ fn mcp_typescript_production_assist() {
 }
 
 // ============================================================
+// TypeScript Path Alias / Monorepo MCP Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[allow(dead_code)]
+fn typescript_path_alias_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("typescript")
+        .join("path-alias-monorepo")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_path_alias_project_overview() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_path_alias_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12101,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["nodeCount"].as_u64().unwrap_or(0) > 0,
+        "path-alias overview must have nodes: {:?}",
+        data
+    );
+    assert!(
+        data["sourceFileCount"].as_u64().unwrap_or(0) >= 8,
+        "path-alias overview must have >= 8 source files: {:?}",
+        data
+    );
+    assert!(
+        data["qualityMetrics"].is_object(),
+        "path-alias overview must include qualityMetrics: {:?}",
+        data
+    );
+    // No dangling edges
+    let dangling = data["qualityMetrics"]["graphCompleteness"]["danglingEdgeCount"]
+        .as_u64()
+        .unwrap_or(999);
+    assert_eq!(
+        dangling, 0,
+        "path-alias overview must have zero dangling edges: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_path_alias_analyze_graph() {
+    let root = typescript_path_alias_dir();
+    let output = std::process::Command::new(cli_binary())
+        .args([
+            "analyze",
+            "--language",
+            "typescript",
+            "--root",
+            &root.to_string_lossy(),
+            "--format",
+            "json",
+        ])
+        .output()
+        .expect("failed to run CLI");
+    assert!(
+        output.status.success(),
+        "path-alias analyze should succeed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let data: serde_json::Value =
+        serde_json::from_str(&stdout).expect("analyze output should be valid JSON");
+
+    let summary = &data["summary"];
+    assert!(
+        summary["nodeCount"].as_u64().unwrap() > 0,
+        "analyze should produce nodes"
+    );
+
+    // Check that import edges exist and target real files (not module: synthetic IDs)
+    let empty_edges: Vec<serde_json::Value> = vec![];
+    let edges = data["graph"]["edges"].as_array().unwrap_or(&empty_edges);
+    let import_edges: Vec<_> = edges.iter().filter(|e| e["type"] == "IMPORTS").collect();
+    assert!(
+        !import_edges.is_empty(),
+        "path-alias fixture should have import edges"
+    );
+
+    // No dangling import edges (all targets should be file: nodes)
+    for edge in &import_edges {
+        let target = edge["target"].as_str().unwrap_or("");
+        assert!(
+            !target.starts_with("module:"),
+            "import edge should not use synthetic module: target: {}",
+            target
+        );
+    }
+
+    // Check for diagnostics (unresolved / external imports should produce them)
+    let empty_diags: Vec<serde_json::Value> = vec![];
+    let diagnostics = data["graph"]["diagnostics"]
+        .as_array()
+        .unwrap_or(&empty_diags);
+    assert!(
+        !diagnostics.is_empty(),
+        "path-alias fixture should produce diagnostics for external/unresolved imports"
+    );
+
+    // External package (react) should produce diagnostic
+    let has_external = diagnostics
+        .iter()
+        .any(|d| d["kind"].as_str().unwrap_or("") == "typescript-external-package-not-indexed");
+    assert!(
+        has_external,
+        "should have external package diagnostic for 'react': {:?}",
+        diagnostics
+    );
+
+    // Unresolved (@shared/missing) should produce diagnostic
+    let has_unresolved = diagnostics
+        .iter()
+        .any(|d| d["kind"].as_str().unwrap_or("") == "typescript-import-unresolved");
+    assert!(
+        has_unresolved,
+        "should have unresolved import diagnostic for '@shared/missing': {:?}",
+        diagnostics
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_path_alias_symbol_search() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_path_alias_dir();
+
+    // Search for logInfo
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12103,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "query": "logInfo"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let results = data["matches"].as_array();
+    assert!(
+        results.is_some() && !results.unwrap().is_empty(),
+        "symbol search for 'logInfo' should find matches: {:?}",
+        data
+    );
+
+    // Search for createOrder
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12104,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "query": "createOrder"
+            }
+        }
+    }));
+
+    let resp2 = session.recv();
+    let data2 = extract_tool_data(&resp2);
+    let results2 = data2["matches"].as_array();
+    assert!(
+        results2.is_some() && !results2.unwrap().is_empty(),
+        "symbol search for 'createOrder' should find matches: {:?}",
+        data2
+    );
+
+    // Search for formatCurrency
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12105,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "query": "formatCurrency"
+            }
+        }
+    }));
+
+    let resp3 = session.recv();
+    let data3 = extract_tool_data(&resp3);
+    let results3 = data3["matches"].as_array();
+    assert!(
+        results3.is_some() && !results3.unwrap().is_empty(),
+        "symbol search for 'formatCurrency' should find matches: {:?}",
+        data3
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_path_alias_quality_metrics() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_path_alias_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 12106,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let qm = &data["qualityMetrics"];
+    assert!(
+        qm.is_object(),
+        "overview must include qualityMetrics: {:?}",
+        data
+    );
+
+    // Import edges should exist
+    let import_edges = qm["dependencyQuality"]["importEdgeCount"]
+        .as_u64()
+        .unwrap_or(0);
+    assert!(
+        import_edges > 0,
+        "path-alias fixture should have resolved import edges: {:?}",
+        qm
+    );
+
+    // No dangling edges
+    let dangling = qm["graphCompleteness"]["danglingEdgeCount"]
+        .as_u64()
+        .unwrap_or(999);
+    assert_eq!(
+        dangling, 0,
+        "path-alias fixture must have zero dangling edges: {:?}",
+        qm
+    );
+}
+
+// ============================================================
 // C Phase A MCP Tests
 // ============================================================
 

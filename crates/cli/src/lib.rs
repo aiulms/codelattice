@@ -606,6 +606,7 @@ fn run_arkts_analysis(
         &symbols_by_file,
         &imports_by_file,
         &references_by_file,
+        None,
     );
 
     // Augment with ArkTS-specific nodes
@@ -712,11 +713,15 @@ fn run_typescript_analysis(
         source_files: source_files.clone(),
     };
 
+    // Build module resolver for path alias / monorepo support
+    let resolver = gitnexus_typescript::TsModuleResolver::build(&ts_project.root, &source_files);
+
     let graph = gitnexus_typescript::graph::build_ts_graph(
         &ts_project,
         &symbols_by_file,
         &imports_by_file,
         &references_by_file,
+        Some(&resolver),
     );
 
     let json_val = serde_json::to_value(&graph)

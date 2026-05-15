@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **TypeScript Path Alias / Monorepo Import Resolution** (v0.16): Enhanced TypeScript graph quality with tsconfig paths, workspace package, and extensionless import resolution, replacing synthetic module nodes with real file targets.
+  - New `tsconfig.rs` — parses tsconfig.json with `extends` chains, `compilerOptions.baseUrl`, `compilerOptions.paths`, JSONC support via `strip_json5_comments`.
+  - New `module_resolution.rs` — `TsModuleResolver` resolves import specifiers to real project files.
+  - Resolves: tsconfig paths exact (`@shared`), wildcard (`@core/logger` via `@core/*`), relative imports (`./ui/Button` with `.ts`/`.tsx`/`.d.ts`/`index.ts` resolution), workspace package imports (`@pkg/shared` via `package.json` `workspaces`).
+  - Import edges now target real file nodes instead of synthetic `module:` placeholders.
+  - Confidence tiers: relative 0.90, exact alias 0.90, wildcard 0.85, workspace 0.80, workspace subpath 0.75.
+  - Unresolved imports emit diagnostics (no dangling edges). External packages (e.g., `react`) produce external-package-not-indexed diagnostics.
+  - `TsGraphOutput` now includes a `diagnostics` field.
+  - New fixture `fixtures/typescript/path-alias-monorepo/` (15 files: monorepo with tsconfig.base.json, extends, workspaces, path aliases).
+  - 10 new TypeScript crate tests + 4 new MCP integration tests.
+  - No new dependencies. Backward compatible (synthetic nodes used when module resolver is not provided).
+
 - **Python Import Resolution Refinement** (v0.15): Enhanced Python graph quality with package-aware import resolution, replacing synthetic module nodes with real file/symbol targets.
   - New `PythonModuleIndex` in `crates/python/src/module_resolution.rs` — builds module↔file mapping from project structure, detects src-layout vs flat-layout, extracts `__init__.py` re-exports.
   - Resolves: absolute imports (`from shop.models import Order`), relative imports (`from .services import X`), parent-relative (`from ..config import Y`), sibling imports (`from . import config`), aliases (`from .config import X as Y`), and `__init__.py` re-export chains (`from shop import create_order`).

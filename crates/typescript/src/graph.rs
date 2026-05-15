@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use crate::extractors::imports::TsImport;
 use crate::extractors::references::TsReference;
 use crate::extractors::symbol::TsSymbol;
+use crate::module_resolution::TsModuleResolver;
 use crate::project::TsProject;
 
 // ---------------------------------------------------------------------------
@@ -68,6 +69,8 @@ pub struct TsGraphEdge {
 pub struct TsGraphOutput {
     pub nodes: Vec<TsGraphNode>,
     pub edges: Vec<TsGraphEdge>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<serde_json::Value>,
 }
 
 /// Build a complete graph from a TsProject and extracted per-file data.
@@ -76,9 +79,11 @@ pub fn build_ts_graph(
     symbols: &BTreeMap<PathBuf, Vec<TsSymbol>>,
     imports: &BTreeMap<PathBuf, Vec<TsImport>>,
     references: &BTreeMap<PathBuf, Vec<TsReference>>,
+    module_resolver: Option<&TsModuleResolver>,
 ) -> TsGraphOutput {
     let mut nodes = Vec::new();
     let mut edges = Vec::new();
+    let mut diagnostics = Vec::new();
 
     // Repository node
     let repo_id = format!("repo:{}", project.root.display());
@@ -137,10 +142,25 @@ pub fn build_ts_graph(
         None
     };
 
+    // Collect all file node IDs for dangling edge prevention
+    let mut file_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    // Also build a map from canonical absolute path → file_id for resolver matching.
+    // The resolver produces absolute paths, but file_ids may be relative (when project.root is relative).
+    let mut canonical_to_file_id: std::collections::BTreeMap<PathBuf, String> =
+        std::collections::BTreeMap::new();
+
     // Source file nodes
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
         let rel = file.strip_prefix(&project.root).unwrap_or(file);
+        file_ids.insert(file_id.clone());
+        // Try to canonicalize for resolver matching
+        if let Ok(canonical) = std::fs::canonicalize(file) {
+            canonical_to_file_id.insert(canonical, file_id.clone());
+        } else {
+            // Fallback: store as-is (absolute path)
+            canonical_to_file_id.insert(file.clone(), file_id.clone());
+        }
         nodes.push(TsGraphNode {
             id: file_id.clone(),
             kind: TsNodeKind::SourceFile,
@@ -189,23 +209,108 @@ pub fn build_ts_graph(
                 });
             }
         }
+    }
 
-        // Import edges
+    // Build import alias map (local name -> resolved target file ID) for call resolution
+    let mut _import_alias_map: BTreeMap<(String, String), String> = BTreeMap::new();
+
+    // Import edges — use resolver if available
+    for file in &project.source_files {
+        let file_id = format!("file:{}", file.display());
         if let Some(imps) = imports.get(file) {
             for imp in imps {
-                edges.push(TsGraphEdge {
-                    kind: TsEdgeKind::Imports,
-                    source: Some(file_id.clone()),
-                    target: format!("module:{}", imp.module_path),
-                    properties: Some(serde_json::json!({
-                        "names": imp.imported_names,
-                        "line": imp.line,
-                    })),
-                });
+                if let Some(resolver) = module_resolver {
+                    let resolved = resolver.resolve_import(file, &imp.module_path);
+                    match resolved.resolution_kind {
+                        crate::module_resolution::TsResolutionKind::External => {
+                            // No edge — diagnostic only
+                            diagnostics.push(serde_json::json!({
+                                "kind": "typescript-external-package-not-indexed",
+                                "source": file_id,
+                                "specifier": imp.module_path,
+                                "line": imp.line,
+                                "reason": resolved.reason,
+                            }));
+                        }
+                        crate::module_resolution::TsResolutionKind::Unresolved => {
+                            // No edge — diagnostic only
+                            diagnostics.push(serde_json::json!({
+                                "kind": "typescript-import-unresolved",
+                                "source": file_id,
+                                "specifier": imp.module_path,
+                                "line": imp.line,
+                                "reason": resolved.reason,
+                            }));
+                        }
+                        _ => {
+                            if let Some(ref target_file) = resolved.target_file {
+                                // Resolve the target file to the correct file_id via canonical path
+                                let target_id = {
+                                    // Try canonical match first
+                                    if let Ok(canonical) = std::fs::canonicalize(target_file) {
+                                        canonical_to_file_id.get(&canonical).cloned()
+                                    } else {
+                                        None
+                                    }
+                                }
+                                .unwrap_or_else(|| format!("file:{}", target_file.display()));
+
+                                // Only create edge if target is an existing node
+                                if file_ids.contains(&target_id) {
+                                    let mut props = serde_json::json!({
+                                        "names": imp.imported_names,
+                                        "line": imp.line,
+                                    });
+                                    if let Some(confidence) = resolved.confidence {
+                                        props["confidence"] = serde_json::json!(confidence);
+                                    }
+                                    props["reason"] = serde_json::json!(resolved.reason);
+                                    edges.push(TsGraphEdge {
+                                        kind: TsEdgeKind::Imports,
+                                        source: Some(file_id.clone()),
+                                        target: target_id,
+                                        properties: Some(props),
+                                    });
+
+                                    // Track aliases for call resolution
+                                    for name in &imp.imported_names {
+                                        _import_alias_map.insert(
+                                            (file_id.clone(), name.clone()),
+                                            format!("file:{}", target_file.display()),
+                                        );
+                                    }
+                                } else {
+                                    // Resolved but not a known source file — diagnostic
+                                    diagnostics.push(serde_json::json!({
+                                        "kind": "typescript-import-unresolved",
+                                        "source": file_id,
+                                        "specifier": imp.module_path,
+                                        "line": imp.line,
+                                        "reason": "resolved-target-not-in-graph",
+                                    }));
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Backward-compatible: no resolver, use module: specifier
+                    edges.push(TsGraphEdge {
+                        kind: TsEdgeKind::Imports,
+                        source: Some(file_id.clone()),
+                        target: format!("module:{}", imp.module_path),
+                        properties: Some(serde_json::json!({
+                            "names": imp.imported_names,
+                            "line": imp.line,
+                        })),
+                    });
+                }
             }
         }
+    }
 
-        // Reference edges
+    // Reference edges
+    for file in &project.source_files {
+        let file_id = format!("file:{}", file.display());
         if let Some(refs) = references.get(file) {
             for rf in refs {
                 let edge_kind = match rf.kind {
@@ -226,5 +331,9 @@ pub fn build_ts_graph(
         }
     }
 
-    TsGraphOutput { nodes, edges }
+    TsGraphOutput {
+        nodes,
+        edges,
+        diagnostics,
+    }
 }

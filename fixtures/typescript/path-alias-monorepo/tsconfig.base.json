@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "strict": true,
+    "baseUrl": ".",
+    "paths": {
+      "@app/*": ["packages/app/src/*"],
+      "@core/*": ["packages/app/src/core/*"],
+      "@shared": ["packages/shared/src/index.ts"],
+      "@shared/*": ["packages/shared/src/*"],
+      "@models/*": ["packages/shared/src/models/*"]
+    }
+  }
+}

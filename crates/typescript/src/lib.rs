@@ -16,7 +16,9 @@
 pub mod extractors;
 pub mod graph;
 pub mod manifest;
+pub mod module_resolution;
 pub mod project;
+pub mod tsconfig;
 
 // Re-export key types for convenience
 pub use extractors::{
@@ -27,7 +29,9 @@ pub use manifest::{
     load_ts_manifest, parse_oh_package_json5, parse_package_json, parse_tsconfig_json, TsManifest,
     TsManifestError,
 };
+pub use module_resolution::{ResolvedTsImport, TsModuleResolver, TsResolutionKind};
 pub use project::{
     find_project_root, find_typescript_project_root, list_source_files, TsPackageInfo, TsProject,
     TsProjectKind,
 };
+pub use tsconfig::{discover_tsconfigs, load_tsconfig, TsConfigInfo};

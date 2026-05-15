@@ -231,7 +231,7 @@ fn extract_dependencies(parsed: &serde_json::Value) -> Vec<TsDependency> {
 /// This is a simple heuristic that handles most common JSON5 patterns.
 /// It does not handle comments inside string literals perfectly, but works
 /// well for typical oh-package.json5 files.
-fn strip_json5_comments(input: &str) -> String {
+pub fn strip_json5_comments(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
     let mut in_string = false;
     let mut string_char = ' ';
