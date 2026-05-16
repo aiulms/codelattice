@@ -8,7 +8,20 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-- Nothing yet.
+- **WebUI Snapshot Readiness**: New `docs/webui/` documentation pack with snapshot contract, MVP view specifications, and caution rendering guidelines for a future human-facing project visualization layer.
+  - `docs/webui/README.md` — WebUI readiness overview, 5-view architecture (Dashboard, Explore, Impact, Cleanup, Release Review), MCP vs WebUI relationship.
+  - `docs/webui/webui-mvp.md` — Detailed MVP view specs with layout suggestions, required data sections, stability labels, and per-view caution rendering rules.
+  - `docs/webui/webui-snapshot-contract.md` — Full `CodeLatticeWebSnapshotV1` JSON contract definition with field stability labels (stable/preview/heuristic), section-by-section schema from MCP tool sources, minimal and full example structures.
+  - `scripts/webui-snapshot.sh` — Snapshot generation script: aggregates CLI analyze + quality output into contract-compliant JSON; supports `--root`, `--language`, `--output` (file or stdout), `--compact`; uses bash + Python stdlib only; no new dependencies.
+  - `scripts/webui-snapshot-smoke.sh` — Automated smoke test: generates Rust and TypeScript fixture snapshots, validates JSON parse, schemaVersion, generatedFrom flags, summary counts, quality section, and limitations section.
+  - `fixtures/webui-snapshots/rust-portable-smoke.snapshot.json` — Pre-generated Rust fixture snapshot (5.2 KB).
+  - `fixtures/webui-snapshots/typescript-portable-smoke.snapshot.json` — Pre-generated TypeScript fixture snapshot (4.7 KB).
+  - `docs/plans/2026-05-16-webui-readiness-preflight.md` — Pre-flight plan document.
+  - `docs/plans/2026-05-16-webui-readiness-closure.md` — Closure review document.
+
+### Changed
+
+- README.md: Added "WebUI Readiness" section with quick-start commands, documentation index, and hard boundaries.
 
 ## [0.15.0-beta.1] - 2026-05-16
 

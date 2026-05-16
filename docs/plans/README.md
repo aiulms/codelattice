@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-16（Homepage + Packaging Refresh）
+最后更新：2026-05-16（WebUI Readiness Pack）
 
 ## 用途
 
@@ -22,6 +22,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Readiness / Snapshot Contract Pack（2026-05-16，已完成）：**
+- 📝 [`2026-05-16-webui-readiness-preflight.md`](2026-05-16-webui-readiness-preflight.md) — WebUI snapshot contract preflight：数据契约设计、5 视图规划、fixture snapshot 生成、smoke 验证。
+- ✅ [`2026-05-16-webui-readiness-closure.md`](2026-05-16-webui-readiness-closure.md) — closure：docs/webui/ 三文档、webui-snapshot.sh 脚本、webui-snapshot-smoke.sh 验证、2 个 fixture snapshots、README/CHANGELOG 更新。
 
 **Homepage + Packaging Refresh（2026-05-16，已完成）：**
 - 📝 [`2026-05-16-homepage-packaging-refresh-preflight.md`](2026-05-16-homepage-packaging-refresh-preflight.md) — `0.15.0-beta.1` 本地包候选、GitCode 首页刷新、37-tool packaging/smoke 阈值收口。

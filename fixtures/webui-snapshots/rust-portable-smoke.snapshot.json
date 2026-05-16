@@ -1,0 +1,179 @@
+{
+  "schemaVersion": "webui.snapshot.v1",
+  "generatedAt": "2026-05-16T15:18:16+00:00",
+  "generatorVersion": "codelattice 0.15.0-beta.1",
+  "root": "/Users/jiangxuanyang/Desktop/codelattice/fixtures/rust/portable-smoke",
+  "language": "rust",
+  "generatedFrom": {
+    "staticAnalysis": true,
+    "runtimeVerified": false,
+    "externalUsageVerified": false,
+    "coverageVerified": false,
+    "deletionSafetyVerified": false
+  },
+  "summary": {
+    "nodeCount": 16,
+    "edgeCount": 25,
+    "symbolCount": 9,
+    "sourceFileCount": 2,
+    "packageCount": 3,
+    "diagnosticCount": 1,
+    "callEdgeCount": 5,
+    "topNodeKinds": [],
+    "topEdgeKinds": []
+  },
+  "quality": {
+    "overall": "pass",
+    "totalGates": 7,
+    "passedGates": 7,
+    "failedGates": 0,
+    "gates": [
+      {
+        "gateName": "duplicate_nodes",
+        "passed": true,
+        "detail": "0 duplicate node IDs found"
+      },
+      {
+        "gateName": "duplicate_edges",
+        "passed": true,
+        "detail": "0 duplicate edge triples found"
+      },
+      {
+        "gateName": "dangling_source",
+        "passed": true,
+        "detail": "0 dangling source references found"
+      },
+      {
+        "gateName": "dangling_target",
+        "passed": true,
+        "detail": "0 dangling target references found"
+      },
+      {
+        "gateName": "deterministic",
+        "passed": true,
+        "detail": "not verified from single CLI run; verified by test suite"
+      },
+      {
+        "gateName": "calls_endpoint_integrity",
+        "passed": true,
+        "detail": "All CALLS edge endpoints exist in nodes"
+      },
+      {
+        "gateName": "external_symbol_marking",
+        "passed": true,
+        "detail": "No external symbols (or no external crate imports in this project)"
+      }
+    ],
+    "metrics": {
+      "graphCompleteness": {
+        "nodeCount": 16,
+        "edgeCount": 25,
+        "symbolCount": 9,
+        "sourceFileCount": 2,
+        "danglingEdgeCount": 0
+      },
+      "edgeConfidence": {
+        "totalConfidenceEdgeCount": 25,
+        "highConfidenceEdgeCount": null,
+        "mediumConfidenceEdgeCount": null,
+        "lowConfidenceEdgeCount": null,
+        "unknownConfidenceEdgeCount": null,
+        "lowConfidenceEdgeRate": null,
+        "unknownConfidenceEdgeRate": null
+      },
+      "callQuality": {
+        "callEdgeCount": 5,
+        "highConfidenceCallEdgeCount": null,
+        "mediumConfidenceCallEdgeCount": null,
+        "lowConfidenceCallEdgeCount": null,
+        "unknownConfidenceCallEdgeCount": null,
+        "lowConfidenceCallRate": null
+      },
+      "dependencyQuality": {
+        "importEdgeCount": null,
+        "includeEdgeCount": null,
+        "unresolvedImportOrIncludeCount": null
+      },
+      "diagnostics": {}
+    },
+    "diagnosticsSummary": {}
+  },
+  "insights": {
+    "status": "not_collected",
+    "reason": "requires MCP aggregation; snapshot uses CLI data only"
+  },
+  "explore": {
+    "status": "not_collected",
+    "reason": "requires symbol-level query; use MCP tools for on-demand exploration"
+  },
+  "impact": {
+    "status": "not_collected",
+    "reason": "requires target symbol parameter; use MCP impact_preview for on-demand analysis",
+    "sampleEntries": []
+  },
+  "cleanup": {
+    "deadCodeCandidates": {
+      "status": "not_collected",
+      "reason": "requires MCP dead_code_candidates tool"
+    },
+    "reachability": {
+      "status": "not_collected",
+      "reason": "requires MCP reachability_map tool"
+    },
+    "externalApiSurface": {
+      "status": "not_collected",
+      "reason": "requires MCP external_api_surface tool"
+    },
+    "frameworkEntries": {
+      "status": "not_collected",
+      "reason": "requires MCP framework_entry_hints tool"
+    }
+  },
+  "releaseReview": {
+    "breakingChange": {
+      "status": "not_collected",
+      "reason": "requires changed symbols list"
+    },
+    "consistency": {
+      "status": "not_collected",
+      "reason": "requires changed symbols list"
+    },
+    "configExamples": {
+      "status": "not_collected",
+      "reason": "requires changed symbols list"
+    }
+  },
+  "docsTestsConfig": {
+    "status": "collected",
+    "docs": {
+      "docCount": 0,
+      "topDocPaths": []
+    },
+    "tests": {
+      "testFileCount": 0,
+      "topTestPaths": []
+    },
+    "configFiles": {
+      "paths": [
+        "Cargo.toml"
+      ]
+    }
+  },
+  "workflowPresets": {
+    "status": "not_collected",
+    "reason": "workflow presets are planning-only metadata; see MCP workflow_presets tool"
+  },
+  "limitations": [
+    "Static graph analysis only — no runtime behavior proof",
+    "No full type inference or trait solving",
+    "No macro expansion or proc-macro execution",
+    "Call edges are heuristic with confidence scores — not compiler-verified",
+    "Dynamic dispatch / reflection / plugins may hide actual callers",
+    "Dead-code candidates are NOT deletion-proof — always verify manually",
+    "External API surface is NOT external-usage-verified",
+    "Consistency review does not run tests or execute scripts",
+    "Config/examples review does not build Docker images or run CI",
+    "Cross-crate/cross-package dependencies may be incomplete",
+    "Snapshot is a point-in-time aggregate; run fresh for updated results"
+  ]
+}
