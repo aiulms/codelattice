@@ -1,0 +1,11 @@
+{
+  "name": "breaking-change-review-fixture",
+  "version": "0.2.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "demo-cli": "./src/public-api.ts"
+  }
+}

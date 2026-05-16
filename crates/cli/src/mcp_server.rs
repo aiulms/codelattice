@@ -8248,7 +8248,28 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_breaking_change_review",
+                "description": "Static compatibility risk review for code changes. Cross-references changed symbols against public API surface, framework entry hints, and documentation. Does not prove runtime breakage. Use before release, deletion, or changing public APIs.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Changed symbol names/IDs/files to review" },
+                        "diffMode": { "type": "string", "enum": ["working", "staged", "head"], "default": "working" },
+                        "includeExternalApi": { "type": "boolean", "default": true, "description": "Check external API surface" },
+                        "includeFrameworkEntries": { "type": "boolean", "default": true, "description": "Check framework entry hints" },
+                        "includeReachability": { "type": "boolean", "default": true, "description": "Check reachability" },
+                        "includeDocs": { "type": "boolean", "default": true, "description": "Check documentation references" }
+                    },
+                    "required": ["root"]
+                }
             }
+
 
         ]
     })
@@ -12071,6 +12092,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_framework_entry_hints" => {
                     handle_framework_entry_hints(cache, &arguments)
                 }
+                "codelattice_breaking_change_review" => {
+                    handle_breaking_change_review(cache, &arguments)
+                }
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -13230,6 +13254,603 @@ fn handle_framework_entry_hints(cache: &mut McpCache, params: &Value) -> Result<
         });
         Ok(merge_cache_and_result(&full, &cache_meta))
     }
+}
+
+// ============================================================
+// v0.23: Breaking-Change Review / Compatibility Risk Assessment
+// ============================================================
+
+// ============================================================
+// v0.23: Breaking-Change Review / Compatibility Risk Assessment
+// ============================================================
+
+/// Changed symbol review entry.
+struct BrReview {
+    id: String,
+    name: String,
+    kind: String,
+    file: String,
+    line: u64,
+    risk: String,
+    reasons: Vec<String>,
+    recommended_verification: Vec<String>,
+}
+
+/// Resolve changed symbols — explicit list or git diff auto-detect.
+fn resolve_changed_symbols_for_review(
+    gv: &GraphView,
+    params: &Value,
+    root: &str,
+) -> (Vec<(String, Value)>, Vec<String>, Vec<String>) {
+    let changed_raw: Vec<String> = params["changedSymbols"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if changed_raw.is_empty() {
+        return (vec![], vec![], vec![]);
+    }
+
+    let mut found: Vec<(String, Value)> = Vec::new();
+    let mut ambiguous: Vec<String> = Vec::new();
+    let mut unknown: Vec<String> = Vec::new();
+
+    for raw in &changed_raw {
+        // Try exact ID match
+        if let Some(node) = gv.nodes_by_id.get(raw.as_str()) {
+            found.push((raw.clone(), node.clone()));
+            continue;
+        }
+
+        // Try exact name match
+        let name_matches: Vec<(&String, &Value)> = gv
+            .nodes_by_id
+            .iter()
+            .filter(|(_, n)| n["name"].as_str() == Some(raw.as_str()))
+            .collect();
+
+        if name_matches.len() == 1 {
+            found.push((raw.clone(), name_matches[0].1.clone()));
+        } else if name_matches.len() > 1 {
+            ambiguous.push(raw.clone());
+        } else {
+            // Try file path match
+            let file_matches: Vec<(&String, &Value)> = gv
+                .nodes_by_id
+                .iter()
+                .filter(|(_, n)| {
+                    n["file"]
+                        .as_str()
+                        .map(|f| f.contains(raw.as_str()))
+                        .unwrap_or(false)
+                })
+                .collect();
+            if !file_matches.is_empty() {
+                for (_, fm) in file_matches {
+                    found.push((raw.clone(), fm.clone()));
+                }
+            } else {
+                unknown.push(raw.clone());
+            }
+        }
+    }
+
+    (found, ambiguous, unknown)
+}
+
+/// Check if symbol name mentioned in README.md (simple heuristic).
+fn is_documented_in_readme(root: &str, name: &str) -> bool {
+    let readme_path = std::path::PathBuf::from(root).join("README.md");
+    if let Ok(content) = std::fs::read_to_string(&readme_path) {
+        content.contains(name)
+    } else {
+        false
+    }
+}
+
+/// Classify a symbol against external API surface signals.
+fn classify_ext_api(
+    node: &Value,
+    node_id: &str,
+    language: &str,
+    gv: &GraphView,
+    root: &str,
+    include_docs: bool,
+) -> Option<BrReview> {
+    let name = node["name"].as_str().unwrap_or("");
+    let file = node["file"].as_str().unwrap_or("");
+    let kind = node["kind"].as_str().unwrap_or("function");
+    let line = node["line"].as_u64().unwrap_or(0);
+    let properties = &node["properties"];
+
+    let is_pub = properties["visibility"].as_str() == Some("public")
+        || properties["exported"].as_bool() == Some(true);
+
+    let mut score: f64 = 0.0;
+    let mut reasons: Vec<String> = Vec::new();
+
+    if is_pub {
+        score += 0.30;
+        reasons.push("exported-or-public".to_string());
+    }
+
+    if is_entry_file(file, language) {
+        score += 0.25;
+        reasons.push("package-entry-file".to_string());
+    }
+
+    if is_reexported_symbol(node_id, gv) || is_reexported_from_index(node_id, gv) {
+        score += 0.20;
+        reasons.push("reexported-from-entry".to_string());
+    }
+
+    if include_docs && is_documented_in_readme(root, name) {
+        score += 0.15;
+        reasons.push("documented-in-readme".to_string());
+    }
+
+    // C/C++ header API
+    if (language == "c" || language == "cpp") && file.contains("include/") {
+        score += 0.30;
+        reasons.push("c-cpp-header-api".to_string());
+    }
+
+    if score < 0.35 {
+        return None;
+    }
+
+    let risk_level = if score >= 0.75 {
+        "high"
+    } else if score >= 0.45 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    Some(BrReview {
+        id: node_id.to_string(),
+        name: name.to_string(),
+        kind: kind.to_string(),
+        file: file.to_string(),
+        line,
+        risk: risk_level.to_string(),
+        reasons,
+        recommended_verification: vec![
+            "check downstream imports".to_string(),
+            "add or update compatibility tests".to_string(),
+            "document breaking change if signature changed".to_string(),
+        ],
+    })
+}
+
+/// Classify a symbol against framework entry hints.
+fn classify_fw_entry(node: &Value, language: &str) -> Option<BrReview> {
+    let name = node["name"].as_str().unwrap_or("");
+    let file = node["file"].as_str().unwrap_or("");
+    let kind = node["kind"].as_str().unwrap_or("function");
+    let line = node["line"].as_u64().unwrap_or(0);
+    let id = node["id"].as_str().unwrap_or("").to_string();
+    let properties = &node["properties"];
+
+    let mut hint_kind = String::new();
+    let mut framework = String::new();
+    let mut score: f64 = 0.0;
+    let mut reasons: Vec<String> = Vec::new();
+
+    let is_pub = properties["visibility"].as_str() == Some("public")
+        || properties["exported"].as_bool() == Some(true);
+
+    let lower_file = file.to_lowercase();
+    let has_fw_name = name.to_lowercase().contains("handler")
+        || name.to_lowercase().contains("callback")
+        || name.to_lowercase().contains("route")
+        || name.to_lowercase().contains("command")
+        || name.to_lowercase().starts_with("handle_")
+        || name.to_lowercase().starts_with("on_");
+
+    match language {
+        "python" => {
+            if file.contains("routes.py") || file.contains("views.py") || file.contains("api.py") {
+                hint_kind = "route".to_string();
+                framework = "python-web".to_string();
+                score += 0.30;
+                reasons.push("python-routes-file".to_string());
+            } else if file.contains("cli.py") {
+                hint_kind = "cli".to_string();
+                framework = "python-cli".to_string();
+                score += 0.20;
+                reasons.push("python-cli-file".to_string());
+            }
+        }
+        "typescript" | "arkts" => {
+            if file.contains("route.ts")
+                || file.contains("route.tsx")
+                || file.contains("page.tsx")
+                || file.contains("layout.tsx")
+            {
+                hint_kind = "route".to_string();
+                framework = "nextjs".to_string();
+                score += 0.30;
+                reasons.push("typescript-file-route".to_string());
+            } else if lower_file.contains("routes")
+                || lower_file.contains("pages")
+                || lower_file.contains("/api/")
+                || lower_file.contains("components/")
+            {
+                hint_kind = "route".to_string();
+                framework = "express/nextjs".to_string();
+                score += 0.25;
+            }
+            if matches!(
+                name,
+                "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "loader" | "action"
+            ) {
+                if hint_kind.is_empty() {
+                    hint_kind = "handler".to_string();
+                }
+                score += 0.35;
+                reasons.push("nextjs-exported-handler".to_string());
+            }
+            if file.ends_with(".tsx")
+                && name.chars().next().map_or(false, |c| c.is_uppercase())
+                && is_pub
+            {
+                hint_kind = "component".to_string();
+                framework = "react".to_string();
+                score += 0.20;
+                reasons.push("react-tsx-component".to_string());
+            }
+        }
+        _ => {
+            if has_fw_name {
+                hint_kind = "handler".to_string();
+                framework = "generic".to_string();
+                score += 0.15;
+            }
+        }
+    }
+
+    if is_pub {
+        score += 0.15;
+        reasons.push("public-exported".to_string());
+    }
+
+    if name.starts_with('_') || name == "helper" || name.contains("__") {
+        score -= 0.20;
+    }
+
+    if score < 0.35 {
+        return None;
+    }
+
+    let risk_level = if score >= 0.75 {
+        "high"
+    } else if score >= 0.55 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    if !hint_kind.is_empty() {
+        reasons.insert(0, format!("framework-{}-hint", hint_kind));
+    }
+
+    Some(BrReview {
+        id,
+        name: name.to_string(),
+        kind: kind.to_string(),
+        file: file.to_string(),
+        line,
+        risk: risk_level.to_string(),
+        reasons,
+        recommended_verification: vec![
+            "check framework route/callback registration".to_string(),
+            "consider framework-specific integration tests".to_string(),
+        ],
+    })
+}
+
+/// Compute overall compatibility risk.
+fn compute_compat_risk(
+    ext_high: usize,
+    fw_high: usize,
+    has_critical: bool,
+    has_ambiguous: bool,
+    has_unknown: bool,
+    total_found: usize,
+) -> &'static str {
+    if has_critical {
+        return "critical";
+    }
+    if ext_high > 0 || fw_high > 0 {
+        return "high";
+    }
+    if has_ambiguous || has_unknown {
+        return "medium";
+    }
+    if total_found > 0 {
+        return "medium";
+    }
+    "low"
+}
+
+/// Build review checklist.
+fn build_br_checklist(
+    ext_reviews: &[BrReview],
+    fw_reviews: &[BrReview],
+    ambiguous: &[String],
+    unknown: &[String],
+    doc_names: &[String],
+) -> Vec<Value> {
+    let mut cl: Vec<Value> = Vec::new();
+
+    for r in ext_reviews {
+        if r.risk == "high" {
+            cl.push(json!({
+                "priority": "P0",
+                "item": format!("Check package exports and downstream consumers before changing {}", r.name),
+                "reason": "public API surface changed — may break external consumers"
+            }));
+        }
+    }
+
+    for r in fw_reviews {
+        if r.risk == "high" {
+            cl.push(json!({
+                "priority": "P1",
+                "item": format!("Check framework route/callback registration before changing {}", r.name),
+                "reason": "framework entry point changed — registration or runtime config may be affected"
+            }));
+        }
+    }
+
+    for s in ambiguous {
+        cl.push(json!({
+            "priority": "P2",
+            "item": format!("Manually verify impact of ambiguous symbol: {}", s),
+            "reason": "multiple symbols matched — requires human verification"
+        }));
+    }
+
+    for s in unknown {
+        cl.push(json!({
+            "priority": "P2",
+            "item": format!("Investigate unknown symbol: {}", s),
+            "reason": "symbol not found in graph — may be new, deleted, or misnamed"
+        }));
+    }
+
+    for d in doc_names {
+        cl.push(json!({
+            "priority": "P2",
+            "item": format!("Update documentation referencing: {}", d),
+            "reason": "documented API changed — docs may need update"
+        }));
+    }
+
+    cl
+}
+
+/// Build release notes hints.
+fn build_relnotes_hints(
+    ext_reviews: &[BrReview],
+    fw_reviews: &[BrReview],
+    doc_names: &[String],
+    risk: &str,
+) -> Vec<String> {
+    let mut hints: Vec<String> = Vec::new();
+
+    if risk == "high" || risk == "critical" {
+        hints.push("BREAKING CHANGE: public API surface modified".to_string());
+    }
+
+    for r in ext_reviews {
+        if r.risk == "high" {
+            hints.push(format!(
+                "Mention {} compatibility impact if signature or behavior changed",
+                r.name
+            ));
+        }
+    }
+
+    for r in fw_reviews {
+        if r.risk == "high" {
+            hints.push(format!(
+                "Mention {} route/handler change in release notes",
+                r.name
+            ));
+        }
+    }
+
+    if !doc_names.is_empty() {
+        hints.push("Documentation updates required for changed APIs".to_string());
+    }
+
+    if hints.is_empty() {
+        hints.push("No significant breaking changes detected from static analysis".to_string());
+    }
+
+    hints
+}
+
+/// Compute breaking-change review from graph data.
+fn compute_breaking_change_review(gv: &GraphView, params: &Value, root: &str) -> Value {
+    let language = params["language"].as_str().unwrap_or("auto");
+    let include_ext = params["includeExternalApi"].as_bool().unwrap_or(true);
+    let include_fw = params["includeFrameworkEntries"].as_bool().unwrap_or(true);
+    let include_docs = params["includeDocs"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+
+    let (changed, ambiguous, unknown) = resolve_changed_symbols_for_review(gv, params, root);
+
+    let mut ext_reviews: Vec<BrReview> = Vec::new();
+    let mut fw_reviews: Vec<BrReview> = Vec::new();
+    let mut doc_names: Vec<String> = Vec::new();
+    let mut has_critical = false;
+
+    for (raw, node) in &changed {
+        let name = node["name"].as_str().unwrap_or("");
+        let file = node["file"].as_str().unwrap_or("");
+        let node_id_val = node["id"].as_str().unwrap_or(raw);
+        let nid = if node_id_val.is_empty() {
+            raw.as_str()
+        } else {
+            node_id_val
+        };
+
+        if include_ext {
+            if let Some(r) = classify_ext_api(node, nid, language, gv, root, include_docs) {
+                if r.risk == "high" && is_entry_file(&r.file, language) {
+                    has_critical = true;
+                }
+                if r.reasons.iter().any(|x| x == "documented-in-readme") {
+                    doc_names.push(name.to_string());
+                }
+                ext_reviews.push(r);
+            }
+        }
+
+        if include_fw {
+            if let Some(r) = classify_fw_entry(node, language) {
+                fw_reviews.push(r);
+            }
+        }
+
+        if include_docs && !doc_names.contains(&name.to_string()) {
+            if is_documented_in_readme(root, name) {
+                doc_names.push(name.to_string());
+            }
+        }
+    }
+
+    if ext_reviews.len() > limit {
+        ext_reviews.truncate(limit);
+    }
+    if fw_reviews.len() > limit {
+        fw_reviews.truncate(limit);
+    }
+
+    let ext_high = ext_reviews.iter().filter(|r| r.risk == "high").count();
+    let fw_high = fw_reviews.iter().filter(|r| r.risk == "high").count();
+
+    let risk = compute_compat_risk(
+        ext_high,
+        fw_high,
+        has_critical,
+        !ambiguous.is_empty(),
+        !unknown.is_empty(),
+        changed.len(),
+    );
+
+    let checklist = build_br_checklist(&ext_reviews, &fw_reviews, &ambiguous, &unknown, &doc_names);
+    let relnotes = build_relnotes_hints(&ext_reviews, &fw_reviews, &doc_names, risk);
+
+    let risk_reasons: Vec<String> = {
+        let mut rr = Vec::new();
+        if ext_high > 0 {
+            rr.push("changed exported package API".to_string());
+        }
+        if fw_high > 0 {
+            rr.push("changed framework route/handler".to_string());
+        }
+        if !doc_names.is_empty() {
+            rr.push("public API appears in documentation".to_string());
+        }
+        if !ambiguous.is_empty() {
+            rr.push("ambiguous changed symbols require manual verification".to_string());
+        }
+        if !unknown.is_empty() {
+            rr.push("unknown changed symbols not found in graph".to_string());
+        }
+        rr
+    };
+
+    let ext_json: Vec<Value> = ext_reviews
+        .iter()
+        .map(|r| {
+            json!({
+                "id": r.id, "name": r.name, "kind": r.kind,
+                "file": r.file, "line": r.line, "risk": r.risk,
+                "reasons": r.reasons, "recommendedVerification": r.recommended_verification
+            })
+        })
+        .collect();
+
+    let fw_json: Vec<Value> = fw_reviews
+        .iter()
+        .map(|r| {
+            json!({
+                "name": r.name, "kind": r.kind, "file": r.file,
+                "risk": r.risk, "reasons": r.reasons
+            })
+        })
+        .collect();
+
+    let warnings: Vec<String> = {
+        let mut w = Vec::new();
+        if changed.is_empty() && ambiguous.is_empty() && unknown.is_empty() {
+            w.push("no-changed-symbols-provided".to_string());
+        }
+        if !unknown.is_empty() {
+            w.push("some-symbols-not-found".to_string());
+        }
+        w
+    };
+
+    json!({
+        "summary": {
+            "compatibilityRisk": risk,
+            "changedSymbolCount": changed.len(),
+            "changedExternalApiCount": ext_reviews.len(),
+            "changedFrameworkEntryCount": fw_reviews.len(),
+            "ambiguousCount": ambiguous.len(),
+            "unknownCount": unknown.len(),
+            "docUpdateLikely": !doc_names.is_empty(),
+            "recommendedTestCount": ext_reviews.len() + fw_reviews.len()
+        },
+        "riskReasons": risk_reasons,
+        "changedExternalApi": ext_json,
+        "changedFrameworkEntries": fw_json,
+        "ambiguousChangedSymbols": ambiguous.iter().map(|s| json!({"symbol": s})).collect::<Vec<_>>(),
+        "unknownChangedSymbols": unknown.iter().map(|s| json!({"symbol": s})).collect::<Vec<_>>(),
+        "reviewChecklist": checklist,
+        "releaseNotesHints": relnotes,
+        "warnings": warnings,
+        "generatedFrom": {
+            "graphBased": true,
+            "gitDiffBased": params["changedSymbols"].as_array().map_or(true, |a| a.is_empty()),
+            "compilerVerified": false,
+            "runtimeVerified": false,
+            "externalUsageVerified": false,
+            "heuristic": true
+        }
+    })
+}
+
+/// Breaking-change review handler for MCP tool.
+fn handle_breaking_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let root_str = validated.to_string_lossy().into_owned();
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let result = compute_breaking_change_review(&gv, params, &root_str);
+
+    let mut out = result.as_object().cloned().unwrap_or_default();
+    out.insert("language".to_string(), json!(language));
+    out.insert("root".to_string(), json!(validated));
+
+    Ok(merge_cache_and_result(&json!(out), &cache_meta))
 }
 
 pub fn run_mcp_server() -> Result<(), String> {

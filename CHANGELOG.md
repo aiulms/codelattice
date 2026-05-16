@@ -8,6 +8,16 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Breaking-Change Review** (v0.23): New MCP tool `codelattice_breaking_change_review` — cross-references changed symbols against public API surface, framework entry hints, and documentation to assess compatibility risk.
+  - Orchestrates external_api_surface, framework_entry_hints, README docs, and graph metadata.
+  - Compatibility risk levels: critical/high/medium/low/unknown.
+  - Review checklist with P0/P1/P2 priorities and release notes hints.
+  - All output: externalUsageVerified=false, runtimeVerified=false — never claims proof.
+  - New fixture: `fixtures/typescript/breaking-change-review/` (8 files).
+  - 10 new integration tests.
+  - MCP tool count: 33 → 34.
+  - No new dependencies.
+
 - **Framework Entry Hints / Callback Entry Caution** (v0.22): New MCP tool `codelattice_framework_entry_hints` — identifies symbols likely invoked by framework routing, decorators, callback registries, or CLI commands via static heuristics.
   - Language-specific detection: Python (routes.py/cli.py patterns), TypeScript (Next.js/Express file-based routes, React TSX components, Next.js GET/POST handlers), ArkTS (@Entry/lifecycle methods), Rust (handler/main patterns), C/C++ (callback/hook naming, header API), Cangjie (handler/component naming).
   - Scoring based on file path patterns, symbol naming conventions, public/exported status.
