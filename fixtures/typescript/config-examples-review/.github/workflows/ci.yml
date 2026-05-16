@@ -1,0 +1,11 @@
+name: CI
+on: push
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm run build
+      - run: npm run build:old
+      - working-directory: ./missing-dir
+        run: npm test

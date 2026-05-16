@@ -8,6 +8,9 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Config/Examples Review** (v0.25): New MCP tool `codelattice_config_examples_review` — scans package.json, tsconfig, Cargo.toml, pyproject.toml, CI, Docker, examples, and docs code blocks for stale references. Never executes scripts or builds.
+  - 10 new integration tests. MCP tool count: 35 → 36.
+
 - **Consistency Review (Docs & Tests)** (v0.24): New MCP tool `codelattice_consistency_review` — cross-references changed symbols against documentation and test files to flag stale docs, missing docs, related tests, missing tests, and stale tests.
   - File-based doc scanner (README.md, docs/*.md) and test file discovery.
   - Consistency risk levels: critical/high/medium/low.

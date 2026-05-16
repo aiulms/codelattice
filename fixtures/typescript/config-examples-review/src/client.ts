@@ -1,0 +1,1 @@
+export function createClient(config: Record<string, unknown>) { return { config }; }

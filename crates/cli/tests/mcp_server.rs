@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 35 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 36 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_five_tools() {
+fn mcp_tools_list_returns_thirty_six_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_thirty_five_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 35, "expected 35 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 36, "expected 36 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -11379,4 +11379,181 @@ fn mcp_consistency_review_related_tests() {
         data["relatedTests"].is_array(),
         "should have relatedTests array"
     );
+}
+
+// ============================================================
+// v0.25: Config/Examples Review Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn config_examples_review_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/typescript/config-examples-review")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_package_exports() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35001,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let count = d["summary"]["configRiskCount"].as_u64().unwrap_or(0);
+    assert!(
+        count > 0,
+        "should detect stale config references, got {}",
+        count
+    );
+    assert_eq!(d["generatedFrom"]["scriptsExecuted"].as_bool(), Some(false));
+    assert_eq!(d["generatedFrom"]["buildExecuted"].as_bool(), Some(false));
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_package_bin() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35002,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("old-demo") || text.contains("old-cli"),
+        "should flag missing bin: old-demo → src/old-cli.ts"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_package_script() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35003,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("build:old") || text.contains("tsconfig.old"),
+        "should flag build:old → tsconfig.old.json missing"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_tsconfig_paths() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35004,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(
+        d["summary"]["tsconfigPathRiskCount"].as_u64().unwrap_or(0) > 0,
+        "should flag @old/* stale path alias"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_stale_examples() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35005,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(
+        d["summary"]["staleExampleCandidateCount"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "should flag examples/basic.ts stale import"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_ci_docker() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35006,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(
+        d["summary"]["ciDockerRiskCount"].as_u64().unwrap_or(0) > 0,
+        "should flag CI/Docker risks"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_no_runtime_proof() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35007,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    assert_eq!(d["generatedFrom"]["scriptsExecuted"].as_bool(), Some(false));
+    assert_eq!(d["generatedFrom"]["buildExecuted"].as_bool(), Some(false));
+    assert_eq!(d["generatedFrom"]["runtimeVerified"].as_bool(), Some(false));
+    assert_eq!(d["generatedFrom"]["heuristic"].as_bool(), Some(true));
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_compact() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35008,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":true}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(d["summary"]["overallConfigConsistencyRisk"].is_string());
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_valid_not_flagged() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35009,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        !text.contains("src/index.ts") || text.contains("risk"),
+        "valid paths should not be high-risk unless some other risk detected"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_config_examples_review_summary_risk() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = config_examples_review_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":35010,"method":"tools/call",
+        "params":{"name":"codelattice_config_examples_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let risk = d["summary"]["overallConfigConsistencyRisk"]
+        .as_str()
+        .unwrap_or("");
+    assert!(!risk.is_empty(), "should have overallConfigConsistencyRisk");
 }

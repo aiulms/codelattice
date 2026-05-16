@@ -8288,7 +8288,27 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_config_examples_review",
+                "description": "Static config/examples consistency review. Scans package.json, tsconfig, Cargo.toml, pyproject.toml, CI, Docker, examples, and docs code blocks for stale references. Does not execute scripts or builds. Returns candidates and recommended verification steps.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "includeExamples": { "type": "boolean", "default": true, "description": "Scan examples/" },
+                        "includePackageConfig": { "type": "boolean", "default": true, "description": "Scan package.json/pyproject.toml/Cargo.toml" },
+                        "includeBuildConfig": { "type": "boolean", "default": true, "description": "Scan tsconfig/CMake/Makefile/compile_commands" },
+                        "includeCiConfig": { "type": "boolean", "default": true, "description": "Scan CI workflows and Dockerfile" },
+                        "includeDocsCodeBlocks": { "type": "boolean", "default": true, "description": "Scan README/docs code blocks" }
+                    },
+                    "required": ["root"]
+                }
             }
+
 
 
 
@@ -12117,6 +12137,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     handle_breaking_change_review(cache, &arguments)
                 }
                 "codelattice_consistency_review" => handle_consistency_review(cache, &arguments),
+                "codelattice_config_examples_review" => {
+                    handle_config_examples_review(cache, &arguments)
+                }
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -14351,6 +14374,446 @@ fn handle_consistency_review(cache: &mut McpCache, params: &Value) -> Result<Val
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let result = compute_consistency_review(&gv, params, &root_str);
+    let mut out = result.as_object().cloned().unwrap_or_default();
+    out.insert("language".to_string(), json!(language));
+    out.insert("root".to_string(), json!(validated));
+    Ok(merge_cache_and_result(&json!(out), &cache_meta))
+}
+
+// ============================================================
+// v0.25: Config & Examples Consistency Review
+// ============================================================
+
+// ============================================================
+// v0.25: Config & Examples Consistency Review
+// ============================================================
+
+/// Check if a file/dir exists relative to project root.
+fn path_exists(root: &std::path::Path, rel: &str) -> bool {
+    let p = root.join(rel.trim_start_matches("./").trim_end_matches('/'));
+    p.exists()
+}
+
+/// Scan package.json for stale references.
+fn scan_package_json(root: &std::path::Path) -> Vec<Value> {
+    let mut risks = Vec::new();
+    let pkg_path = root.join("package.json");
+    if !pkg_path.exists() {
+        return risks;
+    }
+    let Ok(content) = std::fs::read_to_string(&pkg_path) else {
+        return risks;
+    };
+    let Ok(pkg) = serde_json::from_str::<Value>(&content) else {
+        return risks;
+    };
+
+    // Check main, module, types
+    for field in &["main", "module", "types"] {
+        if let Some(val) = pkg[field].as_str() {
+            if !val.is_empty() && !path_exists(root, val) {
+                risks.push(
+                    json!({"path":"package.json","field":field,"referencedPath":val,
+                    "risk":"high","reasons":["configured entry path does not exist"],
+                    "recommendedFix":["update package.json or restore the referenced file"]}),
+                );
+            }
+        }
+    }
+
+    // Check exports
+    if let Some(exports) = pkg["exports"].as_object() {
+        for (key, val) in exports {
+            let path = val.as_str().unwrap_or("");
+            if !path.is_empty() && !path_exists(root, path) {
+                risks.push(
+                    json!({"path":"package.json","field":format!("exports['{}']",key),
+                    "referencedPath":path,"risk":"high",
+                    "reasons":["configured exports path does not exist"],
+                    "recommendedFix":["update package exports or restore the referenced file"]}),
+                );
+            }
+        }
+    }
+
+    // Check bin
+    if let Some(bin) = pkg["bin"].as_object() {
+        for (key, val) in bin {
+            let path = val.as_str().unwrap_or("");
+            if !path.is_empty() && !path_exists(root, path) {
+                risks.push(
+                    json!({"path":"package.json","field":format!("bin['{}']",key),
+                    "referencedPath":path,"risk":"high",
+                    "reasons":["configured bin path does not exist"],
+                    "recommendedFix":["update package bin entry or restore the referenced file"]}),
+                );
+            }
+        }
+    }
+
+    // Check scripts for missing config files
+    if let Some(scripts) = pkg["scripts"].as_object() {
+        for (name, cmd) in scripts {
+            let command = cmd.as_str().unwrap_or("");
+            for token in command.split_whitespace() {
+                if (token.ends_with(".json") || token.ends_with(".yaml") || token.ends_with(".yml"))
+                    && token.contains(".config")
+                    || token.contains("tsconfig")
+                    || token.contains("package")
+                {
+                    if !path_exists(root, token.trim_matches('"').trim_matches('\'')) {
+                        risks.push(
+                            json!({"path":"package.json","script":name,"command":command,
+                            "risk":"medium","reasons":["script references missing config file"],
+                            "recommendedFix":["update script command or restore config file"]}),
+                        );
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    risks
+}
+
+/// Scan tsconfig for stale path references.
+fn scan_tsconfig(root: &std::path::Path) -> Vec<Value> {
+    let mut risks = Vec::new();
+    for name in &["tsconfig.json", "tsconfig.base.json", "tsconfig.build.json"] {
+        let p = root.join(name);
+        if !p.exists() {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(&p) else {
+            continue;
+        };
+        let Ok(cfg) = serde_json::from_str::<Value>(&content) else {
+            continue;
+        };
+
+        // Check paths
+        if let Some(paths) = cfg["compilerOptions"]["paths"].as_object() {
+            for (alias, targets) in paths {
+                if let Some(arr) = targets.as_array() {
+                    let any_exists = arr.iter().any(|t| {
+                        let t2 = t.as_str().unwrap_or("").replace("/*", "");
+                        path_exists(root, &t2)
+                    });
+                    if !any_exists && !arr.is_empty() {
+                        risks.push(
+                            json!({"path":name.to_string(),"field":format!("paths['{}']",alias),
+                            "aliasedPath":alias,"risk":"medium",
+                            "reasons":["tsconfig path alias points to nonexistent directory"],
+                            "recommendedFix":["update or remove stale path alias"]}),
+                        );
+                    }
+                }
+            }
+        }
+        // Check include
+        if let Some(arr) = cfg["include"].as_array() {
+            for inc in arr {
+                let inc_s = inc.as_str().unwrap_or("");
+                if inc_s.contains("*") {
+                    continue;
+                }
+                if !path_exists(root, inc_s) {
+                    risks.push(json!({"path":name.to_string(),"field":"include",
+                        "referencedPath":inc_s,"risk":"medium",
+                        "reasons":["tsconfig include path does not exist"]}));
+                }
+            }
+        }
+    }
+    risks
+}
+
+/// Scan README and docs for stale code references.
+fn scan_docs_code_blocks(root: &std::path::Path, gv: &GraphView) -> Vec<Value> {
+    let mut results = Vec::new();
+    // Check README.md
+    for md_name in &["README.md", "README.rst"] {
+        let p = root.join(md_name);
+        if let Ok(content) = std::fs::read_to_string(&p) {
+            // Look for code blocks containing import/require statements
+            for line in content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("import ")
+                    || trimmed.starts_with("const ") && trimmed.contains("require(")
+                {
+                    // Extract symbol-like tokens
+                    for token in trimmed.split(&[' ', '{', '}', ',', ';', '(', ')', '\"', '\'']) {
+                        let t = token.trim();
+                        if t.is_empty() || t.len() < 2 || t.starts_with(".") || t.starts_with("/") {
+                            continue;
+                        }
+                        // Check if this looks like a symbol not in graph
+                        if t.chars().next().map_or(false, |c| c.is_uppercase()) && !t.contains('\n')
+                        {
+                            let found = gv
+                                .nodes_by_id
+                                .values()
+                                .any(|n| n["name"].as_str() == Some(t));
+                            if !found
+                                && !gv
+                                    .nodes_by_id
+                                    .values()
+                                    .any(|n| n["file"].as_str().map_or(false, |f| f.contains(t)))
+                            {
+                                results.push(json!({"path":md_name.to_string(),"line":1,
+                                    "referencedSymbol":t,"risk":"medium",
+                                    "reasons":["doc code block references symbol not found in graph"],
+                                    "recommendedFix":["update code example or remove stale reference"]}));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Scan examples/ directory for stale imports/references.
+fn scan_examples(root: &std::path::Path, gv: &GraphView) -> Vec<Value> {
+    let mut results = Vec::new();
+    let examples_dir = root.join("examples");
+    if !examples_dir.is_dir() {
+        return results;
+    }
+
+    fn walk(
+        dir: &std::path::Path,
+        root: &std::path::Path,
+        gv: &GraphView,
+        results: &mut Vec<Value>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, root, gv, results);
+                    continue;
+                }
+                if p.extension().map_or(true, |ext| {
+                    ext != "ts" && ext != "tsx" && ext != "js" && ext != "py" && ext != "rs"
+                }) {
+                    continue;
+                }
+                if let Ok(content) = std::fs::read_to_string(&p) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
+                            // Check for paths that don't exist
+                            for token in trimmed.split(&[' ', '"', '\'']) {
+                                if token.starts_with("./") || token.starts_with("../") {
+                                    let clean = token.trim_matches('"').trim_matches('\'');
+                                    // Resolve relative to the example file's directory, then check from root
+                                    let example_dir = p.parent().unwrap_or(root);
+                                    if !example_dir.join(clean).exists()
+                                        && !example_dir.join(format!("{}.ts", clean)).exists()
+                                        && !example_dir.join(format!("{}.tsx", clean)).exists()
+                                    {
+                                        let rel = p.strip_prefix(root).unwrap_or(&p);
+                                        results.push(json!({"path":rel.to_string_lossy(),
+                                            "referencedImport":clean,"risk":"high",
+                                            "reasons":["example imports nonexistent module"],
+                                            "recommendedFix":["update example import or restore the referenced module"]}));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk(&examples_dir, root, gv, &mut results);
+    results
+}
+
+/// Scan CI/Docker files for missing local paths.
+fn scan_ci_docker(root: &std::path::Path) -> Vec<Value> {
+    let mut risks = Vec::new();
+
+    // Dockerfile
+    for name in &["Dockerfile", "Dockerfile.prod"] {
+        let p = root.join(name);
+        if let Ok(content) = std::fs::read_to_string(&p) {
+            for line in content.lines() {
+                let upper = line.to_uppercase();
+                if upper.starts_with("COPY ") {
+                    let parts: Vec<&str> = line.split_whitespace().collect();
+                    for part in &parts {
+                        if !part.contains(':') && !part.starts_with('/') && !part.starts_with("--")
+                        {
+                            let cleaned = part.trim_matches('"').trim_matches('\'');
+                            if cleaned.ends_with(".json")
+                                || cleaned.ends_with(".yaml")
+                                || cleaned.ends_with(".yml")
+                                || cleaned.ends_with(".env")
+                                || cleaned.ends_with(".js")
+                                || cleaned.ends_with(".ts")
+                            {
+                                if !path_exists(root, cleaned) {
+                                    risks.push(json!({"path":name.to_string(),"line":1,
+                                        "referencedPath":cleaned,"risk":"high",
+                                        "reasons":["Docker COPY references nonexistent local path"],
+                                        "recommendedFix":["update Dockerfile or restore referenced file"]}));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // .github/workflows CI
+    let ci_dir = root.join(".github/workflows");
+    if ci_dir.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(&ci_dir) {
+            for e in entries.flatten() {
+                let p = e.path();
+                if let Ok(content) = std::fs::read_to_string(&p) {
+                    for line in content.lines() {
+                        let trimmed = line.trim();
+                        if trimmed.starts_with("working-directory:") {
+                            let dir = trimmed.trim_start_matches("working-directory:").trim();
+                            if !dir.is_empty() && !path_exists(root, dir) {
+                                let rel = p.strip_prefix(root).unwrap_or(&p);
+                                risks.push(
+                                    json!({"path":rel.to_string_lossy(),"field":"working-directory",
+                                    "referencedPath":dir,"risk":"high",
+                                    "reasons":["CI working-directory does not exist"],
+                                    "recommendedFix":["update CI workflow or create directory"]}),
+                                );
+                            }
+                        }
+                        if trimmed.starts_with("run:") {
+                            let cmd = trimmed.trim_start_matches("run:").trim();
+                            for token in cmd.split_whitespace() {
+                                if (token.ends_with(".json") || token.ends_with(".yaml"))
+                                    && !path_exists(root, token)
+                                {
+                                    let rel = p.strip_prefix(root).unwrap_or(&p);
+                                    risks.push(json!({"path":rel.to_string_lossy(),"command":cmd,
+                                        "risk":"medium","reasons":["CI run references missing config file"],
+                                        "recommendedFix":["update CI command or restore config file"]}));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    risks
+}
+
+/// Compute config & examples consistency review.
+fn compute_config_examples_review(gv: &GraphView, params: &Value, root: &str) -> Value {
+    let root_path = std::path::Path::new(root);
+    let include_examples = params["includeExamples"].as_bool().unwrap_or(true);
+    let include_pkg = params["includePackageConfig"].as_bool().unwrap_or(true);
+    let include_build = params["includeBuildConfig"].as_bool().unwrap_or(true);
+    let include_ci = params["includeCiConfig"].as_bool().unwrap_or(true);
+    let include_docs_cb = params["includeDocsCodeBlocks"].as_bool().unwrap_or(true);
+
+    let mut all_risks: Vec<Value> = Vec::new();
+    let mut stale_examples: Vec<Value> = Vec::new();
+    let mut pkg_risks = Vec::new();
+    let mut ts_risks = Vec::new();
+    let mut ci_risks = Vec::new();
+    let mut doc_risks = Vec::new();
+
+    if include_pkg {
+        pkg_risks = scan_package_json(root_path);
+        all_risks.extend(pkg_risks.clone());
+    }
+    if include_build {
+        ts_risks = scan_tsconfig(root_path);
+        all_risks.extend(ts_risks.clone());
+    }
+    if include_examples {
+        stale_examples = scan_examples(root_path, gv);
+        all_risks.extend(stale_examples.clone());
+    }
+    if include_docs_cb {
+        doc_risks = scan_docs_code_blocks(root_path, gv);
+        all_risks.extend(doc_risks.clone());
+    }
+    if include_ci {
+        ci_risks = scan_ci_docker(root_path);
+        all_risks.extend(ci_risks.clone());
+    }
+
+    let high_count = all_risks.iter().filter(|r| r["risk"] == "high").count();
+    let med_count = all_risks.iter().filter(|r| r["risk"] == "medium").count();
+
+    let overall_risk = if high_count >= 3 {
+        "high"
+    } else if high_count > 0 {
+        "medium"
+    } else if med_count > 0 {
+        "low"
+    } else {
+        "low"
+    };
+
+    let mut recs: Vec<String> = Vec::new();
+    if !pkg_risks.is_empty() {
+        recs.push("review package.json entry fields".to_string());
+    }
+    if !ts_risks.is_empty() {
+        recs.push("review tsconfig paths and includes".to_string());
+    }
+    if !stale_examples.is_empty() {
+        recs.push("review and update stale examples".to_string());
+    }
+    if !ci_risks.is_empty() {
+        recs.push("review CI/Dockerfile paths".to_string());
+    }
+
+    json!({
+        "summary": {
+            "configRiskCount": all_risks.len(),
+            "staleExampleCandidateCount": stale_examples.len(),
+            "packageScriptRiskCount": pkg_risks.len(),
+            "tsconfigPathRiskCount": ts_risks.len(),
+            "ciDockerRiskCount": ci_risks.len(),
+            "docsCodeBlockRiskCount": doc_risks.len(),
+            "overallConfigConsistencyRisk": overall_risk
+        },
+        "staleExamples": stale_examples,
+        "staleConfigReferences": all_risks.iter().filter(|r| r["risk"]=="high").cloned().collect::<Vec<_>>(),
+        "packageScriptRisks": pkg_risks,
+        "recommendedVerification": recs,
+        "generatedFrom": {
+            "graphBased": true,
+            "configScannerBased": true,
+            "examplesHeuristic": include_examples,
+            "scriptsExecuted": false,
+            "buildExecuted": false,
+            "runtimeVerified": false,
+            "heuristic": true
+        }
+    })
+}
+
+fn handle_config_examples_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+    let root_str = validated.to_string_lossy().into_owned();
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let result = compute_config_examples_review(&gv, params, &root_str);
     let mut out = result.as_object().cloned().unwrap_or_default();
     out.insert("language".to_string(), json!(language));
     out.insert("root".to_string(), json!(validated));

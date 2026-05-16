@@ -352,7 +352,8 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_review_gate` | 变更审查门：基于 git diff 或文件列表，输出触碰符号、影响面、风险等级、审查清单 |
 | `codelattice_reachability_map` | 入口点检测 + 静态 BFS 可达性分析：返回入口点、可达符号、不可达候选（带置信度和注意事项） |
 | `codelattice_external_api_surface` | 外部 API Surface / Public API 风险提示：识别可能被外部消费者使用的公开 API 符号，输出注意事项和推荐验证步骤 |
-| `codelattice_consistency_review` | 文档与测试一致性审查：将变更符号与文档/测试文件交叉对比，标记 stale docs、缺失 docs、related tests、missing tests 和 stale tests |
+| `codelattice_config_examples_review` | 配置与示例一致性审查：扫描 package.json/tsconfig/Cargo/CI/Docker/examples 中的 stale 引用，不执行脚本/构建 |
+| 文档与测试一致性审查：将变更符号与文档/测试文件交叉对比，标记 stale docs、缺失 docs、related tests、missing tests 和 stale tests |
 | `codelattice_breaking_change_review` | 破坏性变更审查：将变更符号与 public API / framework entry / 文档交叉对比，评估兼容风险并生成审查清单和 release note 提示 |
 | `codelattice_framework_entry_hints` | 框架入口提示 / 回调入口警示：识别可能由框架路由/装饰器/回调注册/CLI 命令调用的符号，降低 dead-code/reachability 误判 |
 | `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
