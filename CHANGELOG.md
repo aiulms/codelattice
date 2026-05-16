@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **External API Surface / Public API Caution** (v0.21): New MCP tool `codelattice_external_api_surface` — identifies symbols likely exposed to external consumers, with caution levels and recommended verification steps.
+  - Scoring heuristics for Rust (`pub` visibility, `lib.rs`, `pub use` re-exports) and TypeScript/ArkTS (`export`, `index.ts`, re-exports, `package.json` exports/bin, TSX components).
+  - Package metadata integration: reads `package.json` exports/main/types/bin fields and `Cargo.toml` lib/bin targets.
+  - README/Doc cross-reference: symbols mentioned in documentation get additional confidence.
+  - Caution levels (high/medium/low) based on cumulative score, with per-symbol reasons.
+  - Compact mode for AI-agent-friendly output.
+  - All output includes `generatedFrom: { externalUsageVerified: false, heuristic: true, compilerVerified: false }` — no proof/guarantee/deletion-safe language.
+  - New fixture: `fixtures/typescript/external-api-surface/` (10 files with package.json exports/bin, index.ts re-exports, public/internal split, CLI entry, TSX component).
+  - 10 new MCP integration tests.
+  - MCP tool count: 31 → 32.
+  - No new dependencies.
+
 - **Entry Point & Reachability Map** (v0.20): New MCP tool `codelattice_reachability_map` — multi-language entry point detection + static BFS reachability analysis.
   - Entry point detection heuristics for Rust, Python, TypeScript/ArkTS, C, C++, and Cangjie (main, lib.rs, index.ts, __init__.py, etc.), with confidence scores and reason tags.
   - BFS reachability traversal from detected entry points (configurable max depth 1–32, default 8), following CALLS/REFERENCES/IMPORTS/INCLUDES/DEFINES edges.

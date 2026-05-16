@@ -1308,6 +1308,67 @@ Compute reachability map from detected entry points. Returns entry points, reach
 
 The `initialize` response now includes profile information:
 
+### 3.31 `codelattice_external_api_surface` *(v0.21)*
+
+**Purpose**: Identify symbols that are likely exposed to external consumers (other packages, applications, or teams). Outputs caution levels and recommended verification steps — **never** claims external usage is verified.
+
+**Parameters**:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `root` | string | ✅ | — | Project root directory (absolute path) |
+| `language` | string | — | `"auto"` | Language hint: `rust`, `typescript`, `arkts`, `cangjie`, `c`, `cpp`, `python`, `auto` |
+| `compact` | boolean | — | `false` | If true, omit `externalSurfaceFiles` and trim symbol detail fields |
+
+**Output contract**:
+
+```json
+{
+  "root": "/path/to/project",
+  "language": "typescript",
+  "summary": {
+    "externalSurfaceSymbolCount": 12,
+    "externalSurfaceFileCount": 5,
+    "averageCautionScore": 0.62,
+    "highCautionCount": 3,
+    "mediumCautionCount": 6,
+    "lowCautionCount": 3
+  },
+  "externalSurfaceSymbols": [
+    {
+      "id": "sym_123", "name": "createClient", "kind": "function",
+      "file": "src/public-api.ts", "line": 4,
+      "score": 0.85, "cautionLevel": "high",
+      "reasons": ["typescript-export", "typescript-re-exported-from-index", "typescript-package-entry-file", "documented-in-readme"],
+      "recommendedVerification": ["Search npm registry for dependents", "Check GitHub code search for imports"]
+    }
+  ],
+  "externalSurfaceFiles": [
+    { "path": "src/index.ts", "reason": "package.json exports entry", "cautionLevel": "high" }
+  ],
+  "generatedFrom": {
+    "graphBased": true,
+    "externalUsageVerified": false,
+    "heuristic": true,
+    "compilerVerified": false
+  }
+}
+```
+
+**Invariant**: `generatedFrom.externalUsageVerified` is **always** `false`. This tool never proves external usage.
+
+**Scoring signals** (TypeScript/ArkTS):
+- `export` keyword → +0.30
+- Package entry file (index.ts, package.json exports) → +0.25
+- Re-exported from index → +0.20
+- Documented in README/docs → +0.15
+- Package.json bin reference → +0.25
+- TSX component → +0.10
+- `_private` prefix → −0.25
+
+**Caution levels**: `high` (≥0.75), `medium` (≥0.45), `low` (<0.45). Symbols below 0.35 are filtered out.
+
+
 ```json
 {
   "serverInfo": {
@@ -1316,7 +1377,7 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 31
+    "toolCount": 32
   }
 }
 ```

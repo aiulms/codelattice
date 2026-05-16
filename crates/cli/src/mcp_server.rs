@@ -8212,6 +8212,24 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_external_api_surface",
+                "description": "Find public/external API surface candidates. Does not prove external usage. Use to caution dead-code removal and breaking-change review.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signal" },
+                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files" },
+                        "includeHeaders": { "type": "boolean", "default": true, "description": "Include C/C++ header API" },
+                        "includePackageMetadata": { "type": "boolean", "default": true, "description": "Include package metadata signals" }
+                    },
+                    "required": ["root"]
+                }
             }
         ]
     })
@@ -12028,6 +12046,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_ai_context_pack" => handle_ai_context_pack(cache, &arguments),
                 "codelattice_review_gate" => handle_review_gate(cache, &arguments),
                 "codelattice_reachability_map" => handle_reachability_map(cache, &arguments),
+                "codelattice_external_api_surface" => {
+                    handle_external_api_surface(cache, &arguments)
+                }
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -12063,6 +12084,558 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
 // Server Main Loop
 // ============================================================
 
+// ============================================================
+// v0.21: External API Surface / Public API Caution
+// ============================================================
+
+// === External API Surface Handler ===
+// Insert before the main() function at the end of mcp_server.rs
+
+/// Detect external API surface symbols — symbols likely consumed by external callers.
+/// Returns scored candidates with caution levels and verification recommendations.
+fn compute_external_api_surface(
+    gv: &GraphView,
+    language: &str,
+    doc_scanner: Option<&DocScanner>,
+    include_docs: bool,
+    include_tests: bool,
+    include_headers: bool,
+    include_package_metadata: bool,
+    limit: usize,
+) -> Value {
+    let mut surface_symbols: Vec<Value> = Vec::new();
+    let mut surface_files: Vec<String> = Vec::new();
+    let mut package_export_count: usize = 0;
+    let mut header_api_count: usize = 0;
+    let mut documented_api_count: usize = 0;
+    let mut high_caution_count: usize = 0;
+
+    // Package metadata signals — scan package.json, pyproject.toml etc.
+    let pkg_entry_files = detect_package_entry_files(gv, language);
+    let pkg_bin_files = detect_package_bin_files(gv, language);
+
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+            .unwrap_or("");
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+        let id = node["id"].as_str().unwrap_or("").to_string();
+
+        // Skip test/generated/vendor paths
+        if !include_tests && is_test_like_path(file) {
+            continue;
+        }
+        if file.contains("/generated/")
+            || file.contains("/vendor/")
+            || file.contains("/node_modules/")
+        {
+            continue;
+        }
+
+        // Skip headers if not included
+        if !include_headers && (file.ends_with(".h") || file.ends_with(".hpp")) {
+            continue;
+        }
+
+        let mut score: f64 = 0.0;
+        let mut reasons: Vec<String> = Vec::new();
+        let mut caution_key = "";
+
+        // === Language-specific heuristics ===
+        match language {
+            "rust" => {
+                // pub visibility
+                let visibility = node["properties"]["visibility"].as_str().unwrap_or("");
+                if visibility == "public" {
+                    score += 0.30;
+                    reasons.push("rust-pub-visibility".to_string());
+                }
+                // lib.rs items
+                if file.ends_with("lib.rs") {
+                    score += 0.25;
+                    reasons.push("rust-lib-rs-item".to_string());
+                }
+                // pub use re-export (check incoming REFERENCES)
+                if is_reexported_symbol(&id, gv) {
+                    score += 0.20;
+                    reasons.push("rust-pub-use-re-export".to_string());
+                }
+                caution_key = "rust-public-api-may-have-external-crate-consumers";
+            }
+            "typescript" | "arkts" => {
+                // export keyword
+                if node["properties"]["exported"].as_bool() == Some(true) {
+                    score += 0.30;
+                    reasons.push("typescript-export".to_string());
+                }
+                // index.ts / package entry
+                if file.ends_with("index.ts")
+                    || file.ends_with("index.tsx")
+                    || pkg_entry_files.iter().any(|f| file.ends_with(f.as_str()))
+                {
+                    score += 0.25;
+                    reasons.push("typescript-package-entry-file".to_string());
+                }
+                // re-exported from index
+                if is_reexported_from_index(&id, gv) {
+                    score += 0.20;
+                    reasons.push("typescript-re-exported-from-index".to_string());
+                }
+                // TSX component
+                if file.ends_with(".tsx") {
+                    score += 0.10;
+                    reasons.push("typescript-tsx-component".to_string());
+                }
+                // package.json bin reference
+                if pkg_bin_files.iter().any(|f| file.ends_with(f.as_str())) {
+                    score += 0.25;
+                    reasons.push("typescript-package-bin-entry".to_string());
+                    package_export_count += 1;
+                }
+                // package.json exports/main/types reference
+                if pkg_entry_files.iter().any(|f| file.ends_with(f.as_str())) {
+                    if reasons.iter().all(|r| r != "typescript-package-entry-file") {
+                        score += 0.15;
+                        reasons.push("typescript-package-metadata-reference".to_string());
+                    }
+                    package_export_count += 1;
+                }
+                if language == "arkts" {
+                    caution_key = "arkts-component-entry-may-be-used-by-framework";
+                } else {
+                    caution_key = "typescript-package-export-may-have-downstream-consumers";
+                }
+            }
+            "python" => {
+                // Non-underscore top-level name
+                let is_public_name = !name.starts_with('_');
+                if is_public_name {
+                    score += 0.20;
+                    reasons.push("python-public-name".to_string());
+                }
+                // __init__.py items
+                if file.ends_with("__init__.py") {
+                    score += 0.25;
+                    reasons.push("python-init-py-export".to_string());
+                }
+                // Re-exported from __init__
+                if is_reexported_from_init(&id, gv) {
+                    score += 0.20;
+                    reasons.push("python-re-exported-from-init".to_string());
+                }
+                caution_key = "python-package-api-may-have-external-importers";
+            }
+            "c" => {
+                // Header under include/
+                if file.contains("/include/") && file.ends_with(".h") {
+                    score += 0.30;
+                    reasons.push("c-include-header".to_string());
+                    header_api_count += 1;
+                }
+                // Non-static function in header
+                let is_static = node["properties"]["storageClass"].as_str() == Some("static");
+                if !is_static && file.ends_with(".h") {
+                    score += 0.25;
+                    reasons.push("c-non-static-header-declaration".to_string());
+                }
+                caution_key = "c-header-api-may-have-external-callers";
+            }
+            "cpp" => {
+                // Header under include/
+                if file.contains("/include/")
+                    && (file.ends_with(".h") || file.ends_with(".hpp") || file.ends_with(".hxx"))
+                {
+                    score += 0.30;
+                    reasons.push("cpp-include-header".to_string());
+                    header_api_count += 1;
+                }
+                // Exported namespace/class in header
+                if file.ends_with(".hpp") || file.ends_with(".h") || file.ends_with(".hxx") {
+                    score += 0.25;
+                    reasons.push("cpp-header-declaration".to_string());
+                }
+                caution_key = "cpp-header-api-may-have-external-callers";
+            }
+            "cangjie" => {
+                // Public package symbol
+                let visibility = node["properties"]["visibility"].as_str().unwrap_or("");
+                if visibility == "public" {
+                    score += 0.30;
+                    reasons.push("cangjie-public-visibility".to_string());
+                }
+                // Package root
+                if file.ends_with("package.cj") || file.contains("/src/") && !file.contains("/src/")
+                {
+                    score += 0.25;
+                    reasons.push("cangjie-package-root".to_string());
+                }
+                caution_key = "cangjie-public-api-may-have-external-consumers";
+            }
+            _ => {
+                // Generic: check public/exported
+                if is_public_symbol(node, gv) {
+                    score += 0.25;
+                    reasons.push("generic-public-or-exported".to_string());
+                }
+            }
+        }
+
+        // === Cross-cutting signals ===
+        // Entry file patterns (lib.rs, index.ts, __init__.py)
+        if is_entry_file(file, language) {
+            if reasons.iter().all(|r| !r.contains("entry-file")) {
+                score += 0.10;
+                reasons.push("entry-file-pattern".to_string());
+            }
+        }
+
+        // /include/ path (C/C++ or generic)
+        if file.contains("/include/") {
+            if reasons.iter().all(|r| !r.contains("include")) {
+                score += 0.10;
+                reasons.push("include-directory".to_string());
+            }
+        }
+
+        // Documented in README/docs
+        if include_docs {
+            if let Some(scanner) = doc_scanner {
+                if is_documented(name, file, scanner) {
+                    score += 0.15;
+                    reasons.push("documented-in-readme-or-docs".to_string());
+                    documented_api_count += 1;
+                }
+            }
+        }
+
+        // Entry point candidate
+        if detect_entry_like(
+            name,
+            kind,
+            file,
+            language,
+            gv.outgoing.get(&id).map(|v| v.len()).unwrap_or(0),
+        ) {
+            score += 0.10;
+            if reasons.iter().all(|r| !r.contains("entry")) {
+                reasons.push("entry-point-candidate".to_string());
+            }
+        }
+
+        // Negative: name starts _ or internal
+        if name.starts_with('_') || name.contains("internal") || name.contains("private") {
+            score -= 0.25;
+        }
+
+        // Clamp
+        score = score.max(0.0).min(1.0);
+
+        // Filter: only include score >= 0.35
+        if score < 0.35 {
+            continue;
+        }
+
+        // Determine caution level
+        let caution_level = if score >= 0.75 {
+            "high"
+        } else if score >= 0.45 {
+            "medium"
+        } else {
+            "low"
+        };
+
+        if caution_level == "high" {
+            high_caution_count += 1;
+        }
+
+        // Build recommended verification
+        let verification = build_external_verification(reasons.as_slice(), language);
+
+        // Add caution key as reason
+        if !caution_key.is_empty() {
+            reasons.push(caution_key.to_string());
+        }
+        reasons.push("not-safe-to-treat-as-dead-code-based-on-internal-callers-only".to_string());
+
+        // Track surface files
+        if !surface_files.contains(&file.to_string()) {
+            surface_files.push(file.to_string());
+        }
+
+        surface_symbols.push(json!({
+            "id": id,
+            "name": name,
+            "kind": kind,
+            "file": file,
+            "line": line,
+            "score": (score * 100.0).round() / 100.0,
+            "cautionLevel": caution_level,
+            "reasons": reasons,
+            "recommendedVerification": verification
+        }));
+    }
+
+    // Sort: score desc, file asc, line asc, name asc
+    surface_symbols.sort_by(|a, b| {
+        b["score"]
+            .as_f64()
+            .partial_cmp(&a["score"].as_f64())
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a["file"].as_str().cmp(&b["file"].as_str()))
+            .then_with(|| a["line"].as_u64().cmp(&b["line"].as_u64()))
+            .then_with(|| a["name"].as_str().cmp(&b["name"].as_str()))
+    });
+
+    surface_symbols.truncate(limit);
+
+    json!({
+        "summary": {
+            "externalSurfaceSymbolCount": surface_symbols.len(),
+            "externalSurfaceFileCount": surface_files.len(),
+            "packageExportCount": package_export_count,
+            "headerApiCount": header_api_count,
+            "documentedApiCount": documented_api_count,
+            "highCautionCount": high_caution_count
+        },
+        "externalSurfaceSymbols": surface_symbols,
+        "externalSurfaceFiles": surface_files.into_iter().take(limit).collect::<Vec<String>>()
+    })
+}
+
+/// Detect package entry files from metadata (package.json main/types/exports, etc.)
+fn detect_package_entry_files(gv: &GraphView, _language: &str) -> Vec<String> {
+    let mut entries: Vec<String> = Vec::new();
+    // Check for common entry file patterns in graph
+    for node in gv.nodes_by_id.values() {
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        if file.ends_with("index.ts")
+            || file.ends_with("index.tsx")
+            || file.ends_with("lib.rs")
+            || file.ends_with("__init__.py")
+            || file.ends_with("main.ts")
+        {
+            if !entries.iter().any(|e| file.ends_with(e.as_str())) {
+                entries.push(file.to_string());
+            }
+        }
+    }
+    entries
+}
+
+/// Detect package bin files from metadata
+fn detect_package_bin_files(gv: &GraphView, _language: &str) -> Vec<String> {
+    let mut bins: Vec<String> = Vec::new();
+    for node in gv.nodes_by_id.values() {
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        if file.ends_with("cli.ts") || file.ends_with("bin.ts") || file.ends_with("main.ts") {
+            if !bins.iter().any(|e| file.ends_with(e.as_str())) {
+                bins.push(file.to_string());
+            }
+        }
+    }
+    bins
+}
+
+/// Check if a symbol is re-exported (Rust pub use pattern)
+fn is_reexported_symbol(id: &str, gv: &GraphView) -> bool {
+    if let Some(incoming) = gv.incoming.get(id) {
+        for edge in incoming {
+            let et = edge["type"].as_str().unwrap_or("");
+            if et == "REFERENCES" || et == "IMPORTS" {
+                if let Some(source_id) = edge["source"].as_str() {
+                    if let Some(source_node) = gv.nodes_by_id.get(source_id) {
+                        let source_file = source_node["properties"]["sourcePath"]
+                            .as_str()
+                            .unwrap_or("");
+                        let source_name = source_node["properties"]["name"].as_str().unwrap_or("");
+                        // If the source is in lib.rs or index.ts and the name is different, it's likely a re-export
+                        if (source_file.ends_with("lib.rs") || source_file.ends_with("index.ts"))
+                            && source_name.contains("export")
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a symbol is re-exported from index.ts
+fn is_reexported_from_index(id: &str, gv: &GraphView) -> bool {
+    if let Some(incoming) = gv.incoming.get(id) {
+        for edge in incoming {
+            let et = edge["type"].as_str().unwrap_or("");
+            if et == "REFERENCES" || et == "IMPORTS" {
+                if let Some(source_id) = edge["source"].as_str() {
+                    if let Some(source_node) = gv.nodes_by_id.get(source_id) {
+                        let source_file = source_node["properties"]["sourcePath"]
+                            .as_str()
+                            .unwrap_or("");
+                        if source_file.ends_with("index.ts") || source_file.ends_with("index.tsx") {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a symbol is re-exported from __init__.py
+fn is_reexported_from_init(id: &str, gv: &GraphView) -> bool {
+    if let Some(incoming) = gv.incoming.get(id) {
+        for edge in incoming {
+            let et = edge["type"].as_str().unwrap_or("");
+            if et == "REFERENCES" || et == "IMPORTS" {
+                if let Some(source_id) = edge["source"].as_str() {
+                    if let Some(source_node) = gv.nodes_by_id.get(source_id) {
+                        let source_file = source_node["properties"]["sourcePath"]
+                            .as_str()
+                            .unwrap_or("");
+                        if source_file.ends_with("__init__.py") {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if a file is a known entry file for the language
+
+/// Check if a symbol or file is documented in README or docs
+fn is_documented(name: &str, file: &str, scanner: &DocScanner) -> bool {
+    for doc in &scanner.docs {
+        for r#ref in &doc.references {
+            if r#ref.match_type == "symbol" && r#ref.matched_text == name {
+                return true;
+            }
+            if r#ref.match_type == "file" {
+                let ref_path = &r#ref.matched_text;
+                if file.ends_with(ref_path) || ref_path.ends_with(file) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Build recommended verification steps based on reasons and language
+fn build_external_verification(reasons: &[String], language: &str) -> Vec<String> {
+    let mut steps: Vec<String> = Vec::new();
+    match language {
+        "rust" => {
+            steps.push("check crate public API and semver compatibility".to_string());
+            steps.push("search downstream consumers on crates.io or in workspace".to_string());
+        }
+        "typescript" | "arkts" => {
+            steps.push("check package exports/main/types/bin fields".to_string());
+            steps.push("search downstream npm consumers".to_string());
+        }
+        "python" => {
+            steps.push("check import paths and console scripts".to_string());
+            steps.push("search downstream consumers on PyPI".to_string());
+        }
+        "c" | "cpp" => {
+            steps.push("search external include usage".to_string());
+            steps.push("check header consumers in dependent projects".to_string());
+        }
+        "cangjie" => {
+            steps.push("check package public API surface".to_string());
+        }
+        _ => {
+            steps.push("search downstream consumers".to_string());
+        }
+    }
+    steps.push("review changelog and compatibility policy".to_string());
+    steps.push("run compatibility tests before removing or changing".to_string());
+    steps
+}
+
+/// External API surface handler for MCP tool
+fn handle_external_api_surface(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_docs = params["includeDocs"].as_bool().unwrap_or(true);
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let include_headers = params["includeHeaders"].as_bool().unwrap_or(true);
+    let include_pkg_meta = params["includePackageMetadata"].as_bool().unwrap_or(true);
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let doc_scanner = if include_docs {
+        let scanner = DocScanner::build(&std::path::PathBuf::from(&validated));
+        Some(scanner)
+    } else {
+        None
+    };
+
+    let surface = compute_external_api_surface(
+        &gv,
+        language,
+        doc_scanner.as_ref(),
+        include_docs,
+        include_tests,
+        include_headers,
+        include_pkg_meta,
+        limit,
+    );
+
+    let result = json!({
+        "language": language,
+        "root": validated,
+        "summary": surface["summary"],
+        "externalSurfaceSymbols": if compact {
+            json!(surface["externalSurfaceSymbols"].as_array().map(|arr| {
+                arr.iter().map(|s| json!({
+                    "name": s["name"],
+                    "kind": s["kind"],
+                    "file": s["file"],
+                    "line": s["line"],
+                    "score": s["score"],
+                    "cautionLevel": s["cautionLevel"]
+                })).collect::<Vec<Value>>()
+            }).unwrap_or_default())
+        } else {
+            surface["externalSurfaceSymbols"].clone()
+        },
+        "externalSurfaceFiles": if compact {
+            json!(null)
+        } else {
+            surface["externalSurfaceFiles"].clone()
+        },
+        "generatedFrom": {
+            "graphBased": true,
+            "compilerVerified": false,
+            "externalUsageVerified": false,
+            "heuristic": true
+        }
+    });
+
+    Ok(merge_cache_and_result(&result, &cache_meta))
+}
 pub fn run_mcp_server() -> Result<(), String> {
     eprintln!("[mcp] CodeLattice MCP v0.8 server starting on stdin/stdout");
 

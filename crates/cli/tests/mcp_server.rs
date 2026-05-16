@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) = 31 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 32 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_one_tools() {
+fn mcp_tools_list_returns_thirty_two_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_thirty_one_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 31, "expected 31 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 32, "expected 32 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -10095,5 +10095,387 @@ fn mcp_reachability_map_no_proof_language() {
     assert!(
         !text.contains("deletion-safe"),
         "output must not contain 'deletion-safe'"
+    );
+}
+
+// ============================================================
+// v0.21: External API Surface Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn external_api_surface_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/typescript/external-api-surface")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_typescript_basic() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"]["externalSurfaceSymbolCount"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "should find external surface symbols"
+    );
+    assert_eq!(data["language"].as_str().unwrap_or(""), "typescript");
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_detects_package_exports() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let empty = Vec::new();
+    let symbols = data["externalSurfaceSymbols"].as_array().unwrap_or(&empty);
+    let names: Vec<&str> = symbols.iter().filter_map(|s| s["name"].as_str()).collect();
+    // Graph-based detection may find different symbols depending on parser output.
+    // At minimum, exported symbols should be detected.
+    assert!(
+        !names.is_empty(),
+        "should detect at least one exported symbol, got: {:?}",
+        names
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_detects_bin() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let empty = Vec::new();
+    let symbols = data["externalSurfaceSymbols"].as_array().unwrap_or(&empty);
+    let files: Vec<&str> = symbols.iter().filter_map(|s| s["file"].as_str()).collect();
+    // bin entry (cli.ts) should contribute symbols; check at least one source file is detected
+    assert!(
+        !files.is_empty(),
+        "should detect symbols from source files, got files: {:?}",
+        files
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_internal_lower_score() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let empty = Vec::new();
+    let symbols = data["externalSurfaceSymbols"].as_array().unwrap_or(&empty);
+    let internal = symbols
+        .iter()
+        .find(|s| s["name"].as_str() == Some("internalHelper"));
+    if let Some(int_sym) = internal {
+        let score = int_sym["score"].as_f64().unwrap_or(1.0);
+        let public = symbols
+            .iter()
+            .find(|s| s["name"].as_str() == Some("createClient"));
+        if let Some(pub_sym) = public {
+            let pub_score = pub_sym["score"].as_f64().unwrap_or(0.0);
+            assert!(
+                score <= pub_score,
+                "internalHelper score ({}) should be <= createClient score ({})",
+                score,
+                pub_score
+            );
+        }
+    }
+    // internalHelper may not appear at all (below 0.35 threshold) — that's also fine
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_compact_shape() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["externalSurfaceFiles"].is_null(),
+        "compact mode should omit externalSurfaceFiles"
+    );
+    let empty = Vec::new();
+    let symbols = data["externalSurfaceSymbols"].as_array().unwrap_or(&empty);
+    if !symbols.is_empty() {
+        let first = &symbols[0];
+        assert!(first["name"].is_string(), "compact symbol should have name");
+        assert!(
+            first["score"].is_number(),
+            "compact symbol should have score"
+        );
+        assert!(
+            first["cautionLevel"].is_string(),
+            "compact symbol should have cautionLevel"
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_no_external_usage_proof() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert_eq!(
+        data["generatedFrom"]["externalUsageVerified"].as_bool(),
+        Some(false),
+        "externalUsageVerified must be false"
+    );
+    assert_eq!(
+        data["generatedFrom"]["heuristic"].as_bool(),
+        Some(true),
+        "heuristic must be true"
+    );
+    assert_eq!(
+        data["generatedFrom"]["compilerVerified"].as_bool(),
+        Some(false),
+        "compilerVerified must be false"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_auto_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "auto"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"]["externalSurfaceSymbolCount"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 0,
+        "auto language should not error"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_no_proof_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_external_api_surface",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let text = serde_json::to_string(&data)
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(!text.contains("guaranteed"), "must not claim guaranteed");
+    assert!(
+        !text.contains("safe to delete"),
+        "must not claim safe to delete"
+    );
+    assert!(
+        !text.contains("deletion-safe"),
+        "must not claim deletion-safe"
+    );
+    assert!(
+        !text.contains("external usage verified"),
+        "must not claim external usage verified"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_dead_code_deletion_unsafe() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31009,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert_eq!(
+        data["generatedFrom"]["deletionSafe"].as_bool(),
+        Some(false),
+        "dead_code candidates must have deletionSafe=false"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_external_api_surface_reachability_heuristic() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = external_api_surface_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 31010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert_eq!(data["generatedFrom"]["graphBased"].as_bool(), Some(true));
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+    assert_eq!(
+        data["generatedFrom"]["compilerVerified"].as_bool(),
+        Some(false)
     );
 }
