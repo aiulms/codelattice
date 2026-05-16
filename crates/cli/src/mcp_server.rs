@@ -6854,6 +6854,30 @@ fn detect_entry_like(name: &str, kind: &str, file: &str, language: &str, fan_out
                 || (kind == "function" && !name.starts_with('_') && fan_out > 6)
                 || file.ends_with(".tsx") && kind == "function"
         }
+        "python" => {
+            name == "main"
+                || name == "create_app"
+                || name == "app"
+                || file.ends_with("__main__.py")
+                || (file.ends_with("cli.py") && kind == "function")
+                || (file.ends_with("app.py") && kind == "function")
+                || (kind == "function" && !name.starts_with('_') && fan_out > 6)
+        }
+        "c" => {
+            name == "main"
+                || name == "WinMain"
+                || (file.ends_with("main.c") && kind == "function")
+                || (kind == "function" && fan_out > 8)
+        }
+        "cpp" => {
+            name == "main"
+                || name == "WinMain"
+                || name == "wWinMain"
+                || name == "DllMain"
+                || (file.ends_with("main.cpp") && kind == "function")
+                || (file.ends_with("main.cc") && kind == "function")
+                || (kind == "function" && fan_out > 8)
+        }
         _ => {
             // Auto-detect: generic heuristics
             name == "main" || (kind == "function" && fan_out > 8)
@@ -6993,6 +7017,29 @@ fn handle_review_plan(cache: &mut McpCache, params: &Value) -> Result<Value, Val
                     "understand file structure",
                 ));
             }
+            // Entry point reachability for onboarding
+            {
+                let ep = detect_entry_points(&gv, language, &[]);
+                if !ep.is_empty() {
+                    let names: Vec<&str> = ep
+                        .iter()
+                        .take(5)
+                        .map(|(_, n, _, _, _)| n.as_str())
+                        .collect();
+                    read_plan.push(plan_item(
+                        "P0",
+                        &format!("Start from entry points: {}", names.join(", ")),
+                        "entry-points",
+                        "",
+                        0,
+                        &format!("{} entry point(s) detected", ep.len()),
+                        "reachability_map",
+                        "codelattice_reachability_map",
+                        "understand full reachability from entry points",
+                    ));
+                }
+            }
+
             read_plan.truncate(limit);
             // Docs signal
             if include_docs {
@@ -7240,6 +7287,38 @@ fn handle_review_plan(cache: &mut McpCache, params: &Value) -> Result<Value, Val
             recommended_mcp_calls.push(json!({"tool":"codelattice_production_assist","argumentsSummary":format!("root={}",root_str),"reason":"health check"}));
             if !changed.is_empty() {
                 recommended_mcp_calls.push(json!({"tool":"codelattice_compare_runs","argumentsSummary":format!("root={}",root_str),"reason":"compare before/after"}));
+
+                // Reachability for release check
+                {
+                    let ep = detect_entry_points(&gv, language, &[]);
+                    let reach = reachable_from_entry_points(&gv, &ep);
+                    let uc = gv
+                        .nodes_by_id
+                        .values()
+                        .filter(|n| {
+                            let k = n["kind"].as_str().unwrap_or("");
+                            let l = n["label"].as_str().unwrap_or("");
+                            if k != "symbol" && l != "symbol" {
+                                return false;
+                            }
+                            let nid = n["id"].as_str().unwrap_or("");
+                            !reach.contains(nid) && !ep.iter().any(|(eid, _, _, _, _)| eid == nid)
+                        })
+                        .count();
+                    if uc > 0 {
+                        risk_review_plan.push(plan_item(
+                            "P2",
+                            &format!("Review {} unreachable symbol(s)", uc),
+                            "",
+                            "",
+                            0,
+                            &format!("{} entry points, {} unreachable", ep.len(), uc),
+                            "reachability_map",
+                            "codelattice_reachability_map",
+                            "reviewed",
+                        ));
+                    }
+                }
             }
         }
 
@@ -7282,6 +7361,43 @@ fn handle_review_plan(cache: &mut McpCache, params: &Value) -> Result<Value, Val
                     "codelattice_project_overview",
                     "diagnostics addressed",
                 ));
+            }
+            // v0.20: Reachability summary for release check
+            {
+                let eps = detect_entry_points(&gv, language, &vec![]);
+                let reach = reachable_from_entry_points(&gv, &eps);
+                let total_syms = gv
+                    .nodes_by_id
+                    .values()
+                    .filter(|n| {
+                        let k = n["kind"].as_str().unwrap_or("");
+                        k == "symbol"
+                            || k == "function"
+                            || k == "method"
+                            || k == "class"
+                            || k == "struct"
+                    })
+                    .count();
+                let unreachable = total_syms.saturating_sub(reach.len());
+                if unreachable > 0 && unreachable < total_syms {
+                    risk_review_plan.push(plan_item(
+                        "P2",
+                        &format!("Review {} potentially unreachable symbols", unreachable),
+                        "",
+                        "",
+                        0,
+                        &format!(
+                            "{} of {} symbols not reachable from {} entry points",
+                            unreachable,
+                            total_syms,
+                            eps.len()
+                        ),
+                        "reachability_map",
+                        "codelattice_reachability_map",
+                        "unreachable symbols triaged",
+                    ));
+                }
+                recommended_mcp_calls.push(json!({"tool":"codelattice_reachability_map","argumentsSummary":format!("root={}",root_str),"reason":"unreachable code audit"}));
             }
             if include_tests {
                 test_hints.push(json!({"command":"cargo test","reason":"full suite","priority":"P0","safeToRun":true,"requiresExternalProject":false}));
@@ -8076,6 +8192,26 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_reachability_map",
+                "description": "Static graph reachability from detected entry point candidates. Identifies reachable and unreachable symbols/files via BFS traversal. Not runtime proof.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true },
+                        "limit": { "type": "integer", "default": 100, "maximum": 500 },
+                        "maxDepth": { "type": "integer", "default": 8, "minimum": 1, "maximum": 20 },
+                        "includeTests": { "type": "boolean", "default": false },
+                        "includePublicApi": { "type": "boolean", "default": true },
+                        "includeReachableItems": { "type": "boolean", "default": false },
+                        "entryHints": { "type": "array", "items": { "type": "string" } },
+                        "excludePatterns": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["root"]
+                }
             }
         ]
     })
@@ -8097,8 +8233,15 @@ fn detect_entry_points(
         "cangjie" => &["package.cj", "main.cj"],
         "arkts" => &["Index.ets", "MainAbility"],
         "typescript" => &["index.ts", "index.tsx", "main.ts", "app.ts"],
-        "python" => &["main.py", "app.py", "api.py", "__init__.py"],
-        "c" | "cpp" => &["main.c", "main.cpp"],
+        "python" => &[
+            "main.py",
+            "app.py",
+            "api.py",
+            "__init__.py",
+            "__main__.py",
+            "cli.py",
+        ],
+        "c" | "cpp" => &["main.c", "main.cpp", "main.cc"],
         _ => &["main"],
     };
 
@@ -10512,6 +10655,8 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
         "root": root,
         "summary": {
             "candidateSymbolCount": symbol_candidates.len(),
+            "entryPointCount": entry_points.len(),
+            "reachableSymbolCount": reachable.len(),
             "candidateFileCount": file_candidates.len(),
             "highConfidenceCandidateCount": high_count,
             "mediumConfidenceCandidateCount": medium_count,
@@ -10527,7 +10672,7 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
             "graphBased": true,
             "compilerVerified": false,
             "heuristic": true,
-            "deletionSafe": false
+            "deletionSafe": false, "runtimeVerified": false
         }
     });
 
@@ -11288,6 +11433,437 @@ fn handle_review_gate(cache: &mut McpCache, params: &Value) -> Result<Value, Val
 }
 
 // ============================================================
+
+// ============================================================
+// v0.20: Entry Point & Reachability Map
+// ============================================================
+
+fn detect_entry_points_rich(
+    gv: &GraphView,
+    language: &str,
+    entry_hints: &[String],
+) -> Vec<(
+    String,
+    String,
+    String,
+    String,
+    u64,
+    String,
+    f64,
+    Vec<String>,
+)> {
+    let entry_file_suffixes: &[&str] = match language {
+        "rust" => &["main.rs", "lib.rs"],
+        "cangjie" => &["package.cj", "main.cj"],
+        "arkts" => &["Index.ets", "MainAbility"],
+        "typescript" => &["index.ts", "index.tsx", "main.ts", "app.ts", "server.ts"],
+        "python" => &[
+            "main.py",
+            "__main__.py",
+            "app.py",
+            "cli.py",
+            "api.py",
+            "__init__.py",
+        ],
+        "c" | "cpp" => &["main.c", "main.cpp", "main.cc"],
+        _ => &["main"],
+    };
+    let mut results: Vec<(
+        String,
+        String,
+        String,
+        String,
+        u64,
+        String,
+        f64,
+        Vec<String>,
+    )> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| {
+                node["id"]
+                    .as_str()
+                    .and_then(|id_str| id_str.split("::").last())
+            })
+            .unwrap_or("");
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+        let id = node["id"].as_str().unwrap_or("").to_string();
+        if id.is_empty() || seen.contains(&id) {
+            continue;
+        }
+        let fan_out = gv.outgoing.get(&id).map(|v| v.len()).unwrap_or(0);
+        let mut score: f64 = 0.0;
+        let mut reasons: Vec<String> = Vec::new();
+        if name == "main" {
+            score += 0.50;
+            reasons.push("entry-like symbol name".to_string());
+        }
+        match language {
+            "python" if name == "create_app" || name == "createApp" => {
+                score += 0.40;
+                reasons.push("framework entry name".to_string());
+            }
+            "c" | "cpp" if name == "WinMain" || name == "wWinMain" || name == "DllMain" => {
+                score += 0.35;
+                reasons.push("platform entry name".to_string());
+            }
+            "arkts" if name == "build" || name == "aboutToAppear" => {
+                score += 0.40;
+                reasons.push("lifecycle entry name".to_string());
+            }
+            _ => {}
+        }
+        for s in entry_file_suffixes {
+            if file.ends_with(s) {
+                score += 0.30;
+                reasons.push("entry-like filename".to_string());
+                break;
+            }
+        }
+        if fan_out > 8 {
+            score += 0.15;
+            reasons.push("high fan-out orchestrator".to_string());
+        } else if fan_out > 4 {
+            score += 0.08;
+            reasons.push("moderate fan-out".to_string());
+        }
+        if (file.ends_with("lib.rs")
+            || file.ends_with("package.cj")
+            || file.ends_with("__init__.py"))
+            && !name.starts_with('_')
+        {
+            score += 0.10;
+            reasons.push("public symbol in package root".to_string());
+        }
+        for hint in entry_hints {
+            if name == hint.as_str() || file.contains(hint.as_str()) || id.contains(hint.as_str()) {
+                score += 0.35;
+                reasons.push(format!("user hint: {}", hint));
+                break;
+            }
+        }
+        if score < 0.15 {
+            continue;
+        }
+        let confidence = if score >= 0.70 {
+            "high"
+        } else if score >= 0.40 {
+            "medium"
+        } else {
+            "low"
+        };
+        seen.insert(id.clone());
+        results.push((
+            id,
+            name.to_string(),
+            kind.to_string(),
+            file.to_string(),
+            line,
+            confidence.to_string(),
+            score.min(1.0),
+            reasons,
+        ));
+    }
+    if results.is_empty() {
+        let mut cands: Vec<&Value> = gv
+            .nodes_by_id
+            .values()
+            .filter(|n| {
+                let k = n["kind"].as_str().unwrap_or("");
+                k == "function" || k == "method" || k == "symbol"
+            })
+            .collect();
+        cands.sort_by_key(|n| {
+            std::cmp::Reverse(
+                gv.outgoing
+                    .get(n["id"].as_str().unwrap_or(""))
+                    .map(|v| v.len())
+                    .unwrap_or(0),
+            )
+        });
+        for node in cands.iter().take(5) {
+            let id = node["id"].as_str().unwrap_or("").to_string();
+            if id.is_empty() || seen.contains(&id) {
+                continue;
+            }
+            let name = node["properties"]["name"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let file = node["properties"]["sourcePath"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+            let kind = node["kind"].as_str().unwrap_or("symbol").to_string();
+            seen.insert(id.clone());
+            results.push((
+                id,
+                name,
+                kind,
+                file,
+                line,
+                "low".to_string(),
+                0.25,
+                vec!["fallback: high fan-out".to_string()],
+            ));
+        }
+    }
+    results
+}
+
+fn reachable_from_entry_points_rich(
+    gv: &GraphView,
+    entry_points: &[(
+        String,
+        String,
+        String,
+        String,
+        u64,
+        String,
+        f64,
+        Vec<String>,
+    )],
+    max_depth: usize,
+) -> std::collections::HashSet<String> {
+    let mut reachable = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, usize)> = std::collections::VecDeque::new();
+    for (id, _, _, _, _, _, _, _) in entry_points {
+        reachable.insert(id.clone());
+        queue.push_back((id.clone(), 0));
+    }
+    let follow: &[&str] = &["CALLS", "REFERENCES", "IMPORTS", "INCLUDES", "DEFINES"];
+    while let Some((node_id, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        if let Some(edges) = gv.outgoing.get(&node_id) {
+            for edge in edges {
+                let et = edge["type"].as_str().unwrap_or("");
+                if follow.contains(&et) {
+                    if let Some(target) = edge["target"].as_str() {
+                        if reachable.insert(target.to_string()) {
+                            queue.push_back((target.to_string(), depth + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    reachable
+}
+
+fn handle_reachability_map(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(100).min(500) as usize;
+    let max_depth = params["maxDepth"].as_u64().unwrap_or(8).min(20).max(1) as usize;
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let include_reachable_items = params["includeReachableItems"].as_bool().unwrap_or(false);
+    let entry_hints: Vec<String> = params["entryHints"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let exclude_patterns: Vec<String> = params["excludePatterns"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let entry_points = detect_entry_points_rich(&gv, language, &entry_hints);
+    let ep_ids: std::collections::HashSet<String> = entry_points
+        .iter()
+        .map(|(id, _, _, _, _, _, _, _)| id.clone())
+        .collect();
+    let reachable = reachable_from_entry_points_rich(&gv, &entry_points, max_depth);
+    let mut reachable_files: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for id in &reachable {
+        if let Some(n) = gv.nodes_by_id.get(id) {
+            if let Some(f) = n["properties"]["sourcePath"].as_str() {
+                if !f.is_empty() {
+                    reachable_files.insert(f.to_string());
+                }
+            }
+        }
+    }
+    let mut file_sym_count: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut file_unreach: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    let mut unreachable_symbols: Vec<Value> = Vec::new();
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol"
+            && label != "symbol"
+            && kind != "function"
+            && kind != "method"
+            && kind != "class"
+            && kind != "struct"
+            && kind != "enum"
+            && kind != "const"
+            && kind != "static"
+            && kind != "associated-function"
+        {
+            continue;
+        }
+        let id = node["id"].as_str().unwrap_or("");
+        if id.is_empty() {
+            continue;
+        }
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| node["id"].as_str().and_then(|i| i.split("::").last()))
+            .unwrap_or("");
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+        let node_kind = node["kind"].as_str().unwrap_or("symbol");
+        if ep_ids.contains(id) || is_generated_path(file) {
+            continue;
+        }
+        if !include_tests && is_test_like_path(file) {
+            continue;
+        }
+        if exclude_patterns
+            .iter()
+            .any(|p| file.contains(p.as_str()) || name.contains(p.as_str()))
+        {
+            continue;
+        }
+        if !file.is_empty() {
+            *file_sym_count.entry(file.to_string()).or_insert(0) += 1;
+        }
+        if reachable.contains(id) {
+            continue;
+        }
+        *file_unreach.entry(file.to_string()).or_insert(0) += 1;
+        let mut score: f64 = 0.0;
+        let mut reasons: Vec<String> = Vec::new();
+        let mut cautions: Vec<String> = Vec::new();
+        reasons.push("not-reachable-from-entry-points".to_string());
+        score += 0.40;
+        let incoming = gv.incoming.get(id).map(|v| v.len()).unwrap_or(0);
+        if incoming == 0 {
+            reasons.push("no-incoming-calls".to_string());
+            score += 0.25;
+        }
+        if !reachable_files.contains(file) && !file.is_empty() {
+            reasons.push("file-not-reachable".to_string());
+            score += 0.15;
+        }
+        cautions.push("static-analysis-only".to_string());
+        if !name.starts_with('_') && incoming == 0 {
+            cautions.push("public-api-may-have-external-callers".to_string());
+        }
+        if has_dynamic_pattern(name, file) {
+            cautions.push("dynamic-dispatch-may-hide-callers".to_string());
+        }
+        if score < 0.30 {
+            continue;
+        }
+        let confidence = if score >= 0.70 {
+            "high"
+        } else if score >= 0.45 {
+            "medium"
+        } else {
+            "low"
+        };
+        let mut sym = json!({"name": name, "kind": node_kind, "file": file, "line": line, "score": (score * 100.0).round() / 100.0, "confidence": confidence, "reasons": reasons, "cautions": cautions});
+        if !compact {
+            if let Some(o) = sym.as_object_mut() {
+                o.insert("id".to_string(), json!(id));
+            }
+        }
+        unreachable_symbols.push(sym);
+    }
+    unreachable_symbols.sort_by(|a, b| {
+        b["score"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    unreachable_symbols.truncate(limit);
+    let mut unreachable_files: Vec<Value> = Vec::new();
+    for (file, total) in &file_sym_count {
+        if is_generated_path(file) || (!include_tests && is_test_like_path(file)) {
+            continue;
+        }
+        if exclude_patterns.iter().any(|p| file.contains(p.as_str())) {
+            continue;
+        }
+        let uc = file_unreach.get(file).copied().unwrap_or(0);
+        if uc == *total && uc > 0 {
+            let mut fr: Vec<String> = vec!["file-not-reachable-from-entry-points".to_string()];
+            if !reachable_files.contains(file) {
+                fr.push("no-incoming-import-or-include".to_string());
+            }
+            unreachable_files.push(json!({"path": file, "symbolCount": total, "score": 0.70, "reasons": fr, "cautions": ["static-analysis-only"]}));
+        }
+    }
+    let ep_json: Vec<Value> = entry_points.iter().map(|(id, name, kind, file, line, conf, score, reasons)| {
+        let mut ep = json!({"name": name, "kind": kind, "file": file, "line": line, "confidence": conf, "score": (*score * 100.0).round() / 100.0, "reasons": reasons});
+        if !compact { if let Some(o) = ep.as_object_mut() { o.insert("id".to_string(), json!(id)); } } ep
+    }).collect();
+    let dyn_caution = unreachable_symbols
+        .iter()
+        .filter(|s| {
+            s["cautions"]
+                .as_array()
+                .map(|a| {
+                    a.iter().any(|v| {
+                        v.as_str()
+                            .map(|t| t.contains("dynamic-dispatch"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false)
+        })
+        .count();
+    let mut warnings = vec![
+        "static graph reachability only".to_string(),
+        "dynamic dispatch may hide runtime reachability".to_string(),
+    ];
+    if entry_points.is_empty() {
+        warnings.push("entry-point-detection-low-confidence".to_string());
+    }
+    let reachable_section = if include_reachable_items {
+        let syms: Vec<Value> = reachable.iter().filter_map(|id_val| gv.nodes_by_id.get(id_val)).take(limit)
+            .map(|n| json!({"id": n["id"], "name": n["properties"]["name"], "kind": n["kind"], "file": n["properties"]["sourcePath"]})).collect();
+        json!({"symbolCount": reachable.len(), "fileCount": reachable_files.len(), "symbols": syms, "files": reachable_files.iter().take(limit).map(|f| json!(f)).collect::<Vec<Value>>()})
+    } else {
+        json!({"symbolCount": reachable.len(), "fileCount": reachable_files.len()})
+    };
+    let result_data = json!({
+        "language": language, "root": root,
+        "summary": {"entryPointCount": entry_points.len(), "reachableSymbolCount": reachable.len(), "reachableFileCount": reachable_files.len(),
+            "unreachableSymbolCandidateCount": unreachable_symbols.len(), "unreachableFileCandidateCount": unreachable_files.len(), "dynamicCautionCount": dyn_caution},
+        "entryPoints": ep_json, "reachable": reachable_section, "unreachableCandidates": {"symbols": unreachable_symbols, "files": unreachable_files},
+        "warnings": warnings, "generatedFrom": {"graphBased": true, "compilerVerified": false, "runtimeVerified": false, "heuristic": true}
+    });
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
 // JSON-RPC Dispatch
 // ============================================================
 
@@ -11451,6 +12027,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_architecture_drift" => handle_architecture_drift(cache, &arguments),
                 "codelattice_ai_context_pack" => handle_ai_context_pack(cache, &arguments),
                 "codelattice_review_gate" => handle_review_gate(cache, &arguments),
+                "codelattice_reachability_map" => handle_reachability_map(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

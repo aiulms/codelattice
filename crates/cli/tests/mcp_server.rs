@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) = 30 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) = 31 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_tools() {
+fn mcp_tools_list_returns_thirty_one_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_thirty_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 30, "expected 30 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 31, "expected 31 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -310,6 +310,16 @@ fn mcp_tools_list_returns_thirty_tools() {
     assert!(
         names.contains(&"codelattice_dead_code_candidates"),
         "missing codelattice_dead_code_candidates"
+    );
+    // v0.20 tools
+    assert!(
+        names.contains(&"codelattice_reachability_map"),
+        "missing codelattice_reachability_map"
+    );
+    // v0.20 tools
+    assert!(
+        names.contains(&"codelattice_reachability_map"),
+        "missing codelattice_reachability_map"
     );
 
     // Verify each tool has inputSchema
@@ -8768,6 +8778,13 @@ fn graph_diagnostics_dir() -> std::path::PathBuf {
         .join("graph-diagnostics")
 }
 
+fn reachability_map_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("typescript")
+        .join("reachability-map")
+}
+
 #[cfg(feature = "tree-sitter-typescript")]
 #[test]
 fn mcp_ai_context_pack_returns_context() {
@@ -9651,4 +9668,432 @@ fn mcp_diagnostics_no_proof_language() {
             tool_name
         );
     }
+}
+
+// ============================================================
+// v0.20: Reachability Map Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_basic_structure() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Verify top-level structure
+    assert!(
+        data["summary"].is_object(),
+        "summary should be an object: {:?}",
+        data
+    );
+    assert!(
+        data["entryPoints"].is_array(),
+        "entryPoints should be an array: {:?}",
+        data
+    );
+    assert!(
+        data["reachable"].is_object(),
+        "reachable should be an object: {:?}",
+        data
+    );
+    assert!(
+        data["unreachableCandidates"].is_object(),
+        "unreachableCandidates should be an object: {:?}",
+        data
+    );
+    assert!(
+        data["warnings"].is_array(),
+        "warnings should be an array: {:?}",
+        data
+    );
+    assert!(
+        data["generatedFrom"].is_object(),
+        "generatedFrom should be an object: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_summary_counts() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let summary = &data["summary"];
+    assert!(
+        summary["entryPointCount"].is_number(),
+        "entryPointCount should be a number: {:?}",
+        summary
+    );
+    assert!(
+        summary["reachableSymbolCount"].is_number(),
+        "reachableSymbolCount should be a number: {:?}",
+        summary
+    );
+    assert!(
+        summary["reachableFileCount"].is_number(),
+        "reachableFileCount should be a number: {:?}",
+        summary
+    );
+    assert!(
+        summary["unreachableSymbolCandidateCount"].is_number(),
+        "unreachableSymbolCandidateCount should be a number: {:?}",
+        summary
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_generated_from_disclaims() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let gf = &data["generatedFrom"];
+    assert_eq!(
+        gf["runtimeVerified"].as_bool(),
+        Some(false),
+        "runtimeVerified must be false: {:?}",
+        gf
+    );
+    assert_eq!(
+        gf["compilerVerified"].as_bool(),
+        Some(false),
+        "compilerVerified must be false: {:?}",
+        gf
+    );
+    assert_eq!(
+        gf["heuristic"].as_bool(),
+        Some(true),
+        "heuristic must be true: {:?}",
+        gf
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_compact_mode_no_ids() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // In compact mode, entry points should NOT have 'id' field
+    if let Some(eps) = data["entryPoints"].as_array() {
+        for ep in eps {
+            assert!(
+                ep["id"].is_null() || ep.get("id").is_none(),
+                "compact mode entry points should not have 'id': {:?}",
+                ep
+            );
+        }
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_rust_fixture() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Use Rust fixture with actual CALLS edges
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"].is_object(),
+        "summary should be present for Rust fixture: {:?}",
+        data
+    );
+    // Rust c1-same-module has main function → should detect entry points
+    let ep_count = data["summary"]["entryPointCount"].as_u64().unwrap_or(0);
+    assert!(
+        ep_count >= 1,
+        "should detect at least 1 entry point in Rust fixture, got {}: {:?}",
+        ep_count,
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_warnings_present() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let warnings = data["warnings"]
+        .as_array()
+        .expect("warnings should be array");
+    assert!(
+        !warnings.is_empty(),
+        "should have at least one warning: {:?}",
+        data
+    );
+    // Should always include static analysis disclaimer
+    let text = serde_json::to_string(&warnings).unwrap_or_default();
+    assert!(
+        text.contains("static"),
+        "warnings should mention 'static': {:?}",
+        warnings
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_include_reachable_items() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "includeReachableItems": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let reachable = &data["reachable"];
+    // When includeReachableItems=true, should have symbols array
+    assert!(
+        reachable["symbols"].is_array(),
+        "symbols should be array when includeReachableItems=true: {:?}",
+        reachable
+    );
+    assert!(
+        reachable["fileCount"].is_number(),
+        "fileCount should be present: {:?}",
+        reachable
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_exclude_patterns() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "excludePatterns": ["legacy"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Verify the call succeeded (no error)
+    assert!(
+        data["summary"].is_object(),
+        "should succeed with excludePatterns: {:?}",
+        data
+    );
+    // Symbols matching "legacy" should be excluded from unreachable candidates
+    if let Some(syms) = data["unreachableCandidates"]["symbols"].as_array() {
+        for s in syms {
+            let text = serde_json::to_string(s).unwrap_or_default().to_lowercase();
+            assert!(
+                !text.contains("legacy"),
+                "excluded pattern 'legacy' should not appear in results: {:?}",
+                s
+            );
+        }
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_unreachable_caution_static() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30009,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // All unreachable candidates must have cautions
+    if let Some(syms) = data["unreachableCandidates"]["symbols"].as_array() {
+        for s in syms {
+            let cautions = s["cautions"].as_array();
+            assert!(
+                cautions.is_some(),
+                "each unreachable symbol should have cautions: {:?}",
+                s
+            );
+            let text = serde_json::to_string(&cautions).unwrap_or_default();
+            assert!(
+                text.contains("static"),
+                "cautions should mention 'static': {:?}",
+                cautions
+            );
+        }
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_no_proof_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = reachability_map_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 30010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let text = serde_json::to_string(&data)
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(
+        !text.contains("guaranteed"),
+        "output must not contain 'guaranteed'"
+    );
+    assert!(
+        !text.contains("safe to delete"),
+        "output must not contain 'safe to delete'"
+    );
+    assert!(
+        !text.contains("deletion-safe"),
+        "output must not contain 'deletion-safe'"
+    );
 }

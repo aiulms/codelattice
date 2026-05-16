@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 30 tools + source snippet + cache behavior + doc association.
+# Exercises all 31 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -122,14 +122,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 30 ]; then
+if [ "$TOOL_COUNT" -ge 31 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 30, got $TOOL_COUNT)")
-    echo "   → expected >= 30 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 31, got $TOOL_COUNT)")
+    echo "   → expected >= 31 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -332,6 +332,14 @@ echo "30. codelattice_review_gate"
 check_tool "codelattice_review_gate" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"useGitDiff\":false,\"changedFiles\":[\"src/lib.rs\"],\"compact\":true}" \
     "isinstance(data.get('touchedSymbols'), list) and data.get('generatedFrom', {}).get('compilerVerified') == False"
+
+# ============================================================
+# v0.20: Entry Point & Reachability Pack
+# ============================================================
+echo "31. codelattice_reachability_map"
+check_tool "codelattice_reachability_map" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true}" \
+    "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('runtimeVerified') == False and isinstance(data.get('entryPoints'), list)"
 
 # ============================================================
 # Summary

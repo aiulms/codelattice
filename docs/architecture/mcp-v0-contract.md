@@ -1249,6 +1249,53 @@ Diff-based review gate: analyze git diff or specified changed files → touched 
 
 ---
 
+### 3.30 `codelattice_reachability_map` *(v0.20)*
+
+Compute reachability map from detected entry points. Returns entry points, reachable symbols, and unreachable candidates with confidence scores.
+
+**Input schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "Project root directory (absolute path)" },
+    "language": { "type": "string", "enum": ["rust","cangjie","arkts","typescript","c","cpp","python","auto"], "default": "auto" },
+    "maxDepth": { "type": "integer", "description": "Max traversal depth (default 8)", "default": 8, "minimum": 1, "maximum": 32 },
+    "entryHints": { "type": "array", "items": { "type": "string" }, "description": "Optional entry point hints" },
+    "includeUnreachable": { "type": "boolean", "description": "Include unreachable candidates (default true)", "default": true },
+    "compact": { "type": "boolean", "description": "Compact mode", "default": false },
+    "includeReachableItems": { "type": "boolean", "description": "Include reachable symbol/file lists (default false)", "default": false },
+    "excludePatterns": { "type": "array", "items": { "type": "string" }, "description": "Glob patterns to exclude from unreachable candidates" },
+    "limit": { "type": "integer", "description": "Max items per category (default 50, max 200)", "default": 50, "maximum": 200 }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `language` — detected language
+- `summary` — `{ entryPointCount, reachableSymbolCount, unreachableCandidateCount, totalSymbols, reachableFileCount, totalFiles }`
+- `entryPoints` — detected entry points (id, name, kind, file, line, confidence, score, reasons)
+- `reachable` — `{ symbolCount, fileCount }` (or full symbols/files if `includeReachableItems`)
+- `unreachableCandidates` — symbols not reachable from any entry point (with cautions)
+- `warnings` — always includes "static graph reachability only" and "dynamic dispatch may hide runtime reachability"
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Entry point detection heuristics (per language):**
+- Rust: main, lib.rs public functions, test functions
+- TypeScript/ArkTS: index.ts exports, main/server/app entry files
+- Python: \_\_init\_\_.py, \_\_main\_\_.py, setup.py, wsgi/asgi modules
+- C/C++: main, WinMain, DllMain
+- Cangjie: main package entries
+
+**Known limitations:**
+- Static graph analysis only — no runtime dispatch resolution
+- Dynamic calls / trait objects / reflection may hide actual callers
+- Cross-crate callers not visible without workspace-level analysis
+- Not a deletion safety guarantee
+
+---
+
 ### 3.22 Cangjie Symbol Search Fix (v0.6)
 
 > **v0.6 Fix**: Cangjie graph nodes use `kind="symbol"` with display name in `label` field, while Rust uses `kind="function"/"method"/...` with `label="symbol"`. The old `symbol_search` filtered by `label == "symbol"`, which excluded all Cangjie symbols.
@@ -1269,7 +1316,7 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 30
+    "toolCount": 31
   }
 }
 ```

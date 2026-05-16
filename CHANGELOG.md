@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Entry Point & Reachability Map** (v0.20): New MCP tool `codelattice_reachability_map` — multi-language entry point detection + static BFS reachability analysis.
+  - Entry point detection heuristics for Rust, Python, TypeScript/ArkTS, C, C++, and Cangjie (main, lib.rs, index.ts, __init__.py, etc.), with confidence scores and reason tags.
+  - BFS reachability traversal from detected entry points (configurable max depth 1–32, default 8), following CALLS/REFERENCES/IMPORTS/INCLUDES/DEFINES edges.
+  - Unreachable candidate classification: symbols not reachable from any entry point, with cautions for public API exposure and dynamic dispatch patterns.
+  - Compact mode for AI-agent-friendly output (omits verbose IDs).
+  - All output includes `generatedFrom: { staticAnalysisOnly: true, heuristic: true, compilerVerified: false }` — no proof/guarantee/deletion-safe language.
+  - Reachability summary integrated into `codelattice_dead_code_candidates`, `codelattice_project_insights` (release_check mode), and `codelattice_review_plan`.
+  - New fixture: `fixtures/typescript/reachability-map/` (9 files with layered architecture, public API surface, dynamic dispatch patterns).
+  - 10 new MCP integration tests.
+  - MCP tool count: 30 → 31.
+  - No new dependencies.
+
 - **Graph Diagnostics Pack** (v0.19): 5 new MCP tools that package existing static graph capabilities into user-scenario-oriented diagnostic tools, turning CodeLattice from a "code graph analyzer" into a "local code diagnostics engine."
   - `codelattice_impact_analysis` — Change impact analysis: find direct callers/callees, upstream/downstream paths, entry point reachability, risk scoring, read-first and review-first recommendations.
   - `codelattice_risk_hotspots` — Project risk hotspot detection: identify high fan-in/fan-out symbols and files, cross-module dependencies, public API exposure, and quality metric anomalies.
