@@ -632,44 +632,73 @@ codelattice/
 
 ## WebUI Readiness
 
-> **状态：** Pre-flight（数据契约和 smoke 就绪，不是完整 WebUI 实现）
+> **状态：** MVP 1.0 — Static Snapshot Viewer 已落地（不是完整 WebUI）
 
-CodeLattice 目前没有完整的 WebUI 前端实现。但已准备好 **WebUI Snapshot Contract**——一个稳定的聚合 JSON 数据层，未来 WebUI 只需消费这个 snapshot，无需直接理解 37 个 MCP 工具。
+CodeLattice 现在有了一个**只读本地静态 Web 页面**——Snapshot Viewer。它加载 `webui-snapshot.sh` 生成的 JSON snapshot 并渲染为人类可浏览的视图。
 
-### 快速生成 snapshot
+### 快速开始
+
+**Step 1: 生成 Snapshot**
 
 ```bash
 bash scripts/webui-snapshot.sh \
   --root fixtures/rust/portable-smoke \
   --language rust \
-  --output /tmp/codelattice-webui-snapshot.json
+  --output /tmp/codelattice-snapshot.json
 ```
+
+**Step 2: 打开 Viewer**
+
+```bash
+# macOS
+open webui/snapshot-viewer/index.html
+
+# 或用 HTTP server（支持 URL query 参数）
+cd webui/snapshot-viewer && python3 -m http.server 8080
+# 打开 http://localhost:8080/?snapshot=../../fixtures/webui-snapshots/rust-portable-smoke.snapshot.json
+```
+
+然后在页面中点击 **Load Snapshot** 按钮选择生成的 JSON 文件。
 
 ### Smoke 验证
 
 ```bash
-bash scripts/webui-snapshot-smoke.sh          # 自动生成 + 验证 Rust/TS snapshot
+bash scripts/webui-snapshot-smoke.sh          # snapshot 合规性 (18 checks)
+bash scripts/webui-viewer-smoke.sh            # viewer 文件/结构验证 (34 checks)
 ```
+
+### WebUI Snapshot Viewer 功能
+
+| 视图 | 内容 | 数据来源 |
+|------|------|----------|
+| **Dashboard** | 项目统计、Quality Gates、Limitations | summary, quality, limitations |
+| **Explore** | 符号搜索/过滤、详情面板、source snippet | explore.symbols[] |
+| **Impact** | 影响分析 on-demand empty state | impact.entries[] |
+| **Cleanup** | Dead code/reachability/API surface/framework | cleanup.* |
+| **Release Review** | Breaking change/consistency/config review | releaseReview.* |
 
 ### 文档
 
 | 文档 | 内容 |
 |------|------|
-| [docs/webui/README.md](docs/webui/README.md) | WebUI readiness 总览、定位、5 视图规划 |
-| [docs/webui/webui-mvp.md](docs/webui/webui-mvp.md) | MVP 视图详细规格（Dashboard/Explore/Impact/Cleanup/Release） |
+| [docs/webui/README.md](docs/webui/README.md) | WebUI readiness 总览、5 视图架构 |
+| [docs/webui/webui-mvp.md](docs/webui/webui-mvp.md) | MVP 视图详细规格 |
 | [docs/webui/webui-snapshot-contract.md](docs/webui/webui-snapshot-contract.md) | `CodeLatticeWebSnapshotV1` JSON contract 完整定义 |
+| [webui/snapshot-viewer/README.md](webui/snapshot-viewer/README.md) | Viewer 使用指南、加载方式、技术细节 |
 
 ### 已就绪内容
 
-- **Snapshot contract** (`webui.snapshot.v1`) — 覆盖 Dashboard/Explore/Impact/Cleanup/Release 5 视图
-- **生成脚本** (`scripts/webui-snapshot.sh`) — 从 CLI analyze + quality 聚合数据
-- **Smoke 测试** (`scripts/webui-snapshot-smoke.sh`) — 自动化验证 snapshot 合规性
-- **Fixture snapshots** — Rust 和 TypeScript 示例 snapshot（`fixtures/webui-snapshots/`）
-- **Caution 渲染规范** — 每个视图的 stop-line / caution banner 定义
+- **Snapshot contract** (`webui.snapshot.v1`) — 覆盖 5 个视图的稳定 JSON schema
+- **生成脚本** (`scripts/webui-snapshot.sh`) — CLI analyze + quality 聚合
+- **Viewer** (`webui/snapshot-viewer/`) — 纯静态 HTML/CSS/JS，零依赖
+- **Smoke 测试** (`scripts/webui-snapshot-smoke.sh` + `scripts/webui-viewer-smoke.sh`)
+- **Fixture snapshots** — Rust 和 TypeScript 示例（`fixtures/webui-snapshots/`）
+- **Caution 渲染规范** — 全局 caution banner + per-view stop-line
 
 ### 硬边界
 
-本轮不包含：前端框架、UI 组件、实时更新、用户交互、认证、跨项目对比。
+本轮包含：纯静态 HTML/CSS/JS viewer、snapshot 加载和渲染。
+本轮不包含：前端框架、后端服务、实时更新、桌面应用壳、MCP 直接调用。
 
 ## License
 

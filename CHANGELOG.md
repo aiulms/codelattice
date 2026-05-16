@@ -8,6 +8,19 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Snapshot Viewer MVP**: First static, read-only WebUI for visualizing CodeLattice snapshot JSON.
+  - `webui/snapshot-viewer/index.html` — Main page: 5 views (Dashboard/Explore/Impact/Cleanup/Release), tab navigation, file/drag-drop loading, caution banner.
+  - `webui/snapshot-viewer/styles.css` — Local dev tool aesthetic, responsive layout, CSS variables, zero dependencies.
+  - `webui/snapshot-viewer/app.js` — Application logic (~540 lines): load/validate/normalize/render functions, search/filter, error handling.
+  - `webui/snapshot-viewer/README.md` — Usage guide, loading methods, view descriptions.
+  - `scripts/webui-viewer-smoke.sh` — Automated smoke test (34 checks): file existence, JS syntax, HTML structure, CSS features, JSON validation, contract compliance.
+  - `docs/plans/2026-05-16-webui-snapshot-viewer-preflight.md` — Scope lock preflight.
+  - `docs/plans/2026-05-16-webui-snapshot-viewer-closure.md` — Closure review.
+
+### Changed
+
+- README.md: Updated WebUI section to "MVP 1.0 — Static Snapshot Viewer" status; added viewer quick-start commands and feature table.
+
 - **WebUI Snapshot Readiness**: New `docs/webui/` documentation pack with snapshot contract, MVP view specifications, and caution rendering guidelines for a future human-facing project visualization layer.
   - `docs/webui/README.md` — WebUI readiness overview, 5-view architecture (Dashboard, Explore, Impact, Cleanup, Release Review), MCP vs WebUI relationship.
   - `docs/webui/webui-mvp.md` — Detailed MVP view specs with layout suggestions, required data sections, stability labels, and per-view caution rendering rules.

@@ -1,8 +1,8 @@
 # CodeLattice WebUI Readiness
 
 > **日期：** 2026-05-16
-> **状态：** Pre-flight / readiness-only（不是 WebUI 实现）
-> **定位：** 为未来 WebUI 准备稳定的数据契约、页面规划、fixture snapshot 和 smoke 验证
+> **状态：** MVP 1.0 — Static Snapshot Viewer 已落地
+> **定位：** 为 WebUI 准备稳定的数据契约 + 可用的静态只读 Viewer
 
 ---
 

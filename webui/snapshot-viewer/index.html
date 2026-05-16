@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CodeLattice — Snapshot Viewer</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Global Caution Banner -->
+  <div id="caution-banner" class="caution-banner" role="alert" style="display:none;">
+    <strong>&#9888; Static Analysis Only</strong>
+    Results are based on source-code graph analysis.
+    This is <strong>not</strong> compiler-verified, runtime-tested,
+    or coverage-proven. Use findings as investigation leads,
+    not as proof of safety or deletion-worthiness.
+  </div>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-left">
+      <h1 class="app-title">CodeLattice</h1>
+      <span class="app-subtitle">Snapshot Viewer</span>
+    </div>
+    <div class="header-center" id="project-info" style="display:none;">
+      <span class="badge badge-lang" id="hdr-language"></span>
+      <span class="text-muted" id="hdr-schema-version"></span>
+      <span class="text-muted" id="hdr-generated-at"></span>
+    </div>
+    <div class="header-right">
+      <label for="file-input" class="btn btn-sm btn-primary">
+        &#128194; Load Snapshot
+      </label>
+      <input type="file" id="file-input" accept=".json,application/json" style="display:none;">
+    </div>
+  </header>
+
+  <!-- Drop Zone (overlay) -->
+  <div id="drop-zone" class="drop-zone" style="display:none;">
+    <div class="drop-zone-inner">
+      &#128179; Drop snapshot JSON file here
+    </div>
+  </div>
+
+  <!-- Main Content -->
+  <main class="app-main" id="app-main">
+
+    <!-- Empty / Welcome State -->
+    <div id="welcome-view" class="welcome-view">
+      <div class="welcome-card">
+        <h2>CodeLattice Snapshot Viewer</h2>
+        <p class="text-muted">Load a CodeLattice WebUI snapshot JSON to explore your project.</p>
+        <div class="welcome-actions">
+          <button class="btn btn-primary" onclick="document.getElementById('file-input').click()">
+            &#128194; Choose File
+          </button>
+          <div class="text-muted text-sm welcome-hint">
+            Or drag &amp; drop a .json file anywhere on this page.<br>
+            Use <code>webui-snapshot.sh</code> to generate a snapshot:
+          </div>
+          <pre class="code-block">bash scripts/webui-snapshot.sh \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --output /tmp/codelattice-snapshot.json</pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error View -->
+    <div id="error-view" class="error-view" style="display:none;">
+      <div class="error-card">
+        <h2>&#10060; Error Loading Snapshot</h2>
+        <p id="error-message"></p>
+        <pre id="error-detail" class="code-block"></pre>
+        <button class="btn btn-secondary" onclick="showWelcome()">Try Again</button>
+      </div>
+    </div>
+
+    <!-- Loaded Content (tabs + views) -->
+    <div id="loaded-content" style="display:none;">
+
+      <!-- Tab Bar -->
+      <nav class="tab-bar" role="tablist">
+        <button class="tab-btn active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
+        <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">Explore</button>
+        <button class="tab-btn" data-tab="impact" role="tab" aria-selected="false">Impact</button>
+        <button class="tab-btn" data-tab="cleanup" role="tab" aria-selected="false">Cleanup</button>
+        <button class="tab-btn" data-tab="release" role="tab" aria-selected="false">Release Review</button>
+      </nav>
+
+      <!-- GeneratedFrom Flags Bar -->
+      <div id="genfrom-bar" class="genfrom-bar"></div>
+
+      <!-- Dashboard View -->
+      <section id="view-dashboard" class="view-section active" role="tabpanel">
+        <!-- Summary Cards Row -->
+        <div class="card-grid card-grid-4">
+          <div class="stat-card">
+            <div class="stat-label">Source Files</div>
+            <div class="stat-value" id="dash-source-files">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Symbols</div>
+            <div class="stat-value" id="dash-symbols">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Call Edges</div>
+            <div class="stat-value" id="dash-call-edges">-</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Packages</div>
+            <div class="stat-value" id="dash-packages">-</div>
+          </div>
+        </div>
+
+        <!-- Quality Gates -->
+        <div class="section-block">
+          <h3 class="section-title">
+            Quality Gates
+            <span class="badge badge-success" id="dash-quality-status">-</span>
+          </h3>
+          <div id="dash-quality-gates" class="gate-list"></div>
+        </div>
+
+        <!-- Limitations -->
+        <div class="section-block">
+          <h3 class="section-title">Limitations &amp; Cautions</h3>
+          <ul id="dash-limitations" class="limitation-list"></ul>
+        </div>
+      </section>
+
+      <!-- Explore View -->
+      <section id="view-explore" class="view-section" role="tabpanel" style="display:none;">
+        <div class="explore-toolbar">
+          <input type="text" id="explore-search" class="search-input"
+                 placeholder="Search symbols by name..." autocomplete="off">
+          <select id="explore-kind-filter" class="filter-select">
+            <option value="">All Kinds</option>
+          </select>
+        </div>
+        <div class="explore-layout">
+          <div class="explore-list-panel">
+            <div class="panel-header">
+              Symbols <span id="explore-count" class="text-muted text-sm">(0)</span>
+            </div>
+            <div id="explore-symbol-list" class="symbol-list"></div>
+          </div>
+          <div class="explore-detail-panel">
+            <div id="explore-detail" class="symbol-detail">
+              <p class="text-muted text-center">Select a symbol to view details.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Impact View -->
+      <section id="view-impact" class="view-section" role="tabpanel" style="display:none;">
+        <div id="impact-content"></div>
+      </section>
+
+      <!-- Cleanup View -->
+      <section id="view-cleanup" class="view-section" role="tabpanel" style="display:none;">
+        <div class="card-grid card-grid-4">
+          <div class="info-card">
+            <h4 class="info-card-title">Dead Code Candidates</h4>
+            <div id="cleanup-dead-code" class="info-card-body"></div>
+          </div>
+          <div class="info-card">
+            <h4 class="info-card-title">Reachability</h4>
+            <div id="cleanup-reachability" class="info-card-body"></div>
+          </div>
+          <div class="info-card">
+            <h4 class="info-card-title">External API Surface</h4>
+            <div id="cleanup-external-api" class="info-card-body"></div>
+          </div>
+          <div class="info-card">
+            <h4 class="info-card-title">Framework Entries</h4>
+            <div id="cleanup-framework" class="info-card-body"></div>
+          </div>
+        </div>
+        <div class="cleanup-caution caution-box">
+          <strong>&#9888; Cleanup candidates are NOT deletion-proof.</strong>
+          Always verify manually before removing any code. Public/exported APIs may have external consumers. Framework callbacks/routes may be invoked at runtime.
+        </div>
+      </section>
+
+      <!-- Release Review View -->
+      <section id="view-release" class="view-section" role="tabpanel" style="display:none;">
+        <div class="release-caution caution-box">
+          <strong>&#9888; Static review only.</strong>
+          Run project tests separately before release. This analysis does not execute scripts, build Docker images, or run CI pipelines.
+        </div>
+        <div class="card-grid card-grid-3">
+          <div class="info-card">
+            <h4 class="info-card-title">Breaking Change Review</h4>
+            <div id="release-breaking" class="info-card-body"></div>
+          </div>
+          <div class="info-card">
+            <h4 class="info-card-title">Consistency Review</h4>
+            <div id="release-consistency" class="info-card-body"></div>
+          </div>
+          <div class="info-card">
+            <h4 class="info-card-title">Config/Examples Review</h4>
+            <div id="release-config-examples" class="info-card-body"></div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- end loaded-content -->
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="app-footer">
+    <a href="https://gitcode.com/aiulms/codelattice" target="_blank" rel="noopener">CodeLattice</a>
+    &mdash; Snapshot Viewer v1 &mdash;
+    Read-only static analysis visualization
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
