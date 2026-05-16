@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI Phase D — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
+最后更新：2026-05-17（WebUI Phase E — Project Workbench + Guided Review） — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Phase E — Project Workbench + Guided Review（2026-05-17，已完成）：**
+- 📝 [2026-05-17-webui-phase-e-preflight.md](2026-05-17-webui-phase-e-preflight.md) — Phase E scope: project profiles, guided review, report templates, runner hardening.
+- ✅ [2026-05-17-webui-phase-e-closure.md](2026-05-17-webui-phase-e-closure.md) — closure: 15 API endpoints, 6 guided review scenarios, 6 report templates, trial (15/15), smoke (56/56).
 
 **WebUI Phase D — Local Runner + Snapshot Library（2026-05-17，已完成）：**
 - 📝 [2026-05-17-webui-phase-d-preflight.md](2026-05-17-webui-phase-d-preflight.md) — Phase D scope lock: local runner + snapshot library + live-lite analysis, security boundaries.

@@ -1,315 +1,309 @@
 #!/usr/bin/env python3
-"""CodeLattice WebUI Runner — Local HTTP server + snapshot library API.
+"""CodeLattice WebUI Runner — Phase E: Project Workbench + Profiles + Library.
 
-Uses Python stdlib only. Binds 127.0.0.1. Serves webui/snapshot-viewer/
-as static files, plus REST API for health, snapshot generation, and library.
-
-Usage:
-  python3 scripts/webui-runner.py [--port PORT] [--static-dir PATH] [--snapshot-dir PATH]
+Uses Python stdlib only. Binds 127.0.0.1.
+Serves webui/snapshot-viewer/ + REST API with unified response structure.
 """
-
-import http.server
-import json
-import os
-import shutil
-import subprocess
-import sys
-import threading
-import time
-import urllib.parse
-import hashlib
+import http.server, json, os, subprocess, sys, time, urllib.parse, hashlib, shutil, re
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STATIC_DIR = REPO_ROOT / "webui" / "snapshot-viewer"
-SNAPSHOT_SCRIPT = REPO_ROOT / "scripts" / "webui-snapshot.sh"
-DEFAULT_LIBRARY = REPO_ROOT / ".codelattice-webui" / "snapshots"
-INDEX_FILE = "index.json"
-GENERATE_TIMEOUT = 120  # seconds
+STATIC_D = REPO_ROOT / "webui" / "snapshot-viewer"
+SNAP_SCRIPT = REPO_ROOT / "scripts" / "webui-snapshot.sh"
+GEN_TIMEOUT = 120
+SUPPORTED = ["rust","typescript","c","cpp","python","arkts","cangjie","auto"]
 
 
-def parse_args():
-    port = 8765
-    static_dir = str(STATIC_DIR)
-    snapshot_dir = str(DEFAULT_LIBRARY)
-    i = 1
-    while i < len(sys.argv):
-        arg = sys.argv[i]
-        if arg == "--port" and i + 1 < len(sys.argv):
-            port = int(sys.argv[i + 1]); i += 2
-        elif arg == "--static-dir" and i + 1 < len(sys.argv):
-            static_dir = sys.argv[i + 1]; i += 2
-        elif arg == "--snapshot-dir" and i + 1 < len(sys.argv):
-            snapshot_dir = sys.argv[i + 1]; i += 2
-        else:
-            i += 1
-    return port, static_dir, snapshot_dir
+def ok(data=None): return {"success": True, "data": data or {}, "error": None, "hint": None}
+def err(msg, code=400, hint=None):
+    return {"success": False, "data": None, "error": msg, "hint": hint or "", "status": code}
 
 
-class RunnerHandler(http.server.SimpleHTTPRequestHandler):
-    static_dir = str(STATIC_DIR)
-    snapshot_dir = str(DEFAULT_LIBRARY)
+class Workbench(http.server.SimpleHTTPRequestHandler):
+    sn_dir = str(REPO_ROOT / ".codelattice-webui" / "snapshots")
+    pf_file = str(REPO_ROOT / ".codelattice-webui" / "profiles.json")
 
-    def __init__(self, *args, **kwargs):
-        self.static_dir = RunnerHandler.static_dir
-        self.snapshot_dir = RunnerHandler.snapshot_dir
-        super().__init__(*args, directory=self.static_dir, **kwargs)
+    def __init__(self, *a, **kw):
+        self.dir = str(STATIC_D)
+        super().__init__(*a, directory=self.dir, **kw)
 
-    def log_message(self, format, *args):
-        if "/api/" in (args[0] if args else ""):
-            sys.stderr.write(f"[api] {args[0]}\n")
+    def log_message(self, f, *a):
+        if "api/" in str(a[0] if a else ""):
+            sys.stderr.write(f"[api] {a[0]}\n")
 
-    def _json(self, data, status=200):
-        body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Content-Length", len(body))
-        self.end_headers()
-        self.wfile.write(body)
+    def _resp(self, data, code=200):
+        b = json.dumps(data, ensure_ascii=False).encode()
+        self.send_response(code); self.send_header("Content-Type","application/json; charset=utf-8")
+        self.send_header("Access-Control-Allow-Origin","*"); self.send_header("Content-Length",len(b))
+        self.end_headers(); self.wfile.write(b)
 
-    def _json_error(self, msg, status=400, detail=None):
-        d = {"error": msg, "status": status}
-        if detail: d["detail"] = str(detail)
-        self._json(d, status)
+    def _rb(self):
+        n = int(self.headers.get("Content-Length",0))
+        if n == 0: return {}
+        try: return json.loads(self.rfile.read(n))
+        except: return {}
 
-    def _read_body(self):
-        length = int(self.headers.get("Content-Length", 0))
-        if length == 0:
-            return {}
+    def _safe_id(self, s):
+        if not s or ".." in s or "/" in s or "\\" in s: return False
+        return bool(re.match(r'^[a-f0-9]+$', s))
+
+    def _ensure(self, d): os.makedirs(d, exist_ok=True)
+    def _now(self): return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    def _nid(self): return hashlib.md5(str(time.time()).encode()).hexdigest()[:12]
+    def _load_json(self, p):
+        if not os.path.isfile(p): return None
         try:
-            return json.loads(self.rfile.read(length))
-        except json.JSONDecodeError as e:
-            return {"_parse_error": str(e)}
+            with open(p) as f: return json.load(f)
+        except: return None
+    def _save_json(self, p, d):
+        self._ensure(os.path.dirname(p))
+        with open(p,"w") as f: json.dump(d,f,ensure_ascii=False,indent=2)
 
     def do_OPTIONS(self):
-        self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
-        self.end_headers()
+        self.send_response(204); self.send_header("Access-Control-Allow-Origin","*")
+        self.send_header("Access-Control-Allow-Methods","GET,POST,PUT,DELETE,OPTIONS")
+        self.send_header("Access-Control-Allow-Headers","Content-Type"); self.end_headers()
+
+    # ── Route dispatch ────────────────────────────────────────────
 
     def do_GET(self):
-        parsed = urllib.parse.urlparse(self.path)
-        path = parsed.path
-
-        # API routes
-        if path == "/api/health":
-            return self._handle_health()
-        if path == "/api/snapshots":
-            return self._handle_list_snapshots()
-        if path.startswith("/api/snapshot/"):
-            snap_id = path.split("/api/snapshot/", 1)[1]
-            return self._handle_get_snapshot(snap_id)
-
-        # Static file serving
+        p = urllib.parse.urlparse(self.path)
+        if p.path=="/api/health": return self._r(self._health)
+        if p.path=="/api/profiles": return self._r(self._list_profiles)
+        if p.path=="/api/snapshots": return self._r(lambda:self._list_snaps(urllib.parse.parse_qs(p.query)))
+        if p.path.startswith("/api/profile/"):
+            pid=p.path.split("/api/profile/",1)[1]
+            return self._r(lambda:self._get_profile(pid))
+        if p.path.startswith("/api/snapshot/"):
+            sid=p.path.split("/api/snapshot/",1)[1]
+            return self._r(lambda:self._get_snap(sid))
+        if p.path=="/api/rebuild-index": return self._r(self._rebuild_index)
         return super().do_GET()
 
     def do_POST(self):
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/api/generate-snapshot":
-            return self._handle_generate()
-        return self._json_error("not found", 404)
+        p = urllib.parse.urlparse(self.path)
+        if p.path=="/api/profiles": return self._r(lambda:self._create_profile(self._rb()))
+        if p.path=="/api/generate-snapshot": return self._r(lambda:self._generate(self._rb()))
+        if p.path=="/api/rebuild-index": return self._r(self._rebuild_index)
+        if p.path.startswith("/api/profile/") and p.path.endswith("/generate-snapshot"):
+            pid=p.path.split("/api/profile/",1)[1].split("/",1)[0]
+            return self._r(lambda:self._gen_for_profile(pid))
+        return self._resp(err("not found",404),404)
+
+    def do_PUT(self):
+        p = urllib.parse.urlparse(self.path)
+        if p.path.startswith("/api/profile/"):
+            pid=p.path.split("/api/profile/",1)[1]
+            return self._r(lambda:self._update_profile(pid,self._rb()))
+        return self._resp(err("not found",404),404)
 
     def do_DELETE(self):
-        parsed = urllib.parse.urlparse(self.path)
-        if parsed.path.startswith("/api/snapshot/"):
-            snap_id = parsed.path.split("/api/snapshot/", 1)[1]
-            return self._handle_delete_snapshot(snap_id)
-        return self._json_error("not found", 404)
+        p = urllib.parse.urlparse(self.path)
+        if p.path.startswith("/api/snapshot/"):
+            sid=p.path.split("/api/snapshot/",1)[1]
+            return self._r(lambda:self._delete_snap(sid))
+        if p.path.startswith("/api/profile/"):
+            pid=p.path.split("/api/profile/",1)[1]
+            return self._r(lambda:self._delete_profile(pid))
+        return self._resp(err("not found",404),404)
 
-    # ── Handlers ──────────────────────────────────────────────────
+    def _r(self, fn):
+        try: d=fn(); self._resp(d, d.get("status",200) if isinstance(d,dict) else 200)
+        except Exception as e: self._resp(err(str(e),500),500)
 
-    def _handle_health(self):
-        self._json({
-            "status": "ok",
-            "mode": "runner",
-            "snapshotDir": self.snapshot_dir,
-            "staticDir": self.static_dir,
-        })
+    # ── Health ────────────────────────────────────────────────────
 
-    def _ensure_library(self):
-        os.makedirs(self.snapshot_dir, exist_ok=True)
+    def _health(self):
+        data = {"status":"ok","mode":"runner","version":"phase-e","repoRoot":str(REPO_ROOT),
+                "snapshotDir":self.sn_dir,"supportedLanguages":SUPPORTED,"staticOnly":True}
+        return ok(data)
+
+    # ── Profiles ──────────────────────────────────────────────────
+
+    def _load_profiles(self):
+        d = self._load_json(self.pf_file)
+        return d if isinstance(d,list) else []
+
+    def _save_profiles(self, lst):
+        self._save_json(self.pf_file, lst)
+
+    def _list_profiles(self):
+        return ok(self._load_profiles())
+
+    def _create_profile(self, body):
+        name = (body.get("name") or "").strip()
+        root = (body.get("root") or "").strip()
+        if not name: return err("name is required",400)
+        if not root: return err("root is required",400)
+        if not os.path.isdir(root): return err("root not found or not a directory",400,f"path: {root}")
+        lang = body.get("language","auto").strip()
+        if lang not in SUPPORTED: return err(f"unsupported language: {lang}",400,f"supported: {','.join(SUPPORTED)}")
+        pf = {"id":self._nid(),"name":name,"root":root,"rootLabel":os.path.basename(root) or root,
+              "language":lang,"createdAt":self._now(),"updatedAt":self._now(),
+              "lastSnapshotId":None,"snapshotCount":0,"notes":(body.get("notes") or "").strip()}
+        lst = self._load_profiles(); lst.append(pf); self._save_profiles(lst)
+        return ok(pf)
+
+    def _get_profile(self, pid):
+        lst=self._load_profiles(); pf=next((p for p in lst if p["id"]==pid),None)
+        if not pf: return err("profile not found",404)
+        return ok(pf)
+
+    def _update_profile(self, pid, body):
+        lst=self._load_profiles(); pf=next((p for p in lst if p["id"]==pid),None)
+        if not pf: return err("profile not found",404)
+        for k in ["name","language","notes"]:
+            if k in body and body[k] is not None: pf[k] = str(body[k]).strip()
+        if "root" in body and body["root"]:
+            r=str(body["root"]).strip()
+            if not os.path.isdir(r): return err("root not found",400)
+            pf["root"]=r; pf["rootLabel"]=os.path.basename(r) or r
+        if pf.get("language","") not in SUPPORTED: pf["language"]="auto"
+        pf["updatedAt"]=self._now(); self._save_profiles(lst)
+        return ok(pf)
+
+    def _delete_profile(self, pid):
+        lst=self._load_profiles(); lst=[p for p in lst if p["id"]!=pid]; self._save_profiles(lst)
+        return ok({"deleted":pid})
+
+    # ── Snapshots ─────────────────────────────────────────────────
 
     def _load_index(self):
-        self._ensure_library()
-        ipath = os.path.join(self.snapshot_dir, INDEX_FILE)
-        if not os.path.isfile(ipath):
-            return []
+        ip = os.path.join(self.sn_dir,"index.json")
+        if not os.path.isfile(ip): return []
         try:
-            with open(ipath) as f:
-                return json.load(f)
-        except (json.JSONDecodeError, OSError):
-            return []
+            with open(ip) as f: d=json.load(f)
+            return d if isinstance(d,list) else []
+        except: return []
 
-    def _save_index(self, data):
-        self._ensure_library()
-        with open(os.path.join(self.snapshot_dir, INDEX_FILE), "w") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+    def _save_index(self, idx):
+        self._ensure(self.sn_dir); self._save_json(os.path.join(self.sn_dir,"index.json"),idx)
 
-    def _next_id(self):
-        return hashlib.md5(str(time.time()).encode()).hexdigest()[:12]
-
-    def _handle_list_snapshots(self):
-        index = self._load_index()
-        result = []
-        for entry in index:
-            snap_path = os.path.join(self.snapshot_dir, entry.get("filename", ""))
-            summary = {}
-            if os.path.isfile(snap_path):
-                try:
-                    with open(snap_path) as f:
-                        d = json.load(f)
-                    s = d.get("summary", {})
-                    summary = {
-                        "sourceFileCount": s.get("sourceFileCount", 0),
-                        "symbolCount": s.get("symbolCount", 0),
-                        "edgeCount": s.get("edgeCount", 0),
-                        "nodeCount": s.get("nodeCount", 0),
-                    }
-                except (json.JSONDecodeError, OSError):
-                    pass
-            result.append({
-                "id": entry["id"],
-                "filename": entry.get("filename", ""),
-                "createdAt": entry.get("createdAt", ""),
-                "rootLabel": entry.get("rootLabel", ""),
-                "language": entry.get("language", ""),
-                "summary": summary,
-            })
-        self._json(result)
-
-    def _handle_get_snapshot(self, snap_id):
-        index = self._load_index()
-        entry = next((e for e in index if e["id"] == snap_id), None)
-        if not entry:
-            return self._json_error("snapshot not found", 404)
-        fpath = os.path.join(self.snapshot_dir, entry["filename"])
-        if not os.path.isfile(fpath):
-            return self._json_error("snapshot file missing", 404)
-        try:
-            with open(fpath) as f:
-                return self._json(json.load(f))
-        except (json.JSONDecodeError, OSError) as e:
-            return self._json_error("read error", 500, str(e))
-
-    def _handle_generate(self):
-        body = self._read_body()
-        root = body.get("root", "").strip()
-        if not root:
-            return self._json_error("root is required")
-        if not os.path.isdir(root):
-            return self._json_error(f"root directory not found: {root}")
-
-        language = body.get("language", "auto").strip()
-        do_full = body.get("full", True)
-        do_redact = body.get("redactRoot", True)
-
-        snap_id = self._next_id()
-        filename = f"snapshot-{snap_id}.json"
-        outpath = os.path.join(self.snapshot_dir, filename)
-        self._ensure_library()
-
-        cmd = [
-            "bash", str(SNAPSHOT_SCRIPT),
-            "--root", root,
-            "--language", language,
-            "--output", outpath,
-        ]
-        if do_full:
-            cmd.append("--full")
-        if do_redact:
-            cmd.append("--redact-root")
-
-        try:
-            result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                timeout=GENERATE_TIMEOUT, cwd=str(REPO_ROOT)
-            )
-            if result.returncode != 0:
-                return self._json_error(
-                    "snapshot generation failed",
-                    500,
-                    result.stderr[:500] if result.stderr else "unknown error"
-                )
-        except subprocess.TimeoutExpired:
-            return self._json_error("timeout", 504, f"generation exceeded {GENERATE_TIMEOUT}s")
-        except OSError as e:
-            return self._json_error("command error", 500, str(e))
-
-        if not os.path.isfile(outpath) or os.path.getsize(outpath) == 0:
-            return self._json_error("generated snapshot is empty", 500)
-
-        # Extract summary for index
-        summary = {}
-        try:
-            with open(outpath) as f:
-                d = json.load(f)
-            s = d.get("summary", {})
-            summary = {
-                "sourceFileCount": s.get("sourceFileCount", 0),
-                "symbolCount": s.get("symbolCount", 0),
-                "edgeCount": s.get("edgeCount", 0),
-                "nodeCount": s.get("nodeCount", 0),
-            }
-        except (json.JSONDecodeError, OSError):
-            pass
-
-        entry = {
-            "id": snap_id,
-            "filename": filename,
-            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-            "rootLabel": os.path.basename(root) or root,
-            "language": language,
-        }
-
-        index = self._load_index()
-        index.append(entry)
-        self._save_index(index)
-
-        self._json({
-            "ok": True,
-            "id": snap_id,
-            "filename": filename,
-            "summary": summary,
-        }, status=201)
-
-    def _handle_delete_snapshot(self, snap_id):
-        index = self._load_index()
-        entry = next((e for e in index if e["id"] == snap_id), None)
-        if not entry:
-            return self._json_error("snapshot not found", 404)
-        fpath = os.path.join(self.snapshot_dir, entry.get("filename", ""))
-        if os.path.isfile(fpath):
+    def _snap_meta(self, entry):
+        fp = os.path.join(self.sn_dir,entry.get("filename",""))
+        sm = {}; sec = {}
+        if os.path.isfile(fp):
             try:
-                os.unlink(fpath)
-            except OSError as e:
-                return self._json_error("delete failed", 500, str(e))
-        index = [e for e in index if e["id"] != snap_id]
-        self._save_index(index)
-        self._json({"ok": True, "deleted": snap_id})
+                with open(fp) as f: d=json.load(f)
+                s=d.get("summary",{}); g=d.get("graph",{}).get("summary",{}) if d.get("graph") else {}
+                q=d.get("quality",{})
+                sm={"sourceFileCount":s.get("sourceFileCount",0),"symbolCount":s.get("symbolCount",0),
+                    "edgeCount":s.get("edgeCount",0),"nodeCount":s.get("nodeCount",0)}
+                sec={"graphNodeCount":g.get("nodeCount",0),"graphEdgeCount":g.get("edgeCount",0),
+                     "qualityFailedCount":q.get("failedGateCount",0),
+                     "limitationsCount":len(d.get("limitations",{}).get("notes",[])) if isinstance(d.get("limitations"),dict) else len(d.get("limitations",[]))}
+            except: pass
+        return {**entry,"summary":sm,"secondary":sec}
+
+    def _list_snaps(self, qp):
+        idx = self._load_index()
+        entries = [self._snap_meta(e) for e in idx]
+        # Filters
+        lang = qp.get("language",[None])[0]
+        pid = qp.get("profileId",[None])[0]
+        q = (qp.get("q",[""])[0] or "").lower()
+        if lang: entries=[e for e in entries if e.get("language","")==lang]
+        if pid: entries=[e for e in entries if e.get("profileId","")==pid]
+        if q: entries=[e for e in entries if q in str(e.get("rootLabel","")).lower() or q in str(e.get("id","")).lower() or q in str(e.get("profileName","")).lower()]
+        # Sort
+        sk = qp.get("sort",["createdAt"])[0]
+        rev = qp.get("order",["desc"])[0]=="asc"
+        key_map = {"createdAt":lambda e:e.get("createdAt",""),"language":lambda e:e.get("language",""),
+                   "symbolCount":lambda e:e.get("summary",{}).get("symbolCount",0),
+                   "sourceFileCount":lambda e:e.get("summary",{}).get("sourceFileCount",0)}
+        entries.sort(key=key_map.get(sk,lambda e:e.get("createdAt","")),reverse=not rev)
+        return ok(entries)
+
+    def _get_snap(self, sid):
+        self._ensure(self.sn_dir)
+        if not self._safe_id(sid): return err("invalid snapshot id",400)
+        idx=self._load_index(); e=next((x for x in idx if x["id"]==sid),None)
+        if not e: return err("snapshot not found",404)
+        fp=os.path.join(self.sn_dir,e["filename"]); d=self._load_json(fp)
+        if not d: return err("snapshot file corrupt",500)
+        return ok(d)
+
+    def _generate(self, body):
+        root=(body.get("root") or "").strip()
+        if not root: return err("root is required",400)
+        if not os.path.isdir(root): return err("root directory not found",400,f"path: {root}")
+        lang=body.get("language","auto").strip()
+        if lang not in SUPPORTED: return err(f"unsupported language: {lang}",400)
+        df=body.get("full",True); rd=body.get("redactRoot",True)
+        sid=self._nid(); fn=f"snapshot-{sid}.json"; op=os.path.join(self.sn_dir,fn)
+        self._ensure(self.sn_dir)
+        cmd=["bash",str(SNAP_SCRIPT),"--root",root,"--language",lang,"--output",op]
+        if df: cmd.append("--full")
+        if rd: cmd.append("--redact-root")
+        try:
+            r=subprocess.run(cmd,capture_output=True,text=True,timeout=GEN_TIMEOUT,cwd=str(REPO_ROOT))
+            if r.returncode!=0:
+                return err("snapshot generation failed",500,r.stderr[:300] or "unknown error")
+        except subprocess.TimeoutExpired:
+            return err("timeout",504,f"generation exceeded {GEN_TIMEOUT}s")
+        except OSError as e: return err("command error",500,str(e))
+        if not os.path.isfile(op) or os.path.getsize(op)==0:
+            return err("generated snapshot empty",500)
+        d=self._load_json(op)
+        if not d: return err("invalid snapshot JSON",500)
+        pid=body.get("profileId",""); pn=""
+        if pid:
+            pl=self._load_profiles(); pi=next((p for p in pl if p["id"]==pid),None)
+            if pi: pn=pi["name"]; pi["lastSnapshotId"]=sid; pi["snapshotCount"]=(pi.get("snapshotCount",0)+1)
+            pi["updatedAt"]=self._now(); self._save_profiles(pl)
+        entry={"id":sid,"filename":fn,"createdAt":self._now(),"rootLabel":os.path.basename(root) or root,
+               "language":lang,"profileId":pid,"profileName":pn,"schemaVersion":d.get("schemaVersion",""),
+               "label":body.get("label","")}
+        idx=self._load_index(); idx.append(entry); self._save_index(idx)
+        sm={"sourceFileCount":d.get("summary",{}).get("sourceFileCount",0),
+            "symbolCount":d.get("summary",{}).get("symbolCount",0)}
+        return ok({"id":sid,"filename":fn,"summary":sm,"profileId":pid,"profileName":pn})
+
+    def _gen_for_profile(self, pid):
+        pl=self._load_profiles(); pf=next((p for p in pl if p["id"]==pid),None)
+        if not pf: return err("profile not found",404)
+        return self._generate({"root":pf["root"],"language":pf.get("language","auto"),
+                               "full":True,"redactRoot":True,"profileId":pid})
+
+    def _delete_snap(self, sid):
+        if not self._safe_id(sid): return err("invalid snapshot id",400)
+        idx=self._load_index(); e=next((x for x in idx if x["id"]==sid),None)
+        if not e: return err("snapshot not found",404)
+        fp=os.path.join(self.sn_dir,e.get("filename",""))
+        if os.path.isfile(fp):
+            try: os.unlink(fp)
+            except OSError as ex: return err("delete failed",500,str(ex))
+        idx=[x for x in idx if x["id"]!=sid]; self._save_index(idx)
+        return ok({"deleted":sid})
+
+    def _rebuild_index(self):
+        self._ensure(self.sn_dir)
+        files=sorted([f for f in os.listdir(self.sn_dir) if f.endswith(".json") and f!="index.json"])
+        idx=[]
+        for fn in files:
+            d=self._load_json(os.path.join(self.sn_dir,fn))
+            if not d: continue
+            sid=fn.replace("snapshot-","").replace(".json","")
+            idx.append({"id":sid,"filename":fn,"createdAt":d.get("generatedAt",self._now()),
+                        "rootLabel":"","language":d.get("language",d.get("summary",{}).get("language","")),
+                        "profileId":"","profileName":"","schemaVersion":d.get("schemaVersion",""),"label":""})
+        self._save_index(idx)
+        return ok({"rebuilt":len(idx)})
 
 
 def main():
-    port, static_dir, snapshot_dir = parse_args()
-    RunnerHandler.static_dir = static_dir
-    RunnerHandler.snapshot_dir = snapshot_dir
-
-    server = http.server.HTTPServer(("127.0.0.1", port), RunnerHandler)
-    url = f"http://127.0.0.1:{port}"
-    print(f"CodeLattice WebUI Runner")
-    print(f"  URL:          {url}")
-    print(f"  Static dir:   {static_dir}")
-    print(f"  Snapshot dir: {snapshot_dir}")
-    print(f"  API health:   {url}/api/health")
+    port=8765
+    for i,a in enumerate(sys.argv):
+        if a=="--port" and i+1<len(sys.argv): port=int(sys.argv[i+1])
+        if a=="--snapshot-dir" and i+1<len(sys.argv): Workbench.sn_dir=sys.argv[i+1]
+        if a=="--timeout" and i+1<len(sys.argv): global GEN_TIMEOUT; GEN_TIMEOUT=int(sys.argv[i+1])
+    server=http.server.HTTPServer(("127.0.0.1",port),Workbench)
+    url=f"http://127.0.0.1:{port}"
+    print(f"CodeLattice WebUI Workbench (Phase E)")
+    print(f"  URL: {url}  |  API: {url}/api/health")
+    print(f"  Snapshots: {Workbench.sn_dir}")
     sys.stdout.flush()
+    try: server.serve_forever()
+    except KeyboardInterrupt: print("\nShutdown."); server.server_close()
 
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        print("\nShutting down.")
-        server.server_close()
-
-
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()

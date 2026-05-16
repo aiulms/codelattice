@@ -76,6 +76,23 @@ done
 MT=$((MP+MF))
 printf '  Matrix: %d/%d pass\n' "$MP" "$MT"
 [[ $MF -gt 0 ]] && chk "matrix all pass" pass "fail($MF failed)"
+echo ""; echo "--- Phase E Workbench Checks ---"
+# Profiles
+grep -qF "runner-profiles-list" "$VD/index.html" && chk "profiles html" yes yes || chk "profiles html" yes no
+grep -qF "runnerGenForProfile" "$VD/runner.js" && chk "profile_gen" yes yes || chk "profile gen" yes no
+grep -qF "createProfile" "$VD/runner.js" && chk "create_profile" yes yes || chk "create_profile" yes no
+# Guided Review
+grep -qF "guided-review-panel" "$VD/index.html" && chk "guided html" yes yes || chk "guided html" yes no
+grep -qF "GUIDED_SCENARIOS" "$VD/runner.js" && chk "scenarios" yes yes || chk "scenarios" yes no
+grep -qF "guidedSelect" "$VD/runner.js" && chk "guided_select" yes yes || chk "guided_select" yes no
+grep -qF "guidedRender" "$VD/runner.js" && chk "guided_render" yes yes || chk "guided_render" yes no
+# Report templates
+grep -qF "getReportTemplates" "$VD/report.js" && chk "templates" yes yes || chk "templates" yes no
+grep -qF "report-template-select" "$VD/report.js" && chk "template_sel" yes yes || chk "template_sel" yes no
+# Phase E JS functions count
+PE_FC=$(grep -cE '(loadProfiles|createProfile|updateProfile|deleteProfile|runnerGenForProfile|renderSnapshotLibrary|guidedRender|guidedSelect|guidedToggle|getReportTemplates|generateTemplateReport|selectReportTemplate|rebuildIndex)' "$VD/runner.js" "$VD/report.js" 2>/dev/null|awk -F: '{s+=$NF}END{print s+0}'||echo 0)
+[[ $PE_FC -ge 8 ]] && chk "Phase E functions (>=8)" pass pass || chk "Phase E functions (>=8)" pass "fail($PE_FC)"
+
 echo ""; echo "--- Phase D Runner Checks ---"
 [[ -f "$VD/runner.js" ]] && chk "runner.js exists" yes yes || chk "runner.js exists" yes no
 for f in runner.js; do node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail; done

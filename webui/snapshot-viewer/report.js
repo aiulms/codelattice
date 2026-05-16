@@ -305,16 +305,36 @@ CTL.generateMarkdownReport = function() {
   return lines.join("\n");
 };
 
+CTL.selectedTemplate = "general_snapshot_review";
+
+CTL.getReportTemplates = function() {
+  return [
+    {id:"general_snapshot_review", name:"General Review", desc:"Standard snapshot overview with all sections."},
+    {id:"onboarding_report", name:"Onboarding Report", desc:"First-time project analysis: structure, hotspots, entry points."},
+    {id:"before_edit_risk_report", name:"Before Edit Risk Report", desc:"Pre-change impact assessment with diff if loaded."},
+    {id:"release_review_report", name:"Release Review Report", desc:"Pre-release check: quality gates, breaking changes, docs."},
+    {id:"legacy_cleanup_report", name:"Legacy Cleanup Report", desc:"Dead code, reachability, architecture drift analysis."},
+    {id:"delete_code_review_report", name:"Delete Code Review Report", desc:"Safety assessment with NOT-deletion-proof warnings."}
+  ];
+};
+
 CTL.renderReport = function() {
   var container = document.getElementById("report-content");
   if (!container) return;
+  var templates = CTL.getReportTemplates();
+  var tmplHTML = '<div style="margin-bottom:8px;"><select id="report-template-select" class="filter-select" onchange="CTL.selectedTemplate=this.value;CTL.renderReport()">' +
+    templates.map(function(t){return '<option value="'+t.id+'"'+(CTL.selectedTemplate===t.id?' selected':'')+'>'+t.name+'</option>';}).join("")+'</select>' +
+    '<span class="text-muted text-sm" style="margin-left:8px;">'+templates.find(function(t){return t.id===CTL.selectedTemplate;}).desc+'</span></div>';
   var report = CTL.generateMarkdownReport();
-  container.innerHTML = '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' +
+  container.innerHTML = tmplHTML +
+    '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' +
     '<button class="btn btn-sm btn-primary" onclick="CTL.copyReport()">Copy Report</button>' +
     '<button class="btn btn-sm btn-secondary" onclick="CTL.downloadReport()">Download .md</button>' +
     '</div>' +
     '<pre class="code-block" id="report-md" style="max-height:600px;overflow:auto;white-space:pre-wrap;font-size:.82em;line-height:1.45;">' + esc(report) + '</pre>';
 };
+
+CTL.generateTemplateReport = CTL.generateMarkdownReport;
 
 CTL.copyReport = function() {
   var report = CTL.generateMarkdownReport();

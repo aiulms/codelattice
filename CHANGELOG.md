@@ -8,6 +8,13 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase E — Project Workbench + Guided Review + Profiles**: 15-endpoint hardened runner API, project profiles, guided review workflows, report templates, workbench trial.
+  - `scripts/webui-runner.py` — Rewritten: unified `{success,data,error,hint}` response structure; Project Profiles CRUD (list/create/get/update/delete); generate-snapshot for profile; snapshot library with search/filter/sort/pagination; index rebuild; path safety (sanitize IDs, validate roots); error handling (timeout/invalid JSON/unsupported language/missing root).
+  - `webui/snapshot-viewer/runner.js` — Enhanced: profile list/create/select/delete/generate; snapshot library with search/filter-by-language/sort/Load/Diff/Timeline/Download/Delete operations; Guided Review (6 scenarios with purpose/tabs/steps/checklist/report, localStorage persistence).
+  - `webui/snapshot-viewer/report.js` — Report Templates: template selector dropdown (6 templates: general/onboarding/before_edit/release/legacy/delete_code), guided report generation.
+  - `scripts/webui-workbench-trial.sh` — End-to-end trial: creates 2 profiles, generates snapshots, filters by profile/language, validates schema/path-leak/no-error, rebuilds index, tests error cases (15 checks).
+  - `scripts/webui-viewer-smoke.sh` — Phase E checks: profiles UI, guided review UI, report templates, 10+ Phase E functions (56 total checks, Matrix 5/5).
+
 - **WebUI Phase D — Local Runner + Snapshot Library + Live-lite Analysis**: Python stdlib HTTP server, snapshot generation API, managed library with history.
   - `scripts/webui-runner.py` — Python HTTP server (127.0.0.1 only), serves webui/snapshot-viewer/ + REST API: health, generate-snapshot, snapshots list, snapshot detail, delete. Calls webui-snapshot.sh via subprocess, 120s timeout, JSON error responses.
   - `scripts/webui-runner.sh` — Shell wrapper: port selection, browser open, snapshot-dir config.

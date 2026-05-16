@@ -81,8 +81,14 @@
     <!-- Loaded Content (tabs + views) -->
     <div id="loaded-content" style="display:none;">
 
-      <!-- Runner Panel (Phase D) -->
+      <!-- Runner Panel (Phase E: Workbench) -->
       <div id="runner-panel" class="runner-panel" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:var(--radius);">
+        <!-- Profiles -->
+        <details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;">Project Profiles</summary>
+          <div id="runner-profiles-list" style="margin-top:6px;"></div>
+          <button class="btn btn-sm btn-secondary" onclick="createProfile()" style="margin-top:4px;">+ New Profile</button>
+        </details>
+        <!-- Generate -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="text" id="runner-root-input" class="search-input" placeholder="Project root path..." style="flex:1;min-width:200px;">
           <select id="runner-lang-select" class="filter-select">
@@ -91,12 +97,16 @@
             <option value="c">c</option><option value="cpp">cpp</option><option value="python">python</option>
             <option value="arkts">arkts</option><option value="cangjie">cangjie</option>
           </select>
-          <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()">&#9889; Generate Snapshot</button>
-          <button class="btn btn-sm btn-secondary" onclick="runnerLoadLibrary()">&#128269; Refresh Library</button>
+          <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()">&#9889; Generate</button>
           <span class="text-muted text-sm" id="runner-status"></span>
         </div>
-        <div id="runner-library-list" style="margin-top:8px;font-size:0.85em;"></div>
+        <!-- Library -->
+        <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;">Snapshot Library</summary>
+          <div id="runner-library-list" style="margin-top:6px;font-size:0.85em;"></div>
+        </details>
       </div>
+      <!-- Guided Review Panel (Phase E) -->
+      <div id="guided-review-panel" class="runner-panel" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:var(--radius);"></div>
 
       <!-- Tab Bar -->
       <nav class="tab-bar" role="tablist">
@@ -354,7 +364,7 @@
   <script src="report.js"></script>
   <script src="runner.js"></script>
 
-  <!-- Phase C: timeline file input + report render trigger -->
+  <!-- Phase E: timeline + report + guided review + guided panel visibility -->
   <script>
     (function() {
       var tfi = document.getElementById("timeline-file-input");
@@ -365,13 +375,20 @@
           CTL.loadTimelineFiles(e.target.files);
         }
       });
-      // Report tab: trigger render on tab switch
       var origShow = show;
       show = function(id) {
         origShow(id);
         if (id === "report") { if (CTL.renderReport) CTL.renderReport(); }
         if (id === "timeline") { if (CTL.renderTimeline) CTL.renderTimeline(); }
-        if (id === "workflows") { if (CTL.renderWorkflowChecklist) CTL.renderWorkflowChecklist(); }
+        if (id === "workflows") {
+          if (CTL.renderWorkflowChecklist) CTL.renderWorkflowChecklist();
+          if (typeof guidedRender === "function") guidedRender();
+          var gp = document.getElementById("guided-review-panel");
+          if (gp) gp.style.display = "";
+        } else {
+          var gp = document.getElementById("guided-review-panel");
+          if (gp) gp.style.display = "none";
+        }
       };
       window._origShow = origShow;
     })();
