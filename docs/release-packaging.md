@@ -2,7 +2,7 @@
 
 CodeLattice release packaging is intentionally local and scriptable. It does not publish assets, edit AI client configuration, or promote into a user's stable runtime directory.
 
-The current beta target is `v0.14.0-beta.1` with a `darwin-arm64` tarball and checksum. Multi-platform artifacts are planned next.
+The current master packaging target is `v0.15.0-beta.1` with a `darwin-arm64` local candidate tarball and checksum. The latest published GitCode Release remains `v0.14.0-beta.1` until a new release page/tag is created. Multi-platform artifacts are planned next.
 
 ## Install a Published Release
 
@@ -35,7 +35,7 @@ dist/codelattice-<version>-<platform>.tar.gz.sha256
 Options:
 
 ```bash
-bash scripts/package-release.sh --version 0.14.0-beta.1
+bash scripts/package-release.sh --version 0.15.0-beta.1
 bash scripts/package-release.sh --platform darwin-arm64
 bash scripts/package-release.sh --dist-dir /tmp/codelattice-dist
 bash scripts/package-release.sh --skip-build
@@ -115,7 +115,7 @@ bash scripts/release-smoke.sh
 The smoke script uses the newest `dist/codelattice-*.tar.gz` unless a tarball is specified:
 
 ```bash
-bash scripts/release-smoke.sh --tarball dist/codelattice-0.14.0-beta.1-darwin-arm64.tar.gz
+bash scripts/release-smoke.sh --tarball dist/codelattice-0.15.0-beta.1-darwin-arm64.tar.gz
 ```
 
 It verifies:
@@ -129,7 +129,7 @@ It verifies:
 - packaged `docs/release-install.md`
 - packaged `docs/release-versioning.md`
 - wrapper `--self-test`
-- MCP `tools/list >= 24`
+- MCP `tools/list >= 37`
 - Rust portable fixture analyze with nonzero symbols/files/edges
 - Cangjie portable fixture analyze
 - ArkTS portable fixture analyze

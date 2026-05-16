@@ -365,7 +365,7 @@ bash scripts/install-mcp.sh --doctor
 
 该脚本**不会自动修改**任何客户端配置文件。它只输出可复制粘贴的 JSON/TOML 片段。
 
-`--doctor` 检查：binary、开发 wrapper、stable wrapper 状态、MCP handshake、tools/list (>= 24)、cache_status、language support profile、fixture-level smoke。
+`--doctor` 检查：binary、开发 wrapper、stable wrapper 状态、MCP handshake、tools/list (>= 37)、cache_status、language support profile、fixture-level smoke。
 
 ### promote-to-local-tool.sh (runtime isolation)
 
@@ -405,7 +405,7 @@ bash scripts/codelattice-mcp.sh --self-test
 1. CODELATTICE_ROOT 有效
 2. Binary 可找到且可执行
 3. MCP handshake 成功（initialize → 返回 codelattice server info）
-4. tools/list 返回 >= 24 个工具
+4. tools/list 返回 >= 37 个工具
 5. cache_status 包含 maxEntries 和 totalEvictions (v0.5 新增)
 6. cangjieSupport / arktsSupport / typescriptSupport / cSupport / cppSupport / pythonSupport 检测
 
@@ -429,7 +429,7 @@ bash scripts/mcp-real-client-dry-run.sh [root_dir]
 
 模拟真实 MCP 客户端调用 10 个高频工具，不修改任何配置：
 1. initialize handshake
-2. tools/list (24 tools)
+2. tools/list (37 tools)
 3. cache_status (empty)
 4. codelattice_analyze (miss)
 5. codelattice_graph_overview
@@ -458,7 +458,7 @@ MCP server 的 `initialize` 响应包含 profile 信息：
     "cSupport": true,
     "cppSupport": true,
     "pythonSupport": true,
-    "toolCount": 24
+    "toolCount": 37
   }
 }
 ```
@@ -475,7 +475,7 @@ bash scripts/codelattice-mcp.sh --version
 #   cSupport: True
 #   cppSupport: True
 #   pythonSupport: True
-#   toolCount: 24
+#   toolCount: 37
 ```
 
 ### 如何确认当前 binary 支持可选语言

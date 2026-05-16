@@ -231,7 +231,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-arkts"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "gitnexus-typescript",
  "serde",
@@ -243,7 +243,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-c"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -254,7 +254,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-cangjie"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "cc",
  "serde",
@@ -266,7 +266,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-cpp"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -277,7 +277,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-project-model"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -289,7 +289,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-python"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -300,7 +300,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-rust-core-cli"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -319,7 +319,7 @@ dependencies = [
 
 [[package]]
 name = "gitnexus-typescript"
-version = "0.14.0-beta.1"
+version = "0.15.0-beta.1"
 dependencies = [
  "serde",
  "serde_json",

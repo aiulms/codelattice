@@ -229,8 +229,8 @@ for line in sys.stdin:
         break
 if tool_count is None:
     raise SystemExit("tools/list response not found")
-if tool_count < 24:
-    raise SystemExit(f"expected at least 24 tools, got {tool_count}")
+if tool_count < 37:
+    raise SystemExit(f"expected at least 37 tools, got {tool_count}")
 print(f"tools: {tool_count}")
 '
 

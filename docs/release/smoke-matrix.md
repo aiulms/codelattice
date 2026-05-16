@@ -2,7 +2,7 @@
 
 > **Platform**: macOS (`darwin-arm64`), Apple Silicon
 > **Date**: 2026-05-16
-> **Version**: 0.14.0-beta.1
+> **Version**: 0.15.0-beta.1 candidate on master
 > **Rust**: stable (via `rustc`)
 
 ## Feature Combinations
@@ -26,11 +26,11 @@ tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-
 
 ## MCP Tool Count
 
-24 tools with all language features enabled.
+37 tools with all language features enabled.
 
 The release gate requires:
 
-- `tools/list >= 24`
+- `tools/list >= 37`
 - `initialize.serverInfo.cangjieSupport == true`
 - `initialize.serverInfo.arktsSupport == true`
 - `initialize.serverInfo.typescriptSupport == true`
@@ -79,7 +79,7 @@ The release gate requires:
 | `cargo test --all-features` | Full optional adapter suite | ✅ |
 | `python3 scripts/real-project-corpus-smoke-test.py` | Real corpus harness unit tests | ✅ |
 | `scripts/codelattice-mcp.sh --self-test` | Wrapper self-test and language support profile | ✅ |
-| `scripts/mcp-dogfood.sh` | 24-tool MCP walkthrough | ✅ |
+| `scripts/mcp-dogfood.sh` | 37-tool MCP walkthrough | ✅ |
 | `scripts/install-mcp.sh --doctor` | Local install doctor | ✅ |
 | `scripts/package-release.sh` | Build full-language tarball and manifest | ✅ |
 | `scripts/release-smoke.sh --tarball <tarball>` | Tarball unpack + seven-language fixture smoke | ✅ |
@@ -119,7 +119,7 @@ Recorded on 2026-05-16 before release docs/package edits:
 | `cargo test` | ✅ Pass |
 | `cargo test --all-features` | ✅ Pass |
 | `python3 scripts/real-project-corpus-smoke-test.py` | ✅ 10/10 |
-| `scripts/codelattice-mcp.sh --self-test` | ✅ 24 tools, all language flags true |
-| `scripts/mcp-dogfood.sh` | ✅ 24/24 |
+| `scripts/codelattice-mcp.sh --self-test` | ✅ 37 tools, all language flags true |
+| `scripts/mcp-dogfood.sh` | ✅ 37/37 |
 
-Final artifact smoke results are recorded in `docs/plans/2026-05-16-release-beta-hardening-closure.md`.
+The published `v0.14.0-beta.1` GitCode Release remains the 24-tool multi-language artifact. Current master is a `0.15.0-beta.1` local package candidate and should not be treated as a published release until a release page/tag is created.

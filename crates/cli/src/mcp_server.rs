@@ -12081,6 +12081,10 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     false
                 }
             };
+            let tool_count = tools_list()["tools"]
+                .as_array()
+                .map(|tools| tools.len())
+                .unwrap_or(0);
             Some(make_response(
                 &id,
                 json!({
@@ -12095,7 +12099,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cSupport": c_support,
                         "cppSupport": cpp_support,
                         "pythonSupport": python_support,
-                        "toolCount": 27
+                        "toolCount": tool_count
                     }
                 }),
             ))
@@ -12885,6 +12889,111 @@ fn framework_verification_steps(hint_kind: &str) -> Vec<String> {
     steps
 }
 
+fn framework_node_name(node: &Value) -> String {
+    node["properties"]["name"]
+        .as_str()
+        .or_else(|| node["name"].as_str())
+        .or_else(|| {
+            let label = node["label"].as_str()?;
+            if matches!(
+                label,
+                "symbol" | "source-file" | "source_file" | "file" | "repository"
+            ) {
+                None
+            } else {
+                Some(label)
+            }
+        })
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            node["id"]
+                .as_str()
+                .and_then(framework_name_from_id)
+                .unwrap_or_default()
+        })
+}
+
+fn framework_node_kind(node: &Value) -> String {
+    node["properties"]["symbolKind"]
+        .as_str()
+        .or_else(|| node["properties"]["kind"].as_str())
+        .or_else(|| node["kind"].as_str())
+        .or_else(|| {
+            let label = node["label"].as_str()?;
+            if matches!(
+                label,
+                "symbol" | "source-file" | "source_file" | "file" | "repository"
+            ) {
+                None
+            } else {
+                Some(label)
+            }
+        })
+        .unwrap_or("function")
+        .to_string()
+}
+
+fn framework_node_file(node: &Value) -> String {
+    node["properties"]["sourcePath"]
+        .as_str()
+        .or_else(|| node["properties"]["manifestPath"].as_str())
+        .or_else(|| node["properties"]["file"].as_str())
+        .or_else(|| node["file"].as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            node["id"]
+                .as_str()
+                .and_then(framework_file_from_id)
+                .unwrap_or_default()
+        })
+}
+
+fn framework_node_line(node: &Value) -> u64 {
+    node["line"]
+        .as_u64()
+        .or_else(|| node["properties"]["lineStart"].as_u64())
+        .or_else(|| node["properties"]["startLine"].as_u64())
+        .or_else(|| node["properties"]["line"].as_u64())
+        .or_else(|| node["id"].as_str().and_then(framework_line_from_id))
+        .unwrap_or(0)
+}
+
+fn framework_name_from_id(id: &str) -> Option<String> {
+    let parts: Vec<&str> = id.split(':').collect();
+    if parts.len() >= 5 && parts.first() == Some(&"py") && parts.get(1) == Some(&"sym") {
+        return parts
+            .get(parts.len().saturating_sub(2))
+            .filter(|name| !name.is_empty())
+            .map(|name| (*name).to_string());
+    }
+    id.rsplit("::")
+        .next()
+        .filter(|name| !name.is_empty() && *name != id)
+        .map(str::to_string)
+}
+
+fn framework_file_from_id(id: &str) -> Option<String> {
+    let parts: Vec<&str> = id.split(':').collect();
+    if parts.len() >= 5 && parts.first() == Some(&"py") && parts.get(1) == Some(&"sym") {
+        return parts.get(2).map(|file| (*file).to_string());
+    }
+    if parts.len() >= 3
+        && parts.first() == Some(&"py")
+        && matches!(parts.get(1), Some(&"src") | Some(&"file"))
+    {
+        return parts.get(2).map(|file| (*file).to_string());
+    }
+    None
+}
+
+fn framework_line_from_id(id: &str) -> Option<u64> {
+    let parts: Vec<&str> = id.split(':').collect();
+    if parts.len() >= 5 && parts.first() == Some(&"py") && parts.get(1) == Some(&"sym") {
+        return parts.last().and_then(|line| line.parse::<u64>().ok());
+    }
+    None
+}
+
 /// Score a single symbol for framework entry likelihood.
 /// Uses only graph node fields: name, kind, file, line, properties.
 fn score_framework_entry_hint(
@@ -13095,15 +13204,15 @@ fn detect_framework_entry_hints(
     let mut hints: Vec<FrameworkEntryHint> = Vec::new();
 
     for (node_id, node) in &gv.nodes_by_id {
-        let name = node["name"].as_str().unwrap_or("");
+        let name = framework_node_name(node);
         if name.is_empty() {
             continue;
         }
-        let file = node["file"].as_str().unwrap_or("");
+        let file = framework_node_file(node);
         if file.is_empty() {
             continue;
         }
-        let kind = node["kind"].as_str().unwrap_or("function");
+        let kind = framework_node_kind(node);
 
         // Skip non-functional nodes (include classes only for TSX components)
         if kind != "function"
@@ -13115,15 +13224,15 @@ fn detect_framework_entry_hints(
         }
 
         // Skip test/vendor unless explicitly included
-        if is_test_or_vendor(file) && !options.include_tests {
+        if is_test_or_vendor(&file) && !options.include_tests {
             continue;
         }
 
         let properties = &node["properties"];
-        let line = node["line"].as_u64().unwrap_or(0);
+        let line = framework_node_line(node);
 
         let (score, reasons, hint_kind, framework) =
-            score_framework_entry_hint(name, kind, file, properties, language, options);
+            score_framework_entry_hint(&name, &kind, &file, properties, language, options);
 
         // Filter by requested hint kinds
         if !options.include_routes && hint_kind == "route" {
@@ -13155,9 +13264,9 @@ fn detect_framework_entry_hints(
 
         hints.push(FrameworkEntryHint {
             id,
-            name: name.to_string(),
-            kind: kind.to_string(),
-            file: file.to_string(),
+            name,
+            kind,
+            file,
             line,
             hint_kind,
             framework,

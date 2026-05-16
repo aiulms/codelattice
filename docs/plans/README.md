@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-16（Release Beta Hardening Pack）
+最后更新：2026-05-16（Homepage + Packaging Refresh）
 
 ## 用途
 
@@ -23,9 +23,13 @@
 
 ## 当前状态总结
 
-**Release Beta Hardening Pack（2026-05-16，进行中）：**
+**Homepage + Packaging Refresh（2026-05-16，已完成）：**
+- 📝 [`2026-05-16-homepage-packaging-refresh-preflight.md`](2026-05-16-homepage-packaging-refresh-preflight.md) — `0.15.0-beta.1` 本地包候选、GitCode 首页刷新、37-tool packaging/smoke 阈值收口。
+- ✅ [`2026-05-16-homepage-packaging-refresh-closure.md`](2026-05-16-homepage-packaging-refresh-closure.md) — closure：README/GitCode 首页刷新、37-tool packaging/smoke、Python framework hint 字段归一化、MCP initialize toolCount 修复。
+
+**Release Beta Hardening Pack（2026-05-16，已完成）：**
 - 📝 [`2026-05-16-release-beta-hardening-preflight.md`](2026-05-16-release-beta-hardening-preflight.md) — 0.14.0-beta.1 多语言 beta 发行收口：版本策略、artifact 策略、七语言 release smoke、docs 更新范围、stop-line、验证计划。
-- ⏳ [`2026-05-16-release-beta-hardening-closure.md`](2026-05-16-release-beta-hardening-closure.md) — closure：待完成 artifact、release smoke、fresh clone smoke、real corpus compare、detect-changes、index refresh、commit/push 记录。
+- ✅ [`2026-05-16-release-beta-hardening-closure.md`](2026-05-16-release-beta-hardening-closure.md) — closure：artifact、release smoke、fresh clone smoke、real corpus compare、detect-changes、index refresh、commit/push 记录。
 
 **Real Project Corpus Smoke（2026-05-15，已完成）：**
 - 📝 [`2026-05-15-real-project-corpus-smoke-preflight.md`](2026-05-15-real-project-corpus-smoke-preflight.md) — GitCode 真实项目 corpus smoke 设计：目标清单、clone/cache 策略、MCP overview/insights 指标、风险边界。

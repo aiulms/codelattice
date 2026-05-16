@@ -14,7 +14,7 @@ CodeLattice runs locally and does not upload source code.
 
 ## Install from GitCode Release
 
-The current `v0.14.0-beta.1` beta artifact targets macOS Apple Silicon (`darwin-arm64`) after the GitCode Release page is published:
+The current published GitCode Release is `v0.14.0-beta.1` and targets macOS Apple Silicon (`darwin-arm64`):
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
@@ -29,6 +29,8 @@ bash "$tmp_dir/scripts/install-release.sh" \
 The installer downloads the GitCode Release tarball, verifies the `.sha256` file, installs the stable wrapper, and runs self-test. It does not write AI client configuration files.
 
 Linux or other platforms can use the source build path until multi-platform artifacts are published.
+
+Current master may contain newer beta-candidate features than the latest published Release. To package the current checkout, use the source packaging path below instead of `install-release.sh`.
 
 ## Clone and Build
 
@@ -118,7 +120,7 @@ This command only prints templates. It does not write Codex, opencode, Claude, o
 ```bash
 bash scripts/check-release-metadata.sh
 bash scripts/package-release.sh
-bash scripts/release-smoke.sh
+bash scripts/release-smoke.sh --tarball dist/codelattice-0.15.0-beta.1-darwin-arm64.tar.gz
 ```
 
 The tarball contains:
@@ -129,7 +131,7 @@ The tarball contains:
 - `manifest.json`
 - `CHANGELOG.md`
 - selected docs
-- portable Rust/Cangjie/ArkTS/TypeScript fixtures for smoke
+- portable Rust/Cangjie/ArkTS/TypeScript/C/C++/Python fixtures for smoke
 
 See [release-versioning.md](release-versioning.md) and [release-packaging.md](release-packaging.md) for release rules and artifact details.
 

@@ -8,6 +8,12 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- Nothing yet.
+
+## [0.15.0-beta.1] - 2026-05-16
+
+### Added
+
 - **AI Prompt Cookbook**: New user guides under `docs/guides/` with copyable prompts and workflow preset explanations for onboarding, before/after edit review, dead-code investigation, release checks, legacy cleanup, public API changes, framework-route changes, and docs/tests/config synchronization.
 
 - **AI Workflow Presets** (v0.26): New MCP tool — returns suggested MCP workflow steps for 10 common scenarios. Does not execute analysis (presetOnly=true).
@@ -96,6 +102,21 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
   - 9 new MCP integration tests (feature-gated behind `tree-sitter-typescript`).
   - MCP tool count: 24 → 25.
   - No new dependencies.
+
+### Changed
+
+- README / GitCode homepage now describes the current master as a diagnostics-oriented beta candidate with 37 MCP tools, while keeping `v0.14.0-beta.1` as the latest published GitCode Release until a new release page is created.
+- Packaging and smoke thresholds now expect the current 37-tool MCP profile for local `0.15.0-beta.1` candidate artifacts.
+
+### Breaking Changes
+
+- None.
+
+### Known Limitations
+
+- All new diagnostic and review tools are static, heuristic, and not compiler verified.
+- They do not prove runtime behavior, external API usage, test coverage, or safe deletion.
+- This package candidate is not GA and has not been published as a GitCode Release page yet.
 
 ## [0.14.0-beta.1] - 2026-05-16
 
