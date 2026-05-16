@@ -632,7 +632,7 @@ codelattice/
 
 ## WebUI — Snapshot Viewer
 
-> **状态：** Phase E — Project Workbench + Guided Review + Profiles 已落地
+> **状态：** Phase F — Beta Ready · Product Hardened
 
 CodeLattice 提供了一个**纯静态本地 Web 页面**——Snapshot Viewer。它加载 `webui-snapshot.sh` 生成的 enriched JSON snapshot 并渲染为人类可浏览的 6 视图界面。
 

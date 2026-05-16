@@ -3,88 +3,58 @@ set -euo pipefail
 SD="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WS="$(cd "$SD/.." && pwd)"
 RUNNER="$SD/webui-runner.py"
-PORT="${1:-0}"
-KT=false
-[[ "$*" == *"--keep-temp"* ]] && KT=true
-[[ "$*" == *"--port "* ]] && PORT="${2}"
-
-P=0; F=0
-pass() { P=$((P+1)); echo "  [PASS] $1"; }
-fail() { F=$((F+1)); echo "  [FAIL] $1"; }
-
-echo "CodeLattice Runner Smoke"
-
-# Find free port
-if [[ "$PORT" == "0" || -z "$PORT" ]]; then
-  PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()" 2>/dev/null || echo 18765)
-fi
-echo "  Port: $PORT"
-
+PORT=$(python3 -c "import socket;s=socket.socket();s.bind(('',0));print(s.getsockname()[1]);s.close()" 2>/dev/null||echo 28765)
+KT=false; [[ "$*" == *"--keep-temp"* ]] && KT=true
 TD=$(mktemp -d /tmp/cls-run.XXXXXX)
-trap 'kill $PID 2>/dev/null; [[ "$KT" != true ]] && rm -rf "$TD"' EXIT
-
-# Start runner
-python3 "$RUNNER" --port "$PORT" --snapshot-dir "$TD" &
-PID=$!
-sleep 2
-
-# Check process
-kill -0 $PID 2>/dev/null && pass "runner started (PID $PID)" || { fail "runner not started"; exit 1; }
-
+trap 'kill $PID 2>/dev/null||true; [[ "$KT" != true ]] && rm -rf "$TD"' EXIT
+P=0; F=0
+pass(){ P=$((P+1)); echo "  [PASS] $1"; }
+fail(){ F=$((F+1)); echo "  [FAIL] $1"; }
+echo "CodeLattice Runner Smoke (Phase F)"
+python3 "$RUNNER" --port "$PORT" --snapshot-dir "$TD" & PID=$!; sleep 2
+kill -0 $PID 2>/dev/null || { fail "not started"; exit 1; }
+pass "started"
 BASE="http://127.0.0.1:$PORT"
 
-# Health check
-if curl -s "$BASE/api/health" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['status']=='ok'" 2>/dev/null; then
-  pass "health ok"
-else
-  fail "health failed"
-fi
+# Health (Phase E: {success,data})
+curl -s "$BASE/api/health"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'] and d['data']['status']=='ok'" 2>/dev/null && pass "health"||fail "health"
 
-# Generate snapshot
+# Generate snapshot (Phase E: data.id)
 FIXTURE="$WS/fixtures/rust/portable-smoke"
-GEN=$(curl -s -X POST "$BASE/api/generate-snapshot" \
-  -H "Content-Type: application/json" \
-  -d "{\"root\":\"$FIXTURE\",\"language\":\"rust\",\"full\":true,\"redactRoot\":true}")
-SNAP_ID=$(echo "$GEN" | python3 -c "import json,sys; print(json.load(sys.stdin).get('id',''))" 2>/dev/null)
-if [[ -n "$SNAP_ID" ]]; then
-  pass "generate: $SNAP_ID"
-else
-  fail "generate failed"; echo "  $GEN"
-fi
+GEN=$(curl -s -X POST "$BASE/api/generate-snapshot" -H "Content-Type: application/json" -d "{\"root\":\"$FIXTURE\",\"language\":\"rust\",\"full\":true,\"redactRoot\":true}")
+SID=$(echo "$GEN"|python3 -c "import json,sys;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)
+[[ -n "$SID" ]] && pass "generate: $SID" || { fail "generate"; echo "  ${GEN:0:200}"; }
 
-# List snapshots
-LIST=$(curl -s "$BASE/api/snapshots")
-SNAP_COUNT=$(echo "$LIST" | python3 -c "import json,sys; print(len(json.load(sys.stdin)))" 2>/dev/null)
-if [[ "$SNAP_COUNT" -ge 1 ]]; then
-  pass "snapshots list: $SNAP_COUNT"
-else
-  fail "snapshots list: $SNAP_COUNT"
-fi
+# List snapshots (Phase E: data[])
+SL=$(curl -s "$BASE/api/snapshots")
+SC=$(echo "$SL"|python3 -c "import json,sys;print(len(json.load(sys.stdin)['data']))" 2>/dev/null)
+[[ "$SC" -ge 1 ]] && pass "list: $SC" || fail "list: $SC"
 
-# Get snapshot detail
-if [[ -n "$SNAP_ID" ]]; then
-  DETAIL=$(curl -s "$BASE/api/snapshot/$SNAP_ID")
-  if echo "$DETAIL" | python3 -c "
-import json,sys
-d=json.load(sys.stdin)
-assert d.get('schemaVersion')=='webui.snapshot.v1','bad schema'
-assert d.get('generatedFrom',{}).get('staticAnalysis') is True,'no static'
+# Snapshot detail (Phase E: data)
+if [[ -n "$SID" ]]; then
+  SD=$(curl -s "$BASE/api/snapshot/$SID")
+  echo "$SD"|python3 -c "
+import json,sys; d=json.load(sys.stdin)['data']
+assert d['schemaVersion']=='webui.snapshot.v1','bad schema'
+assert d['generatedFrom']['staticAnalysis'] is True,'no static'
 e=d.get('explore',{})
 ok=len(e.get('symbols',[]))>0 or len(e.get('sourceFiles',[]))>0 or d.get('summary',{}).get('sourceFileCount',0)>0
 assert ok,'no data'
 raw=json.dumps(d)
 assert '/Users/' not in raw,'path leak'
-print('OK')
-" 2>/dev/null; then
-    pass "snapshot detail valid"
-  else
-    fail "snapshot detail invalid"
-  fi
+" 2>/dev/null && pass "detail valid"||fail "detail invalid"
 fi
 
-# Cleanup
-kill $PID 2>/dev/null || true; wait $PID 2>/dev/null || true
-pass "runner stopped cleanly"
+# Error: invalid root
+ERR=$(curl -s -X POST "$BASE/api/generate-snapshot" -H "Content-Type: application/json" -d '{"root":"/nonexistent","language":"rust"}')
+echo "$ERR"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False and d['error']" 2>/dev/null && pass "invalid root error"||fail "invalid root error"
+
+# Error: unsupported lang
+ERR2=$(curl -s -X POST "$BASE/api/generate-snapshot" -H "Content-Type: application/json" -d "{\"root\":\"$FIXTURE\",\"language\":\"julia\"}")
+echo "$ERR2"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False" 2>/dev/null && pass "bad lang error"||fail "bad lang error"
+
+kill $PID 2>/dev/null||true; wait $PID 2>/dev/null||true
+pass "shutdown"
 
 T=$((P+F))
 echo ""; echo "=== Results: $P passed, $F failed, $T total ==="

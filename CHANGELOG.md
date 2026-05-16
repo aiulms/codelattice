@@ -8,6 +8,15 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase F — Beta Readiness + Product Hardening**: Contract test suite, browser smoke, beta sanity, beta user docs.
+  - `scripts/webui-runner-contract-test.sh` — 21 API contract tests: 10 happy path + 11 error path (invalid JSON, missing root, root not found, root is file, unsupported lang, path traversal, missing snap/profile, delete missing, corrupt rebuild). All verify unified `{success,data,error,hint}` response format.
+  - `scripts/webui-browser-smoke.sh` — Browser smoke: 10 static HTTP checks (HTML serves, JS assets 200, health API), page content checks (Profiles/Library/Guided/Report/Caution/Generate text), graceful browser skip (12+1 checks).
+  - `scripts/webui-beta-sanity.sh` — Beta readiness aggregator: .gitignore check, runner host 127.0.0.1, subprocess.run usage, no shell=True, fixture path leak check (5 languages), no npm files, runs all 6 smoke scripts.
+  - `docs/webui/beta-user-guide.md` — Beta user guide: quick start, 10 usage steps, cleanup.
+  - `docs/webui/beta-safety-boundaries.md` — Safety boundaries: static-only, 127.0.0.1, no project writes, no code execution.
+  - `docs/webui/troubleshooting.md` — Troubleshooting: port in use, generation failed, root not found, file vs runner mode, empty states.
+  - `scripts/webui-runner-smoke.sh` — Rewritten for Phase E API format (8 checks).
+
 - **WebUI Phase E — Project Workbench + Guided Review + Profiles**: 15-endpoint hardened runner API, project profiles, guided review workflows, report templates, workbench trial.
   - `scripts/webui-runner.py` — Rewritten: unified `{success,data,error,hint}` response structure; Project Profiles CRUD (list/create/get/update/delete); generate-snapshot for profile; snapshot library with search/filter/sort/pagination; index rebuild; path safety (sanitize IDs, validate roots); error handling (timeout/invalid JSON/unsupported language/missing root).
   - `webui/snapshot-viewer/runner.js` — Enhanced: profile list/create/select/delete/generate; snapshot library with search/filter-by-language/sort/Load/Diff/Timeline/Download/Delete operations; Guided Review (6 scenarios with purpose/tabs/steps/checklist/report, localStorage persistence).

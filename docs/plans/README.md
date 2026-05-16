@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI Phase E — Project Workbench + Guided Review） — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
+最后更新：2026-05-17（WebUI Phase F — Beta Ready） — Project Workbench + Guided Review） — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Phase F — Beta Readiness + Product Hardening（2026-05-17，已完成）：**
+- 📝 [2026-05-17-webui-phase-f-preflight.md](2026-05-17-webui-phase-f-preflight.md) — Phase F: hardening plan, contract tests, browser smoke, beta docs.
+- ✅ [2026-05-17-webui-phase-f-closure.md](2026-05-17-webui-phase-f-closure.md) — closure: 21 contract tests, 12 browser checks, 3 beta docs, beta sanity passed.
 
 **WebUI Phase E — Project Workbench + Guided Review（2026-05-17，已完成）：**
 - 📝 [2026-05-17-webui-phase-e-preflight.md](2026-05-17-webui-phase-e-preflight.md) — Phase E scope: project profiles, guided review, report templates, runner hardening.
