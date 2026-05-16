@@ -1,0 +1,7 @@
+[tool.pyproject]
+name = "framework-entry-hints-fixture"
+version = "0.1.0"
+dependencies = []
+
+[tool.pyproject.scripts]
+sync = "app.cli:sync_command"

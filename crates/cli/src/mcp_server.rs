@@ -8230,7 +8230,26 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_framework_entry_hints",
+                "description": "Static framework/callback entry hint detection. Identifies symbols likely invoked by framework routing, decorators, callback registries, or CLI commands. Not runtime proof. Use to reduce dead-code/reachability false positives.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files" },
+                        "includeCallbacks": { "type": "boolean", "default": true, "description": "Include callback hints" },
+                        "includeRoutes": { "type": "boolean", "default": true, "description": "Include route hints" },
+                        "includeComponents": { "type": "boolean", "default": true, "description": "Include component hints" }
+                    },
+                    "required": ["root"]
+                }
             }
+
         ]
     })
 }
@@ -12049,6 +12068,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_external_api_surface" => {
                     handle_external_api_surface(cache, &arguments)
                 }
+                "codelattice_framework_entry_hints" => {
+                    handle_framework_entry_hints(cache, &arguments)
+                }
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -12636,6 +12658,580 @@ fn handle_external_api_surface(cache: &mut McpCache, params: &Value) -> Result<V
 
     Ok(merge_cache_and_result(&result, &cache_meta))
 }
+
+// ============================================================
+// v0.22: Framework Entry Hints / Callback Entry Caution
+// ============================================================
+
+// ============================================================
+// v0.22: Framework Entry Hints / Callback Entry Caution
+// ============================================================
+
+/// Scoring options for framework entry hint detection.
+struct FrameworkHintOptions {
+    include_tests: bool,
+    include_callbacks: bool,
+    include_routes: bool,
+    include_components: bool,
+    limit: usize,
+}
+
+/// Single framework entry hint result.
+#[derive(Clone)]
+struct FrameworkEntryHint {
+    id: String,
+    name: String,
+    kind: String,
+    file: String,
+    line: u64,
+    hint_kind: String,
+    framework: String,
+    score: f64,
+    confidence: String,
+    reasons: Vec<String>,
+    cautions: Vec<String>,
+    recommended_verification: Vec<String>,
+}
+
+impl FrameworkEntryHint {
+    fn to_json(&self) -> Value {
+        json!({
+            "id": self.id,
+            "name": self.name,
+            "kind": self.kind,
+            "file": self.file,
+            "line": self.line,
+            "hintKind": self.hint_kind,
+            "framework": self.framework,
+            "score": self.score,
+            "confidence": self.confidence,
+            "reasons": self.reasons,
+            "cautions": self.cautions,
+            "recommendedVerification": self.recommended_verification
+        })
+    }
+}
+
+/// Check if a file path matches route-like directory patterns.
+fn is_route_path(file: &str) -> bool {
+    let lower = file.to_lowercase();
+    lower.contains("routes")
+        || lower.contains("pages")
+        || lower.contains("/api/")
+        || lower.contains("handlers")
+        || lower.contains("controllers")
+        || lower.contains("commands")
+        || lower.contains("/cli/")
+        || lower.contains("components/")
+        || lower.contains("callbacks")
+        || lower.contains("registry")
+}
+
+/// Check if a file path matches test/vendor patterns to exclude.
+fn is_test_or_vendor(file: &str) -> bool {
+    let lower = file.to_lowercase();
+    lower.contains("/test")
+        || lower.contains("/vendor/")
+        || lower.contains("/node_modules/")
+        || lower.contains("/.git/")
+        || lower.contains("/__pycache__/")
+        || lower.contains("/target/")
+        || lower.contains("/dist/")
+        || lower.contains("/build/")
+        || lower.contains("/site-packages/")
+}
+
+/// Check if symbol name matches handler/callback/route patterns.
+fn has_framework_name_pattern(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.contains("handler")
+        || lower.contains("callback")
+        || lower.contains("route")
+        || lower.contains("command")
+        || lower.contains("controller")
+        || lower.starts_with("on_")
+        || lower.starts_with("handle_")
+        || lower.starts_with("get_")
+        || lower.starts_with("post_")
+        || lower.starts_with("put_")
+        || lower.starts_with("delete_")
+}
+
+/// Check if symbol name looks private/internal.
+fn is_private_name(name: &str) -> bool {
+    name.starts_with('_') || name == "helper" || name == "internal" || name.contains("__")
+}
+
+/// Build standard caution list for framework entry hints.
+fn framework_cautions() -> Vec<String> {
+    vec![
+        "framework-callback-may-hide-callers".to_string(),
+        "static-analysis-only".to_string(),
+        "runtime-registration-not-verified".to_string(),
+        "dynamic-dispatch-may-hide-callers".to_string(),
+    ]
+}
+
+/// Build recommended verification steps.
+fn framework_verification_steps(hint_kind: &str) -> Vec<String> {
+    let mut steps = vec![
+        "check framework route registration".to_string(),
+        "run route/handler tests before deleting".to_string(),
+    ];
+    match hint_kind {
+        "route" => {
+            steps.push("search config/registry for route bindings".to_string());
+            steps.push("run app-level smoke before deleting".to_string());
+        }
+        "cli" => {
+            steps.push("check CLI entry point registration".to_string());
+            steps.push("run CLI integration tests".to_string());
+        }
+        "component" => {
+            steps.push("check component import/usage across app".to_string());
+            steps.push("run component snapshot tests".to_string());
+        }
+        "callback" | "lifecycle" => {
+            steps.push("check runtime plugin loading".to_string());
+            steps.push("inspect framework docs for lifecycle hooks".to_string());
+        }
+        _ => {}
+    }
+    steps
+}
+
+/// Score a single symbol for framework entry likelihood.
+/// Uses only graph node fields: name, kind, file, line, properties.
+fn score_framework_entry_hint(
+    name: &str,
+    kind: &str,
+    file: &str,
+    properties: &Value,
+    language: &str,
+    options: &FrameworkHintOptions,
+) -> (f64, Vec<String>, String, String) {
+    let mut score: f64 = 0.0;
+    let mut reasons: Vec<String> = vec![];
+    let mut hint_kind = String::new();
+    let mut framework = String::new();
+
+    // --- Positive signals ---
+
+    // 1. Route file path
+    if is_route_path(file) {
+        score += 0.25;
+        reasons.push(format!("route-file-path"));
+    }
+
+    // 2. Framework name pattern
+    if has_framework_name_pattern(name) {
+        score += 0.15;
+        reasons.push("framework-name-pattern".to_string());
+    }
+
+    // 3. Public/exported symbol
+    let is_public = properties["visibility"].as_str() == Some("public")
+        || properties["exported"].as_bool() == Some(true);
+    if is_public {
+        score += 0.15;
+        reasons.push("public-or-exported-symbol".to_string());
+    }
+
+    // --- Language-specific signals ---
+
+    match language {
+        "python" => {
+            if file.contains("routes.py") || file.contains("views.py") || file.contains("api.py") {
+                hint_kind = "route".to_string();
+                framework = "python-web".to_string();
+                score += 0.30;
+                reasons.push("python-routes-file".to_string());
+            } else if file.contains("cli.py") {
+                hint_kind = "cli".to_string();
+                framework = "python-cli".to_string();
+                score += 0.20;
+                reasons.push("python-cli-file".to_string());
+            } else if has_framework_name_pattern(name) {
+                hint_kind = "handler".to_string();
+                framework = "python-generic".to_string();
+            } else {
+                hint_kind = "handler".to_string();
+                framework = "python-generic".to_string();
+            }
+        }
+        "typescript" => {
+            // Next.js file-based route detection
+            if file.contains("route.ts")
+                || file.contains("route.tsx")
+                || file.contains("page.tsx")
+                || file.contains("layout.tsx")
+            {
+                hint_kind = "route".to_string();
+                framework = "nextjs".to_string();
+                score += 0.30;
+                reasons.push("typescript-nextjs-file-route".to_string());
+            } else if file.contains("routes/") || file.contains("pages/") {
+                hint_kind = "route".to_string();
+                framework = "express/nextjs".to_string();
+                score += 0.25;
+                reasons.push("typescript-route-file-path".to_string());
+            }
+
+            // Next.js exported handlers (GET, POST, PUT, DELETE, loader, action)
+            if matches!(
+                name,
+                "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "loader" | "action"
+            ) {
+                if hint_kind.is_empty() {
+                    hint_kind = "handler".to_string();
+                }
+                if framework.is_empty() {
+                    framework = "nextjs".to_string();
+                }
+                score += 0.35;
+                reasons.push("typescript-nextjs-exported-handler".to_string());
+            }
+
+            // React/TSX component — PascalCase export in .tsx
+            if file.ends_with(".tsx")
+                && name.chars().next().map_or(false, |c| c.is_uppercase())
+                && is_public
+            {
+                if hint_kind.is_empty() {
+                    hint_kind = "component".to_string();
+                }
+                if framework.is_empty() {
+                    framework = "react".to_string();
+                }
+                score += 0.20;
+                reasons.push("typescript-exported-component".to_string());
+            }
+
+            if hint_kind.is_empty() {
+                hint_kind = "handler".to_string();
+                framework = "typescript-generic".to_string();
+            }
+        }
+        "arkts" => {
+            if name == "build"
+                || name == "aboutToAppear"
+                || name == "aboutToDisappear"
+                || name == "onPageShow"
+                || name == "onPageHide"
+            {
+                hint_kind = "lifecycle".to_string();
+                framework = "arkui".to_string();
+                score += 0.35;
+                reasons.push("arkts-lifecycle-method".to_string());
+            }
+            if properties["entry"].as_bool() == Some(true) {
+                hint_kind = "component".to_string();
+                framework = "arkui".to_string();
+                score += 0.40;
+                reasons.push("arkts-entry-component".to_string());
+            }
+            if hint_kind.is_empty() {
+                hint_kind = "component".to_string();
+                framework = "arkui-generic".to_string();
+            }
+        }
+        "rust" => {
+            if has_framework_name_pattern(name) {
+                hint_kind = "handler".to_string();
+                framework = "rust-generic".to_string();
+            } else if name == "main" {
+                hint_kind = "cli".to_string();
+                framework = "rust-binary".to_string();
+            } else {
+                hint_kind = "handler".to_string();
+                framework = "rust-generic".to_string();
+            }
+        }
+        "c" | "cpp" => {
+            if has_framework_name_pattern(name) {
+                hint_kind = "callback".to_string();
+                framework = "c-cpp-generic".to_string();
+            } else if file.contains("include") {
+                hint_kind = "callback".to_string();
+                framework = "c-cpp-header-api".to_string();
+                score += 0.15;
+                reasons.push("c-cpp-header-include-path".to_string());
+            } else {
+                hint_kind = "callback".to_string();
+                framework = "c-cpp-generic".to_string();
+            }
+        }
+        "cangjie" => {
+            if has_framework_name_pattern(name) {
+                hint_kind = "handler".to_string();
+                framework = "cangjie-generic".to_string();
+            } else if name.contains("Page") || name.contains("Component") {
+                hint_kind = "component".to_string();
+                framework = "cangjie-ui".to_string();
+                score += 0.10;
+                reasons.push("cangjie-component-naming".to_string());
+            } else {
+                hint_kind = "handler".to_string();
+                framework = "cangjie-generic".to_string();
+            }
+        }
+        _ => {
+            hint_kind = "handler".to_string();
+            framework = "generic".to_string();
+        }
+    }
+
+    // --- Negative signals ---
+
+    // Private/internal name
+    if is_private_name(name) {
+        score -= 0.20;
+        reasons.push("private-internal-name".to_string());
+    }
+
+    // Test/vendor path
+    if is_test_or_vendor(file) && !options.include_tests {
+        score -= 0.50;
+        reasons.push("test-vendor-path".to_string());
+    }
+
+    // Clamp score
+    score = score.max(0.0).min(1.0);
+
+    (score, reasons, hint_kind, framework)
+}
+
+/// Detect framework entry hints from symbol nodes in the graph.
+fn detect_framework_entry_hints(
+    gv: &GraphView,
+    language: &str,
+    options: &FrameworkHintOptions,
+) -> Vec<FrameworkEntryHint> {
+    let mut hints: Vec<FrameworkEntryHint> = Vec::new();
+
+    for (node_id, node) in &gv.nodes_by_id {
+        let name = node["name"].as_str().unwrap_or("");
+        if name.is_empty() {
+            continue;
+        }
+        let file = node["file"].as_str().unwrap_or("");
+        if file.is_empty() {
+            continue;
+        }
+        let kind = node["kind"].as_str().unwrap_or("function");
+
+        // Skip non-functional nodes (include classes only for TSX components)
+        if kind != "function"
+            && kind != "method"
+            && kind != "constructor"
+            && !(kind == "class" && language == "typescript" && file.ends_with(".tsx"))
+        {
+            continue;
+        }
+
+        // Skip test/vendor unless explicitly included
+        if is_test_or_vendor(file) && !options.include_tests {
+            continue;
+        }
+
+        let properties = &node["properties"];
+        let line = node["line"].as_u64().unwrap_or(0);
+
+        let (score, reasons, hint_kind, framework) =
+            score_framework_entry_hint(name, kind, file, properties, language, options);
+
+        // Filter by requested hint kinds
+        if !options.include_routes && hint_kind == "route" {
+            continue;
+        }
+        if !options.include_callbacks && hint_kind == "callback" {
+            continue;
+        }
+        if !options.include_components && hint_kind == "component" {
+            continue;
+        }
+
+        // Filter low scores
+        if score < 0.35 {
+            continue;
+        }
+
+        let confidence = if score >= 0.80 {
+            "high"
+        } else if score >= 0.55 {
+            "medium"
+        } else {
+            "low"
+        };
+
+        let id = node_id.clone();
+        let cautions = framework_cautions();
+        let verification = framework_verification_steps(&hint_kind);
+
+        hints.push(FrameworkEntryHint {
+            id,
+            name: name.to_string(),
+            kind: kind.to_string(),
+            file: file.to_string(),
+            line,
+            hint_kind,
+            framework,
+            score,
+            confidence: confidence.to_string(),
+            reasons,
+            cautions,
+            recommended_verification: verification,
+        });
+    }
+
+    // Deterministic sort: score desc, file asc, line asc, name asc
+    hints.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.line.cmp(&b.line))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    // Apply limit
+    if hints.len() > options.limit {
+        hints.truncate(options.limit);
+    }
+
+    hints
+}
+
+/// Compute framework entry hints from graph data.
+fn compute_framework_entry_hints(gv: &GraphView, language: &str, params: &Value) -> Value {
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let include_callbacks = params["includeCallbacks"].as_bool().unwrap_or(true);
+    let include_routes = params["includeRoutes"].as_bool().unwrap_or(true);
+    let include_components = params["includeComponents"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+
+    let options = FrameworkHintOptions {
+        include_tests,
+        include_callbacks,
+        include_routes,
+        include_components,
+        limit,
+    };
+
+    let hints = detect_framework_entry_hints(gv, language, &options);
+
+    let route_count = hints.iter().filter(|h| h.hint_kind == "route").count();
+    let callback_count = hints.iter().filter(|h| h.hint_kind == "callback").count();
+    let component_count = hints.iter().filter(|h| h.hint_kind == "component").count();
+    let cli_count = hints.iter().filter(|h| h.hint_kind == "cli").count();
+    let lifecycle_count = hints.iter().filter(|h| h.hint_kind == "lifecycle").count();
+    let high_count = hints.iter().filter(|h| h.confidence == "high").count();
+    let med_count = hints.iter().filter(|h| h.confidence == "medium").count();
+    let low_count = hints.iter().filter(|h| h.confidence == "low").count();
+
+    let avg_score = if hints.is_empty() {
+        0.0
+    } else {
+        hints.iter().map(|h| h.score).sum::<f64>() / hints.len() as f64
+    };
+
+    let hint_json: Vec<Value> = hints.iter().map(|h| h.to_json()).collect();
+
+    json!({
+        "summary": {
+            "frameworkEntryHintCount": hints.len(),
+            "routeHintCount": route_count,
+            "callbackHintCount": callback_count,
+            "componentHintCount": component_count,
+            "cliHintCount": cli_count,
+            "lifecycleHintCount": lifecycle_count,
+            "highConfidenceHintCount": high_count,
+            "mediumConfidenceHintCount": med_count,
+            "lowConfidenceHintCount": low_count,
+            "averageCautionScore": (avg_score * 100.0).round() / 100.0
+        },
+        "frameworkEntryHints": hint_json,
+        "generatedFrom": {
+            "graphBased": true,
+            "compilerVerified": false,
+            "runtimeVerified": false,
+            "heuristic": true
+        }
+    })
+}
+
+/// Framework entry hints handler for MCP tool.
+fn handle_framework_entry_hints(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let include_callbacks = params["includeCallbacks"].as_bool().unwrap_or(true);
+    let include_routes = params["includeRoutes"].as_bool().unwrap_or(true);
+    let include_components = params["includeComponents"].as_bool().unwrap_or(true);
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let call_params = json!({
+        "includeTests": include_tests,
+        "includeCallbacks": include_callbacks,
+        "includeRoutes": include_routes,
+        "includeComponents": include_components,
+        "limit": limit
+    });
+
+    let result = compute_framework_entry_hints(&gv, language, &call_params);
+
+    if compact {
+        let hints = result["frameworkEntryHints"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        let compact_hints: Vec<Value> = hints
+            .iter()
+            .map(|h| {
+                json!({
+                    "id": h["id"],
+                    "name": h["name"],
+                    "kind": h["kind"],
+                    "file": h["file"],
+                    "line": h["line"],
+                    "hintKind": h["hintKind"],
+                    "framework": h["framework"],
+                    "score": h["score"],
+                    "confidence": h["confidence"],
+                    "reasons": h["reasons"]
+                })
+            })
+            .collect();
+
+        let comp = json!({
+            "language": language,
+            "root": validated,
+            "summary": result["summary"],
+            "frameworkEntryHints": compact_hints,
+            "generatedFrom": result["generatedFrom"]
+        });
+        Ok(merge_cache_and_result(&comp, &cache_meta))
+    } else {
+        let full = json!({
+            "language": language,
+            "root": validated,
+            "summary": result["summary"],
+            "frameworkEntryHints": result["frameworkEntryHints"],
+            "generatedFrom": result["generatedFrom"]
+        });
+        Ok(merge_cache_and_result(&full, &cache_meta))
+    }
+}
+
 pub fn run_mcp_server() -> Result<(), String> {
     eprintln!("[mcp] CodeLattice MCP v0.8 server starting on stdin/stdout");
 

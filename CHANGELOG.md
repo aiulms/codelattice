@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Framework Entry Hints / Callback Entry Caution** (v0.22): New MCP tool `codelattice_framework_entry_hints` — identifies symbols likely invoked by framework routing, decorators, callback registries, or CLI commands via static heuristics.
+  - Language-specific detection: Python (routes.py/cli.py patterns), TypeScript (Next.js/Express file-based routes, React TSX components, Next.js GET/POST handlers), ArkTS (@Entry/lifecycle methods), Rust (handler/main patterns), C/C++ (callback/hook naming, header API), Cangjie (handler/component naming).
+  - Scoring based on file path patterns, symbol naming conventions, public/exported status.
+  - Caution levels and recommended verification steps per hint kind (route/cli/component/callback/lifecycle).
+  - Compact mode for AI-agent-friendly output.
+  - All output includes `generatedFrom: { runtimeVerified: false, heuristic: true, compilerVerified: false }` — never claims runtime proof.
+  - Framework entry hints integrated into `codelattice_reachability_map` summary and `codelattice_dead_code_candidates` caution system.
+  - New fixtures: `fixtures/python/framework-entry-hints/` (5 files), `fixtures/typescript/framework-entry-hints/` (8 files).
+  - 10 new MCP integration tests.
+  - MCP tool count: 32 → 33.
+  - No new dependencies.
+
 - **External API Surface / Public API Caution** (v0.21): New MCP tool `codelattice_external_api_surface` — identifies symbols likely exposed to external consumers, with caution levels and recommended verification steps.
   - Scoring heuristics for Rust (`pub` visibility, `lib.rs`, `pub use` re-exports) and TypeScript/ArkTS (`export`, `index.ts`, re-exports, `package.json` exports/bin, TSX components).
   - Package metadata integration: reads `package.json` exports/main/types/bin fields and `Cargo.toml` lib/bin targets.

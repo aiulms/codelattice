@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 32 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 33 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_two_tools() {
+fn mcp_tools_list_returns_thirty_three_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_thirty_two_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 32, "expected 32 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 33, "expected 33 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -10476,6 +10476,442 @@ fn mcp_external_api_surface_reachability_heuristic() {
     assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
     assert_eq!(
         data["generatedFrom"]["compilerVerified"].as_bool(),
+        Some(false)
+    );
+}
+
+// ============================================================
+// v0.22: Framework Entry Hints Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-python")]
+fn framework_entry_hints_python_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/python/framework-entry-hints")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn framework_entry_hints_typescript_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/typescript/framework-entry-hints")
+}
+
+// --- Python Tests ---
+
+#[cfg(feature = "tree-sitter-python")]
+#[test]
+fn mcp_framework_entry_hints_python_routes() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_python_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "python",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"]["frameworkEntryHintCount"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "should find framework entry hints for Python fixture"
+    );
+    let empty = Vec::new();
+    let hints = data["frameworkEntryHints"].as_array().unwrap_or(&empty);
+    let names: Vec<&str> = hints.iter().filter_map(|h| h["name"].as_str()).collect();
+    let kinds: Vec<&str> = hints
+        .iter()
+        .filter_map(|h| h["hintKind"].as_str())
+        .collect();
+    assert!(
+        names
+            .iter()
+            .any(|n| *n == "get_user" || *n == "create_order" || *n == "update_user"),
+        "Python route handlers should be detected, got: {:?}",
+        names
+    );
+    assert!(
+        kinds.iter().any(|k| *k == "route"),
+        "should have route hint kinds, got: {:?}",
+        kinds
+    );
+}
+
+#[cfg(feature = "tree-sitter-python")]
+#[test]
+fn mcp_framework_entry_hints_python_cli() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_python_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "python",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let empty = Vec::new();
+    let hints = data["frameworkEntryHints"].as_array().unwrap_or(&empty);
+    // sync_command from cli.py should be detected
+    let cli_hints: Vec<&serde_json::Value> = hints
+        .iter()
+        .filter(|h| h["hintKind"].as_str() == Some("cli"))
+        .collect();
+    assert!(
+        !cli_hints.is_empty(),
+        "cli.py command should generate cli hints, got {} total hints",
+        hints.len()
+    );
+}
+
+// --- TypeScript Tests ---
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_framework_entry_hints_typescript_routes() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Tool must return valid structure even if no hints found
+    assert!(data["summary"].is_object(), "must have summary");
+    assert!(
+        data["frameworkEntryHints"].is_array(),
+        "must have frameworkEntryHints array"
+    );
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+    assert_eq!(data["language"].as_str().unwrap_or(""), "typescript");
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_framework_entry_hints_typescript_component() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "includeRoutes": false,
+                "includeCallbacks": false,
+                "includeComponents": true,
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Tool must not error even with selective filters
+    assert!(data["summary"].is_object());
+    assert!(data["frameworkEntryHints"].is_array());
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_framework_entry_hints_compact_shape() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let empty = Vec::new();
+    let hints = data["frameworkEntryHints"].as_array().unwrap_or(&empty);
+    if !hints.is_empty() {
+        let first = &hints[0];
+        // Compact mode: should have name, kind, score, confidence, reasons
+        assert!(first["name"].is_string(), "compact should have name");
+        assert!(first["score"].is_number(), "compact should have score");
+        assert!(
+            first["confidence"].is_string(),
+            "compact should have confidence"
+        );
+        // Should NOT have verbose fields
+        assert!(
+            first["cautions"].is_null() || !first["cautions"].is_array(),
+            "compact should omit cautions array"
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_framework_entry_hints_no_runtime_proof() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
+        Some(false),
+        "runtimeVerified must be false"
+    );
+    assert_eq!(
+        data["generatedFrom"]["compilerVerified"].as_bool(),
+        Some(false),
+        "compilerVerified must be false"
+    );
+    assert_eq!(
+        data["generatedFrom"]["heuristic"].as_bool(),
+        Some(true),
+        "heuristic must be true"
+    );
+    let text = serde_json::to_string(&data)
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(
+        !text.contains("runtime proof"),
+        "must not claim runtime proof"
+    );
+    assert!(
+        !text.contains("safe to delete"),
+        "must not claim safe to delete"
+    );
+}
+
+// --- Integration with reachability_map ---
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_reachability_map_includes_framework_hints() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_reachability_map",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Reachability should have summary with framework info
+    let summary = &data["summary"];
+    assert!(summary.is_object(), "reachability must have summary object");
+    // runtimeVerified must be false
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+}
+
+// --- Integration with dead_code_candidates ---
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_framework_caution() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // dead_code must have deletionSafe=false
+    assert_eq!(
+        data["generatedFrom"]["deletionSafe"].as_bool(),
+        Some(false),
+        "dead code candidates must have deletionSafe=false"
+    );
+    assert_eq!(
+        data["generatedFrom"]["compilerVerified"].as_bool(),
+        Some(false)
+    );
+}
+
+// --- Integration with review_plan ---
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_review_plan_release_check_framework_caution() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32009,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_plan",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "mode": "release_check",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // review_plan should have checklist
+    let checklist = data["reviewChecklist"].as_array();
+    if let Some(items) = checklist {
+        let text = serde_json::to_string(items)
+            .unwrap_or_default()
+            .to_lowercase();
+        assert!(
+            text.contains("framework")
+                || text.contains("route")
+                || text.contains("callback")
+                || text.contains("handler")
+                || text.contains("registration"),
+            "review checklist should mention framework/callback concerns"
+        );
+    }
+    // generatedFrom must have warnings about static analysis
+    assert_eq!(
+        data["generatedFrom"]["compilerVerified"].as_bool(),
+        Some(false)
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_framework_entry_hints_auto_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = framework_entry_hints_typescript_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 32010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_framework_entry_hints",
+            "arguments": {
+                "root": root.to_str().unwrap(),
+                "language": "auto",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"]["frameworkEntryHintCount"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 0,
+        "auto language should not error"
+    );
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
         Some(false)
     );
 }

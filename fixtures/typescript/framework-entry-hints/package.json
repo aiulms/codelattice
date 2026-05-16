@@ -1,0 +1,10 @@
+{
+  "name": "framework-entry-hints-fixture",
+  "version": "0.1.0",
+  "private": true,
+  "main": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./routes": "./src/routes/"
+  }
+}

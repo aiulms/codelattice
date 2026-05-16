@@ -1368,6 +1368,75 @@ The `initialize` response now includes profile information:
 
 **Caution levels**: `high` (≥0.75), `medium` (≥0.45), `low` (<0.45). Symbols below 0.35 are filtered out.
 
+### 3.32 `codelattice_framework_entry_hints` *(v0.22)*
+
+**Purpose**: Static framework/callback entry hint detection. Identifies symbols likely invoked by framework routing, decorators, callback registries, or CLI commands. Used to reduce dead-code/reachability false positives. **Not runtime proof.**
+
+**Parameters**:
+
+| Parameter | Type | Required | Default | Description |
+|---|---|---|---|---|
+| `root` | string | ✅ | — | Project root directory (absolute path) |
+| `language` | string | — | `"auto"` | Language hint |
+| `compact` | boolean | — | `true` | Compact mode: omit verbose fields |
+| `limit` | integer | — | `50` | Max hints to return |
+| `includeTests` | boolean | — | `false` | Include test files |
+| `includeCallbacks` | boolean | — | `true` | Include callback hints |
+| `includeRoutes` | boolean | — | `true` | Include route hints |
+| `includeComponents` | boolean | — | `true` | Include component hints |
+
+**Output contract**:
+
+```json
+{
+  "language": "typescript",
+  "root": "/path/to/project",
+  "summary": {
+    "frameworkEntryHintCount": 8,
+    "routeHintCount": 4,
+    "callbackHintCount": 2,
+    "componentHintCount": 1,
+    "cliHintCount": 1,
+    "lifecycleHintCount": 0,
+    "highConfidenceHintCount": 3,
+    "mediumConfidenceHintCount": 5,
+    "lowConfidenceHintCount": 0,
+    "averageCautionScore": 0.62
+  },
+  "frameworkEntryHints": [
+    {
+      "id": "sym_123", "name": "getUser", "kind": "function",
+      "file": "src/routes/users.ts", "line": 18,
+      "hintKind": "route", "framework": "express/nextjs",
+      "score": 0.75, "confidence": "medium",
+      "reasons": ["typescript-route-file-path", "public-or-exported-symbol"],
+      "cautions": ["framework-callback-may-hide-callers", "static-analysis-only", ...],
+      "recommendedVerification": ["check framework route registration", ...]
+    }
+  ],
+  "generatedFrom": {
+    "graphBased": true,
+    "compilerVerified": false,
+    "runtimeVerified": false,
+    "heuristic": true
+  }
+}
+```
+
+**Invariant**: `generatedFrom.runtimeVerified` is **always** `false`. This tool never executes or proves runtime behavior.
+
+**Language-specific heuristics**:
+- **Python**: `routes.py`/`views.py`/`api.py` = route hints, `cli.py` = CLI hints
+- **TypeScript**: `routes/`/`pages/` paths, Next.js exported `GET`/`POST`/`loader`/`action`, `.tsx` PascalCase exports = component hints
+- **ArkTS**: `@Entry` property, lifecycle method names (`build`, `aboutToAppear`, etc.)
+- **Rust**: `main`/`handler` naming patterns
+- **C/C++**: `callback`/`handler`/`hook` naming, `include/` paths
+- **Cangjie**: `handler`/`controller` naming
+
+**Caution levels**: `high` (≥0.80), `medium` (≥0.55), `low` (<0.55). Symbols below 0.35 are filtered out.
+
+**Integration**: Framework hints are consumed by `reachability_map` (summary enrichment), `dead_code_candidates` (confidence reduction), `review_plan` (checklist items), and `project_insights` (file prioritization).
+
 
 ```json
 {
@@ -1377,7 +1446,7 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 32
+    "toolCount": 33
   }
 }
 ```

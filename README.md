@@ -352,6 +352,7 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_review_gate` | 变更审查门：基于 git diff 或文件列表，输出触碰符号、影响面、风险等级、审查清单 |
 | `codelattice_reachability_map` | 入口点检测 + 静态 BFS 可达性分析：返回入口点、可达符号、不可达候选（带置信度和注意事项） |
 | `codelattice_external_api_surface` | 外部 API Surface / Public API 风险提示：识别可能被外部消费者使用的公开 API 符号，输出注意事项和推荐验证步骤 |
+| `codelattice_framework_entry_hints` | 框架入口提示 / 回调入口警示：识别可能由框架路由/装饰器/回调注册/CLI 命令调用的符号，降低 dead-code/reachability 误判 |
 | `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
 | `codelattice_cache_clear` | 清理 memory / persistent / both 缓存层 |
 
