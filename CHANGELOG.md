@@ -8,6 +8,10 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **AI Workflow Presets** (v0.26): New MCP tool  — returns suggested MCP workflow steps for 10 common scenarios. Does not execute analysis (presetOnly=true).
+  - Scenarios: onboarding, before_edit, after_edit, delete_code, release_check, legacy_cleanup, public_api_change, framework_route_change, docs_tests_sync, config_examples_sync.
+  - 10 integration tests. MCP tool count: 36 → 37.
+
 - **Config/Examples Review** (v0.25): New MCP tool `codelattice_config_examples_review` — scans package.json, tsconfig, Cargo.toml, pyproject.toml, CI, Docker, examples, and docs code blocks for stale references. Never executes scripts or builds.
   - 10 new integration tests. MCP tool count: 35 → 36.
 

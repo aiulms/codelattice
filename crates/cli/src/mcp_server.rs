@@ -8307,7 +8307,22 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_workflow_presets",
+                "description": "Returns suggested MCP workflow steps for common scenarios. Does not execute analysis. Use to learn which CodeLattice tools to call for a given scenario.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "scenario": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "public_api_change", "framework_route_change", "docs_tests_sync", "config_examples_sync"] },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode (omit workflow detail)" },
+                        "includeExamples": { "type": "boolean", "default": true, "description": "Include example args" }
+                    },
+                    "required": ["scenario"]
+                }
             }
+
 
 
 
@@ -12140,6 +12155,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_config_examples_review" => {
                     handle_config_examples_review(cache, &arguments)
                 }
+                "codelattice_workflow_presets" => handle_workflow_presets(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -14818,6 +14834,256 @@ fn handle_config_examples_review(cache: &mut McpCache, params: &Value) -> Result
     out.insert("language".to_string(), json!(language));
     out.insert("root".to_string(), json!(validated));
     Ok(merge_cache_and_result(&json!(out), &cache_meta))
+}
+
+// ============================================================
+// v0.26: AI Workflow Presets
+// ============================================================
+
+// ============================================================
+// v0.26: AI Workflow Presets
+// ============================================================
+
+fn workflow_step(
+    step: u64,
+    tool: &str,
+    purpose: &str,
+    required: bool,
+    args: Value,
+    inspect: Vec<&str>,
+    escalate: Vec<&str>,
+) -> Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("step".into(), json!(step));
+    obj.insert("tool".into(), json!(tool));
+    obj.insert("purpose".into(), json!(purpose));
+    obj.insert("required".into(), json!(required));
+    obj.insert("suggestedArgs".into(), args);
+    obj.insert("inspectFields".into(), json!(inspect));
+    obj.insert("escalateWhen".into(), json!(escalate));
+    Value::Object(obj)
+}
+
+fn ws(
+    step: u64,
+    tool: &str,
+    purpose: &str,
+    required: bool,
+    args: Value,
+    inspect: Vec<&str>,
+    escalate: Vec<&str>,
+) -> Value {
+    workflow_step(step, tool, purpose, required, args, inspect, escalate)
+}
+
+fn common_stoplines() -> Vec<Value> {
+    vec![
+        json!("Static analysis is not runtime proof. Always verify with tests and build."),
+        json!("Do not delete public API without external consumer review."),
+        json!("Do not treat framework/callback hints as runtime proof."),
+        json!("Run tests and build outside CodeLattice when appropriate."),
+        json!("Do not rely on a single tool for deletion or release decisions."),
+    ]
+}
+
+fn compact_arg() -> Value {
+    json!({"compact": true, "limit": 50})
+}
+
+fn workflow_onboarding(lang: &str) -> Value {
+    let a = json!({"language": lang, "compact": true});
+    json!({
+        "scenario": "onboarding", "language": lang,
+        "summary": {"stepCount": 4, "riskFocus":["unknown codebase","identify hotspots","understand public surface"]},
+        "workflow": [
+            ws(1, "codelattice_project_insights", "Get heatmap: hotspots, low-confidence zones, read-first files", true, json!({"root": "...", "language": lang, "mode": "onboarding", "compact": true}), vec!["readFirst","reviewFirst","hotspots","lowConfidenceZones"], vec!["many hotspots found","low-confidence zones overlap public API"]),
+            ws(2, "codelattice_reachability_map", "Find entry points and unreachable candidates", false, json!({"root": "...", "language": lang, "compact": true, "maxDepth": 8}), vec!["entryPoints","unreachableCandidates","summary.unreachableCount"], vec!["unreachable symbols have public API caution"]),
+            ws(3, "codelattice_external_api_surface", "Identify publicly exposed API surface", false, json!({"root": "...", "language": lang, "compact": true}), vec!["externalSurfaceSymbols","externalSurfaceFiles","cautionLevel"], vec!["high caution public API without external usage verified"]),
+            ws(4, "codelattice_review_plan", "Get structured onboarding checklist", true, json!({"root": "...", "language": lang, "mode": "onboarding", "compact": true}), vec!["readFirst","reviewFirst","riskMap"], vec!["high risk files in public API or framework paths"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_before_edit(lang: &str) -> Value {
+    json!({
+        "scenario": "before_edit", "language": lang,
+        "summary": {"stepCount": 4, "riskFocus":["impact preview","breaking change risk","framework entry risk"]},
+        "workflow": [
+            ws(1, "codelattice_impact_preview", "Preview blast radius of changing target symbol", true, json!({"root": "...", "language": lang, "symbol": "targetSymbol", "direction": "both", "compact": true}), vec!["impactSummary","impactedSymbols","d=1 items","riskLevel"], vec!["impact level high","impacted public API"]),
+            ws(2, "codelattice_breaking_change_review", "Check if change breaks external API or framework entries", true, json!({"root": "...", "language": lang, "changedSymbols": ["targetSymbol"], "compact": true}), vec!["compatibilityRisk","changedExternalApi","changedFrameworkEntries","reviewChecklist"], vec!["compatibilityRisk high or critical","changedExternalApi non-empty"]),
+            ws(3, "codelattice_reachability_map", "Understand entry points and reachability", false, json!({"root": "...", "language": lang, "compact": true}), vec!["entryPoints","reachableSymbols","unreachableCandidates"], vec!["target is reachable from many entry points"]),
+            ws(4, "codelattice_review_plan", "Get before-edit checklist", true, json!({"root": "...", "language": lang, "mode": "before_edit", "symbol": "targetSymbol", "compact": true}), vec!["reviewChecklist","docsLikelyNeedUpdate","testHints"], vec!["checklist P0 items"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_after_edit(lang: &str) -> Value {
+    json!({
+        "scenario": "after_edit", "language": lang,
+        "summary": {"stepCount": 5, "riskFocus":["changed symbols consistency","docs/tests drift","config drift"]},
+        "workflow": [
+            ws(1, "codelattice_changed_symbols", "Detect what changed since last commit", true, json!({"root": "...", "language": lang, "diffMode": "working", "compact": true}), vec!["changedSymbols","changedFiles","affectedProcesses","riskSummary"], vec!["changed public API files","changed framework entry files"]),
+            ws(2, "codelattice_breaking_change_review", "Assess compatibility risk of changes", true, json!({"root": "...", "language": lang, "changedSymbols": [], "compact": true}), vec!["compatibilityRisk","changedExternalApi","changedFrameworkEntries","releaseNotesHints"], vec!["compatibilityRisk high or critical"]),
+            ws(3, "codelattice_consistency_review", "Check docs/tests consistency with changes", true, json!({"root": "...", "language": lang, "changedSymbols": [], "compact": true}), vec!["staleDocCandidates","missingTestCandidates","relatedTests","consistencyRisk"], vec!["consistencyRisk high","stale doc or test found"]),
+            ws(4, "codelattice_config_examples_review", "Check config/examples consistency", false, json!({"root": "...", "language": lang, "compact": true}), vec!["staleConfigReferences","staleExamples","overallConfigConsistencyRisk"], vec!["stale config references found"]),
+            ws(5, "codelattice_review_plan", "Get after-edit checklist with doc/test hints", true, json!({"root": "...", "language": lang, "mode": "after_edit", "compact": true}), vec!["reviewChecklist","docsLikelyNeedUpdate","testHints","docUpdateHints"], vec!["checklist P0 items"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_delete_code(lang: &str) -> Value {
+    json!({
+        "scenario": "delete_code", "language": lang,
+        "summary": {"stepCount": 5, "riskFocus":["dead code caution only","public API may have external consumers","framework callbacks may hide callers"]},
+        "workflow": [
+            ws(1, "codelattice_dead_code_candidates", "Find suspected dead-code candidates (NOT deletion proof)", true, json!({"root": "...", "language": lang, "compact": true, "limit": 50}), vec!["candidateSymbols","candidateFiles","cautions","generatedFrom.deletionSafe"], vec!["public API caution","framework entry hint","low confidence candidate"]),
+            ws(2, "codelattice_external_api_surface", "Check if candidates are publicly exposed", true, json!({"root": "...", "language": lang, "compact": true}), vec!["externalSurfaceSymbols","cautionLevel","generatedFrom.externalUsageVerified"], vec!["candidate is high-caution external API"]),
+            ws(3, "codelattice_framework_entry_hints", "Check if candidates are framework/callback entries", true, json!({"root": "...", "language": lang, "includeRoutes": true, "includeCallbacks": true, "includeComponents": true, "compact": true}), vec!["frameworkEntryHints","hintKind","confidence"], vec!["candidate has high-confidence framework hint"]),
+            ws(4, "codelattice_impact_preview", "Check blast radius of candidate deletion", true, json!({"root": "...", "language": lang, "symbol": "candidateSymbol", "direction": "upstream", "compact": true}), vec!["impactedSymbols","d=1 items"], vec!["d=1 callers found","impact public API"]),
+            ws(5, "codelattice_review_plan", "Get before-edit checklist for deletion", false, json!({"root": "...", "language": lang, "mode": "before_edit", "symbol": "candidateSymbol", "compact": true}), vec!["reviewChecklist"], vec!["P0 deletion blocker"])
+        ],
+        "stopLines": {
+            "specific": [
+                json!("Do NOT delete code based only on dead_code_candidates."),
+                json!("External API caution = DO NOT delete without manual review."),
+                json!("Framework entry hint = DO NOT delete without checking registration.")
+            ],
+            "general": common_stoplines()
+        },
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_release_check(lang: &str) -> Value {
+    json!({
+        "scenario": "release_check", "language": lang,
+        "summary": {"stepCount": 5, "riskFocus":["release readiness","breaking change review","docs/tests/config consistency"]},
+        "workflow": [
+            ws(1, "codelattice_quality", "Quality gate check", true, json!({"root": "...", "language": lang}), vec!["pass","failed","warnings","details"], vec!["quality gates failed"]),
+            ws(2, "codelattice_breaking_change_review", "Breaking change review on diff", true, json!({"root": "...", "language": lang, "changedSymbols": [], "compact": true}), vec!["compatibilityRisk","changedExternalApi","reviewChecklist","releaseNotesHints"], vec!["compatibilityRisk high"]),
+            ws(3, "codelattice_consistency_review", "Docs/tests consistency check", true, json!({"root": "...", "language": lang, "changedSymbols": [], "compact": true}), vec!["consistencyRisk","staleDocCandidates","missingTestCandidates"], vec!["consistencyRisk high"]),
+            ws(4, "codelattice_config_examples_review", "Config/examples consistency check", false, json!({"root": "...", "language": lang, "compact": true}), vec!["overallConfigConsistencyRisk","staleConfigReferences","staleExamples"], vec!["stale config references found"]),
+            ws(5, "codelattice_review_plan", "Full release checklist", true, json!({"root": "...", "language": lang, "mode": "release_check", "compact": true}), vec!["reviewChecklist","releaseReadiness","docUpdateHints","testHints"], vec!["not ready for release"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_legacy_cleanup(lang: &str) -> Value {
+    json!({
+        "scenario": "legacy_cleanup", "language": lang,
+        "summary": {"stepCount": 5, "riskFocus":["identify dead/legacy code","public surface caution","framework caution"]},
+        "workflow": [
+            ws(1, "codelattice_project_insights", "Find hotspots and low-confidence zones", true, json!({"root": "...", "language": lang, "mode": "onboarding", "compact": true}), vec!["hotspots","lowConfidenceZones","readFirst"], vec!["hotspots overlap dead code"]),
+            ws(2, "codelattice_dead_code_candidates", "Find dead-code candidates", true, json!({"root": "...", "language": lang, "compact": true}), vec!["candidateSymbols","cautions"], vec!["public API or framework caution"]),
+            ws(3, "codelattice_reachability_map", "Full reachability audit", false, json!({"root": "...", "language": lang, "compact": true, "maxDepth": 12}), vec!["unreachableCandidates","entryPoints"], vec!["large unreachable set"]),
+            ws(4, "codelattice_external_api_surface", "Filter dead code by public surface", true, json!({"root": "...", "language": lang, "compact": true}), vec!["externalSurfaceSymbols","cautionLevel"], vec!["dead code overlaps external API"]),
+            ws(5, "codelattice_config_examples_review", "Check stale config/examples", false, json!({"root": "...", "language": lang, "compact": true}), vec!["staleConfigReferences","staleExamples"], vec!["many stale references"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_public_api_change(lang: &str) -> Value {
+    json!({
+        "scenario": "public_api_change", "language": lang,
+        "summary": {"stepCount": 4, "riskFocus":["public API surface change","external consumer risk","breaking change review"]},
+        "workflow": [
+            ws(1, "codelattice_external_api_surface", "Full public API surface audit", true, json!({"root": "...", "language": lang, "compact": true}), vec!["externalSurfaceSymbols","cautionLevel","recommendedVerification"], vec!["many high-caution symbols"]),
+            ws(2, "codelattice_breaking_change_review", "Assess breaking risk of API change", true, json!({"root": "...", "language": lang, "changedSymbols": ["changedApiSymbol"], "compact": true}), vec!["compatibilityRisk","changedExternalApi","reviewChecklist"], vec!["compatibilityRisk high or critical"]),
+            ws(3, "codelattice_impact_preview", "Check downstream impact", false, json!({"root": "...", "language": lang, "symbol": "changedApiSymbol", "direction": "upstream", "compact": true}), vec!["impactedSymbols"], vec!["many impacted symbols"]),
+            ws(4, "codelattice_review_plan", "Get release checklist for API change", true, json!({"root": "...", "language": lang, "mode": "release_check", "compact": true}), vec!["reviewChecklist","releaseNotesHints"], vec!["P0 checklist items"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_framework_route_change(lang: &str) -> Value {
+    json!({
+        "scenario": "framework_route_change", "language": lang,
+        "summary": {"stepCount": 4, "riskFocus":["framework entry hints","reachability from routes","breaking risk"]},
+        "workflow": [
+            ws(1, "codelattice_framework_entry_hints", "Audit framework/callback/route/CLI entries", true, json!({"root": "...", "language": lang, "includeRoutes": true, "includeCallbacks": true, "includeComponents": true, "compact": true}), vec!["frameworkEntryHints","hintKind","confidence","cautionLevel"], vec!["high confidence route/CLI entries changed"]),
+            ws(2, "codelattice_reachability_map", "Check reachability from entry points to changed target", false, json!({"root": "...", "language": lang, "compact": true}), vec!["entryPoints","reachableSymbols"], vec!["changed target reachable from many entry points"]),
+            ws(3, "codelattice_breaking_change_review", "Breaking risk of route/handler change", true, json!({"root": "...", "language": lang, "changedSymbols": ["changedHandler"], "compact": true}), vec!["changedFrameworkEntries","reviewChecklist"], vec!["changedFrameworkEntries high risk"]),
+            ws(4, "codelattice_review_plan", "Before-edit checklist for route changes", true, json!({"root": "...", "language": lang, "mode": "before_edit", "symbol": "changedHandler", "compact": true}), vec!["reviewChecklist"], vec!["P0 checklist items for framework entries"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_docs_tests_sync(lang: &str) -> Value {
+    json!({
+        "scenario": "docs_tests_sync", "language": lang,
+        "summary": {"stepCount": 3, "riskFocus":["docs staleness","test coverage","consistency drift"]},
+        "workflow": [
+            ws(1, "codelattice_changed_symbols", "Detect changed symbols", true, json!({"root": "...", "language": lang, "diffMode": "working", "compact": true}), vec!["changedSymbols","changedFiles"], vec!["many changed symbols"]),
+            ws(2, "codelattice_consistency_review", "Cross-reference docs/tests with changes", true, json!({"root": "...", "language": lang, "changedSymbols": [], "compact": true}), vec!["staleDocCandidates","missingDocUpdateCandidates","relatedTests","missingTestCandidates","staleTestCandidates","consistencyRisk"], vec!["consistencyRisk high","stale doc or test found"]),
+            ws(3, "codelattice_review_plan", "Get after-edit review checklist", false, json!({"root": "...", "language": lang, "mode": "after_edit", "compact": true}), vec!["reviewChecklist","docsLikelyNeedUpdate","testHints","docUpdateHints"], vec!["P0 doc/test update items"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+fn workflow_config_examples_sync(lang: &str) -> Value {
+    json!({
+        "scenario": "config_examples_sync", "language": lang,
+        "summary": {"stepCount": 3, "riskFocus":["stale config references","stale examples","CI/Docker drift"]},
+        "workflow": [
+            ws(1, "codelattice_config_examples_review", "Full config/examples/CI/Docker consistency scan", true, json!({"root": "...", "language": lang, "compact": true}), vec!["staleConfigReferences","staleExamples","packageScriptRisks","ciDockerRiskCount","overallConfigConsistencyRisk"], vec!["overallConfigConsistencyRisk high","stale package exports or bin paths"]),
+            ws(2, "codelattice_consistency_review", "Cross-reference docs/tests with config issues", false, json!({"root": "...", "language": lang, "changedSymbols": [], "compact": true}), vec!["staleDocCandidates","consistencyRisk"], vec!["consistencyRisk high"]),
+            ws(3, "codelattice_review_plan", "Release check with config focus", false, json!({"root": "...", "language": lang, "mode": "release_check", "compact": true}), vec!["reviewChecklist","releaseReadiness"], vec!["P0 config issues"])
+        ],
+        "stopLines": common_stoplines(),
+        "generatedFrom": {"presetOnly": true, "analysisExecuted": false, "runtimeVerified": false}
+    })
+}
+
+/// Compute workflow presets — purely static, no analysis.
+fn compute_workflow_presets(params: &Value) -> Result<Value, Value> {
+    let scenario = params["scenario"].as_str().unwrap_or("onboarding");
+    let language = params["language"].as_str().unwrap_or("auto");
+    let compact = params["compact"].as_bool().unwrap_or(true);
+
+    let result = match scenario {
+        "onboarding" => workflow_onboarding(language),
+        "before_edit" => workflow_before_edit(language),
+        "after_edit" => workflow_after_edit(language),
+        "delete_code" => workflow_delete_code(language),
+        "release_check" => workflow_release_check(language),
+        "legacy_cleanup" => workflow_legacy_cleanup(language),
+        "public_api_change" => workflow_public_api_change(language),
+        "framework_route_change" => workflow_framework_route_change(language),
+        "docs_tests_sync" => workflow_docs_tests_sync(language),
+        "config_examples_sync" => workflow_config_examples_sync(language),
+        _ => {
+            return Err(mcp_error(
+                "invalid_parameter",
+                &format!("Unknown scenario: {scenario}. Valid: onboarding, before_edit, after_edit, delete_code, release_check, legacy_cleanup, public_api_change, framework_route_change, docs_tests_sync, config_examples_sync"),
+            ));
+        }
+    };
+
+    let mut out = result.as_object().cloned().unwrap_or_default();
+    if compact {
+        out.remove("workflow");
+    }
+    Ok(tool_result(&json!(out)))
+}
+
+fn handle_workflow_presets(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    compute_workflow_presets(params)
 }
 
 pub fn run_mcp_server() -> Result<(), String> {

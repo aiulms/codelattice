@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 36 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 37 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_six_tools() {
+fn mcp_tools_list_returns_thirty_seven_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_thirty_six_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 36, "expected 36 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 37, "expected 37 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -11556,4 +11556,195 @@ fn mcp_config_examples_review_summary_risk() {
         .as_str()
         .unwrap_or("");
     assert!(!risk.is_empty(), "should have overallConfigConsistencyRisk");
+}
+
+// ============================================================
+// v0.26: AI Workflow Presets Tests
+// ============================================================
+
+#[test]
+fn mcp_workflow_presets_onboarding() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36001,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"onboarding","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("project_insights"),
+        "onboarding should include project_insights"
+    );
+    assert!(
+        text.contains("review_plan"),
+        "onboarding should include review_plan"
+    );
+    assert_eq!(d["summary"]["stepCount"].as_u64().unwrap_or(0), 4);
+}
+
+#[test]
+fn mcp_workflow_presets_delete_code() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36002,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"delete_code","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("dead_code_candidates"),
+        "delete_code should include dead_code_candidates"
+    );
+    assert!(
+        text.contains("external_api_surface"),
+        "delete_code should include external_api_surface"
+    );
+    assert!(
+        text.contains("framework_entry_hints"),
+        "delete_code should include framework_entry_hints"
+    );
+    assert!(
+        text.contains("NOT delete"),
+        "delete_code must have stop lines"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_after_edit() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36003,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"after_edit","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("consistency_review"),
+        "after_edit should include consistency_review"
+    );
+    assert!(
+        text.contains("config_examples_review"),
+        "after_edit should include config/examples"
+    );
+    assert!(
+        text.contains("breaking_change_review"),
+        "after_edit should include breaking_change_review"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_release_check() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36004,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"release_check","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("codelattice_quality"),
+        "release_check should include quality"
+    );
+    assert!(
+        text.contains("breaking_change_review"),
+        "release_check should include breaking_change_review"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_public_api_change() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36005,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"public_api_change","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("external_api_surface"),
+        "public_api_change should include external_api_surface"
+    );
+    assert!(
+        text.contains("breaking_change_review"),
+        "public_api_change should include breaking_change_review"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_preset_only() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36006,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"onboarding","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    assert_eq!(d["generatedFrom"]["presetOnly"].as_bool(), Some(true));
+    assert_eq!(
+        d["generatedFrom"]["analysisExecuted"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(d["generatedFrom"]["runtimeVerified"].as_bool(), Some(false));
+}
+
+#[test]
+fn mcp_workflow_presets_invalid_scenario() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36007,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"invalid_stuff","compact":false}}}));
+    let resp = s.recv();
+    let resp_text = serde_json::to_string(&resp).unwrap_or_default();
+    assert!(
+        resp_text.contains("\"isError\""),
+        "invalid scenario should return error"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_compact() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36008,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"delete_code","compact":true}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(
+        !d.as_object().map_or(false, |o| o.contains_key("workflow")),
+        "compact mode should omit workflow detail"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_legacy_cleanup() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36009,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"legacy_cleanup","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("dead_code_candidates"),
+        "legacy_cleanup should include dead_code_candidates"
+    );
+    assert!(
+        text.contains("project_insights"),
+        "legacy_cleanup should include project_insights"
+    );
+}
+
+#[test]
+fn mcp_workflow_presets_docs_tests_sync() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":36010,"method":"tools/call",
+        "params":{"name":"codelattice_workflow_presets","arguments":{"scenario":"docs_tests_sync","compact":false}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("consistency_review"),
+        "docs_tests_sync should include consistency_review"
+    );
 }
