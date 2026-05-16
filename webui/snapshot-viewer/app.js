@@ -152,6 +152,7 @@
     renderReleaseReview();
     renderWorkflowPresets();
     renderDiffTab();
+    if (CTL.renderTimeline) CTL.renderTimeline();
   }
 
   // ── Header ──────────────────────────────────────────────────────────
@@ -482,6 +483,11 @@
   // ── Workflow Presets ────────────────────────────────────────────────
 
   function renderWorkflowPresets() {
+    // Phase C: delegate to interactive checklist
+    if (typeof CTL !== 'undefined' && CTL.renderWorkflowChecklist) {
+      CTL.renderWorkflowChecklist();
+      return;
+    }
     var wp = currentSnapshot.workflowPresets || {};
     var presets = wp.presets || [];
 

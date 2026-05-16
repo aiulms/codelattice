@@ -16,11 +16,15 @@ echo ""; echo "--- Prerequisites ---"
 [[ -f "$VD/index.html" ]] && chk "index.html" yes yes || chk "index.html" yes no
 [[ -f "$VD/styles.css" ]] && chk "styles.css" yes yes || chk "styles.css" yes no
 [[ -f "$VD/app.js" ]] && chk "app.js" yes yes || chk "app.js" yes no
+[[ -f "$VD/timeline.js" ]] && chk "timeline.js" yes yes || chk "timeline.js" yes no
+[[ -f "$VD/report.js" ]] && chk "report.js" yes yes || chk "report.js" yes no
 HAS_NODE=no; command -v node >/dev/null 2>&1 && HAS_NODE=yes; chk "node" yes "$HAS_NODE"
 HAS_PY=no; command -v python3 >/dev/null 2>&1 && HAS_PY=yes; chk "python3" yes "$HAS_PY"
 echo ""; echo "--- JS Syntax ---"
 if [[ "$HAS_NODE" == yes ]]; then
-  node -c "$VD/app.js" >/dev/null 2>&1 && chk "app.js syntax" ok ok || chk "app.js syntax" ok fail
+  for f in app.js timeline.js report.js; do
+    node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail
+  done
 fi
 # Phase B functions
 FC=$(grep -cE '(function |=>)\s*(renderAll|renderHeader|renderDashboard|renderExplore|renderSourceFiles|selectSymbol|renderCleanup|renderReleaseReview|renderWorkflowPresets|renderGraph|renderDiff|computeDiff|loadSnapshot|showError|showWelcome)' "$VD/app.js" 2>/dev/null || echo 0)
@@ -72,11 +76,26 @@ done
 MT=$((MP+MF))
 printf '  Matrix: %d/%d pass\n' "$MP" "$MT"
 [[ $MF -gt 0 ]] && chk "matrix all pass" pass "fail($MF failed)"
-echo ""; echo "--- Content Size ---"
+echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
+for f in timeline.js report.js; do
+  [[ -f "$VD/$f" ]] && chk "$f exists" yes yes || chk "$f exists" yes no
+  node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail
+done
+# Phase C core functions (across all JS files)
+PC_FC=$(grep -cE '(loadTimeline|buildTimelineData|renderTimeline|renderTimelineChart|timelineMetricValue|selectTimelineMetric|generateMarkdownReport|collectReportContext|renderReport|copyReport|downloadReport|buildWorkflowChecklist|renderWorkflowChecklist|toggleChecklistItem|resetWorkflowChecklist)' "$VD/timeline.js" "$VD/report.js" 2>/dev/null | awk -F: '{s+=$NF}END{print s+0}' || echo 0)
+[[ $PC_FC -ge 12 ]] && chk "Phase C functions (>=12)" pass pass || chk "Phase C functions (>=12)" pass "fail($PC_FC)"
+# Phase C UI elements
+for v in timeline report; do grep -qF "view-$v" "$VD/index.html" && chk "view:$v" yes yes || chk "view:$v" yes no; done
+# Workflow checklist upgrade
+grep -qF "toggleChecklistItem" "$VD/report.js" && chk "checklist toggle" yes yes || chk "checklist toggle" yes no
+grep -qF "resetWorkflowChecklist" "$VD/report.js" && chk "checklist reset" yes yes || chk "checklist reset" yes no
+# Report export
+grep -qF "generateMarkdownReport" "$VD/report.js" && chk "markdown report" yes yes || chk "markdown report" yes no
 PSZ=$(wc -c < "$VD/index.html" 2>/dev/null || echo 0); [[ $PSZ -gt 3000 ]] && chk "index.html >3KB" pass pass || chk "index.html >3KB" pass "fail($PSZ)"
 KW=$(cat "$VD/index.html" "$VD/app.js" 2>/dev/null | grep -cE 'CodeLattice|Dashboard|Explore|Graph|Workflow|Diff|Static analysis only|cleanup|release' 2>/dev/null || echo 0)
 [[ $KW -ge 6 ]] && chk "keywords (>=6)" pass pass || chk "keywords (>=6)" pass "fail($KW)"
-ASZ=$(wc -c < "$VD/app.js" 2>/dev/null || echo 0); [[ $ASZ -gt 7000 ]] && chk "app.js >7KB" pass pass || chk "app.js >7KB" pass "fail($ASZ)"
+TOJS=$(cat "$VD/app.js" "$VD/timeline.js" "$VD/report.js" 2>/dev/null | wc -c | tr -d ' ')
+[[ $TOJS -gt 15000 ]] && chk "total JS >15KB" pass pass || chk "total JS >15KB" pass "fail($TOJS)"
 echo ""; echo "========================================"
 printf "Results: \033[32m%d passed\033[0m, \033[31m%d failed\033[0m, %d total\n" "$P" "$FA" "$T"
 if [[ $FA -gt 0 ]]; then echo "SMOKE FAILED"; exit 1; fi

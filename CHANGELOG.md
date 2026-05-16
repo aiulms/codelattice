@@ -8,6 +8,12 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase C — Timeline + Report Export + Review Workflow**: SVG trend charts, Markdown report generation, interactive review checklist.
+  - `webui/snapshot-viewer/timeline.js` — Loads 2+ snapshots, builds metric timeline (8 metrics: source files/symbols/edges/graph nodes/graph edges/quality failed/dead code/unreachable), renders SVG line chart with value labels + metric selector buttons, computes first-to-last delta.
+  - `webui/snapshot-viewer/report.js` — Markdown report generation (Dashboard/Quality/Graph/Diff/Timeline/Cleanup/Release/Checklist/Limitations/Recommended Verification), clipboard copy + .md download; interactive workflow checklist (10 scenarios, 5 items each, localStorage persistence, check all/reset toggle).
+  - `webui/snapshot-viewer/styles.css` — Checklist hover states, checked-card left-border highlight.
+  - `scripts/webui-viewer-smoke.sh` — Phase C: timeline.js/report.js existence + syntax + 15 core function checks (40 total checks).
+
 - **WebUI Phase B — Graph Visualization + Snapshot Diff + Smoke Hardening**: Native graph rendering, two-snapshot diff comparison, hardened smoke validation.
   - `scripts/codelattice-snapshot-gen.py` — build_graph_section() extracts nodes/edges from CLI JSON with configurable limits (default 150 nodes/300 edges), computes call/file/symbol counts, marks stability=preview.
   - `webui/snapshot-viewer/index.html` — Added Graph tab (node/edge lists + detail panel) and Diff tab (summary delta cards, added/removed symbols/files, quality gate changes, limitation changes).

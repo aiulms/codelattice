@@ -86,8 +86,10 @@
         <button class="tab-btn" data-tab="graph" role="tab" aria-selected="false">Graph</button>
         <button class="tab-btn" data-tab="cleanup" role="tab" aria-selected="false">Cleanup</button>
         <button class="tab-btn" data-tab="release" role="tab" aria-selected="false">Release</button>
-        <button class="tab-btn" data-tab="workflows" role="tab" aria-selected="false">Workflows</button>
+        <button class="tab-btn" data-tab="workflows" role="tab" aria-selected="false">Workflow</button>
         <button class="tab-btn" data-tab="diff" role="tab" aria-selected="false">Diff</button>
+        <button class="tab-btn" data-tab="timeline" role="tab" aria-selected="false">Timeline</button>
+        <button class="tab-btn" data-tab="report" role="tab" aria-selected="false">Report</button>
       </nav>
 
       <!-- GeneratedFrom Flags Bar -->
@@ -260,16 +262,15 @@
         </div>
       </section>
 
-      <!-- Workflow Presets View -->
+      <!-- Workflow Presets View (Phase C: checklist-enabled) -->
       <section id="view-workflows" class="view-section" role="tabpanel" style="display:none;">
-        <p class="text-muted">Recommended workflow presets for common CodeLattice usage scenarios. Each preset suggests tool combinations and stop-lines to follow.</p>
         <div id="workflow-presets-list" class="workflow-grid"></div>
         <div class="cleanup-caution caution-box" style="margin-top: 16px;">
-          <strong>These are recommendations only.</strong> Workflows do not execute tools automatically. Always adapt to your project context.
+          <strong>Checklist is a human review aid, not proof that checks passed.</strong> Checked items are saved to browser localStorage.
         </div>
       </section>
 
-      <!-- Diff View -->
+      <!-- Diff View (Phase B) -->
       <section id="view-diff" class="view-section" role="tabpanel" style="display:none;">
         <div class="diff-controls" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 0;">
           <label for="diff-file-input" class="btn btn-sm btn-secondary">&#128194; Load Compare Snapshot</label>
@@ -280,12 +281,9 @@
         <div id="diff-empty" class="impact-empty">
           <h3>&#128270; Snapshot Diff</h3>
           <p>Load a second snapshot to compare against the current baseline.</p>
-          <p class="text-sm text-muted">Diff compares summary counts, symbols, source files, quality gates, and limitations between two snapshots.</p>
         </div>
         <div id="diff-results" style="display:none;">
-          <div class="cleanup-caution caution-box">
-            <strong>&#9888; Snapshot diff only</strong> — does not prove behavior changed, does not replace tests. Static analysis comparison of two point-in-time snapshots.
-          </div>
+          <div class="cleanup-caution caution-box"><strong>&#9888; Snapshot diff only</strong> — does not prove behavior changed, does not replace tests.</div>
           <div id="diff-summary-cards" class="card-grid card-grid-4" style="margin-bottom:12px;"></div>
           <div class="card-grid card-grid-2" style="margin-bottom:12px;">
             <div class="info-card"><h4 class="info-card-title">Added Symbols</h4><div id="diff-added-symbols" class="info-card-body"></div></div>
@@ -302,7 +300,26 @@
         </div>
       </section>
 
-    </div><!-- end loaded-content -->
+      <!-- Timeline View (Phase C) -->
+      <section id="view-timeline" class="view-section" role="tabpanel" style="display:none;">
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
+          <label for="timeline-file-input" class="btn btn-sm btn-primary">&#128194; Load Snapshots</label>
+          <input type="file" id="timeline-file-input" accept=".json,application/json" multiple style="display:none;">
+          <span class="text-muted text-sm" id="timeline-snapshot-count"></span>
+          <button class="btn btn-sm btn-secondary" onclick="CTL.timelineSnapshots=[];CTL.renderTimeline();document.getElementById('timeline-snapshot-count').textContent='';" id="timeline-clear-btn" style="display:none;">Clear</button>
+        </div>
+        <div id="timeline-content"></div>
+      </section>
+
+      <!-- Report View (Phase C) -->
+      <section id="view-report" class="view-section" role="tabpanel" style="display:none;">
+        <div class="cleanup-caution caution-box">
+          <strong>&#9888; Report is a static analysis review summary, not a release gate or safety proof.</strong>
+        </div>
+        <div id="report-content"></div>
+      </section>
+
+      </div><!-- end loaded-content -->
 
   </main>
 
@@ -314,5 +331,30 @@
   </footer>
 
   <script src="app.js"></script>
+  <script src="timeline.js"></script>
+  <script src="report.js"></script>
+
+  <!-- Phase C: timeline file input + report render trigger -->
+  <script>
+    (function() {
+      var tfi = document.getElementById("timeline-file-input");
+      if (tfi) tfi.addEventListener("change", function(e) {
+        if (e.target.files && e.target.files.length > 0) {
+          document.getElementById("timeline-snapshot-count").textContent = e.target.files.length + " files loading...";
+          document.getElementById("timeline-clear-btn").style.display = "";
+          CTL.loadTimelineFiles(e.target.files);
+        }
+      });
+      // Report tab: trigger render on tab switch
+      var origShow = show;
+      show = function(id) {
+        origShow(id);
+        if (id === "report") { if (CTL.renderReport) CTL.renderReport(); }
+        if (id === "timeline") { if (CTL.renderTimeline) CTL.renderTimeline(); }
+        if (id === "workflows") { if (CTL.renderWorkflowChecklist) CTL.renderWorkflowChecklist(); }
+      };
+      window._origShow = origShow;
+    })();
+  </script>
 </body>
 </html>

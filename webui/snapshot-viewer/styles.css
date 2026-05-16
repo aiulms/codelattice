@@ -468,6 +468,10 @@ pre.code-block {
 .diff-controls { border-bottom: 1px solid var(--clr-border); padding-bottom: 8px; }
 .diff-summary-card { text-align: center; padding: 10px; background: var(--clr-surface); border: 1px solid var(--clr-border); border-radius: var(--radius); }
 
+/* ── Timeline / Report / Checklist (Phase C) ────────────────────── */
+.workflow-checklist-items label:hover { background: #f8fafc; border-radius: 4px; }
+.workflow-card.checked { border-left: 3px solid var(--clr-success); }
+
 /* --- Responsive tweaks for small screens --- */
 @media (max-width: 480px) {
   .app-header { padding: 10px 14px; }

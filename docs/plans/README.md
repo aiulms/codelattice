@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI Phase B — Graph + Diff + Smoke Hardening）
+最后更新：2026-05-17（WebUI Phase C — Timeline + Report + Review Workflow）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Phase C — Timeline + Report + Checklist（2026-05-17，已完成）：**
+- 📝 ```[2026-05-17-webui-phase-c-preflight.md](2026-05-17-webui-phase-c-preflight.md) — Phase C scope lock: timeline + report + workflow checklist, stop-lines.
+- ✅ ```[2026-05-17-webui-phase-c-closure.md](2026-05-17-webui-phase-c-closure.md) — closure: SVG timeline (8 metrics), Markdown report export, interactive checklist (10 scenarios, localStorage).
 
 **WebUI Phase B — Graph + Diff + Smoke Hardening（2026-05-17，已完成）：**
 - 📝 [`2026-05-17-webui-phase-b-preflight.md`](2026-05-17-webui-phase-b-preflight.md) — Phase B scope lock：graph visualization + snapshot diff + smoke hardening, stop-lines。
