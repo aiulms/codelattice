@@ -2,7 +2,7 @@
 
 CodeLattice release packaging is intentionally local and scriptable. It does not publish assets, edit AI client configuration, or promote into a user's stable runtime directory.
 
-The current public `v0.13.0-beta.2` release is available on GitCode with a `darwin-arm64` tarball and checksum. Multi-platform artifacts are planned next.
+The current beta target is `v0.14.0-beta.1` with a `darwin-arm64` tarball and checksum. Multi-platform artifacts are planned next.
 
 ## Install a Published Release
 
@@ -11,7 +11,7 @@ export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.13.0-beta.2 \
+  --version v0.14.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 ```
 
@@ -35,7 +35,7 @@ dist/codelattice-<version>-<platform>.tar.gz.sha256
 Options:
 
 ```bash
-bash scripts/package-release.sh --version 0.13.0-beta.2
+bash scripts/package-release.sh --version 0.14.0-beta.1
 bash scripts/package-release.sh --platform darwin-arm64
 bash scripts/package-release.sh --dist-dir /tmp/codelattice-dist
 bash scripts/package-release.sh --skip-build
@@ -72,6 +72,11 @@ codelattice-<version>-<platform>/
   fixtures/
     rust/portable-smoke/
     cangjie/portable-smoke/
+    arkts/portable-smoke/
+    typescript/portable-smoke/
+    c/portable-smoke/
+    cpp/portable-smoke/
+    python/portable-smoke/
 ```
 
 `bin/codelattice` is the primary public binary. `bin/gitnexus-rust-core-cli` is included as a compatibility binary for older scripts.
@@ -96,7 +101,8 @@ The release tarball includes `CHANGELOG.md` and `docs/release-versioning.md` so 
 - source remote and source commit when available
 - relative artifact paths
 - binary SHA-256 checksums
-- MCP profile: server version, Cangjie/ArkTS/TypeScript support, tool count
+- build features
+- MCP profile: server version, Cangjie/ArkTS/TypeScript/C/C++/Python support, tool count
 
 The manifest avoids requiring the original development checkout.
 
@@ -109,7 +115,7 @@ bash scripts/release-smoke.sh
 The smoke script uses the newest `dist/codelattice-*.tar.gz` unless a tarball is specified:
 
 ```bash
-bash scripts/release-smoke.sh --tarball dist/codelattice-0.13.0-beta.2-darwin-arm64.tar.gz
+bash scripts/release-smoke.sh --tarball dist/codelattice-0.14.0-beta.1-darwin-arm64.tar.gz
 ```
 
 It verifies:
@@ -123,11 +129,14 @@ It verifies:
 - packaged `docs/release-install.md`
 - packaged `docs/release-versioning.md`
 - wrapper `--self-test`
-- MCP `tools/list >= 22`
+- MCP `tools/list >= 24`
 - Rust portable fixture analyze with nonzero symbols/files/edges
 - Cangjie portable fixture analyze
 - ArkTS portable fixture analyze
 - TypeScript portable fixture analyze
+- C portable fixture analyze
+- C++ portable fixture analyze
+- Python portable fixture analyze
 
 The smoke unpacks into `/tmp` and cleans up by default. Use `--keep-temp` for debugging.
 
@@ -155,6 +164,6 @@ cargo test
 cargo test --all-features
 bash scripts/package-release.sh
 bash scripts/release-smoke.sh
-bash scripts/install-release.sh --dry-run --version v0.13.0-beta.2 --platform darwin-arm64
+bash scripts/install-release.sh --dry-run --version v0.14.0-beta.1 --platform darwin-arm64
 bash scripts/fresh-clone-smoke.sh --skip-tests
 ```

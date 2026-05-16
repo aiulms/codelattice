@@ -319,6 +319,115 @@ class BaselineComparisonTests(unittest.TestCase):
             any("lowConfidenceCallRate" in issue for issue in comparison["issues"])
         )
 
+    def test_compare_baseline_allows_high_quality_rates_when_stable(self) -> None:
+        baseline = {
+            "budgets": {
+                "countDropWarnPercent": 10,
+                "countDropFailPercent": 20,
+                "elapsedIncreaseWarnPercent": 50,
+                "elapsedIncreaseFailPercent": 150,
+                "qualityRateWarnThreshold": 0.30,
+                "qualityRateFailThreshold": 0.50,
+                "qualityRateIncreaseWarnPoints": 0.05,
+                "qualityRateIncreaseFailPoints": 0.10,
+                "danglingEdgeFailThreshold": 0,
+            },
+            "targets": {
+                "redis-c": {
+                    "metrics": {
+                        "nodeCount": 1000,
+                        "edgeCount": 2000,
+                        "symbolCount": 900,
+                        "sourceFileCount": 100,
+                    },
+                    "qualityMetrics": {
+                        "danglingEdgeCount": 0,
+                        "lowConfidenceCallRate": 0.0,
+                        "lowConfidenceEdgeRate": 0.0,
+                        "unknownConfidenceEdgeRate": 0.95,
+                    },
+                    "elapsedSeconds": 10.0,
+                }
+            },
+        }
+        result = {
+            "id": "redis-c",
+            "status": "pass",
+            "metrics": {
+                "nodeCount": 1000,
+                "edgeCount": 2000,
+                "symbolCount": 900,
+                "sourceFileCount": 100,
+            },
+            "elapsedSeconds": 10.0,
+            "qualityMetrics": {
+                "danglingEdgeCount": 0,
+                "lowConfidenceCallRate": 0.0,
+                "lowConfidenceEdgeRate": 0.0,
+                "unknownConfidenceEdgeRate": 0.96,
+            },
+        }
+
+        comparison = smoke.compare_result_to_baseline(result, baseline, strict=True)
+
+        self.assertEqual(comparison["status"], "pass")
+
+    def test_compare_baseline_warns_on_quality_rate_regression(self) -> None:
+        baseline = {
+            "budgets": {
+                "countDropWarnPercent": 10,
+                "countDropFailPercent": 20,
+                "elapsedIncreaseWarnPercent": 50,
+                "elapsedIncreaseFailPercent": 150,
+                "qualityRateWarnThreshold": 0.30,
+                "qualityRateFailThreshold": 0.50,
+                "qualityRateIncreaseWarnPoints": 0.05,
+                "qualityRateIncreaseFailPoints": 0.10,
+                "danglingEdgeFailThreshold": 0,
+            },
+            "targets": {
+                "pip-python": {
+                    "metrics": {
+                        "nodeCount": 1000,
+                        "edgeCount": 2000,
+                        "symbolCount": 900,
+                        "sourceFileCount": 100,
+                    },
+                    "qualityMetrics": {
+                        "danglingEdgeCount": 0,
+                        "lowConfidenceCallRate": 0.20,
+                        "lowConfidenceEdgeRate": 0.10,
+                        "unknownConfidenceEdgeRate": 0.10,
+                    },
+                    "elapsedSeconds": 10.0,
+                }
+            },
+        }
+        result = {
+            "id": "pip-python",
+            "status": "pass",
+            "metrics": {
+                "nodeCount": 1000,
+                "edgeCount": 2000,
+                "symbolCount": 900,
+                "sourceFileCount": 100,
+            },
+            "elapsedSeconds": 10.0,
+            "qualityMetrics": {
+                "danglingEdgeCount": 0,
+                "lowConfidenceCallRate": 0.26,
+                "lowConfidenceEdgeRate": 0.10,
+                "unknownConfidenceEdgeRate": 0.10,
+            },
+        }
+
+        comparison = smoke.compare_result_to_baseline(result, baseline, strict=False)
+
+        self.assertEqual(comparison["status"], "warn")
+        self.assertTrue(
+            any("lowConfidenceCallRate increased" in issue for issue in comparison["issues"])
+        )
+
     def test_accept_baseline_includes_quality_metrics(self) -> None:
         results = [
             {

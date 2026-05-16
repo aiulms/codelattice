@@ -36,6 +36,8 @@ DEFAULT_BASELINE_BUDGETS = {
     "elapsedIncreaseFailPercent": 150.0,
     "qualityRateWarnThreshold": 0.30,
     "qualityRateFailThreshold": 0.50,
+    "qualityRateIncreaseWarnPoints": 0.05,
+    "qualityRateIncreaseFailPoints": 0.10,
     "danglingEdgeFailThreshold": 0,
 }
 
@@ -152,24 +154,44 @@ def compare_result_to_baseline(
                 f"({actual_elapsed:.2f}s > {expected_elapsed:.2f}s)",
             )
 
-    # Quality metrics comparison (rate-based thresholds)
+    # Quality metrics comparison:
+    # - baselines with stored quality rates use regression deltas, because Phase A
+    #   languages can legitimately carry high unknown-confidence structural edges;
+    # - legacy baselines without quality metrics keep the older absolute thresholds.
     actual_quality = result.get("qualityMetrics") or {}
     baseline_quality = entry.get("qualityMetrics") or {}
     if actual_quality:
         for rate_name in QUALITY_RATE_METRICS:
             rate = float(actual_quality.get(rate_name, 0) or 0)
-            if rate >= budgets["qualityRateFailThreshold"]:
-                mark_issue(
-                    "fail",
-                    f"{rate_name} {rate:.2%} exceeds fail threshold "
-                    f"{budgets['qualityRateFailThreshold']:.2%}",
-                )
-            elif rate >= budgets["qualityRateWarnThreshold"]:
-                mark_issue(
-                    "warn",
-                    f"{rate_name} {rate:.2%} exceeds warn threshold "
-                    f"{budgets['qualityRateWarnThreshold']:.2%}",
-                )
+            baseline_rate = baseline_quality.get(rate_name)
+            if baseline_rate is not None:
+                expected_rate = float(baseline_rate or 0)
+                increase = rate - expected_rate
+                if increase >= budgets["qualityRateIncreaseFailPoints"]:
+                    mark_issue(
+                        "fail",
+                        f"{rate_name} increased {increase:.2%} points from baseline "
+                        f"({rate:.2%} > {expected_rate:.2%})",
+                    )
+                elif increase >= budgets["qualityRateIncreaseWarnPoints"]:
+                    mark_issue(
+                        "warn",
+                        f"{rate_name} increased {increase:.2%} points from baseline "
+                        f"({rate:.2%} > {expected_rate:.2%})",
+                    )
+            else:
+                if rate >= budgets["qualityRateFailThreshold"]:
+                    mark_issue(
+                        "fail",
+                        f"{rate_name} {rate:.2%} exceeds fail threshold "
+                        f"{budgets['qualityRateFailThreshold']:.2%}",
+                    )
+                elif rate >= budgets["qualityRateWarnThreshold"]:
+                    mark_issue(
+                        "warn",
+                        f"{rate_name} {rate:.2%} exceeds warn threshold "
+                        f"{budgets['qualityRateWarnThreshold']:.2%}",
+                    )
 
         dangling = int(actual_quality.get("danglingEdgeCount", 0) or 0)
         dangling_limit = int(budgets.get("danglingEdgeFailThreshold", 0))
@@ -276,6 +298,8 @@ def write_markdown_report(path: Path, output: dict[str, Any]) -> None:
             quality_parts.append(f"dng={quality['danglingEdgeCount']}")
         if quality.get("lowConfidenceCallRate"):
             quality_parts.append(f"lcr={quality['lowConfidenceCallRate']:.0%}")
+        if quality.get("unknownConfidenceEdgeRate"):
+            quality_parts.append(f"ucr={quality['unknownConfidenceEdgeRate']:.0%}")
         quality_str = " ".join(quality_parts) if quality_parts else "ok"
         lines.append(
             "| {id} | {language} | {status} | {nodes} | {edges} | {symbols} | {files} | {quality} | {elapsed:.2f}s | {baseline} |".format(

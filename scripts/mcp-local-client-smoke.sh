@@ -2,7 +2,7 @@
 # MCP Local Client Integration Smoke — simulates an MCP client using the wrapper.
 #
 # Tests that the wrapper script can start the server, accept JSON-RPC calls,
-# and return valid responses for v0.11 tools (22 tools including cache + doc association).
+# and return valid responses for the full beta MCP toolset (24 tools).
 #
 # Usage: bash scripts/mcp-local-client-smoke.sh
 #
@@ -116,14 +116,14 @@ fi
 echo "2. tools/list"
 TL_RESP=$(echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | bash "$WRAPPER" 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 20 ]; then
+if [ "$TOOL_COUNT" -ge 24 ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools >= 20)")
+    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools >= 24)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 20, got $TOOL_COUNT)")
-    echo "   → expected >= 22 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 24, got $TOOL_COUNT)")
+    echo "   → expected >= 24 tools, got $TOOL_COUNT"
 fi
 
 # ============================================================

@@ -4,7 +4,7 @@
 
 CodeLattice is a Rust-native local code graph analysis core for AI coding tools, code review, and engineering quality workflows. It analyzes source code locally, extracts symbols, resolves call relationships, produces structured graph output, runs quality gates, and exposes the result through CLI and MCP sidecar tools.
 
-Current release status: **External Beta (`v0.13.0-beta.2`)**. Rust and Cangjie are the stable language lines; ArkTS / HarmonyOS is in production trial; TypeScript is in Phase A.
+Current release status: **External Beta (`v0.14.0-beta.1`)**. Rust and Cangjie are stable language lines; ArkTS / HarmonyOS is in production trial; TypeScript, C, C++, and Python are included in the hardened beta artifact.
 
 ## What It Does
 
@@ -13,7 +13,7 @@ Current release status: **External Beta (`v0.13.0-beta.2`)**. Rust and Cangjie a
 - Resolves same-module, cross-file, import-binding, conservative associated-function, and limited receiver-method calls.
 - Emits repository / package / source file / symbol / diagnostic graph nodes and relationship edges.
 - Runs graph quality gates such as dangling-edge, duplicate, statistics consistency, stdout JSON purity, and deterministic-output checks.
-- Provides 22 MCP tools for project overview, symbol context, call queries, impact preview, changed-symbol detection, production assist, and cache management.
+- Provides 24 MCP tools for project overview, symbol context, call queries, impact preview, changed-symbol detection, production assist, review planning, and cache management.
 
 ## Why Rust
 
@@ -67,7 +67,7 @@ export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.13.0-beta.2 \
+  --version v0.14.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
@@ -81,7 +81,10 @@ Linux and openEuler users should currently follow the source-build path document
 | Rust | Stable |
 | Cangjie / 仓颉 | Stable |
 | ArkTS / HarmonyOS | Production Trial |
-| TypeScript | Phase A |
+| TypeScript | Beta Hardened |
+| C | Phase A Hardened |
+| C++ | Phase A Hardened |
+| Python | Phase A Hardened |
 
 ## Safety Model
 

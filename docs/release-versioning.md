@@ -101,10 +101,10 @@ For a version bump:
 
 ## Release Status
 
-Current product status: **External Beta**.
+Current product status: **External Beta / daily-use candidate**.
 
 - Local production trial has passed for Rust and Cangjie projects.
-- ArkTS and TypeScript support are in production trial / Phase A respectively.
+- ArkTS, TypeScript, C, C++, and Python are included in the full-language beta artifact and release smoke.
 - This is not a GA release. Breaking changes to CLI output, MCP contract, or quality gates may occur in minor versions during beta.
 - Users should pin to a specific version and verify after upgrades.
 
@@ -115,12 +115,16 @@ Current product status: **External Beta**.
 | Rust | `tree-sitter-extraction` (default) | **Stable** | Full symbol extraction, import/call resolution, quality gates |
 | Cangjie / 仓颉 | `tree-sitter-cangjie` | **Stable** | Symbol extraction, import/call reference, diagnostics runner, quality gates |
 | ArkTS / HarmonyOS | `tree-sitter-arkts` | **Production Trial** | Component/buildMethod extraction, import edges, no @Builder/@Extend, struct→ERROR workaround |
-| TypeScript | `tree-sitter-typescript` | **Phase A** | Symbol extraction, imports, calls; no path alias, no monorepo, no TSX framework hints |
+| TypeScript | `tree-sitter-typescript` | **Beta Hardened** | Symbol extraction, imports, calls, tsconfig path alias, workspace package imports |
+| C | `tree-sitter-c` | **Phase A Hardened** | Symbol extraction, include edges, compile_commands include path resolution |
+| C++ | `tree-sitter-cpp` | **Phase A Hardened** | Symbol extraction, include edges, calls, compile_commands include path resolution |
+| Python | `tree-sitter-python` | **Phase A Hardened** | Symbol extraction, calls, package-aware import resolution, simple re-exports |
 
 Status definitions:
 - **Stable**: Used in production, tested with real projects, quality gates pass.
 - **Production Trial**: End-to-end path works on real projects; known limitations documented.
 - **Phase A**: Basic analysis pipeline works; active development, expect gaps.
+- **Beta Hardened / Phase A Hardened**: Phase A capability plus fixture smoke, MCP smoke, and real-project baseline evidence for beta trial use.
 
 ## MCP Contract Versioning
 

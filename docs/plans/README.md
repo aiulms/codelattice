@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-15（Real Project Corpus Smoke + Python Phase A Pack + C++ Phase A Pack + Large Project Insight Pack）
+最后更新：2026-05-16（Release Beta Hardening Pack）
 
 ## 用途
 
@@ -22,6 +22,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Release Beta Hardening Pack（2026-05-16，进行中）：**
+- 📝 [`2026-05-16-release-beta-hardening-preflight.md`](2026-05-16-release-beta-hardening-preflight.md) — 0.14.0-beta.1 多语言 beta 发行收口：版本策略、artifact 策略、七语言 release smoke、docs 更新范围、stop-line、验证计划。
+- ⏳ [`2026-05-16-release-beta-hardening-closure.md`](2026-05-16-release-beta-hardening-closure.md) — closure：待完成 artifact、release smoke、fresh clone smoke、real corpus compare、detect-changes、index refresh、commit/push 记录。
 
 **Real Project Corpus Smoke（2026-05-15，已完成）：**
 - 📝 [`2026-05-15-real-project-corpus-smoke-preflight.md`](2026-05-15-real-project-corpus-smoke-preflight.md) — GitCode 真实项目 corpus smoke 设计：目标清单、clone/cache 策略、MCP overview/insights 指标、风险边界。

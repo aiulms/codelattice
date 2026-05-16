@@ -14,14 +14,14 @@ CodeLattice runs locally and does not upload source code.
 
 ## Install from GitCode Release
 
-The current `v0.13.0-beta.2` published binary targets macOS Apple Silicon (`darwin-arm64`):
+The current `v0.14.0-beta.1` beta artifact targets macOS Apple Silicon (`darwin-arm64`) after the GitCode Release page is published:
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.13.0-beta.2 \
+  --version v0.14.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
@@ -60,7 +60,7 @@ For a fuller local check:
 ```bash
 cargo fmt --check
 cargo test
-cargo test --features tree-sitter-cangjie
+cargo test --all-features
 bash scripts/install-mcp.sh --doctor
 bash scripts/codelattice-mcp.sh --self-test
 ```

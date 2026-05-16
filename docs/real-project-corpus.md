@@ -92,14 +92,14 @@ python3 scripts/real-project-corpus-smoke.py --accept-baseline
 
 ## Initial Baseline
 
-Saved in `docs/real-project-corpus-baseline.json` and validated on 2026-05-15
-with `target/release/codelattice` after commit `f99138d`:
+Saved in `docs/real-project-corpus-baseline.json` and refreshed on 2026-05-16
+for the `0.14.0-beta.1` hardening pack with `target/release/codelattice`:
 
-| Target | Status | Nodes | Edges | Symbols | Files |
-|--------|--------|------:|------:|--------:|------:|
-| `redis-c` | PASS | 10,967 | 11,486 | 10,751 | 133 |
-| `catch2-cpp` | PASS | 7,522 | 21,155 | 7,076 | 225 |
-| `pip-python` | PASS | 34,626 | 63,471 | 33,993 | 632 |
+| Target | Status | Nodes | Edges | Symbols | Files | Quality summary |
+|--------|--------|------:|------:|--------:|------:|-----------------|
+| `redis-c` | PASS | 10,967 | 11,478 | 10,751 | 133 | dangling=0, unknownEdge=95.5% |
+| `catch2-cpp` | PASS | 7,522 | 19,856 | 7,076 | 225 | dangling=0, unknownEdge=51.0% |
+| `pip-python` | PASS | 34,626 | 61,989 | 33,993 | 632 | dangling=0, lowCall=35.3%, unknownEdge=47.8% |
 
 These are smoke baselines, not precision guarantees. A future run should be
 investigated if counts drop sharply, explode unexpectedly, or the command
@@ -111,12 +111,18 @@ The baseline budget is intentionally loose:
 |--------------|------|------|
 | Count metrics (`nodeCount`, `edgeCount`, `symbolCount`, `sourceFileCount`) | 10% drop | 20% drop |
 | Runtime (`elapsedSeconds`) | 50% slower | 150% slower |
-| Quality rates (`lowConfidenceCallRate`, `lowConfidenceEdgeRate`, `unknownConfidenceEdgeRate`) | >= 30% | >= 50% |
+| Quality rates in legacy baselines without stored qualityMetrics | >= 30% | >= 50% |
+| Quality rate increase from stored baseline | +5 percentage points | +10 percentage points |
 | Dangling edges (`danglingEdgeCount`) | — | > 0 |
 
 Warnings keep the command successful by default so local hardware variance does
 not block development. Use `--strict-baseline` when a release gate should treat
 warnings as failures.
+
+The quality rate comparison is baseline-relative once a target has stored
+`qualityMetrics`. This matters for Phase A languages where high
+unknown-confidence structural edges are an explicit limitation rather than a
+new regression. Dangling edges remain a hard failure.
 
 ## Why This Exists
 

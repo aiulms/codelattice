@@ -357,6 +357,7 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
   "version": "$VERSION",
   "platform": "$PLATFORM",
   "artifact": "$ARTIFACT_NAME",
+  "buildFeatures": "$RELEASE_FEATURES",
   "sourceRemote": "$SOURCE_REMOTE",
   "sourceCommit": "$SOURCE_COMMIT",
   "packagedAt": "$PACKAGED_AT",

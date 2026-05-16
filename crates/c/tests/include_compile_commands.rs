@@ -2,7 +2,9 @@
 //!
 //! Uses the fixtures/c/include-compile-commands fixture.
 
+#[cfg(feature = "tree-sitter-c")]
 use gitnexus_c::graph::CGraphEdge;
+#[cfg(feature = "tree-sitter-c")]
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -222,6 +224,7 @@ fn test_missing_include_creates_diagnostic_and_no_edge() {
 }
 
 #[test]
+#[cfg(feature = "tree-sitter-c")]
 fn test_graph_has_no_dangling_edges() {
     let root = fixture_root();
 

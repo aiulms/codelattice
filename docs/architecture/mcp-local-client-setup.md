@@ -243,7 +243,7 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 
 ## 八、安全说明
 
-1. **Read-only**: 所有 21 个工具只读项目源码，不修改任何文件
+1. **Read-only**: 所有 24 个工具只读项目源码，不修改任何文件
 2. **Live repo deny with exemptions**: 配置为 live Cangjie 源码根的路径默认拒绝，但 `runtime/cjgui` 子路径可明确豁免用于只读分析
 3. **No default switch**: CodeLattice MCP 不会修改任何默认工具配置
 4. **Temp files only**: `export_bridge` 仅写入 /tmp
@@ -281,7 +281,7 @@ ERROR: Cangjie feature not compiled
 
 可选语言支持需要编译时启用对应 feature：
 ```bash
-cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins
+cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins
 ```
 
 ### timeout
@@ -365,7 +365,7 @@ bash scripts/install-mcp.sh --doctor
 
 该脚本**不会自动修改**任何客户端配置文件。它只输出可复制粘贴的 JSON/TOML 片段。
 
-`--doctor` 检查：binary、开发 wrapper、stable wrapper 状态、MCP handshake、tools/list (>= 22)、cache_status、language support profile、fixture-level Cangjie symbol_search smoke。
+`--doctor` 检查：binary、开发 wrapper、stable wrapper 状态、MCP handshake、tools/list (>= 24)、cache_status、language support profile、fixture-level smoke。
 
 ### promote-to-local-tool.sh (runtime isolation)
 
@@ -392,7 +392,7 @@ CodeLattice-Tool/
     gitnexus-rust-core-cli
 ```
 
-Codex / opencode / Claude 等 AI 客户端应指向 `CodeLattice-Tool/codelattice-mcp.sh`。
+Codex / opencode / Claude 等 AI 客户端应指向参数化稳定 wrapper，例如 `/path/to/CodeLattice-Tool/codelattice-mcp.sh`。
 这避免开发 checkout 的临时改动影响正在使用的 AI IDE。
 
 ### codelattice-mcp.sh --self-test
@@ -405,9 +405,9 @@ bash scripts/codelattice-mcp.sh --self-test
 1. CODELATTICE_ROOT 有效
 2. Binary 可找到且可执行
 3. MCP handshake 成功（initialize → 返回 codelattice server info）
-4. tools/list 返回 >= 21 个工具 (v0.6 更新)
+4. tools/list 返回 >= 24 个工具
 5. cache_status 包含 maxEntries 和 totalEvictions (v0.5 新增)
-6. cangjieSupport 检测 (v0.7 新增)
+6. cangjieSupport / arktsSupport / typescriptSupport / cSupport / cppSupport / pythonSupport 检测
 
 ### mcp-cache-smoke.sh
 
@@ -429,7 +429,7 @@ bash scripts/mcp-real-client-dry-run.sh [root_dir]
 
 模拟真实 MCP 客户端调用 10 个高频工具，不修改任何配置：
 1. initialize handshake
-2. tools/list (21 tools)
+2. tools/list (24 tools)
 3. cache_status (empty)
 4. codelattice_analyze (miss)
 5. codelattice_graph_overview
@@ -455,7 +455,10 @@ MCP server 的 `initialize` 响应包含 profile 信息：
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 22
+    "cSupport": true,
+    "cppSupport": true,
+    "pythonSupport": true,
+    "toolCount": 24
   }
 }
 ```
@@ -469,14 +472,17 @@ bash scripts/codelattice-mcp.sh --version
 #   cangjieSupport: True
 #   arktsSupport: True
 #   typescriptSupport: True
-#   toolCount: 22
+#   cSupport: True
+#   cppSupport: True
+#   pythonSupport: True
+#   toolCount: 24
 ```
 
 ### 如何确认当前 binary 支持可选语言
 
-1. `bash scripts/codelattice-mcp.sh --self-test` — 会显示 cangjieSupport / arktsSupport / typescriptSupport 状态
+1. `bash scripts/codelattice-mcp.sh --self-test` — 会显示 cangjieSupport / arktsSupport / typescriptSupport / cSupport / cppSupport / pythonSupport 状态
 2. `bash scripts/install-mcp.sh --doctor` — 完整健康检查，包括 language support profile
-3. MCP 客户端调用 `initialize` 后检查 `serverInfo.cangjieSupport` / `serverInfo.arktsSupport` / `serverInfo.typescriptSupport`
+3. MCP 客户端调用 `initialize` 后检查 `serverInfo.cangjieSupport` / `serverInfo.arktsSupport` / `serverInfo.typescriptSupport` / `serverInfo.cSupport` / `serverInfo.cppSupport` / `serverInfo.pythonSupport`
 
 ### 如何 rebuild
 
@@ -488,7 +494,7 @@ bash scripts/install-mcp.sh --build
 bash scripts/install-mcp.sh --build --rust-only
 
 # 手动 cargo build
-cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript --bins
+cargo build --release -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins
 ```
 
 ### opencode 重启

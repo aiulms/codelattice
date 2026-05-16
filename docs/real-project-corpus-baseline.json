@@ -1,12 +1,17 @@
 {
   "version": 1,
-  "generatedAt": "2026-05-15T00:00:00+00:00",
+  "generatedAt": "2026-05-16T01:21:29+00:00",
   "description": "CodeLattice GitCode real-project regression baseline. Update with scripts/real-project-corpus-smoke.py --accept-baseline after intentional analyzer changes.",
   "budgets": {
     "countDropWarnPercent": 10.0,
     "countDropFailPercent": 20.0,
     "elapsedIncreaseWarnPercent": 50.0,
-    "elapsedIncreaseFailPercent": 150.0
+    "elapsedIncreaseFailPercent": 150.0,
+    "qualityRateWarnThreshold": 0.3,
+    "qualityRateFailThreshold": 0.5,
+    "qualityRateIncreaseWarnPoints": 0.05,
+    "qualityRateIncreaseFailPoints": 0.1,
+    "danglingEdgeFailThreshold": 0.0
   },
   "targets": {
     "redis-c": {
@@ -14,33 +19,54 @@
       "language": "c",
       "metrics": {
         "nodeCount": 10967,
-        "edgeCount": 11486,
+        "edgeCount": 11478,
         "symbolCount": 10751,
         "sourceFileCount": 133
       },
-      "elapsedSeconds": 3.0
+      "qualityMetrics": {
+        "lowConfidenceCallRate": 0.0,
+        "lowConfidenceEdgeRate": 0.0,
+        "unknownConfidenceEdgeRate": 0.9553929255967939,
+        "danglingEdgeCount": 0,
+        "callEdgeCount": 0
+      },
+      "elapsedSeconds": 3.17
     },
     "catch2-cpp": {
       "name": "Catch2",
       "language": "cpp",
       "metrics": {
         "nodeCount": 7522,
-        "edgeCount": 21155,
+        "edgeCount": 19856,
         "symbolCount": 7076,
         "sourceFileCount": 225
       },
-      "elapsedSeconds": 14.5
+      "qualityMetrics": {
+        "lowConfidenceCallRate": 0.0,
+        "lowConfidenceEdgeRate": 0.0,
+        "unknownConfidenceEdgeRate": 0.5099214343271555,
+        "danglingEdgeCount": 0,
+        "callEdgeCount": 9726
+      },
+      "elapsedSeconds": 13.71
     },
     "pip-python": {
       "name": "pip",
       "language": "python",
       "metrics": {
         "nodeCount": 34626,
-        "edgeCount": 63471,
+        "edgeCount": 61989,
         "symbolCount": 33993,
         "sourceFileCount": 632
       },
-      "elapsedSeconds": 30.9
+      "qualityMetrics": {
+        "lowConfidenceCallRate": 0.35314144227793254,
+        "lowConfidenceEdgeRate": 0.35232360660799755,
+        "unknownConfidenceEdgeRate": 0.47756860088080144,
+        "danglingEdgeCount": 0,
+        "callEdgeCount": 32310
+      },
+      "elapsedSeconds": 30.72
     }
   }
 }

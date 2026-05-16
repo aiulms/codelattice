@@ -8,114 +8,43 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-- **C/C++ Include Resolution with compile_commands.json** (v0.17): Enhanced C and C++ graph quality with compile_commands-aware include path resolution, replacing naive filename matching with proper `-I`/`-iquote`/`-isystem` include path search.
-  - New `compile_commands.rs` for both C and C++ crates — parses `compile_commands.json` with both `command` (shell string) and `arguments` (array) fields, extracts per-file compiler flags (`-I`, `-iquote`, `-isystem`, `-D`, `-include`).
-  - New `include_resolution.rs` for both crates — `CIncludeResolver` / `CppIncludeResolver` resolves `#include` directives to real project header files using compile_commands include paths.
-  - Resolves: quoted includes via `-I` and `-iquote`, angle includes via `-I` and `-isystem`, forced includes via `-include`, same-directory fallback, project-root fallback.
-  - Fixes C++ bug: `unresolved:{path}` synthetic target edges removed — unresolved includes now emit diagnostics only (no dangling edges).
-  - Confidence tiers: same-dir 0.95, quote-dir 0.90, project-dir 0.85, angle-project 0.75, forced 0.70, filename-unique 0.60.
-  - System includes (e.g., `<stdio.h>`, `<vector>`) emit `c-system-external` / `cpp-system-external` diagnostics (no project edges created).
-  - `CGraphOutput` and `CppGraphOutput` now include a `diagnostics` field.
-  - New fixtures: `fixtures/c/include-compile-commands/` (8 files), `fixtures/cpp/include-compile-commands/` (8 files).
-  - 12 new C crate tests + 9 new C++ crate tests.
-  - No new dependencies. Backward compatible (filename matching used when no compile_commands.json is present).
+(No unreleased changes yet.)
 
-- **TypeScript Path Alias / Monorepo Import Resolution** (v0.16): Enhanced TypeScript graph quality with tsconfig paths, workspace package, and extensionless import resolution, replacing synthetic module nodes with real file targets.
-  - New `tsconfig.rs` — parses tsconfig.json with `extends` chains, `compilerOptions.baseUrl`, `compilerOptions.paths`, JSONC support via `strip_json5_comments`.
-  - New `module_resolution.rs` — `TsModuleResolver` resolves import specifiers to real project files.
-  - Resolves: tsconfig paths exact (`@shared`), wildcard (`@core/logger` via `@core/*`), relative imports (`./ui/Button` with `.ts`/`.tsx`/`.d.ts`/`index.ts` resolution), workspace package imports (`@pkg/shared` via `package.json` `workspaces`).
-  - Import edges now target real file nodes instead of synthetic `module:` placeholders.
-  - Confidence tiers: relative 0.90, exact alias 0.90, wildcard 0.85, workspace 0.80, workspace subpath 0.75.
-  - Unresolved imports emit diagnostics (no dangling edges). External packages (e.g., `react`) produce external-package-not-indexed diagnostics.
-  - `TsGraphOutput` now includes a `diagnostics` field.
-  - New fixture `fixtures/typescript/path-alias-monorepo/` (15 files: monorepo with tsconfig.base.json, extends, workspaces, path aliases).
-  - 10 new TypeScript crate tests + 4 new MCP integration tests.
-  - No new dependencies. Backward compatible (synthetic nodes used when module resolver is not provided).
+## [0.14.0-beta.1] - 2026-05-16
 
-- **Python Import Resolution Refinement** (v0.15): Enhanced Python graph quality with package-aware import resolution, replacing synthetic module nodes with real file/symbol targets.
-  - New `PythonModuleIndex` in `crates/python/src/module_resolution.rs` — builds module↔file mapping from project structure, detects src-layout vs flat-layout, extracts `__init__.py` re-exports.
-  - Resolves: absolute imports (`from shop.models import Order`), relative imports (`from .services import X`), parent-relative (`from ..config import Y`), sibling imports (`from . import config`), aliases (`from .config import X as Y`), and `__init__.py` re-export chains (`from shop import create_order`).
-  - Import edges now target real file nodes and symbol nodes instead of synthetic `py:mod:` placeholders.
-  - Confidence tiers: exact module 0.90, exact symbol 0.85, alias 0.80, re-export 0.75, star import diagnostic only.
-  - Unresolved imports emit diagnostics (no dangling edges created).
-  - Import alias map enhances call resolution — calls via aliases now resolve to the real target symbol.
-  - `PythonGraphOutput` now includes a `diagnostics` field (schema version bumped to v0.2).
-  - New fixture `fixtures/python/import-resolution/` (10 files, src-layout package with re-exports, star import, dynamic import).
-  - 11 new Python crate tests + 3 new MCP integration tests.
-  - No new dependencies. Backward compatible (synthetic nodes used when module index is not provided).
+### Added
 
-- **Unified Quality Metrics Pack** (v0.14): Cross-language quality metrics (`qualityMetrics`) added to MCP tool outputs.
-  - New `compute_quality_metrics()` pure function in `mcp_server.rs` — computes graph completeness, edge confidence distribution, call quality, dependency quality, and diagnostic classification from graph data only (no LLM calls).
-  - `qualityMetrics` field added to: `codelattice_project_overview` (compact + full), `codelattice_project_insights`, `codelattice_review_plan` (release_check mode), `codelattice_production_assist`.
-  - Confidence tiers: high (>=0.80), medium (0.60–0.79), low (<0.60), unknown (missing).
-  - `production_assist` adds checklist items for dangling edges (>0) and high low-confidence call rate (>30%).
-  - `review_plan` release_check mode includes qualityMetrics; onboarding/after_edit modes do not (to save tokens).
-  - Real-project corpus smoke script updated with quality budget comparison: rate thresholds (warn >=30%, fail >=50%) and dangling edge fail gate (>0).
-  - 6 new MCP tests for quality metrics + 4 new Python unit tests for quality budget comparison.
-  - Updated docs: MCP contract (v0.14 qualityMetrics section), unified output contract (section 7), real-project corpus (quality budgets), CHANGELOG.
-
-- **Python Import Resolution Refinement** (v0.15): Package/module import resolution for Python projects.
-  - New `module_resolution.rs` in Python crate — `PythonModuleIndex` maps .py files to module names, detects src-layout/flat-layout package roots, resolves relative imports, `__init__.py` re-exports, and import aliases.
-  - Import edges now target real file/symbol nodes instead of synthetic `py:mod:` placeholders.
-  - `__init__.py` simple re-exports resolved: `from shop import create_order` chains through `shop/__init__.py`.
-  - Import alias map improves call resolution: `format_price(...)` resolves through `from .utils import format_price`.
-  - Unresolved imports emit diagnostics (no dangling edges): star imports, dynamic imports, missing modules.
-  - Confidence tiers: exact module 0.90, exact symbol 0.85, re-export 0.75, alias 0.80.
-  - New fixture: `fixtures/python/import-resolution/` (10 files covering src-layout, relative imports, re-exports, star/dynamic imports).
-  - 11 new Python crate tests + 3 new MCP integration tests.
-  - pip-python real-project corpus dry-run verified (no cache for actual compare this round).
-
-- **Real project corpus smoke**: `scripts/real-project-corpus-smoke.py` plus `docs/real-project-corpus.json` / `docs/real-project-corpus.md`. The default GitCode corpus covers Redis (C), Catch2 (C++), and pip (Python), with optional TypeScript / ArkTS / Cangjie / Rust targets for broader multi-language hardening.
-- **Real project regression baseline**: `docs/real-project-corpus-baseline.json` plus `--compare-baseline`, `--accept-baseline`, `--strict-baseline`, and markdown report output for `scripts/real-project-corpus-smoke.py`. This turns the GitCode corpus into a loose quality budget gate for graph-count and runtime regressions.
-- **MCP tool `codelattice_project_insights`** (v0.8): Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry point candidates, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.
-  - File metrics: symbolCount, edgeCount, callInCount, callOutCount, lowConfidenceEdgeCount, diagnosticCount, riskScore with reasons
-  - Symbol metrics: fanIn, fanOut, crossFileImpactCount, lowConfidenceEdgeCount, isEntryLike, isPublic, riskScore with reasons
-  - Risk scoring: weighted composite (fan-in, fan-out, low-confidence edges, cross-file impact, diagnostics) with test/generated/vendor downweighting
-  - Entry point detection: language-specific heuristics for Rust (`main`, lib.rs public API, high fan-out orchestrators), Cangjie, ArkTS (`@Entry`, `build()`), TypeScript
-  - Sections: `summary`, `entryPointCandidates`, `hotspotFiles`, `hotspotSymbols`, `riskMap`, `lowConfidenceZones`, `readFirst`, `reviewFirst`, `docsSignals`
-  - `compact=true` (default): id/name/kind/file/line/riskScore/reasons only
-  - `compact=false`: adds `fileMetrics` breakdown and extra summary fields
-  - `limit` parameter controls max items per category
-  - `includeDocs`/`includeDiagnostics` toggle doc and diagnostic signals
-  - `generatedFrom`: `graphBased=true, compilerVerified=false, previewOnly=true`
-- New smoke script: `scripts/project-insights-smoke.sh` (15 checks)
-- Updated `scripts/mcp-dogfood.sh` to include `codelattice_project_insights` (23 tool checks)
-- 7 new MCP integration tests for project_insights
-- Updated README.md: large project insight section, AI-sidecar workflow step 1
-
-- **C Phase A** (unreleased): C language static analysis support via tree-sitter-c.
-  - New `gitnexus-c` crate: `extractors/` (symbol, include), `graph.rs`, `project.rs`
-  - CLI `analyze --language c`, `quality --language c`, `summary --language c` commands
-  - MCP `language=c` enum added to all 21 tool schemas; `check_language_feature` updated
-  - Bridge format: `convert_c_graph` independent implementation
-  - Auto-detect: walk directory tree, exclude C++ files (`.cpp/.cc/.cxx/.hpp/.hh/.hxx`)
-  - Phase A limitations: no macro expansion, no function pointer resolution, no C++ support
-  - New `scripts/c-real-project-smoke.sh`: synthetic + real project C smoke tests
-  - 9 new feature-gated MCP integration tests for C language
-  - `serverInfo.cSupport` profile flag in MCP initialize response
-
-- **MCP tool `codelattice_review_plan`** (v0.9): AI engineering review checklist that synthesizes project insights, impact analysis, changed symbols, and doc associations into actionable plans. Graph-based heuristic — not compiler/IDE/test-system proof.
-  - 4 modes: `onboarding` (start a new project), `before_edit` (pre-change impact preview), `after_edit` (post-change impact + test/doc hints), `release_check` (pre-release quality gate)
-  - Each plan item: priority (P0/P1/P2), action, target, file, line, reason, source, recommendedTool, doneCriteria
-  - `onboarding`: readPlan (entry points, hotspot files, docs), riskReviewPlan (high-risk symbols), recommendedMcpCalls
-  - `before_edit`: impactPreview (callers, file ripple), backwardCompatNotes, questionPrompt (if no symbol), recommendedMcpCalls
-  - `after_edit`: impactSummary, testHints, docUpdateHints (via DocScanner), recommendedMcpCalls
-  - `release_check`: qualityGates, diagnosticSummary, lowConfidenceEdges, testHints, releaseReadiness, recommendedMcpCalls
-  - Parameters: root, language, mode, symbol, changedSymbols, compact, limit, includeDocs, includeTests
-  - `generatedFrom`: `graphBased=true, compilerVerified=false, previewOnly=true`
-- Updated `scripts/mcp-dogfood.sh` to include `codelattice_review_plan` (24 tool checks)
-- Updated `scripts/codelattice-mcp.sh` tool threshold to >=24
-- Updated `scripts/install-mcp.sh` tool count to 24
-- 8 new MCP integration tests for review_plan (onboarding basic/entry_points/docs_signal, before_edit with/without symbol, after_edit, release_check, invalid mode)
-- Updated README.md: review_plan in tools table, AI workflow expanded to 8 steps integrating review_plan
+- **Unified quality metrics** across MCP outputs: `qualityMetrics` is now available in project overview, project insights, review plan release checks, and production assist.
+- **Real-project corpus baseline** for beta validation, covering Redis (C), Catch2 (C++), and pip (Python) as the default non-vendored smoke/baseline set.
+- **TypeScript path alias and monorepo import resolution**: tsconfig `baseUrl` / `paths`, `extends`, extensionless imports, index resolution, and workspace package imports now resolve to real files where possible.
+- **Python import resolution refinement**: package-aware module index, src-layout / flat-layout detection, relative imports, parent-relative imports, aliases, and simple `__init__.py` re-export chains.
+- **C and C++ compile_commands include resolution**: `-I`, `-iquote`, `-isystem`, forced includes, diagnostics for unresolved/system includes, and no synthetic unresolved include targets.
+- **Release beta notes** for `0.14.0-beta.1` and a real corpus baseline report for external beta validation.
 
 ### Changed
 
-- (No unreleased changes yet.)
+- README front matter is now product-facing Chinese copy: CodeLattice is presented as a local code intelligence engine for large, legacy, and complex codebases.
+- Release artifact and release smoke now target the full seven-language beta set: Rust, Cangjie, ArkTS, TypeScript, C, C++, Python.
+- Release manifests now record source commit, product version, MCP serverVersion, language support flags, tool count, and build features.
+- MCP/install documentation now uses parameterized stable wrapper paths such as `/path/to/CodeLattice-Tool/codelattice-mcp.sh`.
 
 ### Fixed
 
-- Local promotion, install, and release packaging scripts now build and validate the full optional language set: Cangjie, ArkTS, TypeScript, C, C++, and Python. This prevents promoted `CodeLattice-Tool` or tarball artifacts from silently losing the newer C/C++/Python adapters.
+- Local promotion, install, and release packaging scripts build and validate the full optional language set: Cangjie, ArkTS, TypeScript, C, C++, and Python.
+- Default `cargo test` no longer compiles C/C++ graph integration tests that require `tree-sitter-c` / `tree-sitter-cpp` unless those features are enabled. The same graph tests still run under `cargo test --all-features`.
+
+### Breaking Changes
+
+- None.
+
+### Known Limitations
+
+- CodeLattice is not a compiler, IDE, language server, or hosted upload service.
+- Rust does not perform full type inference, trait solving, or macro expansion.
+- C/C++ do not perform full preprocessing, template instantiation, overload resolution, or virtual dispatch resolution.
+- TypeScript does not run `tsc` and does not provide type-system guarantees.
+- Python analysis is static and does not execute imports, virtual environments, monkey patches, or dynamic import code.
+- Beta users should pin versions and run self-test / release smoke after upgrades.
 
 ## [0.13.0-beta.2] - 2026-05-15
 

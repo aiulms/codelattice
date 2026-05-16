@@ -4,7 +4,7 @@ This page describes the current Linux / openEuler compatibility position for
 CodeLattice.
 
 CodeLattice is primarily language-oriented, not operating-system-oriented. It
-analyzes source trees for Rust, Cangjie, ArkTS / HarmonyOS, and TypeScript. The
+analyzes source trees for Rust, Cangjie, ArkTS / HarmonyOS, TypeScript, C, C++, and Python. The
 runtime is a Rust CLI plus shell wrappers.
 
 ## Current Status
@@ -13,7 +13,7 @@ runtime is a Rust CLI plus shell wrappers.
 |------|--------|
 | Linux source build | Expected compatible, source-build path documented |
 | openEuler source build | Expected compatible, not yet certified by a native openEuler smoke |
-| Published binary artifacts | macOS Apple Silicon only for `v0.13.0-beta.2` |
+| Published binary artifacts | macOS Apple Silicon only for `v0.14.0-beta.1` |
 | HarmonyOS NEXT source projects | Supported through ArkTS, TypeScript, and Cangjie analysis |
 | Running CodeLattice on HarmonyOS NEXT | Not certified |
 
@@ -26,13 +26,11 @@ CodeLattice support has two separate meanings:
 
 - **Source analysis support**: whether CodeLattice can analyze a project written
   in a supported language. This is already available for Rust, Cangjie, ArkTS,
-  and TypeScript.
+  TypeScript, C, C++, and Python.
 - **Runtime platform support**: whether the CodeLattice binary and shell scripts
   have been built and smoked on a given OS / architecture.
 
-For openEuler, Rust projects should be analyzable once CodeLattice builds. C,
-C++, RPM spec files, systemd units, and shell-only openEuler projects are not
-yet language adapters.
+For openEuler, supported-language projects should be analyzable once CodeLattice builds. RPM spec files, systemd units, and shell-only openEuler projects are not yet language adapters.
 
 ## Prerequisites
 
@@ -63,7 +61,7 @@ To build all current language adapters:
 
 ```bash
 cargo build --release -p gitnexus-rust-core-cli --bins \
-  --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript
+  --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python
 ```
 
 ## Local Source Build Smoke
@@ -121,14 +119,14 @@ bash scripts/release-smoke.sh --tarball dist/codelattice-*-linux-*.tar.gz
 
 ## Known Caveats
 
-- `v0.13.0-beta.2` publishes a macOS Apple Silicon tarball. Linux users should
+- `v0.14.0-beta.1` publishes a macOS Apple Silicon tarball. Linux users should
   use source build until Linux release artifacts are published.
 - Shell tools can differ between GNU/Linux and macOS. The project scripts avoid
   relying on macOS-only behavior where possible, but openEuler still needs a
   native smoke before it can be called certified.
 - `sha256sum` is common on Linux; `shasum -a 256` is common on macOS. Release
   scripts should accept either where checksum verification is needed.
-- Cangjie, ArkTS, and TypeScript support are static analysis adapters. They do
+- Cangjie, ArkTS, TypeScript, C, C++, and Python support are static analysis adapters. They do
   not compile projects, install dependencies, or replace IDE / language server
   behavior.
 

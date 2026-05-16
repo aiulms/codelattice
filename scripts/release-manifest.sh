@@ -162,6 +162,7 @@ MANIFEST=$(cat <<JSON
   "sourceRemote": "$SOURCE_REMOTE",
   "platform": "$PLATFORM",
   "buildProfile": "release",
+  "buildFeatures": "$FEATURES_ENABLED",
   "builtAt": "$TIMESTAMP",
   "rustcVersion": "$RUSTC_VERSION",
   "cargoVersion": "$CARGO_VERSION",

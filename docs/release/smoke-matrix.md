@@ -1,123 +1,125 @@
 # CodeLattice Smoke Matrix
 
 > **Platform**: macOS (`darwin-arm64`), Apple Silicon
-> **Date**: 2026-05-15
-> **Version**: 0.13.0-beta.2
+> **Date**: 2026-05-16
+> **Version**: 0.14.0-beta.1
 > **Rust**: stable (via `rustc`)
 
 ## Feature Combinations
 
 | Features | CLI | MCP | Notes |
 |----------|-----|-----|-------|
-| default (`tree-sitter-extraction`) | ✅ | ✅ | Rust-only, always available |
+| default (`tree-sitter-extraction`) | ✅ | ✅ | Rust-only baseline |
 | `+tree-sitter-cangjie` | ✅ | ✅ | Cangjie / 仓颉 symbol + call analysis |
 | `+tree-sitter-arkts` | ✅ | ✅ | ArkTS / HarmonyOS component extraction |
-| `+tree-sitter-typescript` | ✅ | ✅ | TypeScript symbol + import + call analysis |
-| `--all-features` | ✅ | ✅ | All languages enabled |
+| `+tree-sitter-typescript` | ✅ | ✅ | TypeScript symbols, imports, calls, tsconfig path aliases |
+| `+tree-sitter-c` | ✅ | ✅ | C symbols, includes, compile_commands include paths |
+| `+tree-sitter-cpp` | ✅ | ✅ | C++ symbols, includes, calls, compile_commands include paths |
+| `+tree-sitter-python` | ✅ | ✅ | Python symbols, calls, package import resolution |
+| full beta release features | ✅ | ✅ | All seven languages enabled |
+
+Full beta release feature string:
+
+```text
+tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python
+```
 
 ## MCP Tool Count
 
-22 tools (with all features enabled).
+24 tools with all language features enabled.
 
-## Fixtures
+The release gate requires:
 
-### Rust (stable)
+- `tools/list >= 24`
+- `initialize.serverInfo.cangjieSupport == true`
+- `initialize.serverInfo.arktsSupport == true`
+- `initialize.serverInfo.typescriptSupport == true`
+- `initialize.serverInfo.cSupport == true`
+- `initialize.serverInfo.cppSupport == true`
+- `initialize.serverInfo.pythonSupport == true`
 
-| Fixture | Path | What it tests |
-|---------|------|---------------|
-| portable-smoke | `fixtures/rust/portable-smoke` | Full graph output, quality gates, MCP tools |
-| call-resolution (c1–c16) | `fixtures/call-resolution/c*` | Import binding, crate/self/super paths, associated functions, enum constructors, receiver methods, cross-file calls, wildcard disambiguation |
-| import-use | `fixtures/import-use/*` | use statements, aliases, groups, self/super, re-exports |
-| item-extraction | `fixtures/item-extraction/*` | Function, struct, enum, trait, impl, const, static, macro extraction |
-| source-ownership | `fixtures/source-ownership/*` | Package/workspace/target ownership, virtual workspace |
-| enum-variant | `fixtures/rust/enum-variant` | Enum variant constructor resolution |
-| imports-cross-crate | `fixtures/rust/imports-cross-crate` | Cross-crate import handling |
-| module-hierarchy | `fixtures/rust/module-hierarchy` | Module nesting |
-| workspace-member | `fixtures/rust/workspace-member` | Workspace with multiple members |
+## Language Fixtures
 
-### Cangjie / 仓颉 (stable)
+| Language | Fixture | Path | Release smoke |
+|----------|---------|------|---------------|
+| Rust | portable-smoke | `fixtures/rust/portable-smoke` | ✅ |
+| Cangjie / 仓颉 | portable-smoke | `fixtures/cangjie/portable-smoke` | ✅ |
+| ArkTS / HarmonyOS | portable-smoke | `fixtures/arkts/portable-smoke` | ✅ |
+| TypeScript | portable-smoke | `fixtures/typescript/portable-smoke` | ✅ |
+| C | portable-smoke | `fixtures/c/portable-smoke` | ✅ |
+| C++ | portable-smoke | `fixtures/cpp/portable-smoke` | ✅ |
+| Python | portable-smoke | `fixtures/python/portable-smoke` | ✅ |
 
-| Fixture | Path | What it tests |
-|---------|------|---------------|
-| portable-smoke | `fixtures/cangjie/portable-smoke` | Full graph, quality gates, MCP tools |
-| cjpm-basic | `fixtures/cangjie/cjpm-basic` | Basic package |
-| cjpm-workspace | `fixtures/cangjie/cjpm-workspace` | Workspace with pkg1, pkg2 |
-| imports-basic | `fixtures/cangjie/imports-basic` | Named/alias/wildcard imports |
-| reference-cross-file-basic | `fixtures/cangjie/reference-cross-file-basic` | Cross-file references |
-| reference-function-call-cross-file | `fixtures/cangjie/reference-function-call-cross-file` | Cross-file function call references |
-| constructor-basic | `fixtures/cangjie/constructor-basic` | Init/constructor extraction |
-| constructor-cross-file | `fixtures/cangjie/constructor-cross-file` | Cross-file constructors |
+## Extended Fixtures
 
-### ArkTS / HarmonyOS (production trial)
+| Language | Fixture | What it tests |
+|----------|---------|---------------|
+| Rust | `fixtures/call-resolution/c*` | Import binding, crate/self/super paths, associated functions, enum constructors, receiver methods, cross-file calls, wildcard disambiguation |
+| Rust | `fixtures/import-use/*` | `use` statements, aliases, groups, self/super, re-exports |
+| Rust | `fixtures/item-extraction/*` | Function, struct, enum, trait, impl, const, static, macro extraction |
+| Rust | `fixtures/source-ownership/*` | Package/workspace/target ownership |
+| Cangjie | `fixtures/cangjie/imports-basic` | Named/alias/wildcard imports |
+| Cangjie | `fixtures/cangjie/reference-cross-file-basic` | Cross-file references |
+| Cangjie | `fixtures/cangjie/constructor-basic` | Init/constructor extraction |
+| ArkTS | `fixtures/arkts/cross-file` | Cross-file import edges |
+| TypeScript | `fixtures/typescript/path-alias-monorepo` | tsconfig paths, workspace packages, extensionless imports |
+| TypeScript | `fixtures/typescript/tsx-smoke` | TSX/JSX component extraction |
+| C | `fixtures/c/include-compile-commands` | compile_commands include path resolution |
+| C++ | `fixtures/cpp/include-compile-commands` | compile_commands include path resolution and graph endpoint integrity |
+| Python | `fixtures/python/import-resolution` | package imports, relative imports, aliases, re-exports |
 
-| Fixture | Path | What it tests |
-|---------|------|---------------|
-| portable-smoke | `fixtures/arkts/portable-smoke` | Component, buildMethod, @State, UI call extraction |
-| cross-file | `fixtures/arkts/cross-file` | Cross-file import edges |
+## Release Gate
 
-### TypeScript (Phase A)
+| Command | Purpose | Required |
+|---------|---------|----------|
+| `cargo fmt --check` | Formatting | ✅ |
+| `git diff --check` | Whitespace and patch hygiene | ✅ |
+| `cargo test --test mcp_server` | Default MCP integration suite | ✅ |
+| `cargo test` | Default unit/integration/doc tests | ✅ |
+| `cargo test --all-features` | Full optional adapter suite | ✅ |
+| `python3 scripts/real-project-corpus-smoke-test.py` | Real corpus harness unit tests | ✅ |
+| `scripts/codelattice-mcp.sh --self-test` | Wrapper self-test and language support profile | ✅ |
+| `scripts/mcp-dogfood.sh` | 24-tool MCP walkthrough | ✅ |
+| `scripts/install-mcp.sh --doctor` | Local install doctor | ✅ |
+| `scripts/package-release.sh` | Build full-language tarball and manifest | ✅ |
+| `scripts/release-smoke.sh --tarball <tarball>` | Tarball unpack + seven-language fixture smoke | ✅ |
+| `scripts/fresh-clone-smoke.sh --skip-tests` | Simulated external clone/install without full tests | ✅ |
+| `scripts/fresh-clone-smoke.sh` | Full simulated external clone/install | ✅ |
 
-| Fixture | Path | What it tests |
-|---------|------|---------------|
-| portable-smoke | `fixtures/typescript/portable-smoke` | Functions, interfaces, type aliases, imports, calls |
-| tsx-smoke | `fixtures/typescript/tsx-smoke` | TSX/JSX component extraction |
+## Real Project Baseline
 
-## Smoke Scripts
+Default beta evidence targets:
 
-### Release Gate (must pass before release)
+| Target | Language | Baseline |
+|--------|----------|----------|
+| redis-c | C | ✅ |
+| catch2-cpp | C++ | ✅ |
+| pip-python | Python | ✅ |
 
-| Script | What it does | Required |
-|--------|-------------|----------|
-| `cargo fmt --check` | Code formatting | ✅ |
-| `git diff --check` | No whitespace issues | ✅ |
-| `cargo test --test mcp_server` | 89 MCP integration tests | ✅ |
-| `cargo test` | All unit tests | ✅ |
-| `cargo test --all-features` | Combined optional adapter tests | ✅ |
-| `scripts/mcp-dogfood.sh` | 22-tool MCP walkthrough | ✅ |
-| `scripts/mcp-cache-smoke.sh` | Cache hit/miss/persistent (6 tests) | ✅ |
-| `scripts/package-release.sh` | Build all-language tarball + manifest | ✅ |
-| `scripts/release-smoke.sh` | Tarball unpack + Rust/Cangjie/ArkTS/TypeScript verify | ✅ |
-| `scripts/fresh-clone-smoke.sh` | Simulated external clone path | ✅ |
-| `scripts/linux-source-build-smoke.sh` | Source-build platform preflight | ✅ |
+Optional broader targets may be used when cached locally:
 
-### Feature-Optional (run when feature flag available)
+| Target | Language |
+|--------|----------|
+| vite-typescript | TypeScript |
+| codelattice-rust | Rust |
+| cangjie-magic | Cangjie |
+| openharmony-app-samples-arkts | ArkTS |
 
-| Script | Feature | What it does |
-|--------|---------|-------------|
-| `cargo test --features tree-sitter-cangjie` | Cangjie | Cangjie adapter tests |
-| `cargo test --features tree-sitter-arkts` | ArkTS | ArkTS adapter tests |
-| `cargo test --features tree-sitter-typescript` | TypeScript | TypeScript adapter tests |
-| `cargo test --all-features` | All | Combined feature test |
+The real-project corpus is a smoke/baseline signal, not a precision proof. It does not vendor target repositories and does not run target project builds.
 
-### Local-Only (not required for release, developer convenience)
+## Current Stage 0 Baseline
 
-| Script | What it does |
-|--------|-------------|
-| `scripts/mcp-local-client-smoke.sh` | Local MCP client connection test |
-| `scripts/mcp-real-client-dry-run.sh` | Dry-run AI client config |
-| `scripts/cangjie-live-codelattice-smoke.sh` | Cangjie live project analysis |
-| `scripts/typescript-real-project-smoke.sh` | TypeScript real project analysis |
-| `python3 scripts/real-project-corpus-smoke.py --compare-baseline` | GitCode real-project corpus regression gate for C / C++ / Python defaults |
-| `scripts/alpha-trial-smoke.sh` | Alpha trial validation |
-| `scripts/linux-source-build-smoke.sh --all-language-features` | Linux / openEuler source-build compatibility smoke |
+Recorded on 2026-05-16 before release docs/package edits:
 
-### Real Project Production Trials (local, non-distributable)
+| Suite | Result |
+|-------|--------|
+| `cargo fmt --check` | ✅ Pass |
+| `git diff --check` | ✅ Pass |
+| `cargo test --test mcp_server` | ✅ 104/104 |
+| `cargo test` | ✅ Pass |
+| `cargo test --all-features` | ✅ Pass |
+| `python3 scripts/real-project-corpus-smoke-test.py` | ✅ 10/10 |
+| `scripts/codelattice-mcp.sh --self-test` | ✅ 24 tools, all language flags true |
+| `scripts/mcp-dogfood.sh` | ✅ 24/24 |
 
-| Project | Language | Status |
-|---------|----------|--------|
-| CoolMallArkTS | ArkTS | ✅ Production trial passed (local only) |
-| harmony-utils | ArkTS | ✅ Production trial passed (local only) |
-| HarmonyOS-Examples | ArkTS | ✅ Production trial passed (local only) |
-
-These projects are referenced only as local verification targets. They are not included in the release tarball.
-
-## Test Counts
-
-| Suite | Count | Status |
-|-------|-------|--------|
-| MCP integration tests | 89 | ✅ Pass |
-| Project model tests | 93 | ✅ Pass |
-| Cache smoke tests | 6/6 | ✅ Pass |
-| Dogfood tests | 22/22 | ✅ Pass |
-| Fresh clone smoke | ✅ | ✅ Pass |
-| Release smoke | ✅ | ✅ Pass |
+Final artifact smoke results are recorded in `docs/plans/2026-05-16-release-beta-hardening-closure.md`.
