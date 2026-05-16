@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 25 tools:
+//! Provides 28 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -15,6 +15,7 @@
 //!   v0.8: codelattice_project_insights
 //!   v0.9: codelattice_review_plan
 //!   v0.10: codelattice_dead_code_candidates
+//!   v0.11: codelattice_impact_analysis, codelattice_risk_hotspots, codelattice_architecture_drift
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -7610,382 +7611,473 @@ fn handle_cache_prewarm(cache: &mut McpCache, params: &Value) -> Result<Value, V
 
 fn tools_list() -> Value {
     json!({
-        "tools": [
+       "tools": [
+           {
+               "name": "codelattice_analyze",
+               "description": "Analyze a Rust or Cangjie project. Returns graph summary, quality gates, and optionally the full graph. Compact by default (graph excluded unless includeGraph=true).",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "strict": { "type": "boolean", "default": true, "description": "Mark quality gate failures as errors" },
+                       "includeGraph": { "type": "boolean", "default": false, "description": "Include full graph in output (large, default off)" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_quality",
+               "description": "Run quality gate checks on a project. Returns pass/fail for each gate, with failed gates listed first for quick triage.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to check" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_summary",
+               "description": "Get a compact summary of project graph stats and quality gates without full graph output.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to summarize" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_smoke",
+               "description": "Run end-to-end smoke tests (bridge JSON generation + Tool import). Validates Rust and/or Cangjie analysis pipeline. Includes tail output and failure hints.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "mode": { "type": "string", "enum": ["rust-only", "cangjie-only", "full"], "default": "full", "description": "Which smoke mode to run" }
+                   }
+               }
+           },
+           {
+               "name": "codelattice_graph_overview",
+               "description": "Get a compact overview of the graph: node/edge/symbol/package counts, kind breakdowns, quality and diagnostics summaries. No full graph data. Ideal for AI agents to quickly assess a project.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_unresolved_report",
+               "description": "Report unresolved calls and diagnostics. For Rust: shows CALLS edges with low confidence or unresolved reasons, grouped by reason. For Cangjie: returns supported=false (no unresolved concept in v0.1). Includes stop-line classification note.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit item detail arrays, return counts and reason breakdown only" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_symbol_search",
+               "description": "Search for symbols by name (case-insensitive contains match). Returns matching symbols with name, kind, file, and line. Optionally filter by symbol kind (function, struct, class, etc).",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to search" },
+                       "query": { "type": "string", "description": "Search query (case-insensitive substring match)" },
+                       "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, enum, interface, etc)" },
+                       "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit label, keep id/name/kind/file/line per match" }
+                   },
+                   "required": ["root", "query"]
+               }
+           },
+           {
+               "name": "codelattice_export_bridge",
+               "description": "Export project analysis as GitNexus-RC bridge JSON to /tmp. Returns file path, byte count, and schema/counts summary. Output path must be under /tmp. No Tool import — export only.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python"], "description": "Language (must be explicit, not auto)" },
+                       "outputPath": { "type": "string", "description": "Output file path (must be under /tmp). Default: auto-generated in /tmp" }
+                   },
+                   "required": ["root", "language"]
+               }
+           },
+           {
+               "name": "codelattice_symbol_context",
+               "description": "Get rich context for a symbol: definition, source snippet, outgoing/incoming edges grouped by kind, related diagnostics, confidence samples. Returns ambiguous candidates if multiple symbols match.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "name": { "type": "string", "description": "Symbol name to look up" },
+                       "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, etc)" },
+                       "limit": { "type": "integer", "default": 10, "maximum": 50 },
+                       "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippet in the response" },
+                       "snippetContext": { "type": "integer", "default": 3, "maximum": 10, "description": "Number of context lines before/after the symbol" }
+                   },
+                   "required": ["root", "name"]
+               }
+           },
+           {
+               "name": "codelattice_calls_from",
+               "description": "Trace outgoing calls from a symbol. Returns call tree up to specified depth with confidence/reason per edge. BFS traversal.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "symbol": { "type": "string", "description": "Source symbol name" },
+                       "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+                       "limit": { "type": "integer", "default": 20, "maximum": 100 },
+                       "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
+                       "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
+                   },
+                   "required": ["root", "symbol"]
+               }
+           },
+           {
+               "name": "codelattice_calls_to",
+               "description": "Trace incoming callers/referrers to a symbol. Returns reverse call tree up to specified depth. Useful for understanding who depends on a symbol.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "symbol": { "type": "string", "description": "Target symbol name" },
+                       "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
+                       "limit": { "type": "integer", "default": 20, "maximum": 100 },
+                       "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
+                       "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
+                   },
+                   "required": ["root", "symbol"]
+               }
+           },
+           {
+               "name": "codelattice_impact_preview",
+               "description": "Preview the blast radius of changing a symbol. Returns impacted nodes/edges grouped by kind, approximate risk level (LOW/MEDIUM/HIGH), impact metrics, confidence summary, risk reasons, and review focus. Read-only, no writes.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "symbol": { "type": "string", "description": "Symbol name to analyze impact for" },
+                       "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
+                       "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
+                       "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: keep risk/riskReasons/impactMetrics/confidenceSummary/reviewFocus, impactedSymbols only id/name/kind/file/line, no snippets" }
+                   },
+                   "required": ["root", "symbol"]
+               }
+           },
+           {
+               "name": "codelattice_query_graph",
+               "description": "Query the graph by node kind, edge kind, name pattern, or file pattern. Safe parameterized query — no arbitrary query strings accepted.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "nodeKind": { "type": "string", "description": "Filter nodes by kind (function, struct, class, package, etc)" },
+                       "edgeKind": { "type": "string", "description": "Filter edges by type (CALLS, DEFINES, IMPORTS, etc)" },
+                       "nameContains": { "type": "string", "description": "Filter nodes by name (case-insensitive substring)" },
+                       "fileContains": { "type": "string", "description": "Filter nodes by file path (case-insensitive substring)" },
+                       "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                       "includeSnippet": { "type": "boolean", "default": false, "description": "Include source code snippets in results" },
+                       "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets, keep id/name/kind/file/line per node and confidence/reason per edge" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_project_overview",
+               "description": "Get a comprehensive project overview: identity, stats, top kinds, quality, diagnostics, hotspots (high fanout), dense files. Ideal first call when opening a project.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit hotspots, dense files, top kinds; return counts only" }
+                   },
+                   "required": ["root"]
+               }
+           },
+           {
+               "name": "codelattice_repo_registry",
+               "description": "List known repos or check current root status. CodeLattice does not maintain a persistent registry — each call analyzes fresh. Use GitNexus-RC Tool for full registry management.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
+                       "root": { "type": "string", "description": "Project root (required for status action)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" }
+                   }
+               }
+           },
+           {
+               "name": "codelattice_rename_preview",
+               "description": "Preview a rename operation: find definition, reference edges, affected files. Read-only — no AST-safe rewrite. Returns applySupported=false. Use IDE/language server for actual renames.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
+                       "symbol": { "type": "string", "description": "Current symbol name" },
+                       "newName": { "type": "string", "description": "Proposed new name" },
+                       "kind": { "type": "string", "description": "Symbol kind to disambiguate" }
+                   },
+                    "required": ["root", "symbol", "newName"]
+                }
+           },
+           {
+               "name": "codelattice_cache_status",
+               "description": "Query the analysis cache status for both memory and persistent layers. Shows cached entries, hit/miss counts, stale detection info, and persistent cache file sizes. Does not trigger analysis.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Filter by root path (substring match)" },
+                       "language": { "type": "string", "description": "Filter by language" }
+                   }
+               }
+           },
+           {
+               "name": "codelattice_cache_clear",
+               "description": "Clear analysis cache entries. Supports memory-only (default), persistent-only, or both layers. Does not affect Tool registry or source files.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Filter by root path (substring match). Omit to clear all." },
+                       "language": { "type": "string", "description": "Filter by language. Omit to clear all." },
+                       "layer": { "type": "string", "enum": ["memory", "persistent", "both"], "default": "memory", "description": "Which cache layer to clear. Use 'persistent' or 'both' to also clear disk cache." }
+                   }
+               }
+            },
             {
-                "name": "codelattice_analyze",
-                "description": "Analyze a Rust or Cangjie project. Returns graph summary, quality gates, and optionally the full graph. Compact by default (graph excluded unless includeGraph=true).",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "strict": { "type": "boolean", "default": true, "description": "Mark quality gate failures as errors" },
-                        "includeGraph": { "type": "boolean", "default": false, "description": "Include full graph in output (large, default off)" }
-                    },
+               "name": "codelattice_production_assist",
+               "description": "Dry-run production readiness assistant. Aggregates quality gates, unresolved calls, diagnostics, and changed symbol impact for a quick project health check. Read-only, no file writes. Ideal for AI agents to assess change safety before committing.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "changedSymbols": {
+                           "type": "array",
+                           "items": { "type": "string" },
+                           "description": "Optional list of symbol names you changed, to get their caller counts and snippets"
+                       }
+                   },
+                   "required": ["root"]
+               }
+            },
+            {
+               "name": "codelattice_compare_runs",
+               "description": "Compare two analysis results to find differences in nodes, edges, symbols, quality gates, and diagnostics. Provide beforeBridgeJson+afterBridgeJson file paths, or just root to compare cached vs fresh analysis. Useful for CI checks and verifying change impact.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root (compares cached vs fresh if no bridge files provided)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file (must be under /tmp)" },
+                       "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file (must be under /tmp)" }
+                   }
+                }
+            },
+            {
+               "name": "codelattice_cache_prewarm",
+               "description": "Pre-warm the process-local analysis cache for a project. Runs analysis and stores the result so subsequent tool calls are fast. Returns cache status after warming. If cache is already fresh (mtime-valid), returns cacheHit=true immediately.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "strict": { "type": "boolean", "default": false, "description": "Strict mode (quality gate failures as errors). Default false to match most other tools." }
+                   },
                     "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_quality",
-                "description": "Run quality gate checks on a project. Returns pass/fail for each gate, with failed gates listed first for quick triage.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to check" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_summary",
-                "description": "Get a compact summary of project graph stats and quality gates without full graph output.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to summarize" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_smoke",
-                "description": "Run end-to-end smoke tests (bridge JSON generation + Tool import). Validates Rust and/or Cangjie analysis pipeline. Includes tail output and failure hints.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "mode": { "type": "string", "enum": ["rust-only", "cangjie-only", "full"], "default": "full", "description": "Which smoke mode to run" }
-                    }
-                }
-            },
-            {
-                "name": "codelattice_graph_overview",
-                "description": "Get a compact overview of the graph: node/edge/symbol/package counts, kind breakdowns, quality and diagnostics summaries. No full graph data. Ideal for AI agents to quickly assess a project.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_unresolved_report",
-                "description": "Report unresolved calls and diagnostics. For Rust: shows CALLS edges with low confidence or unresolved reasons, grouped by reason. For Cangjie: returns supported=false (no unresolved concept in v0.1). Includes stop-line classification note.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit item detail arrays, return counts and reason breakdown only" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_symbol_search",
-                "description": "Search for symbols by name (case-insensitive contains match). Returns matching symbols with name, kind, file, and line. Optionally filter by symbol kind (function, struct, class, etc).",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to search" },
-                        "query": { "type": "string", "description": "Search query (case-insensitive substring match)" },
-                        "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, enum, interface, etc)" },
-                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit label, keep id/name/kind/file/line per match" }
-                    },
-                    "required": ["root", "query"]
-                }
-            },
-            {
-                "name": "codelattice_export_bridge",
-                "description": "Export project analysis as GitNexus-RC bridge JSON to /tmp. Returns file path, byte count, and schema/counts summary. Output path must be under /tmp. No Tool import — export only.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python"], "description": "Language (must be explicit, not auto)" },
-                        "outputPath": { "type": "string", "description": "Output file path (must be under /tmp). Default: auto-generated in /tmp" }
-                    },
-                    "required": ["root", "language"]
-                }
-            },
-            {
-                "name": "codelattice_symbol_context",
-                "description": "Get rich context for a symbol: definition, source snippet, outgoing/incoming edges grouped by kind, related diagnostics, confidence samples. Returns ambiguous candidates if multiple symbols match.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "name": { "type": "string", "description": "Symbol name to look up" },
-                        "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, etc)" },
-                        "limit": { "type": "integer", "default": 10, "maximum": 50 },
-                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippet in the response" },
-                        "snippetContext": { "type": "integer", "default": 3, "maximum": 10, "description": "Number of context lines before/after the symbol" }
-                    },
-                    "required": ["root", "name"]
-                }
-            },
-            {
-                "name": "codelattice_calls_from",
-                "description": "Trace outgoing calls from a symbol. Returns call tree up to specified depth with confidence/reason per edge. BFS traversal.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "symbol": { "type": "string", "description": "Source symbol name" },
-                        "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
-                        "limit": { "type": "integer", "default": 20, "maximum": 100 },
-                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
-                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
-                    },
-                    "required": ["root", "symbol"]
-                }
-            },
-            {
-                "name": "codelattice_calls_to",
-                "description": "Trace incoming callers/referrers to a symbol. Returns reverse call tree up to specified depth. Useful for understanding who depends on a symbol.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "symbol": { "type": "string", "description": "Target symbol name" },
-                        "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3 },
-                        "limit": { "type": "integer", "default": 20, "maximum": 100 },
-                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
-                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
-                    },
-                    "required": ["root", "symbol"]
-                }
-            },
-            {
-                "name": "codelattice_impact_preview",
-                "description": "Preview the blast radius of changing a symbol. Returns impacted nodes/edges grouped by kind, approximate risk level (LOW/MEDIUM/HIGH), impact metrics, confidence summary, risk reasons, and review focus. Read-only, no writes.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "symbol": { "type": "string", "description": "Symbol name to analyze impact for" },
-                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
-                        "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
-                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: keep risk/riskReasons/impactMetrics/confidenceSummary/reviewFocus, impactedSymbols only id/name/kind/file/line, no snippets" }
-                    },
-                    "required": ["root", "symbol"]
-                }
-            },
-            {
-                "name": "codelattice_query_graph",
-                "description": "Query the graph by node kind, edge kind, name pattern, or file pattern. Safe parameterized query — no arbitrary query strings accepted.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "nodeKind": { "type": "string", "description": "Filter nodes by kind (function, struct, class, package, etc)" },
-                        "edgeKind": { "type": "string", "description": "Filter edges by type (CALLS, DEFINES, IMPORTS, etc)" },
-                        "nameContains": { "type": "string", "description": "Filter nodes by name (case-insensitive substring)" },
-                        "fileContains": { "type": "string", "description": "Filter nodes by file path (case-insensitive substring)" },
-                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
-                        "includeSnippet": { "type": "boolean", "default": false, "description": "Include source code snippets in results" },
-                        "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets, keep id/name/kind/file/line per node and confidence/reason per edge" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_project_overview",
-                "description": "Get a comprehensive project overview: identity, stats, top kinds, quality, diagnostics, hotspots (high fanout), dense files. Ideal first call when opening a project.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit hotspots, dense files, top kinds; return counts only" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_repo_registry",
-                "description": "List known repos or check current root status. CodeLattice does not maintain a persistent registry — each call analyzes fresh. Use GitNexus-RC Tool for full registry management.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "action": { "type": "string", "enum": ["list", "status"], "default": "status" },
-                        "root": { "type": "string", "description": "Project root (required for status action)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" }
-                    }
-                }
-            },
-            {
-                "name": "codelattice_rename_preview",
-                "description": "Preview a rename operation: find definition, reference edges, affected files. Read-only — no AST-safe rewrite. Returns applySupported=false. Use IDE/language server for actual renames.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto" },
-                        "symbol": { "type": "string", "description": "Current symbol name" },
-                        "newName": { "type": "string", "description": "Proposed new name" },
-                        "kind": { "type": "string", "description": "Symbol kind to disambiguate" }
-                    },
-                     "required": ["root", "symbol", "newName"]
-                 }
-            },
-            {
-                "name": "codelattice_cache_status",
-                "description": "Query the analysis cache status for both memory and persistent layers. Shows cached entries, hit/miss counts, stale detection info, and persistent cache file sizes. Does not trigger analysis.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Filter by root path (substring match)" },
-                        "language": { "type": "string", "description": "Filter by language" }
-                    }
-                }
-            },
-            {
-                "name": "codelattice_cache_clear",
-                "description": "Clear analysis cache entries. Supports memory-only (default), persistent-only, or both layers. Does not affect Tool registry or source files.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Filter by root path (substring match). Omit to clear all." },
-                        "language": { "type": "string", "description": "Filter by language. Omit to clear all." },
-                        "layer": { "type": "string", "enum": ["memory", "persistent", "both"], "default": "memory", "description": "Which cache layer to clear. Use 'persistent' or 'both' to also clear disk cache." }
-                    }
                 }
              },
              {
-                "name": "codelattice_production_assist",
-                "description": "Dry-run production readiness assistant. Aggregates quality gates, unresolved calls, diagnostics, and changed symbol impact for a quick project health check. Read-only, no file writes. Ideal for AI agents to assess change safety before committing.",
+                "name": "codelattice_project_insights",
+                "description": "Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry points, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "changedSymbols": {
-                            "type": "array",
-                            "items": { "type": "string" },
-                            "description": "Optional list of symbol names you changed, to get their caller counts and snippets"
-                        }
-                    },
-                    "required": ["root"]
-                }
-             },
-             {
-                "name": "codelattice_compare_runs",
-                "description": "Compare two analysis results to find differences in nodes, edges, symbols, quality gates, and diagnostics. Provide beforeBridgeJson+afterBridgeJson file paths, or just root to compare cached vs fresh analysis. Useful for CI checks and verifying change impact.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root (compares cached vs fresh if no bridge files provided)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "beforeBridgeJson": { "type": "string", "description": "Path to 'before' bridge JSON file (must be under /tmp)" },
-                        "afterBridgeJson": { "type": "string", "description": "Path to 'after' bridge JSON file (must be under /tmp)" }
-                    }
-                 }
-             },
-             {
-                "name": "codelattice_cache_prewarm",
-                "description": "Pre-warm the process-local analysis cache for a project. Runs analysis and stores the result so subsequent tool calls are fast. Returns cache status after warming. If cache is already fresh (mtime-valid), returns cacheHit=true immediately.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "strict": { "type": "boolean", "default": false, "description": "Strict mode (quality gate failures as errors). Default false to match most other tools." }
-                    },
-                     "required": ["root"]
-                 }
-              },
-              {
-                 "name": "codelattice_project_insights",
-                 "description": "Large project insight map for AI agents onboarding onto unfamiliar codebases. Identifies entry points, hotspot files/symbols, risk areas, low-confidence zones, and provides read-first/review-first recommendations. Graph-based heuristic — not compiler/IDE-level proof.",
-                 "inputSchema": {
-                     "type": "object",
-                     "properties": {
-                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                         "compact": { "type": "boolean", "default": true, "description": "Compact output — each item retains id/name/kind/file/line/riskScore/reasons only" },
-                         "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
-                         "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signals (symbol ↔ doc associations)" },
-                         "includeDiagnostics": { "type": "boolean", "default": true, "description": "Include diagnostic counts in risk scoring" }
-                     },
-                     "required": ["root"]
-                 }
-              },
-             {
-                "name": "codelattice_review_plan",
-                "description": "AI review plan workflow: converts project insights, impact analysis, changed symbols, and doc associations into an actionable engineering checklist. Four modes: onboarding (read-first map), before_edit (impact preview for target symbol), after_edit (changed symbol impact + test/doc hints), release_check (quality gates + diagnostics + full suite). Graph-based heuristic — not compiler/IDE/test-system proof.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "release_check"], "default": "onboarding", "description": "Review plan mode" },
-                        "symbol": { "type": "string", "description": "Target symbol name (used in before_edit mode)" },
-                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Explicit changed symbol names (after_edit mode; auto-detected if omitted)" },
-                        "compact": { "type": "boolean", "default": true, "description": "Compact output" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact output — each item retains id/name/kind/file/line/riskScore/reasons only" },
                         "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
-                        "includeDocs": { "type": "boolean", "default": true, "description": "Include doc update hints" },
-                        "includeTests": { "type": "boolean", "default": true, "description": "Include test hints" }
+                        "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signals (symbol ↔ doc associations)" },
+                        "includeDiagnostics": { "type": "boolean", "default": true, "description": "Include diagnostic counts in risk scoring" }
                     },
                     "required": ["root"]
                 }
              },
+            {
+               "name": "codelattice_review_plan",
+               "description": "AI review plan workflow: converts project insights, impact analysis, changed symbols, and doc associations into an actionable engineering checklist. Four modes: onboarding (read-first map), before_edit (impact preview for target symbol), after_edit (changed symbol impact + test/doc hints), release_check (quality gates + diagnostics + full suite). Graph-based heuristic — not compiler/IDE/test-system proof.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "release_check"], "default": "onboarding", "description": "Review plan mode" },
+                       "symbol": { "type": "string", "description": "Target symbol name (used in before_edit mode)" },
+                       "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Explicit changed symbol names (after_edit mode; auto-detected if omitted)" },
+                       "compact": { "type": "boolean", "default": true, "description": "Compact output" },
+                       "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
+                       "includeDocs": { "type": "boolean", "default": true, "description": "Include doc update hints" },
+                       "includeTests": { "type": "boolean", "default": true, "description": "Include test hints" }
+                   },
+                   "required": ["root"]
+               }
+            },
 
-             {
-                "name": "codelattice_changed_symbols",
-                "description": "Detect changed symbols from git diff. Maps diff hunks to graph symbols, returning changed files, changed symbols, unknown hunks, and deleted/renamed files. Read-only, no writes. Ideal for AI agents to auto-detect what changed before impact analysis.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Project root directory (absolute path, must be a git repo)" },
-                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree", "description": "What to diff: working-tree (default, staged+unstaged), staged only, unstaged only, or HEAD" },
-                        "baseRef": { "type": "string", "description": "Optional git ref to compare against (e.g., 'main', 'HEAD~3')" },
-                        "compact": { "type": "boolean", "default": true, "description": "Compact output — only id/name/kind/file/line/risk per symbol" },
-                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source snippets for changed symbols" },
-                        "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippets" },
-                        "limit": { "type": "integer", "default": 100, "maximum": 500, "description": "Max changed symbols to return" }
-                    },
-                     "required": ["root"]
-                 }
-             },
+            {
+               "name": "codelattice_changed_symbols",
+               "description": "Detect changed symbols from git diff. Maps diff hunks to graph symbols, returning changed files, changed symbols, unknown hunks, and deleted/renamed files. Read-only, no writes. Ideal for AI agents to auto-detect what changed before impact analysis.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path, must be a git repo)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree", "description": "What to diff: working-tree (default, staged+unstaged), staged only, unstaged only, or HEAD" },
+                       "baseRef": { "type": "string", "description": "Optional git ref to compare against (e.g., 'main', 'HEAD~3')" },
+                       "compact": { "type": "boolean", "default": true, "description": "Compact output — only id/name/kind/file/line/risk per symbol" },
+                       "includeSnippet": { "type": "boolean", "default": true, "description": "Include source snippets for changed symbols" },
+                       "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippets" },
+                       "limit": { "type": "integer", "default": 100, "maximum": 500, "description": "Max changed symbols to return" }
+                   },
+                    "required": ["root"]
+                }
+            },
 
-             {
-                "name": "codelattice_dead_code_candidates",
-                "description": "Identify static dead-code candidates — symbols and files with no incoming edges or unreachable from entry points. Returns candidates with confidence, risk cautions, and verification suggestions. NOT deletion proof. Use impact_preview and project tests before deleting.",
+            {
+               "name": "codelattice_dead_code_candidates",
+               "description": "Identify static dead-code candidates — symbols and files with no incoming edges or unreachable from entry points. Returns candidates with confidence, risk cautions, and verification suggestions. NOT deletion proof. Use impact_preview and project tests before deleting.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only id/name/kind/file/line/score/confidence/reasons/cautions per item" },
+                       "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max candidates to return" },
+                       "includeFiles": { "type": "boolean", "default": true, "description": "Include file-level candidates" },
+                       "includeSymbols": { "type": "boolean", "default": true, "description": "Include symbol-level candidates" },
+                       "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
+                       "includePublicApi": { "type": "boolean", "default": true, "description": "Include public API candidates (with caution)" },
+                       "entryHints": { "type": "array", "items": { "type": "string" }, "description": "Symbol names or file path substrings to treat as entry points" },
+                       "excludePatterns": { "type": "array", "items": { "type": "string" }, "description": "File path patterns to exclude (e.g., target/, node_modules/)" }
+                   },
+                   "required": ["root"]
+               }
+            },
+
+            {
+               "name": "codelattice_impact_analysis",
+               "description": "Change impact analysis — what breaks if I modify a symbol or file? Returns direct callers, callees, upstream/downstream paths, risk score, and prioritized review list. Static analysis heuristic, not compiler-verified.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "target": { "type": "string", "description": "Symbol name, file path, or symbol ID to analyze" },
+                       "includeIndirect": { "type": "boolean", "default": true, "description": "Include indirect (transitive) impact paths" },
+                       "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 6, "description": "Max BFS depth for indirect paths" },
+                       "maxResults": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max results per category" },
+                       "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit full snippets" }
+                   },
+                   "required": ["root", "target"]
+               }
+            },
+
+            {
+               "name": "codelattice_risk_hotspots",
+               "description": "Project risk hotspot detection — identify symbols and files with the highest risk scores based on fan-in/out, cross-module dependencies, and public API surface. Static analysis heuristic, not compiler-verified.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "scope": { "type": "string", "enum": ["all", "symbols", "files"], "default": "all", "description": "Scope of hotspot analysis" },
+                       "maxResults": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max hotspots per category" },
+                       "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
+                       "minRiskLevel": { "type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Minimum risk level to include" },
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode" }
+                   },
+                   "required": ["root"]
+               }
+            },
+
+            {
+               "name": "codelattice_architecture_drift",
+               "description": "Architecture health — detect dependency cycles, cross-layer calls, boundary leaks, and coupling issues. Static analysis heuristic, not compiler-verified.",
+               "inputSchema": {
+                   "type": "object",
+                   "properties": {
+                       "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                       "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                       "layerRules": { "type": "array", "items": { "type": "string" }, "description": "Layer ordering rules, e.g. ['api>service>domain>infra']" },
+                       "moduleGlobs": { "type": "array", "items": { "type": "string" }, "description": "Module path globs to scope analysis" },
+                       "maxCycles": { "type": "integer", "default": 10, "minimum": 1, "maximum": 50, "description": "Max cycle candidates to report" },
+                       "maxFindings": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max total findings" },
+                       "includeTests": { "type": "boolean", "default": false, "description": "Include test files" },
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode" }
+                   },
+                   "required": ["root"]
+               }
+            },
+            {
+                "name": "codelattice_ai_context_pack",
+                "description": "AI editing context — what should I read before changing code? Returns context files, key symbols, call chains, dependency notes, risk notes, suggested read order, and useful commands for a given task. Static analysis heuristic, not semantic understanding.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
-                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only id/name/kind/file/line/score/confidence/reasons/cautions per item" },
-                        "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max candidates to return" },
-                        "includeFiles": { "type": "boolean", "default": true, "description": "Include file-level candidates" },
-                        "includeSymbols": { "type": "boolean", "default": true, "description": "Include symbol-level candidates" },
-                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
-                        "includePublicApi": { "type": "boolean", "default": true, "description": "Include public API candidates (with caution)" },
-                        "entryHints": { "type": "array", "items": { "type": "string" }, "description": "Symbol names or file path substrings to treat as entry points" },
-                        "excludePatterns": { "type": "array", "items": { "type": "string" }, "description": "File path patterns to exclude (e.g., target/, node_modules/)" }
+                        "task": { "type": "string", "description": "Description of the editing task (keywords extracted for symbol/file matching)" },
+                        "targets": { "type": "array", "items": { "type": "string" }, "description": "Symbol name substrings to target" },
+                        "maxFiles": { "type": "integer", "default": 15, "minimum": 1, "maximum": 100, "description": "Max context files to return" },
+                        "maxSymbols": { "type": "integer", "default": 30, "minimum": 1, "maximum": 200, "description": "Max key symbols to return" },
+                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files in context" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit callChains details" }
                     },
                     "required": ["root"]
                 }
-             }
-         ]
+            },
+            {
+                "name": "codelattice_review_gate",
+                "description": "Diff-based review gate — does this change touch dangerous areas? Analyzes changed files for touched symbols, hotspots, risk level, and recommended tests. Uses git diff or explicit file list.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "changedFiles": { "type": "array", "items": { "type": "string" }, "description": "Explicit list of changed file paths (relative to root)" },
+                        "useGitDiff": { "type": "boolean", "default": false, "description": "Run git diff --name-only to detect changed files" },
+                        "includeUntracked": { "type": "boolean", "default": false, "description": "Include untracked files when using git diff" },
+                        "maxFindings": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max findings to return" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only essential fields per item" }
+                    },
+                    "required": ["root"]
+                }
+            }
+        ]
     })
 }
 
@@ -8680,6 +8772,1583 @@ fn score_candidate_files(
     candidates
 }
 
+// ============================================================
+// v0.11: Impact Analysis, Risk Hotspots, Architecture Drift
+// ============================================================
+
+/// Resolve a target string to matching node IDs in the graph.
+/// Tries: symbol name (case-insensitive), file path, then direct ID.
+fn resolve_target_nodes(gv: &GraphView, target: &str) -> Vec<Value> {
+    let mut matches: Vec<Value> = Vec::new();
+    let target_lower = target.to_lowercase();
+
+    // 1. Try symbol name (case-insensitive)
+    if let Some(syms) = gv.symbols_by_name.get(&target_lower) {
+        for s in syms {
+            matches.push(s.clone());
+        }
+    }
+
+    // 2. Try as file path — find nodes with matching sourcePath
+    if matches.is_empty() {
+        for node in gv.nodes_by_id.values() {
+            let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+            if file == target || file.ends_with(&format!("/{target}")) || file.contains(target) {
+                matches.push(node.clone());
+            }
+        }
+    }
+
+    // 3. Try direct ID lookup
+    if matches.is_empty() {
+        if let Some(node) = gv.nodes_by_id.get(target) {
+            matches.push(node.clone());
+        }
+    }
+
+    matches
+}
+
+/// Compute risk level string from a score.
+fn risk_level_from_score(score: f64) -> &'static str {
+    if score < 0.3 {
+        "low"
+    } else if score < 0.6 {
+        "medium"
+    } else if score < 0.8 {
+        "high"
+    } else {
+        "critical"
+    }
+}
+
+/// Compute hotspot score for a symbol node.
+fn compute_symbol_hotspot_score(
+    node: &Value,
+    gv: &GraphView,
+    reachable: &std::collections::HashSet<String>,
+    include_tests: bool,
+) -> (f64, Vec<String>) {
+    let id = node["id"].as_str().unwrap_or("").to_string();
+    let name = node["properties"]["name"]
+        .as_str()
+        .or_else(|| id.split("::").last())
+        .unwrap_or("")
+        .to_string();
+    let file = node["properties"]["sourcePath"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+
+    // Skip test symbols if not included
+    if !include_tests && is_test_symbol(&name, &file) {
+        return (0.0, vec![]);
+    }
+
+    let mut score: f64 = 0.0;
+    let mut reasons: Vec<String> = Vec::new();
+
+    // Fan-in: direct incoming + via ref:Call:NAME nodes
+    let direct_incoming = gv.incoming.get(&id).cloned().unwrap_or_default();
+    let direct_fan_in = direct_incoming
+        .iter()
+        .filter(|e| {
+            let t = e["type"].as_str().unwrap_or("");
+            t == "CALLS" || t == "REFERENCES" || t == "IMPORTS"
+        })
+        .count();
+
+    // Also count callers via ref:Call:NAME intermediate nodes
+    let ref_call_id = format!("ref:Call:{}", name);
+    let ref_callers = gv.incoming.get(&ref_call_id).map(|v| v.len()).unwrap_or(0);
+
+    let fan_in = direct_fan_in + ref_callers;
+    let high_fan_in = fan_in > 5;
+    if high_fan_in {
+        score += 0.25;
+        reasons.push("high fan-in".to_string());
+    }
+
+    // Fan-out: outgoing edges + ref:Call nodes from the file
+    let outgoing = gv.outgoing.get(&id).cloned().unwrap_or_default();
+    let mut fan_out = outgoing
+        .iter()
+        .filter(|e| {
+            let t = e["type"].as_str().unwrap_or("");
+            t == "CALLS" || t == "REFERENCES" || t == "IMPORTS"
+        })
+        .count();
+
+    // Also count calls from the file containing this symbol
+    for (nid, fnode) in &gv.nodes_by_id {
+        let fpath = fnode["properties"]["sourcePath"].as_str().unwrap_or("");
+        if fpath == file {
+            if let Some(out_edges) = gv.outgoing.get(nid) {
+                for edge in out_edges {
+                    if edge["type"].as_str() == Some("CALLS") {
+                        let target = edge["target"].as_str().unwrap_or("");
+                        if target.starts_with("ref:Call:") && !target.ends_with(&name) {
+                            fan_out += 1;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let high_fan_out = fan_out > 5;
+    if high_fan_out {
+        score += 0.25;
+        reasons.push("high fan-out".to_string());
+    }
+
+    // Both high
+    if high_fan_in && high_fan_out {
+        score += 0.15;
+        reasons.push("both high fan-in/out".to_string());
+    }
+
+    // Cross-directory
+    let mut has_cross_dir = false;
+    for edge in &direct_incoming {
+        let source = edge["source"].as_str().unwrap_or("");
+        if let Some(src_node) = gv.nodes_by_id.get(source) {
+            let src_file = src_node["properties"]["sourcePath"].as_str().unwrap_or("");
+            if src_file != file && !src_file.is_empty() {
+                // Check different directory
+                let src_dir = parent_dir(src_file);
+                let tgt_dir = parent_dir(&file);
+                if src_dir != tgt_dir {
+                    has_cross_dir = true;
+                    break;
+                }
+            }
+        }
+    }
+    if has_cross_dir {
+        score += 0.15;
+        reasons.push("cross-directory dependency".to_string());
+    }
+
+    // Entry reachable
+    if reachable.contains(&id) {
+        score += 0.10;
+        reasons.push("entry-point reachable".to_string());
+    }
+
+    // Public/exported
+    if is_public_symbol(node, gv) {
+        score += 0.10;
+        reasons.push("public/exported".to_string());
+    }
+
+    // Diagnostics in file
+    let has_diag = gv
+        .diagnostics
+        .iter()
+        .any(|d| d["file"].as_str().map(|f| f == file).unwrap_or(false));
+    if has_diag {
+        score += 0.10;
+        reasons.push("file has diagnostics".to_string());
+    }
+
+    score = score.clamp(0.0, 1.0);
+    (score, reasons)
+}
+
+/// Get parent directory from a file path string.
+fn parent_dir(file: &str) -> String {
+    if let Some(idx) = file.rfind('/') {
+        file[..idx].to_string()
+    } else {
+        String::new()
+    }
+}
+
+/// BFS traversal collecting nodes at each depth level along CALLS/REFERENCES/IMPORTS edges.
+fn bfs_collect_by_depth(
+    gv: &GraphView,
+    start_ids: &[String],
+    direction: &str, // "upstream" (incoming) or "downstream" (outgoing)
+    max_depth: usize,
+    max_results: usize,
+    include_tests: bool,
+) -> Vec<Value> {
+    let mut levels: Vec<Value> = Vec::new();
+    let mut visited: std::collections::HashSet<String> = start_ids.iter().cloned().collect();
+    let mut current_level_ids: Vec<String> = start_ids.to_vec();
+
+    for depth in 1..=max_depth {
+        if current_level_ids.is_empty() {
+            break;
+        }
+        let mut next_level_ids: Vec<String> = Vec::new();
+        let mut level_nodes: Vec<Value> = Vec::new();
+
+        for node_id in &current_level_ids {
+            let edges = if direction == "upstream" {
+                gv.incoming.get(node_id).cloned().unwrap_or_default()
+            } else {
+                gv.outgoing.get(node_id).cloned().unwrap_or_default()
+            };
+
+            for edge in edges {
+                let edge_type = edge["type"].as_str().unwrap_or("");
+                if edge_type != "CALLS" && edge_type != "REFERENCES" && edge_type != "IMPORTS" {
+                    continue;
+                }
+                let neighbor_id = if direction == "upstream" {
+                    edge["source"].as_str()
+                } else {
+                    edge["target"].as_str()
+                };
+                if let Some(nid) = neighbor_id {
+                    if visited.insert(nid.to_string()) {
+                        if let Some(node) = gv.nodes_by_id.get(nid) {
+                            let name = node["properties"]["name"]
+                                .as_str()
+                                .or_else(|| {
+                                    node["id"].as_str().and_then(|id| id.split("::").last())
+                                })
+                                .unwrap_or("")
+                                .to_string();
+                            let file = node["properties"]["sourcePath"]
+                                .as_str()
+                                .unwrap_or("")
+                                .to_string();
+
+                            if !include_tests && is_test_symbol(&name, &file) {
+                                continue;
+                            }
+
+                            level_nodes.push(compact_node(node));
+                            next_level_ids.push(nid.to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        if !level_nodes.is_empty() {
+            levels.push(json!({
+                "depth": depth,
+                "nodes": level_nodes.into_iter().take(max_results).collect::<Vec<_>>()
+            }));
+        }
+        current_level_ids = next_level_ids;
+    }
+
+    levels
+}
+
+/// Make a compact node representation.
+fn compact_node(node: &Value) -> Value {
+    json!({
+        "id": node["id"],
+        "name": node["properties"]["name"].as_str()
+            .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+            .unwrap_or(""),
+        "kind": node["properties"]["symbolKind"].as_str()
+            .or_else(|| node["kind"].as_str())
+            .unwrap_or(""),
+        "file": node["properties"]["sourcePath"].as_str().unwrap_or(""),
+        "line": node["properties"]["startLine"].as_u64().unwrap_or(0)
+    })
+}
+
+/// Detect cycles using iterative DFS with path tracking.
+fn detect_cycles(gv: &GraphView, max_cycles: usize, include_tests: bool) -> Vec<Value> {
+    let mut cycles: Vec<Value> = Vec::new();
+    let mut seen_cycle_keys: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let follow_types: &[&str] = &["CALLS", "IMPORTS", "REFERENCES"];
+
+    for start_id in gv.nodes_by_id.keys() {
+        if cycles.len() >= max_cycles {
+            break;
+        }
+
+        // Skip test files
+        if let Some(node) = gv.nodes_by_id.get(start_id) {
+            let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+            let name = node["properties"]["name"].as_str().unwrap_or("");
+            if !include_tests && is_test_symbol(name, file) {
+                continue;
+            }
+        }
+
+        // Iterative DFS: stack holds (node_id, path)
+        let mut stack: Vec<(String, Vec<String>)> =
+            vec![(start_id.clone(), vec![start_id.clone()])];
+
+        while let Some((current_id, path)) = stack.pop() {
+            if path.len() > 12 {
+                continue; // depth limit
+            }
+            if let Some(edges) = gv.outgoing.get(&current_id) {
+                for edge in edges {
+                    let edge_type = edge["type"].as_str().unwrap_or("");
+                    if !follow_types.contains(&edge_type) {
+                        continue;
+                    }
+                    if let Some(target) = edge["target"].as_str() {
+                        // Only cross-file cycles are interesting
+                        let current_file = gv
+                            .nodes_by_id
+                            .get(&current_id)
+                            .and_then(|n| n["properties"]["sourcePath"].as_str())
+                            .unwrap_or("");
+                        let target_file = gv
+                            .nodes_by_id
+                            .get(target)
+                            .and_then(|n| n["properties"]["sourcePath"].as_str())
+                            .unwrap_or("");
+                        if current_file == target_file {
+                            continue;
+                        }
+
+                        if let Some(cycle_idx) = path.iter().position(|p| p == target) {
+                            // Found cycle
+                            let cycle_path: Vec<String> = path[cycle_idx..].to_vec();
+                            let mut key_parts = cycle_path.clone();
+                            key_parts.sort();
+                            let key = key_parts.join(",");
+                            if seen_cycle_keys.insert(key) {
+                                // Get participant dirs/files
+                                let participants: Vec<String> = cycle_path
+                                    .iter()
+                                    .filter_map(|id| {
+                                        gv.nodes_by_id.get(id).and_then(|n| {
+                                            n["properties"]["sourcePath"].as_str().map(parent_dir)
+                                        })
+                                    })
+                                    .collect();
+                                let edge_types: Vec<String> = cycle_path
+                                    .windows(2)
+                                    .map(|w| {
+                                        gv.outgoing
+                                            .get(&w[0])
+                                            .and_then(|edges| {
+                                                edges
+                                                    .iter()
+                                                    .find(|e| {
+                                                        e["target"].as_str() == Some(&w[1])
+                                                            && follow_types.contains(
+                                                                &e["type"].as_str().unwrap_or(""),
+                                                            )
+                                                    })
+                                                    .and_then(|e| {
+                                                        e["type"].as_str().map(String::from)
+                                                    })
+                                            })
+                                            .unwrap_or_else(|| "CALLS".to_string())
+                                    })
+                                    .collect();
+
+                                let desc_parts: Vec<String> = cycle_path
+                                    .iter()
+                                    .filter_map(|id| {
+                                        gv.nodes_by_id.get(id).and_then(|n| {
+                                            n["properties"]["name"]
+                                                .as_str()
+                                                .or_else(|| {
+                                                    n["id"]
+                                                        .as_str()
+                                                        .and_then(|id| id.split("::").last())
+                                                })
+                                                .map(String::from)
+                                        })
+                                    })
+                                    .collect();
+
+                                cycles.push(json!({
+                                    "participants": participants,
+                                    "edgeTypes": edge_types,
+                                    "description": format!("cycle: {}", desc_parts.join(" → "))
+                                }));
+
+                                if cycles.len() >= max_cycles {
+                                    return cycles;
+                                }
+                            }
+                        } else if path.len() < 12 {
+                            let mut new_path = path.clone();
+                            new_path.push(target.to_string());
+                            stack.push((target.to_string(), new_path));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    cycles
+}
+
+/// Compute cross-directory coupling metrics.
+fn compute_coupling(gv: &GraphView, max_findings: usize, include_tests: bool) -> Vec<Value> {
+    let mut dir_edges: HashMap<(String, String), usize> = HashMap::new();
+    let follow_types: &[&str] = &["CALLS", "IMPORTS", "REFERENCES"];
+
+    for (src_id, edges) in &gv.outgoing {
+        let src_file = gv
+            .nodes_by_id
+            .get(src_id)
+            .and_then(|n| n["properties"]["sourcePath"].as_str())
+            .unwrap_or("");
+
+        if !include_tests && is_test_like_path(src_file) {
+            continue;
+        }
+        let src_dir = parent_dir(src_file);
+        if src_dir.is_empty() {
+            continue;
+        }
+
+        for edge in edges {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if !follow_types.contains(&edge_type) {
+                continue;
+            }
+            if let Some(target) = edge["target"].as_str() {
+                let tgt_file = gv
+                    .nodes_by_id
+                    .get(target)
+                    .and_then(|n| n["properties"]["sourcePath"].as_str())
+                    .unwrap_or("");
+                let tgt_dir = parent_dir(tgt_file);
+                if tgt_dir.is_empty() || tgt_dir == src_dir {
+                    continue;
+                }
+                if !include_tests && is_test_like_path(tgt_file) {
+                    continue;
+                }
+                *dir_edges.entry((src_dir.clone(), tgt_dir)).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Find overly coupled modules (>15 edges total)
+    let mut dir_total: HashMap<String, (usize, usize, std::collections::HashSet<String>)> =
+        HashMap::new(); // dir -> (incoming, outgoing, connected_dirs)
+    for ((src, tgt), count) in &dir_edges {
+        let entry =
+            dir_total
+                .entry(src.clone())
+                .or_insert((0, 0, std::collections::HashSet::new()));
+        entry.1 += count;
+        entry.2.insert(tgt.clone());
+        let entry2 =
+            dir_total
+                .entry(tgt.clone())
+                .or_insert((0, 0, std::collections::HashSet::new()));
+        entry2.0 += count;
+        entry2.2.insert(src.clone());
+    }
+
+    let mut coupled: Vec<Value> = dir_total
+        .iter()
+        .filter(|(_, (inc, out, _connected))| *inc + *out > 15)
+        .map(|(dir, (inc, out, connected))| {
+            json!({
+                "path": dir,
+                "incomingEdges": inc,
+                "outgoingEdges": out,
+                "connectedModules": connected.len(),
+                "reasons": vec![
+                    if *inc + *out > 30 { "very high coupling".to_string() } else { "high coupling".to_string() }
+                ]
+            })
+        })
+        .collect();
+
+    coupled.sort_by(|a, b| {
+        let a_total =
+            a["incomingEdges"].as_u64().unwrap_or(0) + a["outgoingEdges"].as_u64().unwrap_or(0);
+        let b_total =
+            b["incomingEdges"].as_u64().unwrap_or(0) + b["outgoingEdges"].as_u64().unwrap_or(0);
+        b_total.cmp(&a_total)
+    });
+    coupled.truncate(max_findings);
+    coupled
+}
+
+/// Detect cross-layer calls and boundary leaks given layer rules.
+fn detect_layer_violations(
+    gv: &GraphView,
+    layer_rules: &[String],
+    max_findings: usize,
+    include_tests: bool,
+) -> (Vec<Value>, Vec<Value>) {
+    let mut cross_layer_calls: Vec<Value> = Vec::new();
+    let mut boundary_leaks: Vec<Value> = Vec::new();
+
+    // Parse layer rules: "api>service>domain>infra" -> ["api", "service", "domain", "infra"]
+    let mut layers: Vec<String> = Vec::new();
+    for rule in layer_rules {
+        for part in rule.split('>') {
+            let trimmed = part.trim().to_string();
+            if !trimmed.is_empty() && !layers.contains(&trimmed) {
+                layers.push(trimmed);
+            }
+        }
+    }
+    if layers.len() < 2 {
+        return (cross_layer_calls, boundary_leaks);
+    }
+
+    fn resolve_layer(file: &str, layers: &[String]) -> Option<usize> {
+        let lower = file.to_lowercase();
+        for (i, layer) in layers.iter().enumerate() {
+            let layer_lower = layer.to_lowercase();
+            if lower.contains(&format!("/{}", layer_lower))
+                || lower.contains(&format!("{}{}", "/", layer_lower))
+                || lower.starts_with(&format!("{}{}", layer_lower, "/"))
+            {
+                return Some(i);
+            }
+        }
+        None
+    }
+
+    let follow_types: &[&str] = &["CALLS", "IMPORTS", "REFERENCES"];
+
+    for (src_id, edges) in &gv.outgoing {
+        let src_file = gv
+            .nodes_by_id
+            .get(src_id)
+            .and_then(|n| n["properties"]["sourcePath"].as_str())
+            .unwrap_or("");
+
+        if !include_tests && is_test_like_path(src_file) {
+            continue;
+        }
+
+        let src_layer_idx = match resolve_layer(src_file, &layers) {
+            Some(idx) => idx,
+            None => continue,
+        };
+
+        for edge in edges {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if !follow_types.contains(&edge_type) {
+                continue;
+            }
+            if let Some(target) = edge["target"].as_str() {
+                let tgt_file = gv
+                    .nodes_by_id
+                    .get(target)
+                    .and_then(|n| n["properties"]["sourcePath"].as_str())
+                    .unwrap_or("");
+                let tgt_layer_idx = match resolve_layer(tgt_file, &layers) {
+                    Some(idx) => idx,
+                    None => continue,
+                };
+
+                // Reverse dependency: lower layer calling higher layer
+                if tgt_layer_idx < src_layer_idx {
+                    cross_layer_calls.push(json!({
+                        "from": parent_dir(src_file),
+                        "to": parent_dir(tgt_file),
+                        "fromLayer": layers[src_layer_idx],
+                        "toLayer": layers[tgt_layer_idx],
+                        "edgeType": edge_type,
+                        "violation": "reverse dependency"
+                    }));
+
+                    // Also record as boundary leak
+                    boundary_leaks.push(json!({
+                        "from": parent_dir(src_file),
+                        "to": parent_dir(tgt_file),
+                        "fromLayer": layers[src_layer_idx],
+                        "toLayer": layers[tgt_layer_idx],
+                        "edgeType": edge_type,
+                        "description": format!(
+                            "{} layer ({}) imports from {} layer ({})",
+                            layers[src_layer_idx], parent_dir(src_file),
+                            layers[tgt_layer_idx], parent_dir(tgt_file)
+                        )
+                    }));
+                }
+                // Skip-layer call (non-adjacent, but forward direction)
+                else if tgt_layer_idx > src_layer_idx + 1 {
+                    cross_layer_calls.push(json!({
+                        "from": parent_dir(src_file),
+                        "to": parent_dir(tgt_file),
+                        "fromLayer": layers[src_layer_idx],
+                        "toLayer": layers[tgt_layer_idx],
+                        "edgeType": edge_type,
+                        "violation": "skip-layer call"
+                    }));
+                }
+            }
+        }
+
+        if cross_layer_calls.len() >= max_findings {
+            break;
+        }
+    }
+
+    (cross_layer_calls, boundary_leaks)
+}
+
+/// Detect bidirectional dependencies between directories.
+fn detect_bidirectional_deps(gv: &GraphView, include_tests: bool) -> Vec<Value> {
+    let mut dir_edges: HashMap<(String, String), usize> = HashMap::new();
+    let follow_types: &[&str] = &["CALLS", "IMPORTS", "REFERENCES"];
+
+    for (src_id, edges) in &gv.outgoing {
+        let src_file = gv
+            .nodes_by_id
+            .get(src_id)
+            .and_then(|n| n["properties"]["sourcePath"].as_str())
+            .unwrap_or("");
+        if !include_tests && is_test_like_path(src_file) {
+            continue;
+        }
+        let src_dir = parent_dir(src_file);
+        if src_dir.is_empty() {
+            continue;
+        }
+
+        for edge in edges {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if !follow_types.contains(&edge_type) {
+                continue;
+            }
+            if let Some(target) = edge["target"].as_str() {
+                let tgt_file = gv
+                    .nodes_by_id
+                    .get(target)
+                    .and_then(|n| n["properties"]["sourcePath"].as_str())
+                    .unwrap_or("");
+                let tgt_dir = parent_dir(tgt_file);
+                if tgt_dir.is_empty() || tgt_dir == src_dir {
+                    continue;
+                }
+                if !include_tests && is_test_like_path(tgt_file) {
+                    continue;
+                }
+                *dir_edges.entry((src_dir.clone(), tgt_dir)).or_insert(0) += 1;
+            }
+        }
+    }
+
+    // Find bidirectional pairs
+    let mut seen_pairs: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    let mut reverse_deps: Vec<Value> = Vec::new();
+
+    for ((src, tgt), count) in &dir_edges {
+        let forward_key = if src < tgt {
+            (src.clone(), tgt.clone())
+        } else {
+            (tgt.clone(), src.clone())
+        };
+        if seen_pairs.insert(forward_key.clone()) {
+            // Check reverse
+            let reverse_count = dir_edges
+                .get(&(tgt.clone(), src.clone()))
+                .or_else(|| dir_edges.get(&(src.clone(), tgt.clone())))
+                .copied()
+                .unwrap_or(0);
+            if *count > 0 && reverse_count > 0 {
+                reverse_deps.push(json!({
+                    "from": src,
+                    "to": tgt,
+                    "forwardEdges": count,
+                    "reverseEdges": reverse_count,
+                    "description": format!("bidirectional: {} ↔ {}", src, tgt)
+                }));
+            }
+        }
+    }
+
+    reverse_deps
+}
+
+/// Handle `codelattice_impact_analysis` tool.
+fn handle_impact_analysis(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let target = params["target"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: target"))?;
+    let include_indirect = params["includeIndirect"].as_bool().unwrap_or(true);
+    let max_depth = params["maxDepth"].as_u64().unwrap_or(3).min(6) as usize;
+    let max_results = params["maxResults"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let _compact = params["compact"].as_bool().unwrap_or(true);
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // 1. Resolve target
+    let target_nodes = resolve_target_nodes(&gv, target);
+    if target_nodes.is_empty() {
+        let result_data = json!({
+            "language": language,
+            "root": root,
+            "targetMatched": Value::Null,
+            "directCallers": [],
+            "directCallees": [],
+            "upstreamPaths": [],
+            "downstreamPaths": [],
+            "relatedFiles": [],
+            "entryPointReachability": { "reachable": false, "viaEntryPoints": [], "pathLength": 0 },
+            "riskLevel": "low",
+            "riskScore": 0.0,
+            "reasons": vec![format!("target '{}' not found", target)],
+            "cautions": vec!["static analysis only", "dynamic dispatch may hide callers"],
+            "readFirst": [],
+            "reviewFirst": [],
+            "generatedFrom": {
+                "staticAnalysisOnly": true,
+                "heuristic": true,
+                "compilerVerified": false
+            }
+        });
+        return Ok(merge_cache_and_result(&result_data, &cache_meta));
+    }
+
+    // Use first match as primary target
+    let primary = &target_nodes[0];
+    let _primary_id = primary["id"].as_str().unwrap_or("").to_string();
+    let primary_file = primary["properties"]["sourcePath"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
+    let primary_name = primary["properties"]["name"]
+        .as_str()
+        .or_else(|| primary["id"].as_str().and_then(|id| id.split("::").last()))
+        .unwrap_or("")
+        .to_string();
+
+    let all_target_ids: Vec<String> = target_nodes
+        .iter()
+        .filter_map(|n| n["id"].as_str().map(String::from))
+        .collect();
+
+    // 2. Direct callers
+    // Strategy: Find callers via multiple graph patterns:
+    //   a) Direct CALLS/REFERENCES/IMPORTS edges to target symbol nodes
+    //   b) ref:Call:NAME nodes (intermediate call reference) → their incoming CALLS → source files → symbols in those files
+    //   c) IMPORTS edges to target's file where names include target name → source files
+    let call_edge_types: &[&str] = &["CALLS", "REFERENCES", "IMPORTS"];
+    let mut caller_file_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut direct_callers: Vec<Value> = Vec::new();
+
+    // 2a. Direct edges to target symbol nodes
+    for tid in &all_target_ids {
+        for edge in gv.edges_to(tid, None) {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if call_edge_types.contains(&edge_type) {
+                let source = edge["source"].as_str().unwrap_or("");
+                if let Some(src_node) = gv.nodes_by_id.get(source) {
+                    let name = src_node["properties"]["name"]
+                        .as_str()
+                        .or_else(|| src_node["id"].as_str().and_then(|id| id.split("::").last()))
+                        .unwrap_or("")
+                        .to_string();
+                    let file = src_node["properties"]["sourcePath"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    if !include_tests && is_test_symbol(&name, &file) {
+                        continue;
+                    }
+                    if !file.is_empty() && caller_file_set.insert(file.clone()) {
+                        direct_callers.push(compact_node(src_node));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2b. Find ref:Call:NAME nodes and their incoming CALLS edges
+    let ref_id = format!("ref:Call:{}", primary_name);
+    if let Some(incoming) = gv.incoming.get(&ref_id) {
+        for edge in incoming {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if edge_type == "CALLS" {
+                let source = edge["source"].as_str().unwrap_or("");
+                // Source is typically a file node; find symbols in that file
+                if let Some(src_node) = gv.nodes_by_id.get(source) {
+                    let src_file = src_node["properties"]["sourcePath"]
+                        .as_str()
+                        .or_else(|| {
+                            // For file nodes, extract relative path from id
+                            src_node["id"]
+                                .as_str()
+                                .and_then(|id| id.find("/src/").map(|pos| &id[pos + 1..]))
+                        })
+                        .unwrap_or("")
+                        .to_string();
+                    if !include_tests && is_test_like_path(&src_file) {
+                        continue;
+                    }
+                    // Find all symbol nodes in the source file
+                    for node in gv.nodes_by_id.values() {
+                        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+                        if file == src_file {
+                            let name = node["properties"]["name"]
+                                .as_str()
+                                .or_else(|| {
+                                    node["id"].as_str().and_then(|id| id.split("::").last())
+                                })
+                                .unwrap_or("");
+                            if !name.is_empty()
+                                && !caller_file_set.contains(file)
+                                && node["kind"].as_str() == Some("symbol")
+                            {
+                                caller_file_set.insert(file.to_string());
+                                direct_callers.push(compact_node(node));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2c. Find IMPORTS edges to target's file where names include target name
+    if !primary_file.is_empty() {
+        for node in gv.nodes_by_id.values() {
+            let nid = node["id"].as_str().unwrap_or("");
+            // Look for file nodes that import the target's file
+            if nid.starts_with("file:") {
+                if let Some(outgoing) = gv.outgoing.get(nid) {
+                    for edge in outgoing {
+                        if edge["type"].as_str() == Some("IMPORTS") {
+                            let target_file = edge["target"].as_str().unwrap_or("");
+                            // Check if this import targets the file containing our target
+                            if target_file.contains(&primary_file) {
+                                let names = edge["properties"]["names"]
+                                    .as_array()
+                                    .map(|arr| {
+                                        arr.iter()
+                                            .filter_map(|v| v.as_str().map(String::from))
+                                            .collect::<Vec<String>>()
+                                    })
+                                    .unwrap_or_default();
+                                if names.iter().any(|n| n == &primary_name) {
+                                    let src_file = node["properties"]["sourcePath"]
+                                        .as_str()
+                                        .or_else(|| nid.find("/src/").map(|pos| &nid[pos + 1..]))
+                                        .unwrap_or("")
+                                        .to_string();
+                                    if !include_tests && is_test_like_path(&src_file) {
+                                        continue;
+                                    }
+                                    // Add the source file's symbols as callers
+                                    for sym_node in gv.nodes_by_id.values() {
+                                        let sym_file = sym_node["properties"]["sourcePath"]
+                                            .as_str()
+                                            .unwrap_or("");
+                                        if sym_file == src_file
+                                            && sym_node["kind"].as_str() == Some("symbol")
+                                        {
+                                            let name = sym_node["properties"]["name"]
+                                                .as_str()
+                                                .or_else(|| {
+                                                    sym_node["id"]
+                                                        .as_str()
+                                                        .and_then(|id| id.split("::").last())
+                                                })
+                                                .unwrap_or("");
+                                            if !name.is_empty()
+                                                && caller_file_set.insert(src_file.clone())
+                                            {
+                                                direct_callers.push(compact_node(sym_node));
+                                            }
+                                            break; // one representative per file
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    direct_callers.truncate(max_results);
+
+    // 3. Direct callees
+    // Strategy: similar — follow outgoing edges, then resolve via ref:Call nodes
+    let mut callee_file_set: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut direct_callees: Vec<Value> = Vec::new();
+
+    // 3a. Direct edges from target symbol nodes
+    for tid in &all_target_ids {
+        for edge in gv.edges_from(tid, None) {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if call_edge_types.contains(&edge_type) {
+                let target_id = edge["target"].as_str().unwrap_or("");
+                if let Some(tgt_node) = gv.nodes_by_id.get(target_id) {
+                    let name = tgt_node["properties"]["name"]
+                        .as_str()
+                        .or_else(|| tgt_node["id"].as_str().and_then(|id| id.split("::").last()))
+                        .unwrap_or("")
+                        .to_string();
+                    let file = tgt_node["properties"]["sourcePath"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_string();
+                    if !include_tests && is_test_symbol(&name, &file) {
+                        continue;
+                    }
+                    if !file.is_empty() && callee_file_set.insert(file.clone()) {
+                        direct_callees.push(compact_node(tgt_node));
+                    }
+                }
+            }
+        }
+    }
+
+    // 3b. Find ref:Call: nodes from target's file → those represent calls FROM the target's file
+    // Look for CALLS edges from the target's file node
+    for (nid, node) in &gv.nodes_by_id {
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        if file == primary_file || nid.ends_with(&primary_file.replace('/', "/")) {
+            if let Some(outgoing) = gv.outgoing.get(nid) {
+                for edge in outgoing {
+                    if edge["type"].as_str() == Some("CALLS") {
+                        let target = edge["target"].as_str().unwrap_or("");
+                        // target is a ref:Call:NAME node — resolve to actual symbol
+                        if let Some(rest) = target.strip_prefix("ref:Call:") {
+                            // Find the symbol with this name
+                            if let Some(syms) = gv.symbols_by_name.get(&rest.to_lowercase()) {
+                                for sym in syms {
+                                    let sym_file =
+                                        sym["properties"]["sourcePath"].as_str().unwrap_or("");
+                                    if sym_file != primary_file {
+                                        if callee_file_set.insert(sym_file.to_string()) {
+                                            direct_callees.push(compact_node(sym));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    direct_callees.truncate(max_results);
+
+    // 4. Indirect paths (BFS)
+    let upstream_paths = if include_indirect {
+        bfs_collect_by_depth(
+            &gv,
+            &all_target_ids,
+            "upstream",
+            max_depth,
+            max_results,
+            include_tests,
+        )
+    } else {
+        vec![]
+    };
+
+    let downstream_paths = if include_indirect {
+        bfs_collect_by_depth(
+            &gv,
+            &all_target_ids,
+            "downstream",
+            max_depth,
+            max_results,
+            include_tests,
+        )
+    } else {
+        vec![]
+    };
+
+    // Count indirect paths (total nodes across all levels)
+    let indirect_count: usize = upstream_paths
+        .iter()
+        .chain(downstream_paths.iter())
+        .map(|l| l["nodes"].as_array().map(|a| a.len()).unwrap_or(0))
+        .sum();
+
+    // 5. Related files
+    let mut related_files: Vec<String> = Vec::new();
+    for node in &target_nodes {
+        let f = node["properties"]["sourcePath"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if !f.is_empty() && !related_files.contains(&f) {
+            related_files.push(f);
+        }
+    }
+    for caller in &direct_callers {
+        let f = caller["file"].as_str().unwrap_or("").to_string();
+        if !f.is_empty() && !related_files.contains(&f) {
+            related_files.push(f);
+        }
+    }
+    for level in upstream_paths.iter().chain(downstream_paths.iter()) {
+        if let Some(nodes) = level["nodes"].as_array() {
+            for node in nodes {
+                let f = node["file"].as_str().unwrap_or("").to_string();
+                if !f.is_empty() && !related_files.contains(&f) {
+                    related_files.push(f);
+                }
+            }
+        }
+    }
+
+    // 6. Entry point reachability
+    let entry_points = detect_entry_points(&gv, language, &[]);
+    let reachable = reachable_from_entry_points(&gv, &entry_points);
+    let target_reachable = all_target_ids.iter().any(|id| reachable.contains(id));
+
+    let mut via_entries: Vec<String> = Vec::new();
+    let mut min_path_len = usize::MAX;
+    if target_reachable {
+        // BFS from each entry point to find which can reach target
+        for (ep_id, ep_name, _, _, _) in &entry_points {
+            let mut queue: std::collections::VecDeque<(String, usize)> =
+                std::collections::VecDeque::new();
+            let mut visited: std::collections::HashSet<String> = std::collections::HashSet::new();
+            queue.push_back((ep_id.clone(), 0));
+            visited.insert(ep_id.clone());
+
+            while let Some((nid, depth)) = queue.pop_front() {
+                if all_target_ids.contains(&nid) {
+                    via_entries.push(ep_name.clone());
+                    if depth < min_path_len {
+                        min_path_len = depth;
+                    }
+                    break;
+                }
+                if depth >= max_depth + 2 {
+                    continue;
+                }
+                if let Some(edges) = gv.outgoing.get(&nid) {
+                    for edge in edges {
+                        let edge_type = edge["type"].as_str().unwrap_or("");
+                        if call_edge_types.contains(&edge_type) {
+                            if let Some(tgt) = edge["target"].as_str() {
+                                if visited.insert(tgt.to_string()) {
+                                    queue.push_back((tgt.to_string(), depth + 1));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Risk score
+    let mut risk_score: f64 = 0.0;
+    let mut reasons: Vec<String> = Vec::new();
+
+    if direct_callers.len() > 5 {
+        risk_score += 0.30;
+        reasons.push(format!("{} direct callers", direct_callers.len()));
+    }
+    if indirect_count > 10 {
+        risk_score += 0.20;
+        reasons.push(format!("{} indirect paths", indirect_count));
+    }
+    // Cross-directory check
+    let primary_dir = parent_dir(&primary_file);
+    let has_cross_dir = direct_callers.iter().any(|c| {
+        let caller_dir = parent_dir(c["file"].as_str().unwrap_or(""));
+        !caller_dir.is_empty() && caller_dir != primary_dir
+    });
+    if has_cross_dir {
+        risk_score += 0.20;
+        reasons.push("cross-directory impact".to_string());
+    }
+    if is_public_symbol(primary, &gv) {
+        risk_score += 0.15;
+        reasons.push("target is public/exported".to_string());
+    }
+    if target_reachable {
+        risk_score += 0.15;
+        reasons.push("entry-point reachable".to_string());
+    }
+    // Check quality metrics
+    let quality = compute_quality_metrics(&gv);
+    let has_failures = quality["gates"]
+        .as_array()
+        .map(|gates| gates.iter().any(|g| g["passed"].as_bool() == Some(false)))
+        .unwrap_or(false);
+    if has_failures {
+        risk_score += 0.10;
+        reasons.push("quality metrics have failures".to_string());
+    }
+    // Test-only target
+    let is_test_target = is_test_symbol(
+        primary["properties"]["name"].as_str().unwrap_or(""),
+        &primary_file,
+    );
+    if is_test_target {
+        risk_score -= 0.10;
+    }
+
+    risk_score = risk_score.clamp(0.0, 1.0);
+    let risk_level = risk_level_from_score(risk_score);
+
+    // 8. readFirst: top 5 callers by fan-in (most dependent)
+    let mut callers_with_fanin: Vec<(Value, usize)> = Vec::new();
+    for caller in &direct_callers {
+        let cid = caller["id"].as_str().unwrap_or("").to_string();
+        let fan_in = gv.incoming.get(&cid).map(|v| v.len()).unwrap_or(0);
+        callers_with_fanin.push((caller.clone(), fan_in));
+    }
+    callers_with_fanin.sort_by(|a, b| b.1.cmp(&a.1));
+    let read_first: Vec<Value> = callers_with_fanin
+        .iter()
+        .take(5)
+        .map(|(node, fan_in)| {
+            json!({
+                "id": node["id"],
+                "name": node["name"],
+                "kind": node["kind"],
+                "file": node["file"],
+                "line": node["line"],
+                "fanIn": fan_in
+            })
+        })
+        .collect();
+
+    // 9. reviewFirst: top 5 callers that are public/exported
+    let mut public_callers: Vec<Value> = Vec::new();
+    for caller in &direct_callers {
+        let cid = caller["id"].as_str().unwrap_or("").to_string();
+        if let Some(node) = gv.nodes_by_id.get(&cid) {
+            if is_public_symbol(node, &gv) {
+                public_callers.push(caller.clone());
+            }
+        }
+    }
+    public_callers.truncate(5);
+    let review_first = public_callers;
+
+    let result_data = json!({
+        "language": language,
+        "root": root,
+        "targetMatched": compact_node(primary),
+        "directCallers": direct_callers,
+        "directCallees": direct_callees,
+        "upstreamPaths": upstream_paths,
+        "downstreamPaths": downstream_paths,
+        "relatedFiles": related_files,
+        "entryPointReachability": {
+            "reachable": target_reachable,
+            "viaEntryPoints": via_entries,
+            "pathLength": if min_path_len == usize::MAX { 0 } else { min_path_len }
+        },
+        "riskLevel": risk_level,
+        "riskScore": (risk_score * 100.0).round() / 100.0,
+        "reasons": reasons,
+        "cautions": vec!["static analysis only", "dynamic dispatch may hide callers"],
+        "readFirst": read_first,
+        "reviewFirst": review_first,
+        "generatedFrom": {
+            "staticAnalysisOnly": true,
+            "heuristic": true,
+            "compilerVerified": false
+        }
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
+/// Handle `codelattice_risk_hotspots` tool.
+fn handle_risk_hotspots(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let scope = params["scope"].as_str().unwrap_or("all");
+    let max_results = params["maxResults"].as_u64().unwrap_or(20).min(100) as usize;
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let min_risk_level = params["minRiskLevel"].as_str().unwrap_or("medium");
+    let _compact = params["compact"].as_bool().unwrap_or(true);
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // Entry points and reachability
+    let entry_points = detect_entry_points(&gv, language, &[]);
+    let reachable = reachable_from_entry_points(&gv, &entry_points);
+
+    // Minimum risk score threshold
+    let min_score = match min_risk_level {
+        "low" => 0.0,
+        "medium" => 0.3,
+        "high" => 0.6,
+        "critical" => 0.8,
+        _ => 0.3,
+    };
+
+    // Symbol hotspots
+    let mut hotspot_symbols: Vec<Value> = Vec::new();
+    if scope == "all" || scope == "symbols" {
+        for node in gv.nodes_by_id.values() {
+            let kind = node["kind"].as_str().unwrap_or("");
+            let label = node["label"].as_str().unwrap_or("");
+            if kind != "symbol" && label != "symbol" {
+                continue;
+            }
+
+            let symbol_kind = node["properties"]["symbolKind"]
+                .as_str()
+                .or_else(|| node["kind"].as_str())
+                .unwrap_or("");
+            if matches!(
+                symbol_kind,
+                "module" | "package" | "repository" | "file" | "source_file"
+            ) {
+                continue;
+            }
+
+            let (score, reasons) =
+                compute_symbol_hotspot_score(node, &gv, &reachable, include_tests);
+            if score < min_score || reasons.is_empty() {
+                continue;
+            }
+
+            let id = node["id"].as_str().unwrap_or("").to_string();
+            let fan_in = gv
+                .incoming
+                .get(&id)
+                .map(|v| {
+                    v.iter()
+                        .filter(|e| {
+                            let t = e["type"].as_str().unwrap_or("");
+                            t == "CALLS" || t == "REFERENCES" || t == "IMPORTS"
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+            let fan_out = gv
+                .outgoing
+                .get(&id)
+                .map(|v| {
+                    v.iter()
+                        .filter(|e| {
+                            let t = e["type"].as_str().unwrap_or("");
+                            t == "CALLS" || t == "REFERENCES" || t == "IMPORTS"
+                        })
+                        .count()
+                })
+                .unwrap_or(0);
+
+            hotspot_symbols.push(json!({
+                "id": id,
+                "name": node["properties"]["name"].as_str()
+                    .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+                    .unwrap_or(""),
+                "kind": symbol_kind,
+                "file": node["properties"]["sourcePath"].as_str().unwrap_or(""),
+                "line": node["properties"]["startLine"].as_u64().unwrap_or(0),
+                "score": (score * 100.0).round() / 100.0,
+                "riskLevel": risk_level_from_score(score),
+                "fanIn": fan_in,
+                "fanOut": fan_out,
+                "reasons": reasons,
+                "cautions": vec!["static analysis only"]
+            }));
+        }
+
+        // Sort by score descending, then by name
+        hotspot_symbols.sort_by(|a, b| {
+            let score_cmp = b["score"]
+                .as_f64()
+                .unwrap_or(0.0)
+                .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                a["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["name"].as_str().unwrap_or(""))
+            }
+        });
+        hotspot_symbols.truncate(max_results);
+    }
+
+    // File hotspots
+    let mut hotspot_files: Vec<Value> = Vec::new();
+    if scope == "all" || scope == "files" {
+        struct FileAccum {
+            symbol_count: usize,
+            total_score: f64,
+            incoming: usize,
+            outgoing: usize,
+        }
+        let mut file_accums: HashMap<String, FileAccum> = HashMap::new();
+
+        for node in gv.nodes_by_id.values() {
+            let kind = node["kind"].as_str().unwrap_or("");
+            let label = node["label"].as_str().unwrap_or("");
+            if kind != "symbol" && label != "symbol" {
+                continue;
+            }
+
+            let file = node["properties"]["sourcePath"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            if file.is_empty() || is_generated_path(&file) {
+                continue;
+            }
+            if !include_tests && is_test_like_path(&file) {
+                continue;
+            }
+
+            let id = node["id"].as_str().unwrap_or("").to_string();
+            let (score, reasons) =
+                compute_symbol_hotspot_score(node, &gv, &reachable, include_tests);
+            if reasons.is_empty() {
+                continue;
+            }
+
+            let inc = gv.incoming.get(&id).map(|v| v.len()).unwrap_or(0);
+            let out = gv.outgoing.get(&id).map(|v| v.len()).unwrap_or(0);
+
+            let accum = file_accums.entry(file.clone()).or_insert(FileAccum {
+                symbol_count: 0,
+                total_score: 0.0,
+                incoming: 0,
+                outgoing: 0,
+            });
+            accum.symbol_count += 1;
+            accum.total_score += score;
+            accum.incoming += inc;
+            accum.outgoing += out;
+        }
+
+        for (file, accum) in &file_accums {
+            if accum.symbol_count == 0 {
+                continue;
+            }
+            let avg_score = accum.total_score / accum.symbol_count as f64;
+            let mut file_score = avg_score;
+            let mut file_reasons: Vec<String> = Vec::new();
+
+            // High edge density
+            let edge_density = (accum.incoming + accum.outgoing) as f64 / accum.symbol_count as f64;
+            if edge_density > 3.0 {
+                file_score += 0.20;
+                file_reasons.push("high edge density".to_string());
+            }
+
+            // High symbol count
+            if accum.symbol_count > 10 {
+                file_score += 0.10;
+                file_reasons.push("high symbol count".to_string());
+            }
+
+            // Entry file
+            let is_entry = entry_points.iter().any(|(_, _, _, f, _)| f == file);
+            if is_entry {
+                file_score += 0.15;
+                file_reasons.push("entry file".to_string());
+            }
+
+            // Contains public exports
+            let has_public = gv.nodes_by_id.values().any(|n| {
+                let f = n["properties"]["sourcePath"].as_str().unwrap_or("");
+                f == *file && is_public_symbol(n, &gv)
+            });
+            if has_public {
+                file_score += 0.15;
+                file_reasons.push("contains public exports".to_string());
+            }
+
+            file_score = file_score.clamp(0.0, 1.0);
+            if file_score < min_score {
+                continue;
+            }
+
+            hotspot_files.push(json!({
+                "path": file,
+                "score": (file_score * 100.0).round() / 100.0,
+                "symbolCount": accum.symbol_count,
+                "fanIn": accum.incoming,
+                "fanOut": accum.outgoing,
+                "reasons": file_reasons,
+                "cautions": vec!["static analysis only"]
+            }));
+        }
+
+        hotspot_files.sort_by(|a, b| {
+            let score_cmp = b["score"]
+                .as_f64()
+                .unwrap_or(0.0)
+                .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                a["path"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["path"].as_str().unwrap_or(""))
+            }
+        });
+        hotspot_files.truncate(max_results);
+    }
+
+    // Summary counts
+    let high_risk_count = hotspot_symbols
+        .iter()
+        .filter(|s| {
+            s["riskLevel"].as_str() == Some("high") || s["riskLevel"].as_str() == Some("critical")
+        })
+        .count();
+    let medium_risk_count = hotspot_symbols
+        .iter()
+        .filter(|s| s["riskLevel"].as_str() == Some("medium"))
+        .count();
+    let low_risk_count = hotspot_symbols
+        .iter()
+        .filter(|s| s["riskLevel"].as_str() == Some("low"))
+        .count();
+
+    let result_data = json!({
+        "language": language,
+        "root": root,
+        "summary": {
+            "hotspotSymbolCount": hotspot_symbols.len(),
+            "hotspotFileCount": hotspot_files.len(),
+            "highRiskCount": high_risk_count,
+            "mediumRiskCount": medium_risk_count,
+            "lowRiskCount": low_risk_count
+        },
+        "hotspotSymbols": hotspot_symbols,
+        "hotspotFiles": hotspot_files,
+        "hotspotModules": [],
+        "scoringModel": "fan-in/out + cross-module + entry reachability + public API",
+        "cautions": vec!["static analysis only", "not compiler-verified"],
+        "generatedFrom": {
+            "staticAnalysisOnly": true,
+            "heuristic": true,
+            "compilerVerified": false
+        }
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
+/// Handle `codelattice_architecture_drift` tool.
+fn handle_architecture_drift(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let layer_rules: Vec<String> = params["layerRules"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let max_cycles = params["maxCycles"].as_u64().unwrap_or(10).min(50) as usize;
+    let max_findings = params["maxFindings"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let _compact = params["compact"].as_bool().unwrap_or(true);
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // 1. Cycle detection
+    let cycles = detect_cycles(&gv, max_cycles, include_tests);
+
+    // 2. Cross-directory / bidirectional dependencies
+    let reverse_deps = detect_bidirectional_deps(&gv, include_tests);
+
+    // 3. Overly coupled modules
+    let coupled_modules = compute_coupling(&gv, max_findings, include_tests);
+
+    // 4. Layer violations (only if rules provided)
+    let (cross_layer_calls, boundary_leaks) =
+        detect_layer_violations(&gv, &layer_rules, max_findings, include_tests);
+
+    // 5. Recommended refactoring checks
+    let mut recommendations: Vec<String> = Vec::new();
+    for cycle in &cycles {
+        if let Some(desc) = cycle["description"].as_str() {
+            recommendations.push(format!("Review cycle: {}", desc));
+        }
+    }
+    for coupled in &coupled_modules {
+        if let Some(path) = coupled["path"].as_str() {
+            recommendations.push(format!("Reduce coupling in: {}", path));
+        }
+    }
+    for rd in &reverse_deps {
+        if let Some(desc) = rd["description"].as_str() {
+            recommendations.push(format!("Review {}", desc));
+        }
+    }
+    recommendations.truncate(max_findings);
+
+    let total_findings = cycles.len()
+        + reverse_deps.len()
+        + cross_layer_calls.len()
+        + boundary_leaks.len()
+        + coupled_modules.len();
+
+    let mut cautions = vec![
+        "static analysis only".to_string(),
+        "cycle detection has depth limits".to_string(),
+    ];
+    if !layer_rules.is_empty() {
+        cautions.push("layer rules are user-provided not inferred".to_string());
+    }
+
+    let result_data = json!({
+        "language": language,
+        "root": root,
+        "summary": {
+            "cycleCount": cycles.len(),
+            "reverseDependencyCount": reverse_deps.len(),
+            "crossLayerCallCount": cross_layer_calls.len(),
+            "boundaryLeakCount": boundary_leaks.len(),
+            "overlyCoupledModuleCount": coupled_modules.len(),
+            "totalFindings": total_findings
+        },
+        "cycles": cycles,
+        "reverseDependencies": reverse_deps,
+        "crossLayerCalls": cross_layer_calls,
+        "boundaryLeaks": boundary_leaks,
+        "overlyCoupledModules": coupled_modules,
+        "cautions": cautions,
+        "recommendedRefactorChecks": recommendations,
+        "generatedFrom": {
+            "staticAnalysisOnly": true,
+            "heuristic": true,
+            "compilerVerified": false
+        }
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
 /// Handle `codelattice_dead_code_candidates` tool.
 fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
@@ -8866,6 +10535,759 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
 }
 
 // ============================================================
+// v0.14: AI Context Pack & Review Gate
+// ============================================================
+
+/// AI editing context — what should I read before changing code?
+/// Searches for symbols/files matching task keywords, collects call chains,
+/// dependency notes, risk notes, and suggests a read order.
+fn handle_ai_context_pack(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let task = params["task"].as_str().unwrap_or("");
+    let targets: Vec<String> = params["targets"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let max_files = params["maxFiles"].as_u64().unwrap_or(15).min(100) as usize;
+    let max_symbols = params["maxSymbols"].as_u64().unwrap_or(30).min(200) as usize;
+    let _include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let _compact = params["compact"].as_bool().unwrap_or(true);
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // 1. Parse task string for keywords (split by spaces and common delimiters)
+    let mut keywords: Vec<String> = Vec::new();
+    for word in task.split(|c: char| {
+        c.is_whitespace() || c == ',' || c == ';' || c == ':' || c == '|' || c == '/'
+    }) {
+        let w = word.trim().to_lowercase();
+        if !w.is_empty() && w.len() >= 2 {
+            keywords.push(w);
+        }
+    }
+    // Combine with targets
+    for t in &targets {
+        let tl = t.to_lowercase();
+        if !tl.is_empty() && !keywords.contains(&tl) {
+            keywords.push(tl);
+        }
+    }
+
+    // 2. Search GraphView for matching symbols (case-insensitive contains)
+    let mut matched_symbols: Vec<Value> = Vec::new();
+    for (name, syms) in &gv.symbols_by_name {
+        let name_lower = name.to_lowercase();
+        let matches = keywords.iter().any(|kw| name_lower.contains(kw));
+        if matches {
+            for sym in syms {
+                matched_symbols.push(sym.clone());
+            }
+        }
+    }
+
+    // Deduplicate by id
+    let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    matched_symbols.retain(|s| {
+        if let Some(id) = s["id"].as_str() {
+            seen_ids.insert(id.to_string())
+        } else {
+            false
+        }
+    });
+
+    // 3. Search for matching files (nodes with sourcePaths that contain keywords)
+    let mut file_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for node in gv.nodes_by_id.values() {
+        if let Some(sp) = node["properties"]["sourcePath"].as_str() {
+            let sp_lower = sp.to_lowercase();
+            if keywords.iter().any(|kw| sp_lower.contains(kw)) {
+                file_set.insert(sp.to_string());
+            }
+        }
+    }
+
+    // 4. Collect direct callers/callees for matched symbols
+    let mut call_chains: Vec<Value> = Vec::new();
+    let mut file_deps: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut all_related_file_set: std::collections::BTreeSet<String> =
+        std::collections::BTreeSet::new();
+
+    for sym in &matched_symbols {
+        if let Some(sym_id) = sym["id"].as_str() {
+            // Outgoing edges (callees)
+            if let Some(edges) = gv.outgoing.get(sym_id) {
+                for edge in edges {
+                    let edge_type = edge["type"].as_str().unwrap_or("");
+                    if edge_type == "CALLS" || edge_type == "IMPORTS" {
+                        let target_id = edge["target"].as_str().unwrap_or("");
+                        if let Some(target_node) = gv.nodes_by_id.get(target_id) {
+                            call_chains.push(json!({
+                                "from": sym_id,
+                                "to": target_id,
+                                "edgeType": edge_type,
+                                "description": format!("{} {} {}",
+                                    sym["properties"]["name"].as_str().unwrap_or("?"),
+                                    if edge_type == "CALLS" { "calls" } else { "imports" },
+                                    target_node["properties"]["name"].as_str().unwrap_or("?")
+                                )
+                            }));
+                            if let Some(sp) = target_node["properties"]["sourcePath"].as_str() {
+                                all_related_file_set.insert(sp.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            // Incoming edges (callers)
+            if let Some(edges) = gv.incoming.get(sym_id) {
+                for edge in edges {
+                    let edge_type = edge["type"].as_str().unwrap_or("");
+                    if edge_type == "CALLS" || edge_type == "IMPORTS" {
+                        let source_id = edge["source"].as_str().unwrap_or("");
+                        if let Some(source_node) = gv.nodes_by_id.get(source_id) {
+                            call_chains.push(json!({
+                                "from": source_id,
+                                "to": sym_id,
+                                "edgeType": edge_type,
+                                "description": format!("{} {} {}",
+                                    source_node["properties"]["name"].as_str().unwrap_or("?"),
+                                    if edge_type == "CALLS" { "calls" } else { "imports" },
+                                    sym["properties"]["name"].as_str().unwrap_or("?")
+                                )
+                            }));
+                            if let Some(sp) = source_node["properties"]["sourcePath"].as_str() {
+                                all_related_file_set.insert(sp.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+            if let Some(sp) = sym["properties"]["sourcePath"].as_str() {
+                all_related_file_set.insert(sp.to_string());
+            }
+        }
+    }
+
+    // Merge file_set into all_related_file_set
+    for f in &file_set {
+        all_related_file_set.insert(f.clone());
+    }
+
+    // 5. Compute dependency notes
+    for sym in &matched_symbols {
+        if let Some(sym_id) = sym["id"].as_str() {
+            if let Some(sp) = sym["properties"]["sourcePath"].as_str() {
+                // Check outgoing imports from this symbol's file
+                for edge in gv.outgoing.get(sym_id).unwrap_or(&Vec::new()) {
+                    if edge["type"].as_str() == Some("IMPORTS")
+                        || edge["type"].as_str() == Some("REFERENCES")
+                    {
+                        if let Some(target_id) = edge["target"].as_str() {
+                            if let Some(target_node) = gv.nodes_by_id.get(target_id) {
+                                if let Some(tsp) = target_node["properties"]["sourcePath"].as_str()
+                                {
+                                    if tsp != sp {
+                                        file_deps.insert(format!("{} depends on {}", sp, tsp));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 6. Compute risk notes — hotspots with high fan-in
+    let mut risk_notes: Vec<String> = Vec::new();
+    for sym in &matched_symbols {
+        if let Some(sym_id) = sym["id"].as_str() {
+            let name = sym["properties"]["name"].as_str().unwrap_or("?");
+            if let Some(incoming) = gv.incoming.get(sym_id) {
+                let caller_count = incoming
+                    .iter()
+                    .filter(|e| e["type"].as_str() == Some("CALLS"))
+                    .count();
+                if caller_count > 3 {
+                    risk_notes.push(format!("{} is a hotspot ({} callers)", name, caller_count));
+                }
+            }
+            // Check for low-confidence edges
+            if let Some(edges) = gv.outgoing.get(sym_id) {
+                for edge in edges {
+                    if let Some(conf) = edge["confidence"].as_f64() {
+                        if conf < 0.7 {
+                            risk_notes.push(format!(
+                                "{} has a low-confidence edge to {}",
+                                name,
+                                edge["target"].as_str().unwrap_or("?")
+                            ));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Compute suggested read order
+    // Compute fan-in per file
+    let mut file_fan_in: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
+    for (id, node) in &gv.nodes_by_id {
+        if let Some(sp) = node["properties"]["sourcePath"].as_str() {
+            let incoming_count = gv.incoming.get(id).map(|v| v.len()).unwrap_or(0);
+            *file_fan_in.entry(sp.to_string()).or_insert(0) += incoming_count;
+        }
+    }
+
+    let mut read_order_files: Vec<String> = all_related_file_set.iter().cloned().collect();
+
+    // Sort: entry-point-like files first, then by fan-in descending, then by name
+    read_order_files.sort_by(|a, b| {
+        let a_entry = is_entry_file(a, language);
+        let b_entry = is_entry_file(b, language);
+        if a_entry != b_entry {
+            return b_entry.cmp(&a_entry); // entry files first
+        }
+        let a_fan = file_fan_in.get(a).unwrap_or(&0);
+        let b_fan = file_fan_in.get(b).unwrap_or(&0);
+        if a_fan != b_fan {
+            return b_fan.cmp(a_fan); // higher fan-in first
+        }
+        a.cmp(b)
+    });
+    read_order_files.truncate(max_files);
+
+    // 8. Compute doNotAssume list
+    let mut do_not_assume: Vec<String> = Vec::new();
+    // Dynamic dispatch patterns
+    for sym in &matched_symbols {
+        if let Some(name) = sym["properties"]["name"].as_str() {
+            let nl = name.to_lowercase();
+            if nl.contains("registry")
+                || nl.contains("plugin")
+                || nl.contains("handler")
+                || nl.contains("factory")
+            {
+                do_not_assume.push(format!(
+                    "dynamic dispatch may hide callers to {} patterns",
+                    name
+                ));
+            }
+        }
+        // Public API symbols may have external callers
+        let exported = sym["properties"]["exported"].as_bool().unwrap_or(false);
+        if exported {
+            if let Some(name) = sym["properties"]["name"].as_str() {
+                do_not_assume.push(format!(
+                    "{} is exported and may have external consumers",
+                    name
+                ));
+            }
+        }
+    }
+    if do_not_assume.is_empty() {
+        do_not_assume.push("no dynamic dispatch patterns detected in matched symbols".to_string());
+    }
+
+    // 9. Build context files with priority
+    let mut context_files: Vec<Value> = Vec::new();
+    for (idx, f) in read_order_files.iter().enumerate() {
+        let reason = if file_set.contains(f) {
+            "contains target symbol"
+        } else if matched_symbols
+            .iter()
+            .any(|s| s["properties"]["sourcePath"].as_str() == Some(f.as_str()))
+        {
+            "contains matched symbol"
+        } else {
+            "dependency of matched symbols"
+        };
+        context_files.push(json!({
+            "path": f,
+            "reason": reason,
+            "readPriority": (idx + 1) as u64
+        }));
+    }
+
+    // 10. Build key symbols
+    let key_symbols: Vec<Value> = matched_symbols
+        .iter()
+        .take(max_symbols)
+        .map(|s| {
+            let name = s["properties"]["name"].as_str().unwrap_or("?");
+            let reason = if keywords.iter().any(|kw| name.to_lowercase().contains(kw)) {
+                "directly matches task keyword"
+            } else {
+                "related to matched symbols"
+            };
+            json!({
+                "id": s["id"],
+                "name": s["properties"]["name"],
+                "kind": s["kind"],
+                "file": s["properties"]["sourcePath"],
+                "line": s["properties"]["startLine"],
+                "reason": reason
+            })
+        })
+        .collect();
+
+    // 11. Compute useful commands
+    let mut useful_commands: Vec<String> = Vec::new();
+    for sym in key_symbols.iter().take(5) {
+        if let Some(name) = sym["name"].as_str() {
+            useful_commands.push(format!("codelattice_impact_preview symbol={}", name));
+            useful_commands.push(format!("codelattice_symbol_context symbol={}", name));
+        }
+    }
+    for sym in key_symbols.iter().take(3) {
+        if let Some(name) = sym["name"].as_str() {
+            useful_commands.push(format!("codelattice_calls_to symbol={}", name));
+        }
+    }
+
+    // Deduplicate useful commands
+    let mut seen_cmds: std::collections::HashSet<String> = std::collections::HashSet::new();
+    useful_commands.retain(|c| seen_cmds.insert(c.clone()));
+
+    let result_data = json!({
+        "language": language,
+        "root": root,
+        "taskEcho": task,
+        "contextFiles": context_files,
+        "keySymbols": key_symbols,
+        "callChains": call_chains,
+        "dependencyNotes": file_deps.into_iter().collect::<Vec<String>>(),
+        "riskNotes": risk_notes,
+        "suggestedReadOrder": read_order_files,
+        "doNotAssume": do_not_assume,
+        "usefulCommands": useful_commands,
+        "cautions": ["static analysis only", "keyword matching is not semantic understanding"],
+        "generatedFrom": {
+            "staticAnalysisOnly": true,
+            "heuristic": true,
+            "compilerVerified": false
+        }
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
+/// Helper: check if a file looks like an entry point based on language heuristics.
+fn is_entry_file(path: &str, language: &str) -> bool {
+    match language {
+        "rust" => path.ends_with("main.rs") || path.ends_with("lib.rs"),
+        "cangjie" => path.ends_with("package.cj"),
+        "arkts" => path.contains("Index.ets") || path.contains("MainAbility/"),
+        "typescript" => {
+            path.ends_with("index.ts") || path.ends_with("main.ts") || path.ends_with(".tsx")
+        }
+        _ => path.ends_with("main") || path.ends_with("index"),
+    }
+}
+
+/// Diff-based review gate — does this change touch dangerous areas?
+/// Analyzes changed files for touched symbols, hotspots, risk level.
+fn handle_review_gate(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let explicit_changed: Vec<String> = params["changedFiles"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let use_git_diff = params["useGitDiff"].as_bool().unwrap_or(false);
+    let include_untracked = params["includeUntracked"].as_bool().unwrap_or(false);
+    let max_findings = params["maxFindings"].as_u64().unwrap_or(50).min(200) as usize;
+    let _compact = params["compact"].as_bool().unwrap_or(true);
+
+    // 1. Get changed files
+    let mut changed_files: Vec<String> = explicit_changed.clone();
+    let mut warnings: Vec<String> = Vec::new();
+
+    if use_git_diff {
+        // Run git diff --name-only
+        let git_output = std::process::Command::new("git")
+            .args(&["diff", "--name-only"])
+            .current_dir(&validated)
+            .output();
+
+        match git_output {
+            Ok(output) if output.status.success() => {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim().to_string();
+                    if !trimmed.is_empty() && !changed_files.contains(&trimmed) {
+                        changed_files.push(trimmed);
+                    }
+                }
+            }
+            Ok(_) => {
+                warnings.push("git diff failed — may not be a git repository".to_string());
+            }
+            Err(_) => {
+                warnings.push("git command not available".to_string());
+            }
+        }
+
+        // Optionally include staged changes
+        let cached_output = std::process::Command::new("git")
+            .args(&["diff", "--cached", "--name-only"])
+            .current_dir(&validated)
+            .output();
+
+        if let Ok(output) = cached_output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim().to_string();
+                    if !trimmed.is_empty() && !changed_files.contains(&trimmed) {
+                        changed_files.push(trimmed);
+                    }
+                }
+            }
+        }
+
+        if include_untracked {
+            let untracked_output = std::process::Command::new("git")
+                .args(&["ls-files", "--others", "--exclude-standard"])
+                .current_dir(&validated)
+                .output();
+
+            if let Ok(output) = untracked_output {
+                if output.status.success() {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout.lines() {
+                        let trimmed = line.trim().to_string();
+                        if !trimmed.is_empty() && !changed_files.contains(&trimmed) {
+                            changed_files.push(trimmed);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if changed_files.is_empty() {
+        let result_data = json!({
+            "language": language,
+            "root": root,
+            "changedFiles": [],
+            "touchedSymbols": [],
+            "touchedHotspots": [],
+            "impactSummary": {
+                "totalTouchedSymbols": 0,
+                "totalCallers": 0,
+                "crossDirectoryCount": 0,
+                "publicApiCount": 0
+            },
+            "architectureWarnings": [],
+            "deadCodeRelatedSignals": [],
+            "recommendedTests": [],
+            "reviewChecklist": ["no changes detected — provide changedFiles or enable useGitDiff"],
+            "riskLevel": "low",
+            "cautions": ["static analysis only", "git diff may not reflect staged changes"],
+            "generatedFrom": {
+                "staticAnalysisOnly": true,
+                "heuristic": true,
+                "compilerVerified": false
+            }
+        });
+        if !warnings.is_empty() {
+            let mut rd = result_data;
+            if let Some(obj) = rd.as_object_mut() {
+                obj.insert("warnings".to_string(), json!(warnings));
+            }
+            return Ok(tool_result(&rd));
+        }
+        // No changes detected and no git
+        let mut rd = result_data;
+        if let Some(obj) = rd.as_object_mut() {
+            obj.insert("warnings".to_string(), json!(["no-changes-detected"]));
+        }
+        return Ok(tool_result(&rd));
+    }
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // 2. Find symbols in changed files
+    let mut touched_symbols: Vec<Value> = Vec::new();
+    let mut all_caller_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut total_callers: usize = 0;
+    let mut public_api_count: usize = 0;
+    let mut cross_directory_count: usize = 0;
+
+    for node in gv.nodes_by_id.values() {
+        let sp = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        if !changed_files
+            .iter()
+            .any(|cf| sp == cf || sp.ends_with(cf.as_str()))
+        {
+            continue;
+        }
+
+        let node_id = node["id"].as_str().unwrap_or("");
+        let name = node["properties"]["name"].as_str().unwrap_or("");
+        let kind = node["kind"].as_str().unwrap_or("");
+        let is_public = node["properties"]["exported"].as_bool().unwrap_or(false)
+            || node["properties"]["visibility"].as_str() == Some("public");
+
+        // Count callers
+        let empty_incoming: Vec<Value> = Vec::new();
+        let incoming = gv.incoming.get(node_id).unwrap_or(&empty_incoming);
+        let caller_count = incoming
+            .iter()
+            .filter(|e| e["type"].as_str() == Some("CALLS"))
+            .count();
+
+        total_callers += caller_count;
+        if is_public {
+            public_api_count += 1;
+        }
+
+        // Check for cross-directory callers
+        for edge in incoming {
+            if edge["type"].as_str() == Some("CALLS") {
+                if let Some(source_id) = edge["source"].as_str() {
+                    if let Some(source_node) = gv.nodes_by_id.get(source_id) {
+                        if let Some(source_sp) = source_node["properties"]["sourcePath"].as_str() {
+                            all_caller_ids.insert(source_id.to_string());
+                            // Check cross-directory
+                            if let (Some(sp_dir), Some(source_dir)) = (
+                                sp.rfind('/').map(|i| &sp[..i]),
+                                source_sp.rfind('/').map(|i| &source_sp[..i]),
+                            ) {
+                                if sp_dir != source_dir {
+                                    cross_directory_count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        touched_symbols.push(json!({
+            "id": node_id,
+            "name": name,
+            "kind": kind,
+            "file": sp,
+            "callerCount": caller_count,
+            "isPublic": is_public
+        }));
+
+        if touched_symbols.len() >= max_findings {
+            break;
+        }
+    }
+
+    // 3. Collect hotspots — symbols that call modified symbols
+    let mut touched_hotspots: Vec<Value> = Vec::new();
+    for caller_id in &all_caller_ids {
+        if let Some(caller_node) = gv.nodes_by_id.get(caller_id) {
+            // Find which touched symbols this caller calls
+            let caller_name = caller_node["properties"]["name"].as_str().unwrap_or("?");
+            let caller_kind = caller_node["kind"].as_str().unwrap_or("?");
+            let caller_file = caller_node["properties"]["sourcePath"]
+                .as_str()
+                .unwrap_or("");
+
+            // Find the reason — which modified symbol it calls
+            let mut reasons: Vec<String> = Vec::new();
+            if let Some(edges) = gv.outgoing.get(caller_id) {
+                for edge in edges {
+                    if edge["type"].as_str() == Some("CALLS") {
+                        if let Some(target_id) = edge["target"].as_str() {
+                            if touched_symbols
+                                .iter()
+                                .any(|ts| ts["id"].as_str() == Some(target_id))
+                            {
+                                if let Some(target_node) = gv.nodes_by_id.get(target_id) {
+                                    reasons.push(format!(
+                                        "calls modified symbol {}",
+                                        target_node["properties"]["name"].as_str().unwrap_or("?")
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !reasons.is_empty() {
+                touched_hotspots.push(json!({
+                    "id": caller_id,
+                    "name": caller_name,
+                    "kind": caller_kind,
+                    "file": caller_file,
+                    "reason": reasons.join(", ")
+                }));
+            }
+        }
+    }
+
+    // 4. Architecture warnings — check cross-layer
+    let mut architecture_warnings: Vec<String> = Vec::new();
+    // Simple heuristic: if changed files span api/service/domain/infra layers, note it
+    let layers: &[&str] = &["api", "service", "domain", "infra"];
+    let mut changed_layers: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for cf in &changed_files {
+        for layer in layers {
+            if cf.contains(layer) {
+                changed_layers.insert(layer);
+            }
+        }
+    }
+    if changed_layers.len() > 1 {
+        let mut layer_names: Vec<&str> = changed_layers.into_iter().collect();
+        layer_names.sort();
+        architecture_warnings.push(format!(
+            "changes span multiple layers: {}",
+            layer_names.join(", ")
+        ));
+    }
+
+    // 5. Dead code related signals
+    let dead_code_related_signals: Vec<String> = Vec::new();
+
+    // 6. Recommended tests — find test files that import from changed files
+    let mut recommended_tests: Vec<String> = Vec::new();
+    let changed_set: std::collections::HashSet<String> = changed_files.iter().cloned().collect();
+    for node in gv.nodes_by_id.values() {
+        let sp = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        if !sp.contains("test") && !sp.contains("spec") {
+            continue;
+        }
+        let node_id = node["id"].as_str().unwrap_or("");
+        if let Some(edges) = gv.outgoing.get(node_id) {
+            for edge in edges {
+                if edge["type"].as_str() == Some("IMPORTS")
+                    || edge["type"].as_str() == Some("REFERENCES")
+                {
+                    if let Some(target_id) = edge["target"].as_str() {
+                        if let Some(target_node) = gv.nodes_by_id.get(target_id) {
+                            if let Some(target_sp) =
+                                target_node["properties"]["sourcePath"].as_str()
+                            {
+                                if changed_set.contains(target_sp)
+                                    || changed_files
+                                        .iter()
+                                        .any(|cf| target_sp.ends_with(cf.as_str()))
+                                {
+                                    let note = format!("{} (imports from changed files)", sp);
+                                    if !recommended_tests.contains(&note) {
+                                        recommended_tests.push(note);
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 7. Compute risk level
+    let max_callers = touched_symbols
+        .iter()
+        .map(|ts| ts["callerCount"].as_u64().unwrap_or(0))
+        .max()
+        .unwrap_or(0);
+    let risk_level = if touched_symbols.is_empty() {
+        "low"
+    } else if max_callers > 20 || public_api_count > 0 {
+        "critical"
+    } else if max_callers >= 10 {
+        "high"
+    } else if max_callers >= 3 || total_callers >= 5 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    // 8. Review checklist
+    let mut review_checklist: Vec<String> = Vec::new();
+    for ts in &touched_symbols {
+        let name = ts["name"].as_str().unwrap_or("?");
+        let callers = ts["callerCount"].as_u64().unwrap_or(0);
+        if callers > 0 {
+            review_checklist.push(format!(
+                "{} is called by {} symbols — verify none break",
+                name, callers
+            ));
+        }
+        if ts["isPublic"].as_bool().unwrap_or(false) {
+            review_checklist.push(format!("{} is public API — check external consumers", name));
+        }
+    }
+    for hs in &touched_hotspots {
+        let name = hs["name"].as_str().unwrap_or("?");
+        let reason = hs["reason"].as_str().unwrap_or("");
+        review_checklist.push(format!("{} — {}", name, reason));
+    }
+    // Deduplicate
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    review_checklist.retain(|item| seen.insert(item.clone()));
+    review_checklist.truncate(max_findings);
+
+    let result_data = json!({
+        "language": language,
+        "root": root,
+        "changedFiles": changed_files,
+        "touchedSymbols": touched_symbols,
+        "touchedHotspots": touched_hotspots,
+        "impactSummary": {
+            "totalTouchedSymbols": touched_symbols.len(),
+            "totalCallers": total_callers,
+            "crossDirectoryCount": cross_directory_count,
+            "publicApiCount": public_api_count
+        },
+        "architectureWarnings": architecture_warnings,
+        "deadCodeRelatedSignals": dead_code_related_signals,
+        "recommendedTests": recommended_tests,
+        "reviewChecklist": review_checklist,
+        "riskLevel": risk_level,
+        "cautions": ["static analysis only", "git diff may not reflect staged changes"],
+        "generatedFrom": {
+            "staticAnalysisOnly": true,
+            "heuristic": true,
+            "compilerVerified": false
+        }
+    });
+
+    let mut final_data = result_data;
+    if !warnings.is_empty() {
+        if let Some(obj) = final_data.as_object_mut() {
+            obj.insert("warnings".to_string(), json!(warnings));
+        }
+    }
+
+    Ok(merge_cache_and_result(&final_data, &cache_meta))
+}
+
+// ============================================================
 // JSON-RPC Dispatch
 // ============================================================
 
@@ -8983,7 +11405,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cSupport": c_support,
                         "cppSupport": cpp_support,
                         "pythonSupport": python_support,
-                        "toolCount": 25
+                        "toolCount": 27
                     }
                 }),
             ))
@@ -9024,6 +11446,11 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_dead_code_candidates" => {
                     handle_dead_code_candidates(cache, &arguments)
                 }
+                "codelattice_impact_analysis" => handle_impact_analysis(cache, &arguments),
+                "codelattice_risk_hotspots" => handle_risk_hotspots(cache, &arguments),
+                "codelattice_architecture_drift" => handle_architecture_drift(cache, &arguments),
+                "codelattice_ai_context_pack" => handle_ai_context_pack(cache, &arguments),
+                "codelattice_review_gate" => handle_review_gate(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 25 tools + source snippet + cache behavior + doc association.
+# Exercises all 30 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -122,14 +122,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 25 ]; then
+if [ "$TOOL_COUNT" -ge 30 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 25, got $TOOL_COUNT)")
-    echo "   → expected >= 25 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 30, got $TOOL_COUNT)")
+    echo "   → expected >= 30 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -304,6 +304,34 @@ echo "25. codelattice_dead_code_candidates"
 check_tool "codelattice_dead_code_candidates" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true,\"limit\":10}" \
     "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('deletionSafe') == False"
+
+# ============================================================
+# v0.19: Graph Diagnostics Pack (5 tools)
+# ============================================================
+echo "26. codelattice_impact_analysis"
+check_tool "codelattice_impact_analysis" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"target\":\"helper\",\"compact\":true}" \
+    "isinstance(data.get('targetMatched'), dict) and data.get('generatedFrom', {}).get('staticAnalysisOnly') == True"
+
+echo "27. codelattice_risk_hotspots"
+check_tool "codelattice_risk_hotspots" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true,\"maxResults\":5}" \
+    "isinstance(data.get('summary'), dict) and isinstance(data.get('hotspotSymbols'), list)"
+
+echo "28. codelattice_architecture_drift"
+check_tool "codelattice_architecture_drift" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true}" \
+    "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('heuristic') == True"
+
+echo "29. codelattice_ai_context_pack"
+check_tool "codelattice_ai_context_pack" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"task\":\"helper function\",\"compact\":true}" \
+    "isinstance(data.get('contextFiles'), list) and isinstance(data.get('keySymbols'), list)"
+
+echo "30. codelattice_review_gate"
+check_tool "codelattice_review_gate" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"useGitDiff\":false,\"changedFiles\":[\"src/lib.rs\"],\"compact\":true}" \
+    "isinstance(data.get('touchedSymbols'), list) and data.get('generatedFrom', {}).get('compilerVerified') == False"
 
 # ============================================================
 # Summary

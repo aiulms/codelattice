@@ -345,6 +345,11 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_project_insights` | 大项目洞察地图：入口点、热点文件/符号、风险区域、低置信度聚集区、先读/先审建议 |
 | `codelattice_review_plan` | AI 工程审查清单：4 模式（onboarding/before_edit/after_edit/release_check），将洞察、影响分析、变更符号、文档关联转化为可操作的行动计划 |
 | `codelattice_dead_code_candidates` | 静态死代码候选识别：找出无调用/不可达的符号和文件，返回置信度、风险提示和验证建议（不是删除证明） |
+| `codelattice_impact_analysis` | 变更影响分析：直接/间接调用方、依赖路径、入口可达性、风险评分、先读/先审建议 |
+| `codelattice_risk_hotspots` | 风险热点检测：高 fan-in/fan-out 符号和文件、跨模块依赖、公开 API 暴露 |
+| `codelattice_architecture_drift` | 架构偏移检测：循环依赖候选、跨层调用、反向依赖、过度耦合模块 |
+| `codelattice_ai_context_pack` | AI 编辑上下文：关键词匹配符号/文件、调用链、依赖说明、建议阅读顺序 |
+| `codelattice_review_gate` | 变更审查门：基于 git diff 或文件列表，输出触碰符号、影响面、风险等级、审查清单 |
 | `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
 | `codelattice_cache_clear` | 清理 memory / persistent / both 缓存层 |
 

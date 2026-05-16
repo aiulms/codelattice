@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) = 24 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) = 30 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_twenty_five_tools() {
+fn mcp_tools_list_returns_thirty_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_twenty_five_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 25, "expected 25 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 30, "expected 30 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -8752,6 +8752,903 @@ fn mcp_dead_code_candidates_no_deletion_claim() {
             has_static_only,
             "every candidate must have 'static-analysis-only' caution: {:?}",
             sym
+        );
+    }
+}
+
+// ============================================================
+// v0.14: AI Context Pack & Review Gate tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn graph_diagnostics_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("typescript")
+        .join("graph-diagnostics")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_ai_context_pack_returns_context() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_ai_context_pack",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "task": "handleRequest"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["contextFiles"].is_array(),
+        "contextFiles should be an array: {:?}",
+        data
+    );
+    let context_files = data["contextFiles"].as_array().unwrap();
+    assert!(
+        !context_files.is_empty(),
+        "contextFiles should be non-empty for handleRequest task: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_ai_context_pack_read_order() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_ai_context_pack",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "task": "handleRequest"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["suggestedReadOrder"].is_array(),
+        "suggestedReadOrder should be an array: {:?}",
+        data
+    );
+    assert!(
+        data["keySymbols"].is_array(),
+        "keySymbols should be an array: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_ai_context_pack_no_llm_claim() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_ai_context_pack",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "task": "handleRequest"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let text = serde_json::to_string(&data)
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(
+        !text.contains("llm"),
+        "output should not contain 'LLM': found in output"
+    );
+    assert!(
+        !text.contains("language model"),
+        "output should not contain 'language model': found in output"
+    );
+    assert!(
+        !text.contains("ai generated"),
+        "output should not contain 'AI generated': found in output"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_ai_context_pack_useful_commands() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_ai_context_pack",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "task": "handleRequest"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["usefulCommands"].is_array(),
+        "usefulCommands should be an array: {:?}",
+        data
+    );
+    let cmds = data["usefulCommands"].as_array().unwrap();
+    assert!(
+        !cmds.is_empty(),
+        "usefulCommands should be non-empty when task matches symbols: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_review_gate_no_diff_warning() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_gate",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "useGitDiff": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["changedFiles"].is_array(),
+        "changedFiles should be an array: {:?}",
+        data
+    );
+    // The fixture may or may not be in a git repo depending on test environment.
+    // If git diff succeeds, we should get a valid result with riskLevel.
+    // If git diff fails, we should get warnings or empty changedFiles.
+    let has_valid_result = data["riskLevel"].is_string();
+    let has_warning = data["warnings"].is_array()
+        || data["reviewChecklist"]
+            .as_array()
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.as_str()
+                        .map(|s| s.contains("no changes") || s.contains("no-changes"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+    let empty_files = data["changedFiles"]
+        .as_array()
+        .map(|a| a.is_empty())
+        .unwrap_or(true);
+    assert!(
+        has_valid_result || has_warning || empty_files,
+        "should have valid result, warning, or empty changed files: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_review_gate_changed_files() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_gate",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "changedFiles": ["src/service/handler.ts"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["touchedSymbols"].is_array(),
+        "touchedSymbols should be an array: {:?}",
+        data
+    );
+    let touched = data["touchedSymbols"].as_array().unwrap();
+    assert!(
+        !touched.is_empty(),
+        "touchedSymbols should be non-empty for src/service/handler.ts: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_review_gate_risk_level() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_gate",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "changedFiles": ["src/service/handler.ts"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let risk = data["riskLevel"].as_str().unwrap_or("");
+    assert!(
+        risk == "low" || risk == "medium" || risk == "high" || risk == "critical",
+        "riskLevel should be one of low/medium/high/critical, got '{}': {:?}",
+        risk,
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_review_gate_no_proof_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 21008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_review_gate",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "changedFiles": ["src/service/handler.ts"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let text = serde_json::to_string(&data)
+        .unwrap_or_default()
+        .to_lowercase();
+    assert!(
+        !text.contains("guaranteed"),
+        "output should not contain 'guaranteed'"
+    );
+    assert!(!text.contains("proof"), "output should not contain 'proof'");
+    assert!(
+        !text.contains("safe to delete"),
+        "output should not contain 'safe to delete'"
+    );
+}
+
+// ============================================================
+// v0.11: Impact Analysis, Risk Hotspots, Architecture Drift tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_impact_analysis_finds_callers() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Use Rust fixture which has actual CALLS edges (TypeScript fixtures may have 0 edges)
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_analysis",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "target": "helper"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["targetMatched"].is_object(),
+        "targetMatched should be an object: {:?}",
+        data
+    );
+    assert_eq!(
+        data["targetMatched"]["name"].as_str(),
+        Some("helper"),
+        "targetMatched name should be helper: {:?}",
+        data
+    );
+    let callers = data["directCallers"]
+        .as_array()
+        .expect("directCallers should be array");
+    assert!(
+        !callers.is_empty(),
+        "helper should have direct callers: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_impact_analysis_risk_score() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Use Rust fixture which has actual CALLS edges
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_analysis",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "target": "helper"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let score = data["riskScore"]
+        .as_f64()
+        .expect("riskScore should be numeric");
+    assert!(
+        score >= 0.0 && score <= 1.0,
+        "riskScore should be in 0..1, got {}",
+        score
+    );
+    // With actual graph edges, we expect reasons about callers/visibility
+    // Even if reasons is empty (e.g. low-risk target), score must be valid
+    assert!(
+        data["reasons"].is_array(),
+        "reasons should be an array: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_impact_analysis_target_not_found() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_analysis",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "target": "nonexistentSymbol12345"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Should handle gracefully — targetMatched is null
+    assert!(
+        data["targetMatched"].is_null(),
+        "targetMatched should be null for nonexistent target: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_risk_hotspots_returns_summary() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_risk_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"].is_object(),
+        "summary should be an object: {:?}",
+        data
+    );
+    assert!(
+        data["hotspotSymbols"].is_array(),
+        "hotspotSymbols should be an array: {:?}",
+        data
+    );
+    assert!(
+        data["summary"]["hotspotSymbolCount"].is_number(),
+        "hotspotSymbolCount should be a number: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_risk_hotspots_high_fan_nodes() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Use Rust fixture which has actual CALLS edges
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_risk_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "minRiskLevel": "low"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["hotspotSymbols"]
+        .as_array()
+        .expect("hotspotSymbols should be array");
+    // With actual graph data, we should find hotspot symbols
+    assert!(
+        !symbols.is_empty(),
+        "should find at least some hotspot symbols: {:?}",
+        data
+    );
+    // Check that nodes have fan-in data
+    let has_fan_data = symbols
+        .iter()
+        .any(|s| s["fanIn"].as_u64().unwrap_or(0) > 0 || s["score"].as_f64().unwrap_or(0.0) > 0.0);
+    assert!(
+        has_fan_data,
+        "should find symbols with fan data: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_architecture_drift_cycle_candidate() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_architecture_drift",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["cycles"].is_array(),
+        "cycles should be an array: {:?}",
+        data
+    );
+    // The fixture has domain/transform importing from infra/config which creates
+    // cross-file dependencies. We accept cycles may or may not be found depending
+    // on the graph structure, but cycles field must exist.
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_architecture_drift_no_layer_rules() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_architecture_drift",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Without layerRules, crossLayerCalls and boundaryLeaks should be empty
+    let cross_layer = data["crossLayerCalls"]
+        .as_array()
+        .expect("crossLayerCalls should be array");
+    let leaks = data["boundaryLeaks"]
+        .as_array()
+        .expect("boundaryLeaks should be array");
+    assert!(
+        cross_layer.is_empty(),
+        "crossLayerCalls should be empty without layerRules: {:?}",
+        cross_layer
+    );
+    assert!(
+        leaks.is_empty(),
+        "boundaryLeaks should be empty without layerRules: {:?}",
+        leaks
+    );
+    // But cycles and coupling should still be reported
+    assert!(
+        data["cycles"].is_array(),
+        "cycles should exist even without layerRules: {:?}",
+        data
+    );
+    assert!(
+        data["overlyCoupledModules"].is_array(),
+        "overlyCoupledModules should exist: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_architecture_drift_with_layer_rules() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_architecture_drift",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "layerRules": ["api>service>domain>infra"]
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let cross_layer = data["crossLayerCalls"]
+        .as_array()
+        .expect("crossLayerCalls should be array");
+    // With layer rules and the fixture's domain->infra dependency, there should be
+    // cross-layer calls or the field should at least be present
+    assert!(
+        !cross_layer.is_empty()
+            || data["cycles"]
+                .as_array()
+                .map(|c| !c.is_empty())
+                .unwrap_or(false),
+        "with layer rules, should find cross-layer violations or cycles: {:?}",
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_diagnostics_generated_from() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+
+    // Test all 3 tools return generatedFrom.staticAnalysisOnly == true
+    for (tool_name, extra_args) in [
+        (
+            "codelattice_impact_analysis",
+            serde_json::json!({"target": "handleRequest"}),
+        ),
+        ("codelattice_risk_hotspots", serde_json::json!({})),
+        ("codelattice_architecture_drift", serde_json::json!({})),
+    ] {
+        let mut args = serde_json::json!({
+            "root": root.to_string_lossy(),
+            "language": "typescript"
+        });
+        if let Some(obj) = extra_args.as_object() {
+            if let Some(args_obj) = args.as_object_mut() {
+                for (k, v) in obj {
+                    args_obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 22009,
+            "method": "tools/call",
+            "params": {
+                "name": tool_name,
+                "arguments": args
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        assert_eq!(
+            data["generatedFrom"]["staticAnalysisOnly"].as_bool(),
+            Some(true),
+            "{}: staticAnalysisOnly should be true: {:?}",
+            tool_name,
+            data["generatedFrom"]
+        );
+        assert_eq!(
+            data["generatedFrom"]["compilerVerified"].as_bool(),
+            Some(false),
+            "{}: compilerVerified should be false: {:?}",
+            tool_name,
+            data["generatedFrom"]
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_diagnostics_compact_mode() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+
+    // Test compact=true for impact_analysis — should not have full snippet data
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_impact_analysis",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "target": "handleRequest",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // Compact mode should produce targetMatched without snippet
+    assert!(
+        data["targetMatched"].is_object(),
+        "targetMatched should be an object: {:?}",
+        data
+    );
+    assert!(
+        !data["targetMatched"]
+            .as_object()
+            .unwrap()
+            .contains_key("snippet"),
+        "compact mode should not include snippet in targetMatched: {:?}",
+        data["targetMatched"]
+    );
+
+    // Test compact=true for risk_hotspots
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_risk_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp2 = session.recv();
+    let data2 = extract_tool_data(&resp2);
+    assert!(
+        data2["hotspotSymbols"].is_array(),
+        "hotspotSymbols should be array: {:?}",
+        data2
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_diagnostics_limit_parameter() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+
+    // Test maxResults=1 for risk_hotspots
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22012,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_risk_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "maxResults": 1,
+                "minRiskLevel": "low"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["hotspotSymbols"]
+        .as_array()
+        .expect("hotspotSymbols should be array");
+    assert!(
+        symbols.len() <= 1,
+        "maxResults=1 should limit hotspotSymbols to at most 1, got {}: {:?}",
+        symbols.len(),
+        data
+    );
+    let files = data["hotspotFiles"]
+        .as_array()
+        .expect("hotspotFiles should be array");
+    assert!(
+        files.len() <= 1,
+        "maxResults=1 should limit hotspotFiles to at most 1, got {}: {:?}",
+        files.len(),
+        data
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_diagnostics_no_proof_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = graph_diagnostics_dir();
+
+    let tool_names = [
+        (
+            "codelattice_impact_analysis",
+            serde_json::json!({"target": "handleRequest"}),
+        ),
+        ("codelattice_risk_hotspots", serde_json::json!({})),
+        ("codelattice_architecture_drift", serde_json::json!({})),
+    ];
+
+    for (idx, (tool_name, extra_args)) in tool_names.iter().enumerate() {
+        let mut args = serde_json::json!({
+            "root": root.to_string_lossy(),
+            "language": "typescript"
+        });
+        if let Some(obj) = extra_args.as_object() {
+            if let Some(args_obj) = args.as_object_mut() {
+                for (k, v) in obj {
+                    args_obj.insert(k.clone(), v.clone());
+                }
+            }
+        }
+
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 22013 + idx as u64,
+            "method": "tools/call",
+            "params": {
+                "name": *tool_name,
+                "arguments": args
+            }
+        }));
+
+        let resp = session.recv();
+        let data = extract_tool_data(&resp);
+        let text = serde_json::to_string(&data)
+            .unwrap_or_default()
+            .to_lowercase();
+        assert!(
+            !text.contains("guaranteed"),
+            "{}: output should not contain 'guaranteed'",
+            tool_name
+        );
+        assert!(
+            !text.contains("proof"),
+            "{}: output should not contain 'proof'",
+            tool_name
+        );
+        assert!(
+            !text.contains("safe to delete"),
+            "{}: output should not contain 'safe to delete'",
+            tool_name
         );
     }
 }

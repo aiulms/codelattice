@@ -1,3 +1,4 @@
+#![recursion_limit = "512"]
 //! GitNexus Rust-core CLI
 //!
 //! 提供 productization 入口命令：

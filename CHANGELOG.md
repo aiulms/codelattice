@@ -8,6 +8,18 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Graph Diagnostics Pack** (v0.19): 5 new MCP tools that package existing static graph capabilities into user-scenario-oriented diagnostic tools, turning CodeLattice from a "code graph analyzer" into a "local code diagnostics engine."
+  - `codelattice_impact_analysis` — Change impact analysis: find direct callers/callees, upstream/downstream paths, entry point reachability, risk scoring, read-first and review-first recommendations.
+  - `codelattice_risk_hotspots` — Project risk hotspot detection: identify high fan-in/fan-out symbols and files, cross-module dependencies, public API exposure, and quality metric anomalies.
+  - `codelattice_architecture_drift` — Architecture health analysis: detect cycle candidates, cross-layer calls (with user-provided layer rules), boundary leaks, and overly coupled modules.
+  - `codelattice_ai_context_pack` — AI editing context: given a task description or target symbols, output relevant files, key symbols, call chains, suggested read order, and do-not-assume warnings — ready to feed directly into AI assistants.
+  - `codelattice_review_gate` — Diff-based review gate: analyze git diff or specified changed files for touched symbols, hotspot exposure, impact summary, and review checklist.
+  - All 5 tools follow unified output contract: `generatedFrom.staticAnalysisOnly=true`, `heuristic=true`, `compilerVerified=false`. No proof/guarantee/deletion-safe language.
+  - New fixture: `fixtures/typescript/graph-diagnostics/` (8 files with layered architecture: api → service → domain → infra, cycle candidates, test file).
+  - 20 new MCP integration tests.
+  - MCP tool count: 25 → 30.
+  - No new dependencies.
+
 - **Dead Code Candidate Analysis** (v0.18): New MCP tool `codelattice_dead_code_candidates` identifies statically unreachable symbols and files via graph-based reachability analysis.
   - Scoring algorithm: per-symbol and per-file candidate scoring with positive signals (no incoming edges, not reachable from entry points, private visibility) and negative signals (public/exported, entry-like name, dynamic patterns).
   - Confidence tiers: high (>=0.80), medium (>=0.55), low (<0.55). Candidates below 0.45 are excluded.

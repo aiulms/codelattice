@@ -926,6 +926,329 @@ Identify static dead-code candidates — symbols and files with no incoming edge
 
 ---
 
+### 3.25 `codelattice_impact_analysis` *(v0.12)*
+
+Change impact analysis — find what breaks if a symbol changes.
+
+**Input schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "Project root directory" },
+    "language": { "type": "string", "enum": ["rust","cangjie","arkts","typescript","c","cpp","python","auto"] },
+    "target": { "type": "string", "description": "Target symbol name" },
+    "compact": { "type": "boolean", "default": false },
+    "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `targetMatched` — matched symbol info (name, kind, file, line)
+- `directCallers` — symbols that directly call/depend on target
+- `indirectCallers` — transitively affected symbols (up to depth)
+- `entryPointPaths` — paths from entry points to target (if reachable)
+- `riskScore` — 0..1 based on caller count, cross-directory, public API, entry reachability
+- `suggestions` — `readFirst` (files to read before changing), `reviewFirst` (files to review after changing)
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+---
+
+### 3.26 `codelattice_risk_hotspots` *(v0.12)*
+
+Project risk hotspot detection — identify high-risk symbols and files.
+
+**Input schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string" },
+    "language": { "type": "string" },
+    "compact": { "type": "boolean", "default": false },
+    "maxResults": { "type": "integer", "default": 20, "maximum": 100 }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `summary` — totalSymbols, totalFiles, hotspotCount, averageFanOut
+- `hotspotSymbols` — symbols ranked by risk (fan-in + fan-out + cross-module + public API signals)
+- `hotspotFiles` — files ranked by risk (symbol count + edge density + cross-module)
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+---
+
+### 3.27 `codelattice_architecture_drift` *(v0.12)*
+
+Architecture health check — detect cycles, cross-layer violations, boundary leaks.
+
+**Input schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string" },
+    "language": { "type": "string" },
+    "compact": { "type": "boolean", "default": false },
+    "layerRules": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "pathPattern": { "type": "string" },
+          "mayDependOn": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "description": "User-defined layer rules for drift detection"
+    }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `summary` — totalNodes, totalEdges, cycleCount, crossLayerViolationCount, avgCoupling
+- `cycles` — detected cycle candidates (DFS-based, path + symbols involved)
+- `crossLayerCalls` — calls that violate layerRules (if provided)
+- `reverseDependencies` — modules that depend "upward" in the layer stack
+- `couplingHotspots` — overly coupled modules (high cross-module edge density)
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+---
+
+### 3.28 `codelattice_ai_context_pack` *(v0.12)*
+
+AI editing context — given a task, output the right files and symbols to read.
+
+**Input schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string" },
+    "language": { "type": "string" },
+    "task": { "type": "string", "description": "Natural language description of the editing task" },
+    "targetSymbols": { "type": "array", "items": { "type": "string" }, "description": "Specific symbol names to include" },
+    "compact": { "type": "boolean", "default": false }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `contextFiles` — relevant files ranked by relevance, with reason
+- `keySymbols` — symbols to understand (name, kind, file, reason)
+- `callChains` — important call paths involving target symbols
+- `dependencyNotes` — "depends on X in file Y" notes
+- `suggestedReadOrder` — ordered file list for sequential reading
+- `usefulCommands` — suggested follow-up MCP calls (e.g., `codelattice_impact_analysis`)
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Note:** This tool performs keyword matching against graph data — no LLM invocation.
+
+---
+
+### 3.29 `codelattice_review_gate` *(v0.12)*
+
+Diff-based review gate — analyze changed files for risk and produce a review checklist.
+
+**Input schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string" },
+    "language": { "type": "string" },
+    "useGitDiff": { "type": "boolean", "default": true },
+    "changedFiles": { "type": "array", "items": { "type": "string" }, "description": "Explicit file list (used when useGitDiff=false)" },
+    "compact": { "type": "boolean", "default": false }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `touchedSymbols` — symbols in changed files (name, kind, file, line)
+- `hotspotExposure` — whether any touched symbols are in the risk hotspot set
+- `impactSummary` — direct callers/imports of touched symbols
+- `reviewChecklist` — ordered items to review (risk-ranked)
+- `riskLevel` — `low` | `medium` | `high` | `critical`
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+---
+
+### 3.25 `codelattice_impact_analysis` *(v0.19)*
+
+Change impact analysis: given a target symbol name, find direct/indirect callers and callees, entry point reachability, risk scoring, and actionable recommendations.
+
+**Input:**
+
+```json
+{
+  "root": { "$ref": "#/definitions/rootPath" },
+  "language": { "$ref": "#/definitions/language" },
+  "target": { "type": "string", "description": "Symbol name to analyze impact for" },
+  "compact": { "type": "boolean", "default": false },
+  "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 }
+}
+```
+
+**Output:**
+- `targetMatched` — matched symbol (name, kind, file, line) or null
+- `directCallers` — symbols that directly call the target
+- `directCallees` — symbols the target directly calls
+- `upstreamPath` — trace to entry points (if reachable)
+- `downstreamPath` — trace to leaf symbols
+- `riskScore` — 0.0..1.0 based on caller count, cross-directory, public API, entry reachability
+- `riskLevel` — "low" / "medium" / "high" / "critical"
+- `suggestions` — readFirst, reviewFirst arrays with file/symbol recommendations
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Known limitations:**
+- Static graph analysis only — no runtime dispatch resolution
+- Dynamic calls / trait objects / reflection may hide actual callers
+- Cross-crate callers not visible without workspace-level analysis
+
+---
+
+### 3.26 `codelattice_risk_hotspots` *(v0.19)*
+
+Project-level risk hotspot detection: identify high fan-in/fan-out symbols and files, cross-module dependencies, and public API exposure.
+
+**Input:**
+
+```json
+{
+  "root": { "$ref": "#/definitions/rootPath" },
+  "language": { "$ref": "#/definitions/language" },
+  "compact": { "type": "boolean", "default": false },
+  "maxResults": { "type": "integer", "default": 20, "maximum": 100 }
+}
+```
+
+**Output:**
+- `summary` — totalSymbols, totalFiles, hotspotSymbolCount, hotspotFileCount, avgFanIn, avgFanOut, maxFanIn, maxFanOut
+- `hotspotSymbols` — symbols with high fan-in/fan-out, scored by cross-module + entry/public signals
+- `hotspotFiles` — files with high dependency concentration
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Scoring:**
+- Fan-in/fan-out ratio normalized to 0..1
+- Cross-directory bonus +0.2, public API +0.15, entry reachable +0.1
+- Threshold: symbols in top 20% by combined score appear as hotspots
+
+---
+
+### 3.27 `codelattice_architecture_drift` *(v0.19)*
+
+Architecture health analysis: detect cycle candidates, cross-layer calls (with optional user-provided layer rules), boundary leaks, and overly coupled modules.
+
+**Input:**
+
+```json
+{
+  "root": { "$ref": "#/definitions/rootPath" },
+  "language": { "$ref": "#/definitions/language" },
+  "compact": { "type": "boolean", "default": false },
+  "layerRules": {
+    "type": "array",
+    "description": "Optional layer rules: each rule specifies layer name and allowed downstream layers",
+    "items": {
+      "type": "object",
+      "properties": {
+        "layer": { "type": "string" },
+        "allowedDeps": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}
+```
+
+**Output:**
+- `summary` — totalSymbols, totalFiles, cycleCount, crossLayerViolationCount, boundaryLeakCount, coupledModuleCount
+- `cycles` — detected cycle candidates (each cycle: list of symbol names + file paths forming the loop)
+- `crossLayerViolations` — calls violating user-provided layer rules (if layerRules given)
+- `boundaryLeaks` — symbols with unexpectedly wide dependency span
+- `coupledModules` — directory pairs with bidirectional dependencies
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Cycle detection:**
+- DFS-based cycle detection on CALLS/IMPORTS edges (max depth 20)
+- Reports cycles as ordered symbol chains
+- Without `layerRules`, reports structural cycles only; with `layerRules`, additionally checks layer conformance
+
+---
+
+### 3.28 `codelattice_ai_context_pack` *(v0.19)*
+
+AI editing context: given a task description or target symbols, output relevant files, key symbols, call chains, dependency notes, and suggested read order — ready to feed into AI assistants. No LLM invocation.
+
+**Input:**
+
+```json
+{
+  "root": { "$ref": "#/definitions/rootPath" },
+  "language": { "$ref": "#/definitions/language" },
+  "task": { "type": "string", "description": "Natural language description of the editing task" },
+  "targetSymbols": { "type": "array", "items": { "type": "string" }, "description": "Optional symbol names to focus on" },
+  "compact": { "type": "boolean", "default": false }
+}
+```
+
+**Output:**
+- `contextFiles` — relevant files with relevance score, reason, and snippet of key symbols
+- `keySymbols` — symbols most relevant to the task, with callers/callees summary
+- `callChains` — important dependency paths connecting key symbols
+- `dependencyNotes` — "this file depends on X", "changing Y will affect Z" style notes
+- `suggestedReadOrder` — ordered list of files for AI to read first
+- `usefulCommands` — suggested follow-up MCP tool calls (e.g., impact_preview, calls_to)
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Matching:**
+- Keyword matching against symbol names, file paths, and graph metadata
+- Task description tokens matched to symbol/file names (case-insensitive substring)
+- Graph BFS from matched symbols to find connected context
+
+---
+
+### 3.29 `codelattice_review_gate` *(v0.19)*
+
+Diff-based review gate: analyze git diff or specified changed files → touched symbols → hotspot exposure → impact summary → review checklist → risk level.
+
+**Input:**
+
+```json
+{
+  "root": { "$ref": "#/definitions/rootPath" },
+  "language": { "$ref": "#/definitions/language" },
+  "useGitDiff": { "type": "boolean", "default": true },
+  "changedFiles": { "type": "array", "items": { "type": "string" }, "description": "Explicit file list (used when useGitDiff=false)" },
+  "compact": { "type": "boolean", "default": false }
+}
+```
+
+**Output:**
+- `touchedSymbols` — symbols in changed files
+- `hotspotExposure` — touched symbols that are also risk hotspots
+- `impactSummary` — upstream/downstream impact of touched symbols
+- `reviewChecklist` — actionable review items generated from the analysis
+- `riskLevel` — "low" / "medium" / "high" / "critical"
+- `riskReasons` — human-readable explanations for the risk level
+- `generatedFrom` — `{ staticAnalysisOnly: true, heuristic: true, compilerVerified: false }`
+
+**Risk level determination:**
+- "low": ≤3 touched symbols, none are hotspots, no cross-module impact
+- "medium": 4-9 touched symbols, or any hotspot touched
+- "high": ≥10 touched symbols, or critical infrastructure symbols touched
+- "critical": entry points or public API symbols among touched symbols with significant downstream impact
+
+---
+
 ### 3.22 Cangjie Symbol Search Fix (v0.6)
 
 > **v0.6 Fix**: Cangjie graph nodes use `kind="symbol"` with display name in `label` field, while Rust uses `kind="function"/"method"/...` with `label="symbol"`. The old `symbol_search` filtered by `label == "symbol"`, which excluded all Cangjie symbols.
@@ -946,7 +1269,7 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 25
+    "toolCount": 30
   }
 }
 ```
