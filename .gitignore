@@ -3,3 +3,4 @@
 **/*.rs.bk
 .gitnexus
 __pycache__/
+.codelattice-webui/

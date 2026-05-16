@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI Phase C — Timeline + Report + Review Workflow）
+最后更新：2026-05-17（WebUI Phase D — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
 
 ## 用途
 
@@ -19,9 +19,13 @@
 
 ## 当前状态总结
 
+**WebUI Phase D — Local Runner + Snapshot Library（2026-05-17，已完成）：**
+- 📝 [2026-05-17-webui-phase-d-preflight.md](2026-05-17-webui-phase-d-preflight.md) — Phase D scope lock: local runner + snapshot library + live-lite analysis, security boundaries.
+- ✅ [2026-05-17-webui-phase-d-closure.md](2026-05-17-webui-phase-d-closure.md) — closure: Python runner (4 API endpoints), runner.js client, snapshot library, runner smoke (6/6).
+
 **WebUI Phase C — Timeline + Report + Checklist（2026-05-17，已完成）：**
-- 📝 ```[2026-05-17-webui-phase-c-preflight.md](2026-05-17-webui-phase-c-preflight.md) — Phase C scope lock: timeline + report + workflow checklist, stop-lines.
-- ✅ ```[2026-05-17-webui-phase-c-closure.md](2026-05-17-webui-phase-c-closure.md) — closure: SVG timeline (8 metrics), Markdown report export, interactive checklist (10 scenarios, localStorage).
+- 📝 [2026-05-17-webui-phase-c-preflight.md](2026-05-17-webui-phase-c-preflight.md) — Phase C scope lock: timeline + report + workflow checklist, stop-lines.
+- ✅ [2026-05-17-webui-phase-c-closure.md](2026-05-17-webui-phase-c-closure.md) — closure: SVG timeline (8 metrics), Markdown report export, interactive checklist (10 scenarios, localStorage).
 
 **WebUI Phase B — Graph + Diff + Smoke Hardening（2026-05-17，已完成）：**
 - 📝 [`2026-05-17-webui-phase-b-preflight.md`](2026-05-17-webui-phase-b-preflight.md) — Phase B scope lock：graph visualization + snapshot diff + smoke hardening, stop-lines。

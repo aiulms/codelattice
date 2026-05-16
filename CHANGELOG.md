@@ -8,6 +8,14 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase D — Local Runner + Snapshot Library + Live-lite Analysis**: Python stdlib HTTP server, snapshot generation API, managed library with history.
+  - `scripts/webui-runner.py` — Python HTTP server (127.0.0.1 only), serves webui/snapshot-viewer/ + REST API: health, generate-snapshot, snapshots list, snapshot detail, delete. Calls webui-snapshot.sh via subprocess, 120s timeout, JSON error responses.
+  - `scripts/webui-runner.sh` — Shell wrapper: port selection, browser open, snapshot-dir config.
+  - `webui/snapshot-viewer/runner.js` — Frontend client: auto-detect runner mode, project root input + language select + Generate button, Snapshot Library panel (load/compare/timeline from library). Graceful fallback to static file mode.
+  - `scripts/webui-runner-smoke.sh` — Smoke test: starts runner on random port, checks health, generates Rust fixture snapshot, lists snapshots, validates detail (schema+data+no path leak), cleans up (6 checks).
+  - `.gitignore` — Added `.codelattice-webui/` to exclude runner output.
+  - `scripts/webui-viewer-smoke.sh` — Phase D checks: runner.js + 8 functions + runner-panel HTML (46 total checks).
+
 - **WebUI Phase C — Timeline + Report Export + Review Workflow**: SVG trend charts, Markdown report generation, interactive review checklist.
   - `webui/snapshot-viewer/timeline.js` — Loads 2+ snapshots, builds metric timeline (8 metrics: source files/symbols/edges/graph nodes/graph edges/quality failed/dead code/unreachable), renders SVG line chart with value labels + metric selector buttons, computes first-to-last delta.
   - `webui/snapshot-viewer/report.js` — Markdown report generation (Dashboard/Quality/Graph/Diff/Timeline/Cleanup/Release/Checklist/Limitations/Recommended Verification), clipboard copy + .md download; interactive workflow checklist (10 scenarios, 5 items each, localStorage persistence, check all/reset toggle).

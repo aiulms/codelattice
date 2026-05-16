@@ -22,7 +22,7 @@ HAS_NODE=no; command -v node >/dev/null 2>&1 && HAS_NODE=yes; chk "node" yes "$H
 HAS_PY=no; command -v python3 >/dev/null 2>&1 && HAS_PY=yes; chk "python3" yes "$HAS_PY"
 echo ""; echo "--- JS Syntax ---"
 if [[ "$HAS_NODE" == yes ]]; then
-  for f in app.js timeline.js report.js; do
+  for f in app.js timeline.js report.js runner.js; do
     node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail
   done
 fi
@@ -76,6 +76,14 @@ done
 MT=$((MP+MF))
 printf '  Matrix: %d/%d pass\n' "$MP" "$MT"
 [[ $MF -gt 0 ]] && chk "matrix all pass" pass "fail($MF failed)"
+echo ""; echo "--- Phase D Runner Checks ---"
+[[ -f "$VD/runner.js" ]] && chk "runner.js exists" yes yes || chk "runner.js exists" yes no
+for f in runner.js; do node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail; done
+RD_FC=$(grep -cE '(runnerCheckHealth|runnerGenerate|runnerLoadLibrary|runnerLoadSnapshot|runnerCompareSnapshot|runnerAddTimeline|renderSnapshotLibrary|runnerApi)' "$VD/runner.js" 2>/dev/null || echo 0)
+[[ $RD_FC -ge 6 ]] && chk "runner functions (>=6)" pass pass || chk "runner functions (>=6)" pass "fail($RD_FC)"
+grep -qF "runner-panel" "$VD/index.html" && chk "runner panel html" yes yes || chk "runner panel html" yes no
+grep -qF "runner-mode-badge" "$VD/index.html" && chk "runner badge" yes yes || chk "runner badge" yes no
+
 echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
 for f in timeline.js report.js; do
   [[ -f "$VD/$f" ]] && chk "$f exists" yes yes || chk "$f exists" yes no
