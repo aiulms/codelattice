@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_twenty_four_tools() {
+fn mcp_tools_list_returns_twenty_five_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_twenty_four_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 24, "expected 24 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 25, "expected 25 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -305,6 +305,11 @@ fn mcp_tools_list_returns_twenty_four_tools() {
     assert!(
         names.contains(&"codelattice_review_plan"),
         "missing codelattice_review_plan"
+    );
+    // v0.10 tools
+    assert!(
+        names.contains(&"codelattice_dead_code_candidates"),
+        "missing codelattice_dead_code_candidates"
     );
 
     // Verify each tool has inputSchema
@@ -8349,6 +8354,404 @@ def add(a, b):
         assert!(
             qm["callQuality"]["callEdgeCount"].is_number(),
             "should have callEdgeCount field"
+        );
+    }
+}
+
+// ============================================================
+// v0.10: Dead Code Candidates MCP Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn dead_code_candidates_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("typescript")
+        .join("dead-code-candidates")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn empty_arr() -> &'static Vec<serde_json::Value> {
+    static EMPTY: std::sync::OnceLock<Vec<serde_json::Value>> = std::sync::OnceLock::new();
+    EMPTY.get_or_init(Vec::new)
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_typescript_fixture() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 20001);
+    let data = extract_tool_data(&resp);
+    assert!(
+        data.get("summary").is_some(),
+        "must have summary: {:?}",
+        data
+    );
+    assert!(
+        data.get("generatedFrom").is_some(),
+        "must have generatedFrom: {:?}",
+        data
+    );
+    assert_eq!(
+        data["generatedFrom"]["deletionSafe"].as_bool(),
+        Some(false),
+        "deletionSafe must be false"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_entry_point_excluded() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "includePublicApi": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    // "index" or entry-like symbols should NOT be candidates
+    for sym in symbols {
+        let name = sym["name"].as_str().unwrap_or("");
+        assert!(
+            !name.contains("index"),
+            "entry point '{}' should not be a dead code candidate: {:?}",
+            name,
+            sym
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_public_api_caution() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "includePublicApi": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    // Find publicUtility or anotherPublicFn candidate — if present, it should have public-api caution
+    let public_cands: Vec<&serde_json::Value> = symbols
+        .iter()
+        .filter(|s| {
+            let name = s["name"].as_str().unwrap_or("");
+            name == "publicUtility" || name == "anotherPublicFn" || name == "PUBLIC_CONSTANT"
+        })
+        .collect();
+
+    for cand in &public_cands {
+        let cautions = cand["cautions"].as_array().unwrap_or(empty_arr());
+        let has_public_caution = cautions.iter().any(|c| {
+            c.as_str()
+                .map(|s| s.contains("public-api"))
+                .unwrap_or(false)
+        });
+        // Public API symbols should have a caution about public-api
+        assert!(
+            has_public_caution,
+            "public symbol should have public-api caution: {:?}",
+            cand
+        );
+        // Confidence should NOT be "high" for public API
+        let confidence = cand["confidence"].as_str().unwrap_or("");
+        assert_ne!(
+            confidence, "high",
+            "public API candidate should not be high confidence: {:?}",
+            cand
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_include_tests_false() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "includeTests": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    // testHelper and testOldHelper should NOT appear
+    for sym in symbols {
+        let name = sym["name"].as_str().unwrap_or("");
+        assert!(
+            name != "testHelper" && name != "testOldHelper",
+            "test symbols should not be candidates when includeTests=false: {:?}",
+            sym
+        );
+    }
+    // test file should not be in file candidates
+    let files = data["candidateFiles"].as_array().unwrap_or(empty_arr());
+    for f in files {
+        let path = f["path"].as_str().unwrap_or("");
+        assert!(
+            !path.contains("legacy.test"),
+            "test file should not be a candidate when includeTests=false: {:?}",
+            f
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_include_tests_true() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "includeTests": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // With includeTests=true, test-related content should be present
+    assert!(
+        data.get("summary").is_some(),
+        "must have summary: {:?}",
+        data
+    );
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    let files = data["candidateFiles"].as_array().unwrap_or(empty_arr());
+    // At least some candidates should exist (either symbols or files)
+    assert!(
+        !symbols.is_empty() || !files.is_empty(),
+        "should have some candidates with includeTests=true"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_compact_shape() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    // In compact mode, recommendedVerification should be removed
+    for sym in symbols {
+        assert!(
+            sym.get("recommendedVerification").is_none(),
+            "compact mode should not have recommendedVerification: {:?}",
+            sym
+        );
+        // But should have core fields
+        assert!(
+            sym.get("id").is_some() || sym.get("name").is_some(),
+            "compact candidate should have identity: {:?}",
+            sym
+        );
+    }
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_limit() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript",
+                "limit": 1
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    let files = data["candidateFiles"].as_array().unwrap_or(empty_arr());
+    // With limit=1, each category should have at most 1 item
+    assert!(
+        symbols.len() <= 1,
+        "symbols should be limited to 1, got {}: {:?}",
+        symbols.len(),
+        symbols
+    );
+    assert!(
+        files.len() <= 1,
+        "files should be limited to 1, got {}: {:?}",
+        files.len(),
+        files
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_auto_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "auto"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data.get("summary").is_some(),
+        "auto language should still produce summary: {:?}",
+        data
+    );
+    assert!(
+        data["generatedFrom"]["graphBased"].as_bool() == Some(true),
+        "should be graphBased"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_dead_code_candidates_no_deletion_claim() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20009,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_dead_code_candidates",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "typescript"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // deletionSafe must be false
+    assert_eq!(
+        data["generatedFrom"]["deletionSafe"].as_bool(),
+        Some(false),
+        "deletionSafe must be false"
+    );
+    // All candidates must have static-analysis-only in cautions
+    let symbols = data["candidateSymbols"].as_array().unwrap_or(empty_arr());
+    for sym in symbols {
+        let cautions = sym["cautions"].as_array().unwrap_or(empty_arr());
+        let has_static_only = cautions
+            .iter()
+            .any(|c| c.as_str() == Some("static-analysis-only"));
+        assert!(
+            has_static_only,
+            "every candidate must have 'static-analysis-only' caution: {:?}",
+            sym
         );
     }
 }

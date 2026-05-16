@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 24 tools + source snippet + cache behavior + doc association.
+# Exercises all 25 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -122,14 +122,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 24 ]; then
+if [ "$TOOL_COUNT" -ge 25 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 24, got $TOOL_COUNT)")
-    echo "   → expected >= 24 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 25, got $TOOL_COUNT)")
+    echo "   → expected >= 25 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -296,6 +296,14 @@ echo "24. codelattice_review_plan (onboarding)"
 check_tool "codelattice_review_plan" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"onboarding\"}" \
     "isinstance(data.get('summary'), dict) and data['mode'] == 'onboarding' and isinstance(data.get('readPlan'), list) and isinstance(data.get('riskReviewPlan'), list) and isinstance(data.get('recommendedMcpCalls'), list) and data.get('generatedFrom', {}).get('graphBased') == True"
+
+# ============================================================
+# v0.10: Dead Code Candidates
+# ============================================================
+echo "25. codelattice_dead_code_candidates"
+check_tool "codelattice_dead_code_candidates" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true,\"limit\":10}" \
+    "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('deletionSafe') == False"
 
 # ============================================================
 # Summary

@@ -880,6 +880,52 @@ When `changedSymbols` is not provided, automatically runs `git diff` to detect c
 
 ---
 
+### 3.24 `codelattice_dead_code_candidates` *(v0.10)*
+
+Identify static dead-code candidates — symbols and files with no incoming edges or unreachable from detected entry points. Returns candidates with confidence scoring, risk cautions, and verification suggestions. **NOT deletion proof.** Always use `codelattice_impact_preview` and project tests before deleting any code.
+
+**Input Schema:**
+```json
+{
+  "type": "object",
+  "properties": {
+    "root": { "type": "string", "description": "Project root (absolute path)" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+    "compact": { "type": "boolean", "default": true },
+    "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200 },
+    "includeFiles": { "type": "boolean", "default": true },
+    "includeSymbols": { "type": "boolean", "default": true },
+    "includeTests": { "type": "boolean", "default": false },
+    "includePublicApi": { "type": "boolean", "default": true },
+    "entryHints": { "type": "array", "items": { "type": "string" }, "description": "Symbol names or file path substrings to treat as entry points" },
+    "excludePatterns": { "type": "array", "items": { "type": "string" }, "description": "File path patterns to exclude" }
+  },
+  "required": ["root"]
+}
+```
+
+**Output:**
+- `summary` — candidateSymbolCount, candidateFileCount, high/medium/low confidence counts, publicApiCautionCount, dynamicFeatureCautionCount
+- `candidateSymbols` — scored symbol candidates with reasons, cautions, recommendedVerification
+- `candidateFiles` — scored file candidates with reasons and cautions
+- `entryPoints` — detected entry points used for reachability analysis
+- `warnings` — e.g., `entry-point-detection-low-confidence` if no entry points found
+- `generatedFrom` — `{ graphBased: true, compilerVerified: false, heuristic: true, deletionSafe: false }`
+
+**Scoring strategy:**
+- Symbol candidates: +0.35 no incoming edges, +0.25 unreachable from entry points, +0.15 private visibility, -0.35 public/exported, -0.40 entry-like name, -0.15 dynamic pattern
+- File candidates: +0.35 no incoming file edges, +0.20 no entry-like symbols, +0.20 all symbols are candidates, -0.30 contains public exports, -0.40 entry-like filename
+- Confidence: high (>=0.80), medium (>=0.55), low (<0.55). Minimum score 0.45 to appear in output.
+
+**Known limitations:**
+- Static graph analysis only — no control flow, type inference, or macro expansion
+- Dynamic dispatch / reflection / plugin systems may hide callers
+- Public/exported APIs may be called by external consumers
+- Build configs (cfg, features) may conditionally include code
+- Test-only code may be critical for CI
+
+---
+
 ### 3.22 Cangjie Symbol Search Fix (v0.6)
 
 > **v0.6 Fix**: Cangjie graph nodes use `kind="symbol"` with display name in `label` field, while Rust uses `kind="function"/"method"/...` with `label="symbol"`. The old `symbol_search` filtered by `label == "symbol"`, which excluded all Cangjie symbols.
@@ -900,7 +946,7 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 21
+    "toolCount": 25
   }
 }
 ```

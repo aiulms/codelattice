@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 24 tools:
+//! Provides 25 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -14,6 +14,7 @@
 //!   v0.7: codelattice_changed_symbols
 //!   v0.8: codelattice_project_insights
 //!   v0.9: codelattice_review_plan
+//!   v0.10: codelattice_dead_code_candidates
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -7960,11 +7961,908 @@ fn tools_list() -> Value {
                         "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippets" },
                         "limit": { "type": "integer", "default": 100, "maximum": 500, "description": "Max changed symbols to return" }
                     },
+                     "required": ["root"]
+                 }
+             },
+
+             {
+                "name": "codelattice_dead_code_candidates",
+                "description": "Identify static dead-code candidates — symbols and files with no incoming edges or unreachable from entry points. Returns candidates with confidence, risk cautions, and verification suggestions. NOT deletion proof. Use impact_preview and project tests before deleting.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only id/name/kind/file/line/score/confidence/reasons/cautions per item" },
+                        "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max candidates to return" },
+                        "includeFiles": { "type": "boolean", "default": true, "description": "Include file-level candidates" },
+                        "includeSymbols": { "type": "boolean", "default": true, "description": "Include symbol-level candidates" },
+                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
+                        "includePublicApi": { "type": "boolean", "default": true, "description": "Include public API candidates (with caution)" },
+                        "entryHints": { "type": "array", "items": { "type": "string" }, "description": "Symbol names or file path substrings to treat as entry points" },
+                        "excludePatterns": { "type": "array", "items": { "type": "string" }, "description": "File path patterns to exclude (e.g., target/, node_modules/)" }
+                    },
                     "required": ["root"]
                 }
              }
          ]
     })
+}
+
+// ============================================================
+// v0.10: Dead Code Candidates
+// ============================================================
+
+/// Detect entry points from the graph — symbols that are entry-like or in entry-like files.
+fn detect_entry_points(
+    gv: &GraphView,
+    language: &str,
+    entry_hints: &[String],
+) -> Vec<(String, String, String, String, u64)> {
+    // entry-like file names
+    let entry_file_suffixes: &[&str] = match language {
+        "rust" => &["main.rs", "lib.rs"],
+        "cangjie" => &["package.cj", "main.cj"],
+        "arkts" => &["Index.ets", "MainAbility"],
+        "typescript" => &["index.ts", "index.tsx", "main.ts", "app.ts"],
+        "python" => &["main.py", "app.py", "api.py", "__init__.py"],
+        "c" | "cpp" => &["main.c", "main.cpp"],
+        _ => &["main"],
+    };
+
+    let mut entry_points: Vec<(String, String, String, String, u64)> = Vec::new();
+
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+            .unwrap_or("");
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+        let id = node["id"].as_str().unwrap_or("").to_string();
+
+        let fan_out = gv.outgoing.get(&id).map(|v| v.len()).unwrap_or(0);
+
+        // Check entry-like heuristic
+        if detect_entry_like(name, kind, file, language, fan_out) {
+            entry_points.push((
+                id.clone(),
+                name.to_string(),
+                kind.to_string(),
+                file.to_string(),
+                line,
+            ));
+            continue;
+        }
+
+        // Check entry-like file names
+        for suffix in entry_file_suffixes {
+            if file.ends_with(suffix) {
+                entry_points.push((
+                    id.clone(),
+                    name.to_string(),
+                    kind.to_string(),
+                    file.to_string(),
+                    line,
+                ));
+                break;
+            }
+        }
+
+        // Check user-provided entry hints
+        for hint in entry_hints {
+            if name == hint || file.contains(hint.as_str()) || id.contains(hint.as_str()) {
+                entry_points.push((
+                    id.clone(),
+                    name.to_string(),
+                    kind.to_string(),
+                    file.to_string(),
+                    line,
+                ));
+                break;
+            }
+        }
+    }
+
+    // Deduplicate by id
+    let mut seen = std::collections::HashSet::new();
+    entry_points.retain(|(id, _, _, _, _)| seen.insert(id.clone()));
+
+    entry_points
+}
+
+/// BFS reachability from entry points along CALLS/REFERENCES/IMPORTS/INCLUDES/DEFINES edges.
+fn reachable_from_entry_points(
+    gv: &GraphView,
+    entry_points: &[(String, String, String, String, u64)],
+) -> std::collections::HashSet<String> {
+    let max_depth = 8;
+    let mut reachable = std::collections::HashSet::new();
+    let mut queue: std::collections::VecDeque<(String, usize)> = std::collections::VecDeque::new();
+
+    for (id, _, _, _, _) in entry_points {
+        reachable.insert(id.clone());
+        queue.push_back((id.clone(), 0));
+    }
+
+    let follow_edge_types: &[&str] = &["CALLS", "REFERENCES", "IMPORTS", "INCLUDES", "DEFINES"];
+
+    while let Some((node_id, depth)) = queue.pop_front() {
+        if depth >= max_depth {
+            continue;
+        }
+        if let Some(edges) = gv.outgoing.get(&node_id) {
+            for edge in edges {
+                let edge_type = edge["type"].as_str().unwrap_or("");
+                if follow_edge_types.contains(&edge_type) {
+                    if let Some(target) = edge["target"].as_str() {
+                        if reachable.insert(target.to_string()) {
+                            queue.push_back((target.to_string(), depth + 1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    reachable
+}
+
+/// Check if a file path looks like generated/vendor/dist/build.
+fn is_generated_path(file: &str) -> bool {
+    let lower = file.to_lowercase();
+    lower.contains("/vendor/")
+        || lower.contains("/node_modules/")
+        || lower.contains("/dist/")
+        || lower.contains("/build/")
+        || lower.contains("/target/")
+        || lower.contains("/.generated")
+        || lower.contains("__generated__")
+}
+
+/// Check if a file path or symbol name has dynamic dispatch patterns.
+fn has_dynamic_pattern(name: &str, file: &str) -> bool {
+    let lower_name = name.to_lowercase();
+    let lower_file = file.to_lowercase();
+    lower_name.contains("plugin")
+        || lower_name.contains("registry")
+        || lower_name.contains("dynamic")
+        || lower_file.contains("plugin")
+        || lower_file.contains("registry")
+        || lower_file.contains("route")
+        || lower_file.contains("config")
+        || lower_name.contains("importlib")
+        || lower_name.contains("getattr")
+        || lower_name.contains("eval")
+}
+
+/// Check if a file path looks like a test/example/fixture path.
+fn is_test_like_path(file: &str) -> bool {
+    let lower = file.to_lowercase();
+    lower.contains("/test")
+        || lower.contains("/tests")
+        || lower.contains("/spec")
+        || lower.contains("/__tests__")
+        || lower.contains(".test.")
+        || lower.contains(".spec.")
+        || lower.contains("/example")
+        || lower.contains("/examples")
+        || lower.contains("/fixture")
+        || lower.contains("/fixtures")
+}
+
+/// Check if a symbol name looks like a test symbol.
+fn is_test_symbol(name: &str, file: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower.starts_with("test")
+        || lower.starts_with("test_")
+        || lower.starts_with("it_")
+        || lower.contains("should")
+        || lower.starts_with("describe")
+        || lower.starts_with("before")
+        || lower.starts_with("after")
+        || is_test_like_path(file)
+}
+
+/// Check if a symbol is public/exported.
+fn is_public_symbol(node: &Value, gv: &GraphView) -> bool {
+    let visibility = node["properties"]["visibility"].as_str().unwrap_or("");
+    if visibility == "public" {
+        return true;
+    }
+
+    // Check exported property (TypeScript)
+    if node["properties"]["exported"].as_bool() == Some(true) {
+        return true;
+    }
+
+    // Check if file is under include/ directory (public API convention)
+    let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+    if file.contains("/include/") || file.contains("public-api") || file.contains("public_api") {
+        return true;
+    }
+
+    // Check if other files import this symbol
+    let id = node["id"].as_str().unwrap_or("");
+    if let Some(incoming) = gv.incoming.get(id) {
+        for edge in incoming {
+            let edge_type = edge["type"].as_str().unwrap_or("");
+            if edge_type == "IMPORTS" || edge_type == "INCLUDES" || edge_type == "REFERENCES" {
+                // Check if source is from a different file
+                if let Some(source_id) = edge["source"].as_str() {
+                    if let Some(source_node) = gv.nodes_by_id.get(source_id) {
+                        let source_file = source_node["properties"]["sourcePath"]
+                            .as_str()
+                            .unwrap_or("");
+                        if source_file != file {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    false
+}
+
+/// Score individual symbol candidates.
+fn score_candidate_symbols(
+    gv: &GraphView,
+    language: &str,
+    entry_point_ids: &std::collections::HashSet<String>,
+    reachable: &std::collections::HashSet<String>,
+    include_tests: bool,
+    include_public_api: bool,
+    exclude_patterns: &[String],
+) -> Vec<Value> {
+    let mut candidates: Vec<Value> = Vec::new();
+
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+
+        let symbol_kind = node["properties"]["symbolKind"]
+            .as_str()
+            .or_else(|| node["kind"].as_str())
+            .unwrap_or("");
+
+        // Skip module/package/repository/file kind nodes
+        if matches!(
+            symbol_kind,
+            "module" | "package" | "repository" | "file" | "source_file"
+        ) {
+            continue;
+        }
+
+        let id = node["id"].as_str().unwrap_or("").to_string();
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| id.split("::").last())
+            .unwrap_or("")
+            .to_string();
+        let file = node["properties"]["sourcePath"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+
+        // Skip generated paths
+        if is_generated_path(&file) {
+            continue;
+        }
+
+        // Skip exclude patterns
+        let mut excluded = false;
+        for pattern in exclude_patterns {
+            if file.contains(pattern.as_str()) {
+                excluded = true;
+                break;
+            }
+        }
+        if excluded {
+            continue;
+        }
+
+        // Skip entry points
+        if entry_point_ids.contains(&id) {
+            continue;
+        }
+
+        // Skip test symbols when includeTests=false
+        if !include_tests && is_test_symbol(&name, &file) {
+            continue;
+        }
+
+        // Score computation
+        let mut score: f64 = 0.0;
+        let mut reasons: Vec<String> = Vec::new();
+        let mut cautions: Vec<String> = vec!["static-analysis-only".to_string()];
+
+        // Count incoming CALLS/REFERENCES/IMPORTS/INCLUDES edges
+        let incoming_edges = gv.incoming.get(&id).cloned().unwrap_or_default();
+        let relevant_incoming: Vec<&Value> = incoming_edges
+            .iter()
+            .filter(|e| {
+                let t = e["type"].as_str().unwrap_or("");
+                t == "CALLS" || t == "REFERENCES" || t == "IMPORTS" || t == "INCLUDES"
+            })
+            .collect();
+
+        if relevant_incoming.is_empty() {
+            score += 0.35;
+            reasons.push("no-incoming-calls".to_string());
+        }
+
+        // Not reachable from entry points
+        if !reachable.contains(&id) {
+            score += 0.25;
+            reasons.push("not-reachable-from-entry-points".to_string());
+        }
+
+        // Private/internal visibility
+        let visibility = node["properties"]["visibility"].as_str().unwrap_or("");
+        if visibility == "private" || visibility == "internal" || visibility == "" {
+            score += 0.15;
+            reasons.push("private-visibility".to_string());
+        }
+
+        // Not mentioned in docs
+        if let Some(ref scanner) = gv.doc_scanner {
+            let related = scanner.find_related_docs(&name, &file, &[], 1);
+            if related.is_empty() {
+                score += 0.10;
+                reasons.push("not-mentioned-in-docs".to_string());
+            }
+        } else {
+            // No scanner available, give small bonus
+            score += 0.05;
+        }
+
+        // File is orphan-like (no incoming file-level edges)
+        let file_incoming = gv.incoming.get(&file).cloned().unwrap_or_default();
+        let file_relevant: Vec<&Value> = file_incoming
+            .iter()
+            .filter(|e| {
+                let t = e["type"].as_str().unwrap_or("");
+                t == "IMPORTS" || t == "REFERENCES" || t == "INCLUDES"
+            })
+            .collect();
+        if file_relevant.is_empty() {
+            score += 0.10;
+            reasons.push("orphan-file".to_string());
+        }
+
+        // Low fan-out
+        let fan_out = gv.outgoing.get(&id).map(|v| v.len()).unwrap_or(0);
+        if fan_out <= 1 {
+            score += 0.05;
+            reasons.push("low-fan-out".to_string());
+        }
+
+        // Negative signals: public/exported
+        let is_public = is_public_symbol(node, gv);
+        if is_public {
+            score -= 0.35;
+            cautions.push("check-external-api-usage".to_string());
+            if !include_public_api {
+                continue;
+            }
+        }
+
+        // Negative: name looks entry-like
+        if detect_entry_like(&name, &symbol_kind, &file, language, fan_out) {
+            score -= 0.40;
+        }
+
+        // Dynamic pattern caution
+        if has_dynamic_pattern(&name, &file) {
+            score -= 0.15;
+            cautions.push("dynamic-dispatch-may-hide-callers".to_string());
+        }
+
+        // Clamp score to [0.0, 1.0]
+        score = score.max(0.0).min(1.0);
+
+        // Filter: only include candidates with score >= 0.45
+        if score < 0.45 {
+            continue;
+        }
+
+        // Determine confidence
+        let confidence = if score >= 0.80 {
+            "high"
+        } else if score >= 0.55 {
+            "medium"
+        } else {
+            "low"
+        };
+
+        // If public API, cap confidence at medium
+        let final_confidence = if is_public && confidence == "high" {
+            "medium"
+        } else {
+            confidence
+        };
+
+        // Public API caution
+        if is_public {
+            cautions.push("public-api-may-have-external-callers".to_string());
+        }
+
+        // Build recommended verification
+        let mut recommended_verification: Vec<String> = Vec::new();
+        recommended_verification.push("search-public-exports".to_string());
+        recommended_verification.push("run-project-tests".to_string());
+        if is_public {
+            recommended_verification.push("check-external-consumers".to_string());
+        }
+
+        candidates.push(json!({
+            "id": id,
+            "name": name,
+            "kind": symbol_kind,
+            "file": file,
+            "line": line,
+            "confidence": final_confidence,
+            "score": (score * 100.0).round() / 100.0,
+            "reasons": reasons,
+            "cautions": cautions,
+            "recommendedVerification": recommended_verification
+        }));
+    }
+
+    // Sort by score descending, then by name
+    candidates.sort_by(|a, b| {
+        let score_a = a["score"].as_f64().unwrap_or(0.0);
+        let score_b = b["score"].as_f64().unwrap_or(0.0);
+        score_b
+            .partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                let name_a = a["name"].as_str().unwrap_or("");
+                let name_b = b["name"].as_str().unwrap_or("");
+                name_a.cmp(name_b)
+            })
+    });
+
+    candidates
+}
+
+/// Score file-level candidates.
+fn score_candidate_files(
+    gv: &GraphView,
+    language: &str,
+    entry_point_ids: &std::collections::HashSet<String>,
+    reachable: &std::collections::HashSet<String>,
+    include_tests: bool,
+    exclude_patterns: &[String],
+) -> Vec<Value> {
+    // Collect per-file info
+    let mut file_symbols: HashMap<String, Vec<Value>> = HashMap::new();
+    let mut file_incoming: HashMap<String, usize> = HashMap::new();
+    let mut file_outgoing: HashMap<String, usize> = HashMap::new();
+
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+        let file = node["properties"]["sourcePath"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if file.is_empty() {
+            continue;
+        }
+        file_symbols
+            .entry(file.clone())
+            .or_default()
+            .push(node.clone());
+    }
+
+    // Count file-level incoming/outgoing edges
+    // File-level nodes have kind "source_file" or id matching the file path
+    for (node_id, node) in &gv.nodes_by_id {
+        let node_kind = node["kind"].as_str().unwrap_or("");
+        if node_kind == "source_file" || node_kind == "file" {
+            let in_count = gv.incoming.get(node_id).map(|v| v.len()).unwrap_or(0);
+            let out_count = gv.outgoing.get(node_id).map(|v| v.len()).unwrap_or(0);
+            // Map to file path
+            let file = node["properties"]["sourcePath"]
+                .as_str()
+                .or_else(|| node["properties"]["path"].as_str())
+                .unwrap_or(node_id.as_str());
+            *file_incoming.entry(file.to_string()).or_default() += in_count;
+            *file_outgoing.entry(file.to_string()).or_default() += out_count;
+        }
+    }
+
+    // Also count edges from symbols in each file
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+        let file = node["properties"]["sourcePath"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        if file.is_empty() {
+            continue;
+        }
+        let id = node["id"].as_str().unwrap_or("");
+        let _in_count = gv.incoming.get(id).map(|v| v.len()).unwrap_or(0);
+        let _out_count = gv.outgoing.get(id).map(|v| v.len()).unwrap_or(0);
+        // Only count cross-file edges for file-level scoring
+        for edge in gv.incoming.get(id).cloned().unwrap_or_default() {
+            let source = edge["source"].as_str().unwrap_or("");
+            if let Some(src_node) = gv.nodes_by_id.get(source) {
+                let src_file = src_node["properties"]["sourcePath"].as_str().unwrap_or("");
+                if src_file != file {
+                    *file_incoming.entry(file.clone()).or_default() += 1;
+                }
+            }
+        }
+        for edge in gv.outgoing.get(id).cloned().unwrap_or_default() {
+            let target = edge["target"].as_str().unwrap_or("");
+            if let Some(tgt_node) = gv.nodes_by_id.get(target) {
+                let tgt_file = tgt_node["properties"]["sourcePath"].as_str().unwrap_or("");
+                if tgt_file != file {
+                    *file_outgoing.entry(file.clone()).or_default() += 1;
+                }
+            }
+        }
+    }
+
+    let mut candidates: Vec<Value> = Vec::new();
+
+    for (file, symbols) in &file_symbols {
+        // Skip generated paths
+        if is_generated_path(file) {
+            continue;
+        }
+
+        // Skip exclude patterns
+        let mut excluded = false;
+        for pattern in exclude_patterns {
+            if file.contains(pattern.as_str()) {
+                excluded = true;
+                break;
+            }
+        }
+        if excluded {
+            continue;
+        }
+
+        // Skip test/example/fixture paths when includeTests=false
+        if !include_tests && is_test_like_path(file) {
+            continue;
+        }
+
+        let mut score: f64 = 0.0;
+        let mut reasons: Vec<String> = Vec::new();
+        let mut cautions: Vec<String> = Vec::new();
+
+        // No incoming file-level edges
+        let in_count = file_incoming.get(file).copied().unwrap_or(0);
+        if in_count == 0 {
+            score += 0.35;
+            reasons.push("no-incoming-file-edges".to_string());
+        }
+
+        // No entry-like symbols inside
+        let has_entry = symbols.iter().any(|s| {
+            let sname = s["properties"]["name"].as_str().unwrap_or("");
+            let skind = s["kind"].as_str().unwrap_or("");
+            let sfan_out = s["id"]
+                .as_str()
+                .map(|id| gv.outgoing.get(id).map(|v| v.len()).unwrap_or(0))
+                .unwrap_or(0);
+            detect_entry_like(sname, skind, file, language, sfan_out)
+                || entry_point_ids.contains(s["id"].as_str().unwrap_or(""))
+        });
+        if !has_entry {
+            score += 0.20;
+            reasons.push("no-entry-like-symbols".to_string());
+        }
+
+        // All symbols inside are candidates (unreachable)
+        let all_unreachable = symbols.iter().all(|s| {
+            let sid = s["id"].as_str().unwrap_or("");
+            !entry_point_ids.contains(sid) && !reachable.contains(sid)
+        });
+        if all_unreachable && !symbols.is_empty() {
+            score += 0.20;
+            reasons.push("all-symbols-unreachable".to_string());
+        }
+
+        // Not referenced by docs
+        if let Some(ref scanner) = gv.doc_scanner {
+            let file_name = file.split('/').last().unwrap_or(file);
+            let related = scanner.find_related_docs("", file_name, &[], 1);
+            if related.is_empty() {
+                score += 0.10;
+                reasons.push("file-not-mentioned-in-docs".to_string());
+            }
+        }
+
+        // Low outgoing edges
+        let out_count = file_outgoing.get(file).copied().unwrap_or(0);
+        if out_count <= 1 {
+            score += 0.05;
+            reasons.push("low-outgoing-edges".to_string());
+        }
+
+        // Negative: contains public API exports
+        let has_public = symbols.iter().any(|s| is_public_symbol(s, gv));
+        if has_public {
+            score -= 0.30;
+            cautions.push("contains-public-api-exports".to_string());
+        }
+
+        // Negative: filename is entry-like
+        let file_lower = file.to_lowercase();
+        let entry_file_names = [
+            "main.ts",
+            "main.rs",
+            "main.c",
+            "main.cpp",
+            "main.py",
+            "index.ts",
+            "index.tsx",
+            "app.ts",
+            "app.py",
+            "api.py",
+            "lib.rs",
+        ];
+        if entry_file_names.iter().any(|ef| file_lower.ends_with(ef)) {
+            score -= 0.40;
+        }
+
+        // Dynamic caution
+        if has_dynamic_pattern("", file) {
+            cautions.push("dynamic-dispatch-may-hide-callers".to_string());
+        }
+
+        // Clamp score
+        score = score.max(0.0).min(1.0);
+
+        // Filter: only include with score >= 0.45
+        if score < 0.45 {
+            continue;
+        }
+
+        let confidence = if score >= 0.80 {
+            "high"
+        } else if score >= 0.55 {
+            "medium"
+        } else {
+            "low"
+        };
+
+        candidates.push(json!({
+            "path": file,
+            "score": (score * 100.0).round() / 100.0,
+            "confidence": confidence,
+            "symbolCount": symbols.len(),
+            "incomingEdgeCount": in_count,
+            "outgoingEdgeCount": out_count,
+            "reasons": reasons,
+            "cautions": cautions
+        }));
+    }
+
+    // Sort by score descending, then by path
+    candidates.sort_by(|a, b| {
+        let score_a = a["score"].as_f64().unwrap_or(0.0);
+        let score_b = b["score"].as_f64().unwrap_or(0.0);
+        score_b
+            .partial_cmp(&score_a)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| {
+                let path_a = a["path"].as_str().unwrap_or("");
+                let path_b = b["path"].as_str().unwrap_or("");
+                path_a.cmp(path_b)
+            })
+    });
+
+    candidates
+}
+
+/// Handle `codelattice_dead_code_candidates` tool.
+fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_files = params["includeFiles"].as_bool().unwrap_or(true);
+    let include_symbols = params["includeSymbols"].as_bool().unwrap_or(true);
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let include_public_api = params["includePublicApi"].as_bool().unwrap_or(true);
+
+    let entry_hints: Vec<String> = params["entryHints"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let exclude_patterns: Vec<String> = params["excludePatterns"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    // 1. Detect entry points
+    let entry_points = detect_entry_points(&gv, language, &entry_hints);
+    let entry_point_ids: std::collections::HashSet<String> = entry_points
+        .iter()
+        .map(|(id, _, _, _, _)| id.clone())
+        .collect();
+
+    // 2. Compute reachability
+    let reachable = reachable_from_entry_points(&gv, &entry_points);
+
+    // 3. Score symbol candidates
+    let mut symbol_candidates = if include_symbols {
+        score_candidate_symbols(
+            &gv,
+            language,
+            &entry_point_ids,
+            &reachable,
+            include_tests,
+            include_public_api,
+            &exclude_patterns,
+        )
+    } else {
+        Vec::new()
+    };
+
+    // 4. Score file candidates
+    let mut file_candidates = if include_files {
+        score_candidate_files(
+            &gv,
+            language,
+            &entry_point_ids,
+            &reachable,
+            include_tests,
+            &exclude_patterns,
+        )
+    } else {
+        Vec::new()
+    };
+
+    // Apply limit
+    symbol_candidates.truncate(limit);
+    file_candidates.truncate(limit);
+
+    // Compact mode: remove extra fields
+    if compact {
+        for cand in &mut symbol_candidates {
+            if let Some(obj) = cand.as_object_mut() {
+                obj.remove("recommendedVerification");
+            }
+        }
+    }
+
+    // Compute summary
+    let high_count = symbol_candidates
+        .iter()
+        .chain(file_candidates.iter())
+        .filter(|c| c["confidence"].as_str() == Some("high"))
+        .count();
+    let medium_count = symbol_candidates
+        .iter()
+        .chain(file_candidates.iter())
+        .filter(|c| c["confidence"].as_str() == Some("medium"))
+        .count();
+    let low_count = symbol_candidates
+        .iter()
+        .chain(file_candidates.iter())
+        .filter(|c| c["confidence"].as_str() == Some("low"))
+        .count();
+
+    let public_api_caution_count = symbol_candidates
+        .iter()
+        .filter(|c| {
+            c["cautions"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter().any(|v| {
+                        v.as_str()
+                            .map(|s| s.contains("public-api"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false)
+        })
+        .count();
+
+    let dynamic_caution_count = symbol_candidates
+        .iter()
+        .filter(|c| {
+            c["cautions"]
+                .as_array()
+                .map(|arr| {
+                    arr.iter().any(|v| {
+                        v.as_str()
+                            .map(|s| s.contains("dynamic-dispatch"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false)
+        })
+        .count();
+
+    // Build warnings
+    let mut warnings: Vec<String> = Vec::new();
+    if entry_points.is_empty() {
+        warnings.push("entry-point-detection-low-confidence".to_string());
+    }
+
+    // Build entry points output
+    let entry_points_json: Vec<Value> = entry_points
+        .iter()
+        .map(|(id, name, kind, file, line)| {
+            json!({
+                "id": id,
+                "name": name,
+                "kind": kind,
+                "file": file,
+                "line": line
+            })
+        })
+        .collect();
+
+    let result_data = json!({
+        "language": language,
+        "root": root,
+        "summary": {
+            "candidateSymbolCount": symbol_candidates.len(),
+            "candidateFileCount": file_candidates.len(),
+            "highConfidenceCandidateCount": high_count,
+            "mediumConfidenceCandidateCount": medium_count,
+            "lowConfidenceCandidateCount": low_count,
+            "publicApiCautionCount": public_api_caution_count,
+            "dynamicFeatureCautionCount": dynamic_caution_count
+        },
+        "candidateSymbols": symbol_candidates,
+        "candidateFiles": file_candidates,
+        "entryPoints": entry_points_json,
+        "warnings": warnings,
+        "generatedFrom": {
+            "graphBased": true,
+            "compilerVerified": false,
+            "heuristic": true,
+            "deletionSafe": false
+        }
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
 }
 
 // ============================================================
@@ -8085,7 +8983,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cSupport": c_support,
                         "cppSupport": cpp_support,
                         "pythonSupport": python_support,
-                        "toolCount": 24
+                        "toolCount": 25
                     }
                 }),
             ))
@@ -8123,6 +9021,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_changed_symbols" => handle_changed_symbols(cache, &arguments),
                 "codelattice_project_insights" => handle_project_insights(cache, &arguments),
                 "codelattice_review_plan" => handle_review_plan(cache, &arguments),
+                "codelattice_dead_code_candidates" => {
+                    handle_dead_code_candidates(cache, &arguments)
+                }
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),

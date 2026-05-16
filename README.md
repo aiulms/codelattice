@@ -344,6 +344,7 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_production_assist` | 一站式摘要：quality gates、unresolved calls、diagnostics、change risk、review checklist |
 | `codelattice_project_insights` | 大项目洞察地图：入口点、热点文件/符号、风险区域、低置信度聚集区、先读/先审建议 |
 | `codelattice_review_plan` | AI 工程审查清单：4 模式（onboarding/before_edit/after_edit/release_check），将洞察、影响分析、变更符号、文档关联转化为可操作的行动计划 |
+| `codelattice_dead_code_candidates` | 静态死代码候选识别：找出无调用/不可达的符号和文件，返回置信度、风险提示和验证建议（不是删除证明） |
 | `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
 | `codelattice_cache_clear` | 清理 memory / persistent / both 缓存层 |
 

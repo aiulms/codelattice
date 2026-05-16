@@ -8,7 +8,17 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-(No unreleased changes yet.)
+- **Dead Code Candidate Analysis** (v0.18): New MCP tool `codelattice_dead_code_candidates` identifies statically unreachable symbols and files via graph-based reachability analysis.
+  - Scoring algorithm: per-symbol and per-file candidate scoring with positive signals (no incoming edges, not reachable from entry points, private visibility) and negative signals (public/exported, entry-like name, dynamic patterns).
+  - Confidence tiers: high (>=0.80), medium (>=0.55), low (<0.55). Candidates below 0.45 are excluded.
+  - Entry point detection: language-specific heuristics for main/lib.rs/index.ts etc., user-provided `entryHints`, BFS reachability traversal (max depth 8).
+  - Public API cautions: exported/public symbols get confidence capped at "medium" with `public-api-may-have-external-callers` caution.
+  - Dynamic feature cautions: registry/plugin/route patterns get `dynamic-dispatch-may-hide-callers` caution and -0.15 score penalty.
+  - All output explicitly states `deletionSafe: false` and includes `static-analysis-only` caution — never claims deletion proof.
+  - New fixture: `fixtures/typescript/dead-code-candidates/` (7 files covering live, legacy, public-api, dynamic, and test scenarios).
+  - 9 new MCP integration tests (feature-gated behind `tree-sitter-typescript`).
+  - MCP tool count: 24 → 25.
+  - No new dependencies.
 
 ## [0.14.0-beta.1] - 2026-05-16
 
