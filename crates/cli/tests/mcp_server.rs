@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 34 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 35 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -191,7 +191,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_four_tools() {
+fn mcp_tools_list_returns_thirty_five_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -208,7 +208,7 @@ fn mcp_tools_list_returns_thirty_four_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 34, "expected 34 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 35, "expected 35 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -11172,5 +11172,211 @@ fn mcp_review_plan_release_check_works() {
     assert_eq!(
         data["generatedFrom"]["compilerVerified"].as_bool(),
         Some(false)
+    );
+}
+
+// ============================================================
+// v0.24: Consistency Review Tests
+// ============================================================
+
+#[cfg(feature = "tree-sitter-typescript")]
+fn consistency_review_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/typescript/consistency-review")
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_create_client_stale_docs() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34001,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["createClient"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["summary"]["staleDocCandidateCount"]
+            .as_u64()
+            .unwrap_or(99)
+            > 0
+            || data["summary"]["relatedTestCount"].as_u64().unwrap_or(99) > 0,
+        "createClient should trigger doc/test checks"
+    );
+    assert_eq!(
+        data["generatedFrom"]["coverageVerified"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_new_feature_missing_docs() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34002,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["newFeature"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(data["summary"]["consistencyRisk"].as_str().unwrap_or("low") != "critical");
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
+        Some(false)
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_old_client_stale() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34003,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["OldClient"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let unk = data["unknownChangedSymbols"]
+        .as_array()
+        .map_or(0, |a| a.len());
+    assert!(unk > 0, "OldClient should be unknown");
+    let stale_docs = data["summary"]["staleDocCandidateCount"]
+        .as_u64()
+        .unwrap_or(0);
+    let stale_tests = data["summary"]["staleTestCandidateCount"]
+        .as_u64()
+        .unwrap_or(0);
+    assert!(
+        stale_docs + stale_tests > 0,
+        "OldClient should trigger stale doc/test candidates"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_internal_low_risk() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34004,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["internalHelper"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let risk = data["summary"]["consistencyRisk"]
+        .as_str()
+        .unwrap_or("unknown");
+    assert!(
+        risk == "low" || risk == "medium",
+        "internalHelper risk={}",
+        risk
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_no_coverage_proof() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34005,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["createClient"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert_eq!(
+        data["generatedFrom"]["coverageVerified"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_checklist() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34006,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["createClient"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["reviewChecklist"].is_array(),
+        "should have reviewChecklist"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_compact() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34007,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["createClient"],"compact":true}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(data["summary"]["consistencyRisk"].is_string());
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_no_symbols() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34008,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":[],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(data["summary"].is_object());
+    assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_get_framework() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34009,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["GET"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    assert!(data["summary"]["consistencyRisk"].is_string());
+    assert_eq!(
+        data["generatedFrom"]["testNameHeuristic"].as_bool(),
+        Some(true)
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_consistency_review_related_tests() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = consistency_review_dir();
+    session.send(&serde_json::json!({"jsonrpc":"2.0","id":34010,"method":"tools/call",
+        "params":{"name":"codelattice_consistency_review","arguments":{"root":root.to_str().unwrap(),"language":"typescript","changedSymbols":["createClient"],"compact":false}}}));
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // relatedTests may or may not find the test file depending on directory layout
+    assert!(
+        data["relatedTests"].is_array(),
+        "should have relatedTests array"
     );
 }

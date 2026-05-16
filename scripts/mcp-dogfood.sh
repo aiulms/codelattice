@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 34 tools + source snippet + cache behavior + doc association.
+# Exercises all 35 tools + source snippet + cache behavior + doc association.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -122,14 +122,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 34 ]; then
+if [ "$TOOL_COUNT" -ge 35 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 34, got $TOOL_COUNT)")
-    echo "   → expected >= 34 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 35, got $TOOL_COUNT)")
+    echo "   → expected >= 35 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -347,6 +347,7 @@ check_tool "codelattice_reachability_map" \
 echo "32. codelattice_external_api_surface"
 echo "33. codelattice_framework_entry_hints"
 echo "34. codelattice_breaking_change_review"
+echo "35. codelattice_consistency_review"
 check_tool "codelattice_external_api_surface" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true}" \
     "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('externalUsageVerified') == False and 'cautionLevel' in json.dumps(data.get('externalSurfaceSymbols', []))"
@@ -358,6 +359,10 @@ check_tool "codelattice_framework_entry_hints" \
 # ============================================================
 # Summary
 # ============================================================
+check_tool "codelattice_consistency_review" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true,\"changedSymbols\":[\"main\"],\"limit\":5}" \
+    "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('heuristic') == True"
+
 check_tool "codelattice_breaking_change_review" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true,\"changedSymbols\":[\"main\"],\"limit\":5}" \
     "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('heuristic') == True"

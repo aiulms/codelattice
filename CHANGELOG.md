@@ -8,6 +8,16 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Consistency Review (Docs & Tests)** (v0.24): New MCP tool `codelattice_consistency_review` — cross-references changed symbols against documentation and test files to flag stale docs, missing docs, related tests, missing tests, and stale tests.
+  - File-based doc scanner (README.md, docs/*.md) and test file discovery.
+  - Consistency risk levels: critical/high/medium/low.
+  - Review checklist with P0/P1 priorities.
+  - All output: coverageVerified=false, runtimeVerified=false — never runs tests or claims coverage.
+  - New fixture: `fixtures/typescript/consistency-review/` (10 files).
+  - 10 new integration tests.
+  - MCP tool count: 34 → 35.
+  - No new dependencies.
+
 - **Breaking-Change Review** (v0.23): New MCP tool `codelattice_breaking_change_review` — cross-references changed symbols against public API surface, framework entry hints, and documentation to assess compatibility risk.
   - Orchestrates external_api_surface, framework_entry_hints, README docs, and graph metadata.
   - Compatibility risk levels: critical/high/medium/low/unknown.

@@ -8268,7 +8268,28 @@ fn tools_list() -> Value {
                     },
                     "required": ["root"]
                 }
+            },
+            {
+                "name": "codelattice_consistency_review",
+                "description": "Static docs/tests consistency review for code changes. Cross-references changed symbols against documentation and test files. Does not run tests or prove coverage. Returns candidates and recommended verification steps.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
+                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Changed symbol names/IDs/files to review" },
+                        "diffMode": { "type": "string", "enum": ["working", "staged", "head"], "default": "working" },
+                        "includeDocs": { "type": "boolean", "default": true, "description": "Check documentation" },
+                        "includeTests": { "type": "boolean", "default": true, "description": "Check test files" },
+                        "includeDeadCode": { "type": "boolean", "default": true, "description": "Check dead code candidates" },
+                        "includeBreakingRisk": { "type": "boolean", "default": true, "description": "Integrate breaking-change risk" }
+                    },
+                    "required": ["root"]
+                }
             }
+
 
 
         ]
@@ -12095,6 +12116,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_breaking_change_review" => {
                     handle_breaking_change_review(cache, &arguments)
                 }
+                "codelattice_consistency_review" => handle_consistency_review(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -13850,6 +13872,488 @@ fn handle_breaking_change_review(cache: &mut McpCache, params: &Value) -> Result
     out.insert("language".to_string(), json!(language));
     out.insert("root".to_string(), json!(validated));
 
+    Ok(merge_cache_and_result(&json!(out), &cache_meta))
+}
+
+// ============================================================
+// v0.24: Docs & Tests Consistency Review
+// ============================================================
+
+// ============================================================
+// v0.24: Docs & Tests Consistency Review
+// ============================================================
+
+/// Scan markdown files in root dir for symbol mentions.
+fn scan_docs_for_mentions(root: &str, symbols: &[&str]) -> Vec<(String, Vec<String>)> {
+    let mut results: Vec<(String, Vec<String>)> = Vec::new();
+    let root_path = std::path::Path::new(root);
+    if let Ok(entries) = std::fs::read_dir(root_path) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "md" || ext == "mdx" {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        let mut found: Vec<String> = Vec::new();
+                        for sym in symbols {
+                            if content.contains(*sym) {
+                                found.push(sym.to_string());
+                            }
+                        }
+                        if !found.is_empty() {
+                            let rel = path.strip_prefix(root_path).unwrap_or(&path);
+                            results.push((rel.to_string_lossy().to_string(), found));
+                        }
+                    }
+                }
+            }
+        }
+        // Also scan docs/ subdirectory if exists
+        let docs_dir = root_path.join("docs");
+        if docs_dir.is_dir() {
+            if let Ok(d_entries) = std::fs::read_dir(&docs_dir) {
+                for d_entry in d_entries.flatten() {
+                    let d_path = d_entry.path();
+                    if let Some(ext) = d_path.extension() {
+                        if ext == "md" || ext == "mdx" {
+                            if let Ok(content) = std::fs::read_to_string(&d_path) {
+                                let mut found: Vec<String> = Vec::new();
+                                for sym in symbols {
+                                    if content.contains(*sym) {
+                                        found.push(sym.to_string());
+                                    }
+                                }
+                                if !found.is_empty() {
+                                    let rel = d_path.strip_prefix(root_path).unwrap_or(&d_path);
+                                    results.push((rel.to_string_lossy().to_string(), found));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    results
+}
+
+/// Walk directories for test files.
+fn walk_test_files(
+    dir: &std::path::Path,
+    root: &std::path::Path,
+    test_dirs: &[&str],
+) -> Vec<std::path::PathBuf> {
+    let mut files = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                let dn = p.file_name().unwrap_or_default().to_string_lossy();
+                if test_dirs.iter().any(|t| dn == *t) || dn == "src" {
+                    files.extend(walk_test_files(&p, root, test_dirs));
+                }
+            } else if p.is_file() {
+                let fn_ = p.file_name().unwrap_or_default().to_string_lossy();
+                if fn_.contains("test") || fn_.contains("spec") {
+                    files.push(p);
+                }
+            }
+        }
+    }
+    files
+}
+
+/// Find test files related to changed symbols.
+fn find_related_tests(
+    root: &str,
+    changed_names: &[&str],
+    changed_files: &[&str],
+) -> Vec<(String, Vec<String>, f64)> {
+    let mut results: Vec<(String, Vec<String>, f64)> = Vec::new();
+    let root_path = std::path::Path::new(root);
+
+    let test_dirs = ["test", "tests", "__tests__", "spec", "e2e", "__test__"];
+    let src_dir = root_path.join("src");
+    let base_dir = if src_dir.is_dir() {
+        &src_dir
+    } else {
+        root_path
+    };
+
+    let test_files = walk_test_files(base_dir, root_path, &test_dirs);
+
+    for tf in &test_files {
+        let rel = tf
+            .strip_prefix(root_path)
+            .unwrap_or(tf)
+            .to_string_lossy()
+            .to_string();
+        let mut matched: Vec<String> = Vec::new();
+        let mut score: f64 = 0.0;
+
+        // Check file name
+        let fname = tf.file_stem().unwrap_or_default().to_string_lossy();
+        for name in changed_names {
+            let nl = name.to_lowercase();
+            if fname.to_lowercase().contains(&nl) {
+                matched.push(name.to_string());
+                score += 0.30;
+            }
+        }
+
+        // Check file path matches changed file paths
+        for cf in changed_files {
+            if rel.contains(cf) || cf.contains(&rel) {
+                if score < 0.30 {
+                    score += 0.40;
+                }
+            }
+        }
+
+        // Check file content for symbol mentions
+        if let Ok(content) = std::fs::read_to_string(tf) {
+            for name in changed_names {
+                if content.contains(*name) && !matched.contains(&name.to_string()) {
+                    matched.push(name.to_string());
+                    score += 0.25;
+                }
+            }
+        }
+
+        if !matched.is_empty() {
+            score = score.min(1.0);
+            results.push((rel, matched, score));
+        }
+    }
+
+    results.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    results
+}
+
+/// Find tests that reference unknown/dead symbols (stale tests).
+fn find_stale_tests(root: &str, unknown_symbols: &[&str]) -> Vec<(String, Vec<String>)> {
+    let mut results: Vec<(String, Vec<String>)> = Vec::new();
+    let root_path = std::path::Path::new(root);
+
+    if unknown_symbols.is_empty() {
+        return results;
+    }
+
+    let test_dirs = ["test", "tests", "__tests__", "spec", "e2e"];
+    let src_dir = root_path.join("src");
+    let base_dir = if src_dir.is_dir() {
+        &src_dir
+    } else {
+        root_path
+    };
+
+    for tf in walk_test_files(base_dir, root_path, &test_dirs) {
+        if let Ok(content) = std::fs::read_to_string(&tf) {
+            let mut mentioned: Vec<String> = Vec::new();
+            for sym in unknown_symbols {
+                if content.contains(*sym) {
+                    mentioned.push(sym.to_string());
+                }
+            }
+            if !mentioned.is_empty() {
+                let rel = tf
+                    .strip_prefix(root_path)
+                    .unwrap_or(&tf)
+                    .to_string_lossy()
+                    .to_string();
+                results.push((rel, mentioned));
+            }
+        }
+    }
+    results
+}
+
+/// Resolve changed symbols for consistency review (aligned with breaking_change_review).
+fn resolve_changed_for_consistency(
+    gv: &GraphView,
+    params: &Value,
+) -> (Vec<(String, Value)>, Vec<String>, Vec<String>) {
+    let changed_raw: Vec<String> = params["changedSymbols"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if changed_raw.is_empty() {
+        return (vec![], vec![], vec![]);
+    }
+
+    let mut found: Vec<(String, Value)> = Vec::new();
+    let mut amb: Vec<String> = Vec::new();
+    let mut unk: Vec<String> = Vec::new();
+
+    for raw in &changed_raw {
+        if let Some(node) = gv.nodes_by_id.get(raw.as_str()) {
+            found.push((raw.clone(), node.clone()));
+            continue;
+        }
+        let name_matches: Vec<(&String, &Value)> = gv
+            .nodes_by_id
+            .iter()
+            .filter(|(_, n)| n["name"].as_str() == Some(raw.as_str()))
+            .collect();
+        if name_matches.len() == 1 {
+            found.push((raw.clone(), name_matches[0].1.clone()));
+        } else if name_matches.len() > 1 {
+            amb.push(raw.clone());
+        } else {
+            let file_matches: Vec<(&String, &Value)> = gv
+                .nodes_by_id
+                .iter()
+                .filter(|(_, n)| {
+                    n["file"]
+                        .as_str()
+                        .map(|f| f.contains(raw.as_str()))
+                        .unwrap_or(false)
+                })
+                .collect();
+            if !file_matches.is_empty() {
+                for (_, fm) in file_matches {
+                    found.push((raw.clone(), fm.clone()));
+                }
+            } else {
+                unk.push(raw.clone());
+            }
+        }
+    }
+    (found, amb, unk)
+}
+
+/// Compute docs & tests consistency review.
+fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Value {
+    let include_docs = params["includeDocs"].as_bool().unwrap_or(true);
+    let include_tests = params["includeTests"].as_bool().unwrap_or(true);
+    let _include_dead = params["includeDeadCode"].as_bool().unwrap_or(true);
+    let _include_breaking = params["includeBreakingRisk"].as_bool().unwrap_or(true);
+
+    let (changed, ambiguous, unknown) = resolve_changed_for_consistency(gv, params);
+
+    let mut changed_names: Vec<String> = Vec::new();
+    let mut changed_files: Vec<String> = Vec::new();
+    let mut has_public_api = false;
+    let mut has_fw_entry = false;
+
+    for (_, node) in &changed {
+        let name = node["name"].as_str().unwrap_or("").to_string();
+        let file = node["file"].as_str().unwrap_or("").to_string();
+        let props = &node["properties"];
+        let is_pub = props["visibility"].as_str() == Some("public")
+            || props["exported"].as_bool() == Some(true);
+
+        if !name.is_empty() {
+            changed_names.push(name);
+        }
+        if !file.is_empty() {
+            changed_files.push(file);
+        }
+        if is_pub {
+            has_public_api = true;
+        }
+
+        let fw_name = node["name"].as_str().unwrap_or("");
+        if matches!(
+            fw_name,
+            "GET" | "POST" | "PUT" | "DELETE" | "loader" | "action"
+        ) {
+            has_fw_entry = true;
+        }
+        let f = node["file"].as_str().unwrap_or("");
+        if f.contains("routes") || f.contains("pages") {
+            has_fw_entry = true;
+        }
+    }
+
+    let cnames: Vec<&str> = changed_names.iter().map(|s| s.as_str()).collect();
+    let _cfiles: Vec<&str> = changed_files.iter().map(|s| s.as_str()).collect();
+    let unames: Vec<&str> = unknown.iter().map(|s| s.as_str()).collect();
+
+    // 1. Stale doc candidates: docs mentioning changed/unknown symbols
+    let mut stale_docs: Vec<Value> = Vec::new();
+    if include_docs {
+        let all_search: Vec<&str> = cnames.iter().chain(unames.iter()).copied().collect();
+        for (doc_path, mentions) in scan_docs_for_mentions(root, &all_search) {
+            let risk = if mentions.iter().any(|m| unknown.iter().any(|u| u == m)) {
+                "high" // doc mentions symbol that no longer exists
+            } else {
+                "medium"
+            };
+            stale_docs.push(json!({
+                "path": doc_path, "mentionedSymbols": mentions, "risk": risk,
+                "reasons": if risk == "high" { vec!["doc mentions unknown or removed symbol"] } else { vec!["doc mentions changed API"] },
+                "recommendedUpdate": ["review examples and API references", "update if behavior or signature changed"]
+            }));
+        }
+    }
+
+    // 2. Missing doc update candidates
+    let mut missing_docs: Vec<Value> = Vec::new();
+    if include_docs && has_public_api {
+        for name in &changed_names {
+            let has_doc = stale_docs.iter().any(|d| {
+                d["mentionedSymbols"]
+                    .as_array()
+                    .map_or(false, |a| a.iter().any(|s| s.as_str() == Some(name)))
+            });
+            if !has_doc {
+                missing_docs.push(json!({
+                    "symbol": name, "risk": "medium",
+                    "reasons": ["changed public API with no related docs found"],
+                    "recommendedUpdate": ["add or update docs for this user-facing API"]
+                }));
+            }
+        }
+    }
+
+    // 3. Related tests
+    let mut related_tests: Vec<Value> = Vec::new();
+    if include_tests {
+        let all_cfiles: Vec<&str> = changed_files.iter().map(|s| s.as_str()).collect();
+        for (path, matched, score) in find_related_tests(root, &cnames, &all_cfiles) {
+            let conf = if score >= 0.70 {
+                "high"
+            } else if score >= 0.40 {
+                "medium"
+            } else {
+                "low"
+            };
+            related_tests.push(json!({
+                "path": path, "relatedSymbols": matched, "confidence": conf,
+                "score": (score * 100.0).round() / 100.0
+            }));
+        }
+    }
+
+    // 4. Missing test candidates
+    let mut missing_tests: Vec<Value> = Vec::new();
+    if include_tests {
+        for name in &changed_names {
+            let has_test = related_tests.iter().any(|t| {
+                t["relatedSymbols"]
+                    .as_array()
+                    .map_or(false, |a| a.iter().any(|s| s.as_str() == Some(name)))
+            });
+            if !has_test && (has_public_api || has_fw_entry) {
+                let risk = if has_public_api { "high" } else { "medium" };
+                missing_tests.push(json!({
+                    "symbol": name, "risk": risk,
+                    "reasons": ["changed API without obvious related test"],
+                    "recommendedTest": if has_fw_entry { vec!["add route/handler smoke test"] }
+                        else { vec!["add API integration test", "add unit test for changed behavior"] }
+                }));
+            }
+        }
+    }
+
+    // 5. Stale test candidates
+    let mut stale_tests: Vec<Value> = Vec::new();
+    if include_tests && !unknown.is_empty() {
+        for (path, mentioned) in find_stale_tests(root, &unames) {
+            stale_tests.push(json!({
+                "path": path, "mentionedUnknownSymbols": mentioned, "risk": "high",
+                "reasons": ["test references unknown or removed symbols"],
+                "recommendedAction": ["review and update or remove stale test", "check if symbol was renamed or deleted"]
+            }));
+        }
+    }
+
+    // 6. Consistency risk
+    let stale_high = stale_docs.iter().filter(|d| d["risk"] == "high").count() + stale_tests.len();
+    let missing_high = missing_tests.iter().filter(|t| t["risk"] == "high").count();
+    let has_issues = !stale_docs.is_empty()
+        || !missing_docs.is_empty()
+        || !stale_tests.is_empty()
+        || !missing_tests.is_empty();
+
+    let consistency_risk = if stale_high > 0 && missing_high > 0 {
+        "critical"
+    } else if stale_high > 0 || missing_high > 0 {
+        "high"
+    } else if has_issues {
+        "medium"
+    } else if !ambiguous.is_empty() {
+        "medium"
+    } else {
+        "low"
+    };
+
+    // 7. Checklist
+    let mut checklist: Vec<Value> = Vec::new();
+    for d in &stale_docs {
+        if d["risk"] == "high" {
+            checklist.push(json!({"priority":"P0","item":format!("Update {}: stale symbol references", d["path"]),"reason":"documents reference removed or unknown symbols"}));
+        }
+    }
+    for t in &missing_tests {
+        if t["risk"] == "high" {
+            checklist.push(json!({"priority":"P1","item":format!("Add tests for changed API: {}", t["symbol"]),"reason":"changed public API lacks related test coverage"}));
+        }
+    }
+    for s in &stale_tests {
+        checklist.push(json!({"priority":"P0","item":format!("Review stale test: {}", s["path"]),"reason":"test references symbols that no longer exist"}));
+    }
+
+    let warnings: Vec<String> = if changed.is_empty() && ambiguous.is_empty() && unknown.is_empty()
+    {
+        vec!["no-changed-symbols-provided".to_string()]
+    } else {
+        Vec::new()
+    };
+
+    json!({
+        "summary": {
+            "consistencyRisk": consistency_risk,
+            "changedSymbolCount": changed.len(),
+            "staleDocCandidateCount": stale_docs.len(),
+            "missingDocUpdateCandidateCount": missing_docs.len(),
+            "relatedTestCount": related_tests.len(),
+            "missingTestCandidateCount": missing_tests.len(),
+            "staleTestCandidateCount": stale_tests.len(),
+            "ambiguousCount": ambiguous.len(),
+            "unknownCount": unknown.len()
+        },
+        "staleDocCandidates": stale_docs,
+        "missingDocUpdateCandidates": missing_docs,
+        "relatedTests": related_tests,
+        "missingTestCandidates": missing_tests,
+        "staleTestCandidates": stale_tests,
+        "ambiguousChangedSymbols": ambiguous.iter().map(|s| json!({"symbol":s})).collect::<Vec<_>>(),
+        "unknownChangedSymbols": unknown.iter().map(|s| json!({"symbol":s})).collect::<Vec<_>>(),
+        "reviewChecklist": checklist,
+        "warnings": warnings,
+        "generatedFrom": {
+            "graphBased": true,
+            "docScannerBased": include_docs,
+            "testNameHeuristic": include_tests,
+            "coverageVerified": false,
+            "runtimeVerified": false,
+            "heuristic": true
+        }
+    })
+}
+
+/// Consistency review MCP handler.
+fn handle_consistency_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let root_str = validated.to_string_lossy().into_owned();
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let result = compute_consistency_review(&gv, params, &root_str);
+    let mut out = result.as_object().cloned().unwrap_or_default();
+    out.insert("language".to_string(), json!(language));
+    out.insert("root".to_string(), json!(validated));
     Ok(merge_cache_and_result(&json!(out), &cache_meta))
 }
 

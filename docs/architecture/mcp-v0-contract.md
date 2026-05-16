@@ -1446,7 +1446,7 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 34
+    "toolCount": 35
   }
 }
 ```
