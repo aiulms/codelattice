@@ -1,0 +1,679 @@
+{
+  "schemaVersion": "webui.snapshot.v1",
+  "generatedAt": "2026-05-16T16:30:19+00:00",
+  "generatedFrom": {
+    "tool": "CodeLattice",
+    "toolVersion": "codelattice 0.15.0-beta.1",
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "runtimeVerified": false,
+    "generationMethod": "cli-aggregate-phase-a"
+  },
+  "summary": {
+    "schemaVersion": "webui.snapshot.v1",
+    "nodeCount": 40,
+    "edgeCount": 77,
+    "symbolCount": 0,
+    "sourceFileCount": 0,
+    "moduleCount": 0,
+    "packageCount": 0,
+    "generatedAt": "2026-05-16T16:30:19+00:00",
+    "language": "unknown",
+    "toolVersion": "codelattice 0.15.0-beta.1"
+  },
+  "quality": {
+    "overall": "pass",
+    "gates": [
+      {
+        "gateName": "duplicate_nodes",
+        "passed": true,
+        "detail": "0 duplicate node IDs found"
+      },
+      {
+        "gateName": "dangling_source",
+        "passed": true,
+        "detail": "0 dangling source references found"
+      },
+      {
+        "gateName": "deterministic",
+        "passed": true,
+        "detail": "not verified from single CLI run; verified by test suite"
+      }
+    ],
+    "passedGateCount": 0,
+    "failedGateCount": 0,
+    "diagnosticsSummary": null,
+    "cautions": [
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ]
+  },
+  "limitations": {
+    "runtimeVerified": false,
+    "externalUsageVerified": false,
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "projectCodeExecuted": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting."
+    ]
+  },
+  "explore": {
+    "status": "collected",
+    "sourceFiles": [
+      {
+        "path": "src/logger.cpp",
+        "language": "",
+        "symbolCount": 0
+      },
+      {
+        "path": "src/main.cpp",
+        "language": "",
+        "symbolCount": 0
+      },
+      {
+        "path": "src/math_utils.cpp",
+        "language": "",
+        "symbolCount": 0
+      }
+    ],
+    "symbols": [
+      {
+        "id": "sym:7:LOGGER_HPP",
+        "name": "LOGGER_HPP",
+        "kind": "macroDefinition",
+        "kindLabel": "macroDefinition",
+        "file": "?",
+        "line": 2,
+        "endLine": 3,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:8:utils::LogLevel",
+        "name": "LogLevel",
+        "kind": "enum",
+        "kindLabel": "Enum",
+        "file": "?",
+        "line": 8,
+        "endLine": 13,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:9:utils::Logger",
+        "name": "Logger",
+        "kind": "class",
+        "kindLabel": "Class",
+        "file": "?",
+        "line": 15,
+        "endLine": 30,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:10:utils::Logger::Logger",
+        "name": "Logger",
+        "kind": "methodDeclaration",
+        "kindLabel": "methodDeclaration",
+        "file": "?",
+        "line": 17,
+        "endLine": 17,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:11:utils::Logger::Logger",
+        "name": "Logger",
+        "kind": "methodDeclaration",
+        "kindLabel": "methodDeclaration",
+        "file": "?",
+        "line": 18,
+        "endLine": 18,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:12:utils::Logger::~Logger",
+        "name": "~Logger",
+        "kind": "methodDeclaration",
+        "kindLabel": "methodDeclaration",
+        "file": "?",
+        "line": 19,
+        "endLine": 19,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:13:utils::Logger::enable",
+        "name": "enable",
+        "kind": "globalVariable",
+        "kindLabel": "globalVariable",
+        "file": "?",
+        "line": 24,
+        "endLine": 24,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:14:utils::Logger::disable",
+        "name": "disable",
+        "kind": "globalVariable",
+        "kindLabel": "globalVariable",
+        "file": "?",
+        "line": 25,
+        "endLine": 25,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:15:utils::Logger::enabled_",
+        "name": "enabled_",
+        "kind": "globalVariable",
+        "kindLabel": "globalVariable",
+        "file": "?",
+        "line": 29,
+        "endLine": 29,
+        "visibility": "private"
+      },
+      {
+        "id": "sym:16:utils::initialize_logging",
+        "name": "initialize_logging",
+        "kind": "functionDeclaration",
+        "kindLabel": "functionDeclaration",
+        "file": "?",
+        "line": 32,
+        "endLine": 32,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:17:MATH_UTILS_HPP",
+        "name": "MATH_UTILS_HPP",
+        "kind": "macroDefinition",
+        "kindLabel": "macroDefinition",
+        "file": "?",
+        "line": 2,
+        "endLine": 3,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:18:utils::MathUtils",
+        "name": "MathUtils",
+        "kind": "class",
+        "kindLabel": "Class",
+        "file": "?",
+        "line": 8,
+        "endLine": 17,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:19:utils::MathUtils::add",
+        "name": "add",
+        "kind": "globalVariable",
+        "kindLabel": "globalVariable",
+        "file": "?",
+        "line": 10,
+        "endLine": 10,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:20:utils::MathUtils::multiply",
+        "name": "multiply",
+        "kind": "globalVariable",
+        "kindLabel": "globalVariable",
+        "file": "?",
+        "line": 11,
+        "endLine": 11,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "sym:21:utils::Point",
+        "name": "Point",
+        "kind": "struct",
+        "kindLabel": "Struct",
+        "file": "?",
+        "line": 19,
+        "endLine": 24,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:22:utils::Operation",
+        "name": "Operation",
+        "kind": "enumClass",
+        "kindLabel": "enumClass",
+        "file": "?",
+        "line": 26,
+        "endLine": 31,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:23:utils::apply_operation",
+        "name": "apply_operation",
+        "kind": "functionDeclaration",
+        "kindLabel": "functionDeclaration",
+        "file": "?",
+        "line": 33,
+        "endLine": 33,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:24:utils::MathFunc",
+        "name": "MathFunc",
+        "kind": "usingAlias",
+        "kindLabel": "usingAlias",
+        "file": "?",
+        "line": 35,
+        "endLine": 35,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:25:utils::Logger",
+        "name": "Logger",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 8,
+        "endLine": 8,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:26:utils::Logger",
+        "name": "Logger",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 10,
+        "endLine": 10,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:27:utils::~Logger",
+        "name": "~Logger",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 12,
+        "endLine": 14,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:28:utils::log",
+        "name": "log",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 16,
+        "endLine": 19,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:29:utils::set_level",
+        "name": "set_level",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 21,
+        "endLine": 23,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:30:utils::enable",
+        "name": "enable",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 25,
+        "endLine": 27,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:31:utils::disable",
+        "name": "disable",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 29,
+        "endLine": 31,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:32:utils::initialize_logging",
+        "name": "initialize_logging",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 33,
+        "endLine": 37,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:33:main",
+        "name": "main",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 7,
+        "endLine": 32,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:34:utils::add",
+        "name": "add",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 7,
+        "endLine": 9,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:35:utils::multiply",
+        "name": "multiply",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 11,
+        "endLine": 13,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:36:utils::compute",
+        "name": "compute",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 15,
+        "endLine": 17,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:37:utils::distance",
+        "name": "distance",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 19,
+        "endLine": 21,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:38:utils::apply_operation",
+        "name": "apply_operation",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 23,
+        "endLine": 35,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:39:utils::internal_helper",
+        "name": "internal_helper",
+        "kind": "functionDefinition",
+        "kindLabel": "functionDefinition",
+        "file": "?",
+        "line": 38,
+        "endLine": 40,
+        "visibility": "default"
+      }
+    ],
+    "topFiles": [],
+    "totalSymbols": 33,
+    "totalSourceFiles": 3,
+    "truncated": false
+  },
+  "cleanup": {
+    "status": "not_collected",
+    "deadCodeCandidateCount": null,
+    "unreachableCandidateCount": null,
+    "externalApiSurfaceCount": null,
+    "frameworkEntryHintCount": null,
+    "cautions": [
+      "Dead-code detection is heuristic-based on call-graph shape.",
+      "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
+      "Public/exported symbols may be used by external crates not analyzed here.",
+      "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
+      "Auto-deletion is explicitly forbidden without human review + test regression check."
+    ]
+  },
+  "releaseReview": {
+    "status": "not_collected",
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 0,
+    "staleDocCandidateCount": null,
+    "missingTestCandidateCount": null,
+    "configExampleIssueCount": null,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ]
+  },
+  "insights": {
+    "status": "partial",
+    "hotspots": [
+      {
+        "id": "ns:6:utils",
+        "name": "ns:6:utils",
+        "fanOut": 22,
+        "fanIn": 0,
+        "file": "",
+        "kind": ""
+      },
+      {
+        "id": "file:1:src/logger.cpp",
+        "name": "file:1:src/logger.cpp",
+        "fanOut": 12,
+        "fanIn": 1,
+        "file": "",
+        "kind": ""
+      },
+      {
+        "id": "file:4:include/logger.hpp",
+        "name": "file:4:include/logger.hpp",
+        "fanOut": 10,
+        "fanIn": 4,
+        "file": "",
+        "kind": ""
+      },
+      {
+        "id": "file:2:src/main.cpp",
+        "name": "file:2:src/main.cpp",
+        "fanOut": 10,
+        "fanIn": 1,
+        "file": "",
+        "kind": ""
+      },
+      {
+        "id": "file:3:src/math_utils.cpp",
+        "name": "file:3:src/math_utils.cpp",
+        "fanOut": 10,
+        "fanIn": 1,
+        "file": "",
+        "kind": ""
+      }
+    ],
+    "entryPoints": [],
+    "reviewFirst": [
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      }
+    ],
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
+    ]
+  },
+  "workflowPresets": {
+    "status": "collected",
+    "presets": [
+      {
+        "id": "onboarding",
+        "name": "项目接入 / Onboarding",
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
+        ],
+        "stopLines": [
+          "不执行目标项目代码",
+          "不修改源码",
+          "静态分析结果仅供参考"
+        ]
+      },
+      {
+        "id": "before_edit",
+        "name": "编辑前检查 / Before Edit",
+        "description": "修改代码前了解影响范围、调用链、风险点",
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
+        ],
+        "stopLines": [
+          "不替代 code review",
+          "运行时行为需实测确认",
+          "trait 解析为启发式"
+        ]
+      },
+      {
+        "id": "after_edit",
+        "name": "编辑后验证 / After Edit",
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
+        ],
+        "stopLines": [
+          "不运行测试套件",
+          "不执行 package manager",
+          "不保证无回归"
+        ]
+      },
+      {
+        "id": "delete_code",
+        "name": "删除代码前评估 / Delete Code Assessment",
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
+        ],
+        "stopLines": [
+          "dead-code candidate ≠ 可安全删除",
+          "外部 API heuristic 不等于真实使用者",
+          "必须人工复核"
+        ]
+      },
+      {
+        "id": "release_check",
+        "name": "发布前检查 / Release Check",
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
+        ],
+        "stopLines": [
+          "不是 GA 质量证明",
+          "不覆盖运行时测试",
+          "不验证外部依赖兼容性"
+        ]
+      },
+      {
+        "id": "legacy_cleanup",
+        "name": "遗留代码清理 / Legacy Cleanup",
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
+        ],
+        "stopLines": [
+          "低置信度标记需逐一核实",
+          "不自动删除任何代码",
+          "framework entry 点不可轻移"
+        ]
+      },
+      {
+        "id": "public_api_change",
+        "name": "公共 API 变更评估 / Public API Change",
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
+        ],
+        "stopLines": [
+          "external usage 为启发式推断",
+          "文档同步需人工处理",
+          "semantic versioning 需人工判断"
+        ]
+      },
+      {
+        "id": "framework_route_change",
+        "name": "框架路由变更 / Framework Route Change",
+        "description": "修改框架入口/路由/控制器时的影响分析",
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
+        ],
+        "stopLines": [
+          "路由解析为模式匹配",
+          "动态路由不可完全覆盖",
+          "需结合框架文档"
+        ]
+      },
+      {
+        "id": "docs_tests_sync",
+        "name": "文档-测试同步检查 / Docs-Tests Sync",
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ],
+        "stopLines": [
+          "基于文件名/符号名的启发式",
+          "不解析文档内容语义",
+          "不判断测试充分性"
+        ]
+      },
+      {
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
+        "description": "发现配置项与示例/文档不同步的问题",
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ],
+        "stopLines": [
+          "不验证配置值正确性",
+          "不执行配置加载",
+          "模板/占位符可能误报"
+        ]
+      }
+    ]
+  }
+}

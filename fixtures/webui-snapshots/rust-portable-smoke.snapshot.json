@@ -1,32 +1,28 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T15:18:16+00:00",
-  "generatorVersion": "codelattice 0.15.0-beta.1",
-  "root": "/Users/jiangxuanyang/Desktop/codelattice/fixtures/rust/portable-smoke",
-  "language": "rust",
+  "generatedAt": "2026-05-16T16:30:18+00:00",
   "generatedFrom": {
+    "tool": "CodeLattice",
+    "toolVersion": "codelattice 0.15.0-beta.1",
+    "snapshotSchema": "webui.snapshot.v1",
     "staticAnalysis": true,
     "runtimeVerified": false,
-    "externalUsageVerified": false,
-    "coverageVerified": false,
-    "deletionSafetyVerified": false
+    "generationMethod": "cli-aggregate-phase-a"
   },
   "summary": {
+    "schemaVersion": "webui.snapshot.v1",
     "nodeCount": 16,
     "edgeCount": 25,
     "symbolCount": 9,
     "sourceFileCount": 2,
-    "packageCount": 3,
-    "diagnosticCount": 1,
-    "callEdgeCount": 5,
-    "topNodeKinds": [],
-    "topEdgeKinds": []
+    "moduleCount": 0,
+    "packageCount": 1,
+    "generatedAt": "2026-05-16T16:30:18+00:00",
+    "language": "unknown",
+    "toolVersion": "codelattice 0.15.0-beta.1"
   },
   "quality": {
     "overall": "pass",
-    "totalGates": 7,
-    "passedGates": 7,
-    "failedGates": 0,
     "gates": [
       {
         "gateName": "duplicate_nodes",
@@ -64,116 +60,386 @@
         "detail": "No external symbols (or no external crate imports in this project)"
       }
     ],
-    "metrics": {
-      "graphCompleteness": {
-        "nodeCount": 16,
-        "edgeCount": 25,
-        "symbolCount": 9,
-        "sourceFileCount": 2,
-        "danglingEdgeCount": 0
-      },
-      "edgeConfidence": {
-        "totalConfidenceEdgeCount": 25,
-        "highConfidenceEdgeCount": null,
-        "mediumConfidenceEdgeCount": null,
-        "lowConfidenceEdgeCount": null,
-        "unknownConfidenceEdgeCount": null,
-        "lowConfidenceEdgeRate": null,
-        "unknownConfidenceEdgeRate": null
-      },
-      "callQuality": {
-        "callEdgeCount": 5,
-        "highConfidenceCallEdgeCount": null,
-        "mediumConfidenceCallEdgeCount": null,
-        "lowConfidenceCallEdgeCount": null,
-        "unknownConfidenceCallEdgeCount": null,
-        "lowConfidenceCallRate": null
-      },
-      "dependencyQuality": {
-        "importEdgeCount": null,
-        "includeEdgeCount": null,
-        "unresolvedImportOrIncludeCount": null
-      },
-      "diagnostics": {}
-    },
-    "diagnosticsSummary": {}
+    "passedGateCount": 0,
+    "failedGateCount": 0,
+    "diagnosticsSummary": null,
+    "cautions": [
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ]
   },
-  "insights": {
-    "status": "not_collected",
-    "reason": "requires MCP aggregation; snapshot uses CLI data only"
+  "limitations": {
+    "runtimeVerified": false,
+    "externalUsageVerified": false,
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "projectCodeExecuted": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting."
+    ]
   },
   "explore": {
-    "status": "not_collected",
-    "reason": "requires symbol-level query; use MCP tools for on-demand exploration"
-  },
-  "impact": {
-    "status": "not_collected",
-    "reason": "requires target symbol parameter; use MCP impact_preview for on-demand analysis",
-    "sampleEntries": []
+    "status": "collected",
+    "sourceFiles": [
+      {
+        "path": "src/lib.rs",
+        "language": "",
+        "symbolCount": 8
+      },
+      {
+        "path": "src/main.rs",
+        "language": "",
+        "symbolCount": 1
+      }
+    ],
+    "symbols": [
+      {
+        "id": "symbol:portable-smoke::crate::Calculator",
+        "name": "Calculator",
+        "kind": "struct",
+        "kindLabel": "Struct",
+        "file": "src/lib.rs",
+        "line": 5,
+        "endLine": 7,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "symbol:portable-smoke::crate::_impl_Calculator",
+        "name": "_impl_Calculator",
+        "kind": "impl-block",
+        "kindLabel": "impl-block",
+        "file": "src/lib.rs",
+        "line": 9,
+        "endLine": 21,
+        "visibility": "private"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::add",
+        "name": "add",
+        "kind": "method",
+        "kindLabel": "Method",
+        "file": "src/lib.rs",
+        "line": 14,
+        "endLine": 16,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "symbol:portable-smoke::crate::add::_L29",
+        "name": "add",
+        "kind": "function",
+        "kindLabel": "Function",
+        "file": "src/lib.rs",
+        "line": 29,
+        "endLine": 31,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "symbol:portable-smoke::crate::create_calculator",
+        "name": "create_calculator",
+        "kind": "function",
+        "kindLabel": "Function",
+        "file": "src/lib.rs",
+        "line": 24,
+        "endLine": 26,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "symbol:portable-smoke::crate::get",
+        "name": "get",
+        "kind": "method",
+        "kindLabel": "Method",
+        "file": "src/lib.rs",
+        "line": 18,
+        "endLine": 20,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "symbol:portable-smoke::crate::main",
+        "name": "main",
+        "kind": "function",
+        "kindLabel": "Function",
+        "file": "src/main.rs",
+        "line": 7,
+        "endLine": 18,
+        "visibility": "private"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::multiply",
+        "name": "multiply",
+        "kind": "function",
+        "kindLabel": "Function",
+        "file": "src/lib.rs",
+        "line": 34,
+        "endLine": 36,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "symbol:portable-smoke::crate::new",
+        "name": "new",
+        "kind": "associated-function",
+        "kindLabel": "associated-function",
+        "file": "src/lib.rs",
+        "line": 10,
+        "endLine": 12,
+        "visibility": "public",
+        "exported": true
+      }
+    ],
+    "topFiles": [
+      {
+        "path": "src/lib.rs",
+        "symbolCount": 8,
+        "reason": "highest-symbol-count"
+      },
+      {
+        "path": "src/main.rs",
+        "symbolCount": 1,
+        "reason": "highest-symbol-count"
+      }
+    ],
+    "totalSymbols": 9,
+    "totalSourceFiles": 2,
+    "truncated": false
   },
   "cleanup": {
-    "deadCodeCandidates": {
-      "status": "not_collected",
-      "reason": "requires MCP dead_code_candidates tool"
-    },
-    "reachability": {
-      "status": "not_collected",
-      "reason": "requires MCP reachability_map tool"
-    },
-    "externalApiSurface": {
-      "status": "not_collected",
-      "reason": "requires MCP external_api_surface tool"
-    },
-    "frameworkEntries": {
-      "status": "not_collected",
-      "reason": "requires MCP framework_entry_hints tool"
-    }
+    "status": "partial",
+    "deadCodeCandidateCount": 9,
+    "unreachableCandidateCount": 9,
+    "externalApiSurfaceCount": 7,
+    "frameworkEntryHintCount": null,
+    "cautions": [
+      "Dead-code detection is heuristic-based on call-graph shape.",
+      "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
+      "Public/exported symbols may be used by external crates not analyzed here.",
+      "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
+      "Auto-deletion is explicitly forbidden without human review + test regression check."
+    ]
   },
   "releaseReview": {
-    "breakingChange": {
-      "status": "not_collected",
-      "reason": "requires changed symbols list"
-    },
-    "consistency": {
-      "status": "not_collected",
-      "reason": "requires changed symbols list"
-    },
-    "configExamples": {
-      "status": "not_collected",
-      "reason": "requires changed symbols list"
-    }
+    "status": "partial",
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 7,
+    "staleDocCandidateCount": null,
+    "missingTestCandidateCount": null,
+    "configExampleIssueCount": null,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ]
   },
-  "docsTestsConfig": {
-    "status": "collected",
-    "docs": {
-      "docCount": 0,
-      "topDocPaths": []
-    },
-    "tests": {
-      "testFileCount": 0,
-      "topTestPaths": []
-    },
-    "configFiles": {
-      "paths": [
-        "Cargo.toml"
-      ]
-    }
+  "insights": {
+    "status": "partial",
+    "hotspots": [
+      {
+        "id": "file:src/lib.rs",
+        "name": "file:src/lib.rs",
+        "fanOut": 8,
+        "fanIn": 1,
+        "file": "",
+        "kind": ""
+      },
+      {
+        "id": "symbol:portable-smoke::crate::main",
+        "name": "main",
+        "fanOut": 4,
+        "fanIn": 1,
+        "file": "src/main.rs",
+        "kind": "function"
+      }
+    ],
+    "entryPoints": [
+      {
+        "id": "symbol:portable-smoke::crate::main",
+        "name": "main",
+        "kind": "function",
+        "file": "src/main.rs",
+        "reason": "well-known-entry-point"
+      }
+    ],
+    "reviewFirst": [
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "src/main.rs",
+        "reason": "high-fan-out-hotspot"
+      }
+    ],
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
+    ]
   },
   "workflowPresets": {
-    "status": "not_collected",
-    "reason": "workflow presets are planning-only metadata; see MCP workflow_presets tool"
-  },
-  "limitations": [
-    "Static graph analysis only — no runtime behavior proof",
-    "No full type inference or trait solving",
-    "No macro expansion or proc-macro execution",
-    "Call edges are heuristic with confidence scores — not compiler-verified",
-    "Dynamic dispatch / reflection / plugins may hide actual callers",
-    "Dead-code candidates are NOT deletion-proof — always verify manually",
-    "External API surface is NOT external-usage-verified",
-    "Consistency review does not run tests or execute scripts",
-    "Config/examples review does not build Docker images or run CI",
-    "Cross-crate/cross-package dependencies may be incomplete",
-    "Snapshot is a point-in-time aggregate; run fresh for updated results"
-  ]
+    "status": "collected",
+    "presets": [
+      {
+        "id": "onboarding",
+        "name": "项目接入 / Onboarding",
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
+        ],
+        "stopLines": [
+          "不执行目标项目代码",
+          "不修改源码",
+          "静态分析结果仅供参考"
+        ]
+      },
+      {
+        "id": "before_edit",
+        "name": "编辑前检查 / Before Edit",
+        "description": "修改代码前了解影响范围、调用链、风险点",
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
+        ],
+        "stopLines": [
+          "不替代 code review",
+          "运行时行为需实测确认",
+          "trait 解析为启发式"
+        ]
+      },
+      {
+        "id": "after_edit",
+        "name": "编辑后验证 / After Edit",
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
+        ],
+        "stopLines": [
+          "不运行测试套件",
+          "不执行 package manager",
+          "不保证无回归"
+        ]
+      },
+      {
+        "id": "delete_code",
+        "name": "删除代码前评估 / Delete Code Assessment",
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
+        ],
+        "stopLines": [
+          "dead-code candidate ≠ 可安全删除",
+          "外部 API heuristic 不等于真实使用者",
+          "必须人工复核"
+        ]
+      },
+      {
+        "id": "release_check",
+        "name": "发布前检查 / Release Check",
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
+        ],
+        "stopLines": [
+          "不是 GA 质量证明",
+          "不覆盖运行时测试",
+          "不验证外部依赖兼容性"
+        ]
+      },
+      {
+        "id": "legacy_cleanup",
+        "name": "遗留代码清理 / Legacy Cleanup",
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
+        ],
+        "stopLines": [
+          "低置信度标记需逐一核实",
+          "不自动删除任何代码",
+          "framework entry 点不可轻移"
+        ]
+      },
+      {
+        "id": "public_api_change",
+        "name": "公共 API 变更评估 / Public API Change",
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
+        ],
+        "stopLines": [
+          "external usage 为启发式推断",
+          "文档同步需人工处理",
+          "semantic versioning 需人工判断"
+        ]
+      },
+      {
+        "id": "framework_route_change",
+        "name": "框架路由变更 / Framework Route Change",
+        "description": "修改框架入口/路由/控制器时的影响分析",
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
+        ],
+        "stopLines": [
+          "路由解析为模式匹配",
+          "动态路由不可完全覆盖",
+          "需结合框架文档"
+        ]
+      },
+      {
+        "id": "docs_tests_sync",
+        "name": "文档-测试同步检查 / Docs-Tests Sync",
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ],
+        "stopLines": [
+          "基于文件名/符号名的启发式",
+          "不解析文档内容语义",
+          "不判断测试充分性"
+        ]
+      },
+      {
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
+        "description": "发现配置项与示例/文档不同步的问题",
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ],
+        "stopLines": [
+          "不验证配置值正确性",
+          "不执行配置加载",
+          "模板/占位符可能误报"
+        ]
+      }
+    ]
+  }
 }

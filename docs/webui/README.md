@@ -1,8 +1,8 @@
-# CodeLattice WebUI Readiness
+# CodeLattice WebUI
 
-> **日期：** 2026-05-16
-> **状态：** MVP 1.0 — Static Snapshot Viewer 已落地
-> **定位：** 为 WebUI 准备稳定的数据契约 + 可用的静态只读 Viewer
+> **日期：** 2026-05-17
+> **状态：** Phase A — Rich Snapshot Viewer 已落地
+> **定位：** 纯静态 HTML/CSS/JS Viewer + enriched snapshot pipeline + 多语言 fixture matrix
 
 ---
 

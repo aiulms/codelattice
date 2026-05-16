@@ -8,6 +8,17 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase A — Rich Snapshot Viewer + Export Pipeline**: Snapshot enrichment from CLI analyze data, multi-language fixture matrix, 6-view enhanced viewer, workflow presets.
+  - `scripts/codelattice-snapshot-gen.py` — Python enrichment engine: extracts explore symbols/source files from CLI JSON, computes heuristic cleanup/release/insight summaries, embeds 10 workflow presets. No external deps, stdin/stdout clean.
+  - `scripts/webui-snapshot.sh` — Rewritten: new params `--full/--include-explore/--include-review/--include-workflows/--redact-root/--no-enrichment`. Safe bash → Python temp-file bridge. Default: full enrichment.
+  - `webui/snapshot-viewer/app.js` — Rewritten (~250 lines): renderDashboard (quality passed/failed + generatedFrom), renderExplore (search/filter/sort/symbol detail/source files/top files), renderCleanup (4 subsections + cautions), renderReleaseReview (3 subsections), renderWorkflowPresets (10 preset cards).
+  - `webui/snapshot-viewer/index.html` — Added Workflows tab, enhanced Dashboard (nodes/edges + metadata), enhanced Explore (source files + top files + sort), enhanced Cleanup/Release (caution lists).
+  - `webui/snapshot-viewer/styles.css` — New components: workflow cards, file grid, symbol kind badges, detail table, caution list, meta list, rank badges.
+  - `scripts/webui-viewer-smoke.sh` — Enhanced: multi-language matrix checks (Rust/TS/C/C++/Python), Phase A CSS/HTML/JS structure validation, path leak detection (35+ checks).
+  - `fixtures/webui-snapshots/` — Multi-language fixture snapshot matrix: rust/typescript/c/cpp/python-portable-smoke.snapshot.json (all enriched, all redacted vs path leaks).
+  - `docs/plans/2026-05-16-webui-phase-a-preflight.md` — Scope lock with stop-lines, acceptance criteria, execution plan.
+  - `docs/plans/2026-05-16-webui-phase-a-closure.md` — Closure review with scope compliance, known limitations, next steps.
+
 - **WebUI Snapshot Viewer MVP**: First static, read-only WebUI for visualizing CodeLattice snapshot JSON.
   - `webui/snapshot-viewer/index.html` — Main page: 5 views (Dashboard/Explore/Impact/Cleanup/Release), tab navigation, file/drag-drop loading, caution banner.
   - `webui/snapshot-viewer/styles.css` — Local dev tool aesthetic, responsive layout, CSS variables, zero dependencies.
@@ -19,7 +30,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Changed
 
-- README.md: Updated WebUI section to "MVP 1.0 — Static Snapshot Viewer" status; added viewer quick-start commands and feature table.
+- README.md: Updated WebUI section to "Phase A — Rich Snapshot Viewer" status; added multi-language matrix, new CLI params, feature table with 6 views.
 
 - **WebUI Snapshot Readiness**: New `docs/webui/` documentation pack with snapshot contract, MVP view specifications, and caution rendering guidelines for a future human-facing project visualization layer.
   - `docs/webui/README.md` — WebUI readiness overview, 5-view architecture (Dashboard, Explore, Impact, Cleanup, Release Review), MCP vs WebUI relationship.

@@ -1,6 +1,6 @@
 # CodeLattice Snapshot Viewer
 
-> **版本：** MVP 1.0 (Static Viewer)
+> **版本：** Phase A (Rich Snapshot Viewer)
 > **状态：** 可用 — 纯静态 HTML/CSS/JS，零依赖
 > **位置：** `webui/snapshot-viewer/`
 

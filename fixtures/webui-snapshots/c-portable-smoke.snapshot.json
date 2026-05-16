@@ -11,12 +11,12 @@
   },
   "summary": {
     "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 26,
-    "edgeCount": 54,
-    "symbolCount": 20,
-    "sourceFileCount": 4,
+    "nodeCount": 28,
+    "edgeCount": 32,
+    "symbolCount": 0,
+    "sourceFileCount": 0,
     "moduleCount": 0,
-    "packageCount": 1,
+    "packageCount": 0,
     "generatedAt": "2026-05-16T16:30:19+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
@@ -69,238 +69,252 @@
     "status": "collected",
     "sourceFiles": [
       {
-        "path": "src/index.ts",
+        "path": "src/logger.c",
         "language": "",
-        "symbolCount": 2
+        "symbolCount": 0
       },
       {
-        "path": "src/math.ts",
+        "path": "src/main.c",
         "language": "",
-        "symbolCount": 7
+        "symbolCount": 0
       },
       {
-        "path": "src/model.ts",
+        "path": "src/math_utils.c",
         "language": "",
-        "symbolCount": 10
-      },
-      {
-        "path": "src/utils.ts",
-        "language": "",
-        "symbolCount": 1
+        "symbolCount": 0
       }
     ],
     "symbols": [
       {
-        "id": "sym:src/index.ts:interface:User:6",
-        "name": "User",
-        "kind": "interface",
-        "kindLabel": "Interface",
-        "file": "src/index.ts",
-        "line": 6,
-        "endLine": 9
+        "id": "sym:macroDefinition:LOGGER_H:0",
+        "name": "sym:macroDefinition:LOGGER_H:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/index.ts:function:main:11",
-        "name": "main",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/index.ts",
-        "line": 11,
-        "endLine": 26
+        "id": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "name": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:function:add:3",
-        "name": "add",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/math.ts",
-        "line": 3,
-        "endLine": 5
+        "id": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "name": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:function:subtract:7",
-        "name": "subtract",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/math.ts",
-        "line": 7,
-        "endLine": 9
+        "id": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "name": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:class:Calculator:13",
-        "name": "Calculator",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/math.ts",
-        "line": 13,
-        "endLine": 28
+        "id": "sym:macroDefinition:MAX_LOG_MSG:4",
+        "name": "sym:macroDefinition:MAX_LOG_MSG:4",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:property:result:14",
-        "name": "result",
-        "kind": "property",
-        "kindLabel": "property",
-        "file": "src/math.ts",
-        "line": 14,
-        "endLine": 14
+        "id": "sym:functionDeclaration:logger_init:5",
+        "name": "sym:functionDeclaration:logger_init:5",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:method:constructor:16",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 16,
-        "endLine": 18
+        "id": "sym:functionDeclaration:logger_log:6",
+        "name": "sym:functionDeclaration:logger_log:6",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:method:add:20",
-        "name": "add",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 20,
-        "endLine": 23
+        "id": "sym:functionDeclaration:logger_shutdown:7",
+        "name": "sym:functionDeclaration:logger_shutdown:7",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/math.ts:method:getResult:25",
-        "name": "getResult",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 25,
-        "endLine": 27
+        "id": "sym:macroDefinition:MATH_UTILS_H:0",
+        "name": "sym:macroDefinition:MATH_UTILS_H:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:interface:Shape:3",
-        "name": "Shape",
-        "kind": "interface",
-        "kindLabel": "Interface",
-        "file": "src/model.ts",
-        "line": 3,
-        "endLine": 6
+        "id": "sym:functionDeclaration:math_add:1",
+        "name": "sym:functionDeclaration:math_add:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:typeAlias:Point:8",
-        "name": "Point",
-        "kind": "typeAlias",
-        "kindLabel": "typeAlias",
-        "file": "src/model.ts",
-        "line": 8,
-        "endLine": 8
+        "id": "sym:functionDeclaration:math_subtract:2",
+        "name": "sym:functionDeclaration:math_subtract:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:typeAlias:Vector:10",
-        "name": "Vector",
-        "kind": "typeAlias",
-        "kindLabel": "typeAlias",
-        "file": "src/model.ts",
-        "line": 10,
-        "endLine": 10
+        "id": "sym:functionDeclaration:math_multiply:3",
+        "name": "sym:functionDeclaration:math_multiply:3",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:class:Circle:12",
-        "name": "Circle",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/model.ts",
-        "line": 12,
-        "endLine": 22
+        "id": "sym:typedef:MathResult:4",
+        "name": "sym:typedef:MathResult:4",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:method:constructor:13",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 13,
-        "endLine": 13
+        "id": "sym:typedef:MathStatus:5",
+        "name": "sym:typedef:MathStatus:5",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:method:area:15",
-        "name": "area",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 15,
-        "endLine": 17
+        "id": "sym:functionDefinition:logger_init:0",
+        "name": "sym:functionDefinition:logger_init:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:method:circumference:19",
-        "name": "circumference",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 19,
-        "endLine": 21
+        "id": "sym:functionDefinition:logger_log:1",
+        "name": "sym:functionDefinition:logger_log:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:class:Rectangle:24",
-        "name": "Rectangle",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/model.ts",
-        "line": 24,
-        "endLine": 34
+        "id": "sym:functionDefinition:logger_shutdown:2",
+        "name": "sym:functionDefinition:logger_shutdown:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:method:constructor:25",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 25,
-        "endLine": 29
+        "id": "sym:functionDefinition:main:0",
+        "name": "sym:functionDefinition:main:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/model.ts:method:area:31",
-        "name": "area",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 31,
-        "endLine": 33
+        "id": "sym:functionDefinition:math_add:0",
+        "name": "sym:functionDefinition:math_add:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       },
       {
-        "id": "sym:src/utils.ts:function:greet:1",
-        "name": "greet",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/utils.ts",
-        "line": 1,
-        "endLine": 3
+        "id": "sym:functionDefinition:math_subtract:1",
+        "name": "sym:functionDefinition:math_subtract:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:functionDefinition:math_multiply:2",
+        "name": "sym:functionDefinition:math_multiply:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:functionDefinition:clamp_result:3",
+        "name": "sym:functionDefinition:clamp_result:3",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "file": "?",
+        "line": null,
+        "endLine": null,
+        "visibility": "default"
       }
     ],
-    "topFiles": [
-      {
-        "path": "src/model.ts",
-        "symbolCount": 10,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/math.ts",
-        "symbolCount": 7,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/index.ts",
-        "symbolCount": 2,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/utils.ts",
-        "symbolCount": 1,
-        "reason": "highest-symbol-count"
-      }
-    ],
-    "totalSymbols": 20,
-    "totalSourceFiles": 4,
+    "topFiles": [],
+    "totalSymbols": 22,
+    "totalSourceFiles": 3,
     "truncated": false
   },
   "cleanup": {
-    "status": "partial",
-    "deadCodeCandidateCount": 20,
-    "unreachableCandidateCount": 20,
+    "status": "not_collected",
+    "deadCodeCandidateCount": null,
+    "unreachableCandidateCount": null,
     "externalApiSurfaceCount": null,
     "frameworkEntryHintCount": null,
     "cautions": [
@@ -312,7 +326,7 @@
     ]
   },
   "releaseReview": {
-    "status": "partial",
+    "status": "not_collected",
     "breakingChangeRisk": "low",
     "breakingChangeSurface": 0,
     "staleDocCandidateCount": null,
@@ -330,47 +344,47 @@
     "status": "partial",
     "hotspots": [
       {
-        "id": "file:<redacted-root>/src/index.ts",
-        "name": "file:<redacted-root>/src/index.ts",
-        "fanOut": 22,
-        "fanIn": 1,
+        "id": "file:include/logger.h",
+        "name": "file:include/logger.h",
+        "fanOut": 8,
+        "fanIn": 4,
         "file": "",
         "kind": ""
       },
       {
-        "id": "file:<redacted-root>/src/model.ts",
-        "name": "file:<redacted-root>/src/model.ts",
-        "fanOut": 18,
+        "id": "file:include/math_utils.h",
+        "name": "file:include/math_utils.h",
+        "fanOut": 6,
         "fanIn": 3,
         "file": "",
         "kind": ""
       },
       {
-        "id": "file:<redacted-root>/src/math.ts",
-        "name": "file:<redacted-root>/src/math.ts",
-        "fanOut": 8,
-        "fanIn": 2,
+        "id": "file:src/math_utils.c",
+        "name": "file:src/math_utils.c",
+        "fanOut": 6,
+        "fanIn": 1,
         "file": "",
         "kind": ""
       },
       {
-        "id": "repo:<redacted-root>",
-        "name": "repo:<redacted-root>",
+        "id": "repo:root",
+        "name": "repo:root",
         "fanOut": 5,
         "fanIn": 0,
         "file": "",
         "kind": ""
-      }
-    ],
-    "entryPoints": [
+      },
       {
-        "id": "sym:src/index.ts:function:main:11",
-        "name": "main",
-        "kind": "function",
-        "file": "src/index.ts",
-        "reason": "well-known-entry-point"
+        "id": "file:src/logger.c",
+        "name": "file:src/logger.c",
+        "fanOut": 4,
+        "fanIn": 1,
+        "file": "",
+        "kind": ""
       }
     ],
+    "entryPoints": [],
     "reviewFirst": [
       {
         "file": "",

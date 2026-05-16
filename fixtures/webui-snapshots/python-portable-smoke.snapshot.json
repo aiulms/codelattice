@@ -11,12 +11,12 @@
   },
   "summary": {
     "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 26,
-    "edgeCount": 54,
-    "symbolCount": 20,
-    "sourceFileCount": 4,
+    "nodeCount": 29,
+    "edgeCount": 46,
+    "symbolCount": 0,
+    "sourceFileCount": 0,
     "moduleCount": 0,
-    "packageCount": 1,
+    "packageCount": 0,
     "generatedAt": "2026-05-16T16:30:19+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
@@ -69,238 +69,310 @@
     "status": "collected",
     "sourceFiles": [
       {
-        "path": "src/index.ts",
+        "path": "src/sample_app/__init__.py",
         "language": "",
-        "symbolCount": 2
+        "symbolCount": 1
       },
       {
-        "path": "src/math.ts",
+        "path": "src/sample_app/main.py",
         "language": "",
-        "symbolCount": 7
+        "symbolCount": 5
       },
       {
-        "path": "src/model.ts",
+        "path": "src/sample_app/math_utils.py",
+        "language": "",
+        "symbolCount": 3
+      },
+      {
+        "path": "src/sample_app/service.py",
         "language": "",
         "symbolCount": 10
       },
       {
-        "path": "src/utils.ts",
+        "path": "tests/test_math_utils.py",
         "language": "",
-        "symbolCount": 1
+        "symbolCount": 4
       }
     ],
     "symbols": [
       {
-        "id": "sym:src/index.ts:interface:User:6",
-        "name": "User",
-        "kind": "interface",
-        "kindLabel": "Interface",
-        "file": "src/index.ts",
-        "line": 6,
-        "endLine": 9
-      },
-      {
-        "id": "sym:src/index.ts:function:main:11",
-        "name": "main",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/index.ts",
-        "line": 11,
-        "endLine": 26
-      },
-      {
-        "id": "sym:src/math.ts:function:add:3",
-        "name": "add",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/math.ts",
+        "id": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "name": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "file": "src/sample_app/__init__.py",
         "line": 3,
-        "endLine": 5
+        "endLine": 3,
+        "visibility": "dunder"
       },
       {
-        "id": "sym:src/math.ts:function:subtract:7",
-        "name": "subtract",
+        "id": "py:sym:src/sample_app/main.py:main:7",
+        "name": "py:sym:src/sample_app/main.py:main:7",
         "kind": "function",
         "kindLabel": "Function",
-        "file": "src/math.ts",
+        "file": "src/sample_app/main.py",
         "line": 7,
-        "endLine": 9
+        "endLine": 13,
+        "visibility": "public",
+        "exported": true
       },
       {
-        "id": "sym:src/math.ts:class:Calculator:13",
-        "name": "Calculator",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/math.ts",
-        "line": 13,
-        "endLine": 28
+        "id": "py:sym:src/sample_app/main.py:result:9",
+        "name": "py:sym:src/sample_app/main.py:result:9",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "file": "src/sample_app/main.py",
+        "line": 9,
+        "endLine": 9,
+        "visibility": "public",
+        "exported": true
       },
       {
-        "id": "sym:src/math.ts:property:result:14",
-        "name": "result",
-        "kind": "property",
-        "kindLabel": "property",
-        "file": "src/math.ts",
-        "line": 14,
-        "endLine": 14
-      },
-      {
-        "id": "sym:src/math.ts:method:constructor:16",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 16,
-        "endLine": 18
-      },
-      {
-        "id": "sym:src/math.ts:method:add:20",
-        "name": "add",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 20,
-        "endLine": 23
-      },
-      {
-        "id": "sym:src/math.ts:method:getResult:25",
-        "name": "getResult",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 25,
-        "endLine": 27
-      },
-      {
-        "id": "sym:src/model.ts:interface:Shape:3",
-        "name": "Shape",
-        "kind": "interface",
-        "kindLabel": "Interface",
-        "file": "src/model.ts",
-        "line": 3,
-        "endLine": 6
-      },
-      {
-        "id": "sym:src/model.ts:typeAlias:Point:8",
-        "name": "Point",
-        "kind": "typeAlias",
-        "kindLabel": "typeAlias",
-        "file": "src/model.ts",
-        "line": 8,
-        "endLine": 8
-      },
-      {
-        "id": "sym:src/model.ts:typeAlias:Vector:10",
-        "name": "Vector",
-        "kind": "typeAlias",
-        "kindLabel": "typeAlias",
-        "file": "src/model.ts",
+        "id": "py:sym:src/sample_app/main.py:product:10",
+        "name": "py:sym:src/sample_app/main.py:product:10",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "file": "src/sample_app/main.py",
         "line": 10,
-        "endLine": 10
+        "endLine": 10,
+        "visibility": "public",
+        "exported": true
       },
       {
-        "id": "sym:src/model.ts:class:Circle:12",
-        "name": "Circle",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/model.ts",
-        "line": 12,
-        "endLine": 22
+        "id": "py:sym:src/sample_app/main.py:user:11",
+        "name": "py:sym:src/sample_app/main.py:user:11",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "file": "src/sample_app/main.py",
+        "line": 11,
+        "endLine": 11,
+        "visibility": "public",
+        "exported": true
       },
       {
-        "id": "sym:src/model.ts:method:constructor:13",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 13,
-        "endLine": 13
-      },
-      {
-        "id": "sym:src/model.ts:method:area:15",
-        "name": "area",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 15,
-        "endLine": 17
-      },
-      {
-        "id": "sym:src/model.ts:method:circumference:19",
-        "name": "circumference",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 19,
-        "endLine": 21
-      },
-      {
-        "id": "sym:src/model.ts:class:Rectangle:24",
-        "name": "Rectangle",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/model.ts",
-        "line": 24,
-        "endLine": 34
-      },
-      {
-        "id": "sym:src/model.ts:method:constructor:25",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 25,
-        "endLine": 29
-      },
-      {
-        "id": "sym:src/model.ts:method:area:31",
-        "name": "area",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 31,
-        "endLine": 33
-      },
-      {
-        "id": "sym:src/utils.ts:function:greet:1",
-        "name": "greet",
+        "id": "py:sym:src/sample_app/math_utils.py:add:4",
+        "name": "py:sym:src/sample_app/math_utils.py:add:4",
         "kind": "function",
         "kindLabel": "Function",
-        "file": "src/utils.ts",
-        "line": 1,
-        "endLine": 3
+        "file": "src/sample_app/math_utils.py",
+        "line": 4,
+        "endLine": 6,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/math_utils.py:multiply:9",
+        "name": "py:sym:src/sample_app/math_utils.py:multiply:9",
+        "kind": "function",
+        "kindLabel": "Function",
+        "file": "src/sample_app/math_utils.py",
+        "line": 9,
+        "endLine": 11,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/math_utils.py:PI:14",
+        "name": "py:sym:src/sample_app/math_utils.py:PI:14",
+        "kind": "constant",
+        "kindLabel": "constant",
+        "file": "src/sample_app/math_utils.py",
+        "line": 14,
+        "endLine": 14,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:UserService:7",
+        "name": "py:sym:src/sample_app/service.py:UserService:7",
+        "kind": "class",
+        "kindLabel": "Class",
+        "file": "src/sample_app/service.py",
+        "line": 7,
+        "endLine": 22,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:UserService.__init__:10",
+        "name": "py:sym:src/sample_app/service.py:UserService.__init__:10",
+        "kind": "constructor",
+        "kindLabel": "constructor",
+        "file": "src/sample_app/service.py",
+        "line": 10,
+        "endLine": 13,
+        "visibility": "dunder"
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:UserService.run:15",
+        "name": "py:sym:src/sample_app/service.py:UserService.run:15",
+        "kind": "method",
+        "kindLabel": "Method",
+        "file": "src/sample_app/service.py",
+        "line": 15,
+        "endLine": 18,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:result:17",
+        "name": "py:sym:src/sample_app/service.py:result:17",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "file": "src/sample_app/service.py",
+        "line": 17,
+        "endLine": 17,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
+        "name": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
+        "kind": "method",
+        "kindLabel": "Method",
+        "file": "src/sample_app/service.py",
+        "line": 20,
+        "endLine": 22,
+        "visibility": "private"
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:fetch_data:25",
+        "name": "py:sym:src/sample_app/service.py:fetch_data:25",
+        "kind": "asyncFunction",
+        "kindLabel": "asyncFunction",
+        "file": "src/sample_app/service.py",
+        "line": 25,
+        "endLine": 27,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:src/sample_app/service.py:process_items:30",
+        "name": "py:sym:src/sample_app/service.py:process_items:30",
+        "kind": "function",
+        "kindLabel": "Function",
+        "file": "src/sample_app/service.py",
+        "line": 30,
+        "endLine": 32,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:tests/test_math_utils.py:test_add:6",
+        "name": "py:sym:tests/test_math_utils.py:test_add:6",
+        "kind": "testFunction",
+        "kindLabel": "testFunction",
+        "file": "tests/test_math_utils.py",
+        "line": 6,
+        "endLine": 9,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:tests/test_math_utils.py:test_multiply:12",
+        "name": "py:sym:tests/test_math_utils.py:test_multiply:12",
+        "kind": "testFunction",
+        "kindLabel": "testFunction",
+        "file": "tests/test_math_utils.py",
+        "line": 12,
+        "endLine": 15,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
+        "name": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
+        "kind": "testFunction",
+        "kindLabel": "testFunction",
+        "file": "tests/test_math_utils.py",
+        "line": 18,
+        "endLine": 21,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:sym:tests/test_math_utils.py:result:20",
+        "name": "py:sym:tests/test_math_utils.py:result:20",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "file": "tests/test_math_utils.py",
+        "line": 20,
+        "endLine": 20,
+        "visibility": "public",
+        "exported": true
+      },
+      {
+        "id": "py:call-target:py:src:src/sample_app/main.py:print:13",
+        "name": "py:call-target:py:src:src/sample_app/main.py:print:13",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "file": "src/sample_app/main.py",
+        "line": 13,
+        "endLine": null
+      },
+      {
+        "id": "py:call-target:py:src:src/sample_app/service.py:id:13",
+        "name": "py:call-target:py:src:src/sample_app/service.py:id:13",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "file": "src/sample_app/service.py",
+        "line": 13,
+        "endLine": null
+      },
+      {
+        "id": "py:call-target:py:src:src/sample_app/service.py:mul:17",
+        "name": "py:call-target:py:src:src/sample_app/service.py:mul:17",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "file": "src/sample_app/service.py",
+        "line": 17,
+        "endLine": null
+      },
+      {
+        "id": "py:call-target:py:src:src/sample_app/service.py:len:17",
+        "name": "py:call-target:py:src:src/sample_app/service.py:len:17",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "file": "src/sample_app/service.py",
+        "line": 17,
+        "endLine": null
       }
     ],
     "topFiles": [
       {
-        "path": "src/model.ts",
+        "path": "src/sample_app/service.py",
         "symbolCount": 10,
         "reason": "highest-symbol-count"
       },
       {
-        "path": "src/math.ts",
-        "symbolCount": 7,
+        "path": "src/sample_app/main.py",
+        "symbolCount": 5,
         "reason": "highest-symbol-count"
       },
       {
-        "path": "src/index.ts",
-        "symbolCount": 2,
+        "path": "tests/test_math_utils.py",
+        "symbolCount": 4,
         "reason": "highest-symbol-count"
       },
       {
-        "path": "src/utils.ts",
+        "path": "src/sample_app/math_utils.py",
+        "symbolCount": 3,
+        "reason": "highest-symbol-count"
+      },
+      {
+        "path": "src/sample_app/__init__.py",
         "symbolCount": 1,
         "reason": "highest-symbol-count"
       }
     ],
-    "totalSymbols": 20,
-    "totalSourceFiles": 4,
+    "totalSymbols": 23,
+    "totalSourceFiles": 5,
     "truncated": false
   },
   "cleanup": {
-    "status": "partial",
-    "deadCodeCandidateCount": 20,
-    "unreachableCandidateCount": 20,
+    "status": "not_collected",
+    "deadCodeCandidateCount": null,
+    "unreachableCandidateCount": null,
     "externalApiSurfaceCount": null,
     "frameworkEntryHintCount": null,
     "cautions": [
@@ -312,7 +384,7 @@
     ]
   },
   "releaseReview": {
-    "status": "partial",
+    "status": "not_collected",
     "breakingChangeRisk": "low",
     "breakingChangeSurface": 0,
     "staleDocCandidateCount": null,
@@ -330,47 +402,47 @@
     "status": "partial",
     "hotspots": [
       {
-        "id": "file:<redacted-root>/src/index.ts",
-        "name": "file:<redacted-root>/src/index.ts",
-        "fanOut": 22,
+        "id": "py:src:src/sample_app/service.py",
+        "name": "py:src:src/sample_app/service.py",
+        "fanOut": 14,
         "fanIn": 1,
         "file": "",
         "kind": ""
       },
       {
-        "id": "file:<redacted-root>/src/model.ts",
-        "name": "file:<redacted-root>/src/model.ts",
-        "fanOut": 18,
-        "fanIn": 3,
+        "id": "py:src:src/sample_app/main.py",
+        "name": "py:src:src/sample_app/main.py",
+        "fanOut": 10,
+        "fanIn": 1,
         "file": "",
         "kind": ""
       },
       {
-        "id": "file:<redacted-root>/src/math.ts",
-        "name": "file:<redacted-root>/src/math.ts",
-        "fanOut": 8,
-        "fanIn": 2,
+        "id": "py:src:tests/test_math_utils.py",
+        "name": "py:src:tests/test_math_utils.py",
+        "fanOut": 10,
+        "fanIn": 1,
         "file": "",
         "kind": ""
       },
       {
-        "id": "repo:<redacted-root>",
-        "name": "repo:<redacted-root>",
+        "id": "py:repo:<redacted-root>",
+        "name": "py:repo:<redacted-root>",
         "fanOut": 5,
         "fanIn": 0,
         "file": "",
         "kind": ""
-      }
-    ],
-    "entryPoints": [
+      },
       {
-        "id": "sym:src/index.ts:function:main:11",
-        "name": "main",
-        "kind": "function",
-        "file": "src/index.ts",
-        "reason": "well-known-entry-point"
+        "id": "py:src:src/sample_app/math_utils.py",
+        "name": "py:src:src/sample_app/math_utils.py",
+        "fanOut": 3,
+        "fanIn": 2,
+        "file": "",
+        "kind": ""
       }
     ],
+    "entryPoints": [],
     "reviewFirst": [
       {
         "file": "",

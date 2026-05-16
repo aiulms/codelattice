@@ -464,3 +464,194 @@ pre.code-block {
   .tab-btn { padding: 7px 12px; font-size: .84em; }
   .stat-value { font-size: 1.35em; }
 }
+
+/* ── Badge XS (inline tiny) ─────────────────────────────────────── */
+.badge-xs {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: .68em;
+  font-weight: 600;
+  background: #e5e7eb;
+  color: #374151;
+}
+.badge-xs.pub { background: #dcfce7; color: #166534; }
+
+/* ── Detail Table (symbol detail) ───────────────────────────────── */
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: .9em;
+}
+.detail-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: top;
+}
+.detail-label {
+  width: 90px;
+  font-size: .78em;
+  color: var(--clr-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: .03em;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.code-inline {
+  background: #f3f4f6;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  font-size: .85em;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  word-break: break-all;
+}
+
+/* ── Symbol Item Enhancements ──────────────────────────────────────── */
+.sym-kind-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: .68em;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: #e5e7eb;
+  color: #374151;
+  flex-shrink: 0;
+}
+.sym-kind-badge.function,
+.sym-kind-badge.method,
+.sym-kind-badge.fn { background: #dbeafe; color: #1e40af; }
+.sym-kind-badge.struct,
+.sym-kind-badge.class,
+.sym-kind-badge.enum { background: #ede9fe; color: #5b21b6; }
+.sym-kind-badge.trait,
+.sym-kind-badge.interface,
+.sym-kind-badge.impl { background: #fce7f3; color: #9d174d; }
+.sym-kind-badge.mod,
+.sym-kind-badge.module { background: #fef3c7; color: #92400e; }
+.sym-kind-badge.const,
+.sym-kind-badge.static,
+.sym-kind-badge.variable { background: #ecfdf5; color: #166534; }
+
+.sym-file {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: .8em;
+}
+
+/* ── File Grid (Explore source files / top files) ────────────────── */
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+.file-card {
+  background: var(--clr-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: box-shadow .15s;
+}
+.file-card:hover { box-shadow: var(--shadow-sm); }
+.file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: 'SF Mono', Monaco, Consolas, monospace;
+  font-size: .84em;
+  color: var(--clr-text);
+}
+.file-stats {
+  display: flex;
+  gap: 12px;
+  font-size: .82em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.rank-badge {
+  width: 24px;
+  height: 24px;
+  line-height: 24px;
+  text-align: center;
+  background: var(--clr-primary);
+  color: #fff;
+  border-radius: 50%;
+  font-size: .75em;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Meta List (Dashboard metadata) ──────────────────────────────── */
+.meta-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 16px;
+  font-size: .88em;
+}
+.meta-item {
+  padding: 4px 0;
+}
+
+/* ── Caution List (inside caution-box) ────────────────────────────── */
+.caution-list {
+  margin-top: 8px;
+  padding-left: 18px;
+  font-size: .88em;
+}
+.caution-list li { margin-bottom: 2px; }
+
+/* ── Workflow Presets Grid ────────────────────────────────────────── */
+.workflow-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
+}
+.workflow-card {
+  background: var(--clr-surface);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+  transition: box-shadow .15s;
+}
+.workflow-card:hover { box-shadow: var(--shadow); }
+.workflow-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.workflow-name {
+  font-size: .98em;
+  font-weight: 600;
+  color: var(--clr-text);
+}
+.workflow-id { font-size: .75em; }
+.workflow-desc {
+  font-size: .86em;
+  color: var(--clr-text-secondary);
+  margin-bottom: 10px;
+  line-height: 1.45;
+}
+.workflow-tools {
+  font-size: .82em;
+  margin-bottom: 8px;
+}
+.workflow-stop-lines {
+  font-size: .82em;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-radius: var(--radius-sm);
+  margin-top: 8px;
+}
+.workflow-stop-lines strong { font-size: .9em; }
+.workflow-stop-lines ul { padding-left: 16px; margin-top: 4px; }
+.workflow-stop-lines li { font-size: .88em; color: var(--clr-text-secondary); }

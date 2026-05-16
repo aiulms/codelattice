@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-16（WebUI Snapshot Viewer Pack）
+最后更新：2026-05-17（WebUI Phase A — Rich Snapshot Viewer + Export Pipeline）
 
 ## 用途
 
@@ -22,6 +22,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Phase A — Rich Snapshot Viewer + Export Pipeline（2026-05-17，已完成）：**
+- 📝 [`2026-05-16-webui-phase-a-preflight.md`](2026-05-16-webui-phase-a-preflight.md) — Phase A scope lock：snapshot enrichment pipeline、6 视图 viewer 升级、多语言 fixture matrix、stop-lines。
+- ✅ [`2026-05-16-webui-phase-a-closure.md`](2026-05-16-webui-phase-a-closure.md) — closure：snapshot enrichment + viewer 升级完成、5 语言 fixture matrix 全部 PASS、35+ smoke checks、路径脱敏、workflow presets。
 
 **WebUI Snapshot Viewer Pack（2026-05-16，已完成）：**
 - 📝 [`2026-05-16-webui-snapshot-viewer-preflight.md`](2026-05-16-webui-snapshot-viewer-preflight.md) — WebUI snapshot viewer preflight：纯静态 HTML/CSS/JS viewer 实现、scope lock、3 主视图 + 2 summary 视图规格。

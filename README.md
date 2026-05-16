@@ -630,15 +630,21 @@ codelattice/
     fresh-clone-smoke.sh
 ```
 
-## WebUI Readiness
+## WebUI — Snapshot Viewer
 
-> **状态：** MVP 1.0 — Static Snapshot Viewer 已落地（不是完整 WebUI）
+> **状态：** Phase A — Rich Snapshot Viewer 已落地（不是完整 WebUI）
 
-CodeLattice 现在有了一个**只读本地静态 Web 页面**——Snapshot Viewer。它加载 `webui-snapshot.sh` 生成的 JSON snapshot 并渲染为人类可浏览的视图。
+CodeLattice 提供了一个**纯静态本地 Web 页面**——Snapshot Viewer。它加载 `webui-snapshot.sh` 生成的 enriched JSON snapshot 并渲染为人类可浏览的 6 视图界面。
+
+**Phase A 亮点：**
+- 从 CLI analyze 输出中提取 **真实符号列表 + 源文件索引**
+- Heuristic **cleanup 摘要**（死代码候选、不可达符号、外部 API surface）
+- **10 个 workflow preset** 推荐（onboarding/before_edit/release_check 等）
+- 多语言 fixture snapshot 矩阵：Rust / TypeScript / C / C++ / Python
 
 ### 快速开始
 
-**Step 1: 生成 Snapshot**
+**Step 1: 生成 Enriched Snapshot（默认启用 --full）**
 
 ```bash
 bash scripts/webui-snapshot.sh \
@@ -650,55 +656,62 @@ bash scripts/webui-snapshot.sh \
 **Step 2: 打开 Viewer**
 
 ```bash
-# macOS
 open webui/snapshot-viewer/index.html
-
-# 或用 HTTP server（支持 URL query 参数）
-cd webui/snapshot-viewer && python3 -m http.server 8080
-# 打开 http://localhost:8080/?snapshot=../../fixtures/webui-snapshots/rust-portable-smoke.snapshot.json
 ```
 
 然后在页面中点击 **Load Snapshot** 按钮选择生成的 JSON 文件。
 
+### 新增参数（Phase A）
+
+```bash
+--full                 # 启用全部 enrichment [默认]
+--include-explore      # 提取符号/源文件数据
+--include-review       # 提取 cleanup/release 摘要
+--include-workflows    # 嵌入 workflow preset 推荐
+--redact-root          # 脱敏绝对路径（用于 fixture）
+--no-enrichment        # 回退到 MVP 最小 snapshot
+```
+
 ### Smoke 验证
 
 ```bash
-bash scripts/webui-snapshot-smoke.sh          # snapshot 合规性 (18 checks)
-bash scripts/webui-viewer-smoke.sh            # viewer 文件/结构验证 (34 checks)
+bash scripts/webui-snapshot-smoke.sh --full     # 生成并验证 5 语言 matrix
+bash scripts/webui-viewer-smoke.sh              # viewer 结构验证 (35+ checks)
 ```
 
 ### WebUI Snapshot Viewer 功能
 
 | 视图 | 内容 | 数据来源 |
 |------|------|----------|
-| **Dashboard** | 项目统计、Quality Gates、Limitations | summary, quality, limitations |
-| **Explore** | 符号搜索/过滤、详情面板、source snippet | explore.symbols[] |
-| **Impact** | 影响分析 on-demand empty state | impact.entries[] |
-| **Cleanup** | Dead code/reachability/API surface/framework | cleanup.* |
-| **Release Review** | Breaking change/consistency/config review | releaseReview.* |
+| **Dashboard** | 项目统计、Quality Gates (passed/failed)、Limitations | summary + quality + limitations |
+| **Explore** | Source Files 列表、Symbols 搜索/过滤/排序、详情面板 | explore.symbols[] + sourceFiles[] |
+| **Cleanup** | Dead Code / Reachability / External API / Framework Hints + cautions | cleanup.* (heuristic) |
+| **Release Review** | Breaking Change Risk / Doc Stale / Config Issues + release cautions | releaseReview.* (guidance mode) |
+| **Workflows** | 10 个场景预设（工具推荐 + stop-lines） | workflowPresets (static embedded) |
+
+### Multi-Language Fixture Snapshot Matrix
+
+| 语言 | Snapshot | Symbols | Source Files | Status |
+|------|----------|---------|-------------|--------|
+| Rust | ✓ | 9 | 2 | PASS |
+| TypeScript | ✓ | 20 | 4 | PASS |
+| C | ✓ | 22 | 3 | PASS |
+| C++ | ✓ | 33 | 3 | PASS |
+| Python | ✓ | 23 | 5 | PASS |
 
 ### 文档
 
 | 文档 | 内容 |
 |------|------|
-| [docs/webui/README.md](docs/webui/README.md) | WebUI readiness 总览、5 视图架构 |
-| [docs/webui/webui-mvp.md](docs/webui/webui-mvp.md) | MVP 视图详细规格 |
-| [docs/webui/webui-snapshot-contract.md](docs/webui/webui-snapshot-contract.md) | `CodeLatticeWebSnapshotV1` JSON contract 完整定义 |
-| [webui/snapshot-viewer/README.md](webui/snapshot-viewer/README.md) | Viewer 使用指南、加载方式、技术细节 |
-
-### 已就绪内容
-
-- **Snapshot contract** (`webui.snapshot.v1`) — 覆盖 5 个视图的稳定 JSON schema
-- **生成脚本** (`scripts/webui-snapshot.sh`) — CLI analyze + quality 聚合
-- **Viewer** (`webui/snapshot-viewer/`) — 纯静态 HTML/CSS/JS，零依赖
-- **Smoke 测试** (`scripts/webui-snapshot-smoke.sh` + `scripts/webui-viewer-smoke.sh`)
-- **Fixture snapshots** — Rust 和 TypeScript 示例（`fixtures/webui-snapshots/`）
-- **Caution 渲染规范** — 全局 caution banner + per-view stop-line
+| [docs/webui/README.md](docs/webui/README.md) | WebUI 总览、Phase A 架构 |
+| [docs/webui/webui-mvp.md](docs/webui/webui-mvp.md) | MVP/Phase A 视图规格 |
+| [docs/webui/webui-snapshot-contract.md](docs/webui/webui-snapshot-contract.md) | `CodeLatticeWebSnapshotV1` JSON contract |
+| [webui/snapshot-viewer/README.md](webui/snapshot-viewer/README.md) | Viewer 使用指南 |
 
 ### 硬边界
 
-本轮包含：纯静态 HTML/CSS/JS viewer、snapshot 加载和渲染。
-本轮不包含：前端框架、后端服务、实时更新、桌面应用壳、MCP 直接调用。
+本轮包含：纯静态 HTML/CSS/JS viewer、snapshot 聚合脚本 (Python)、多语言 fixture matrix。
+本轮不包含：前端框架、后端服务、MCP 直连、桌面应用壳。
 
 ## License
 

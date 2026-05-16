@@ -83,9 +83,9 @@
       <nav class="tab-bar" role="tablist">
         <button class="tab-btn active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
         <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">Explore</button>
-        <button class="tab-btn" data-tab="impact" role="tab" aria-selected="false">Impact</button>
         <button class="tab-btn" data-tab="cleanup" role="tab" aria-selected="false">Cleanup</button>
         <button class="tab-btn" data-tab="release" role="tab" aria-selected="false">Release Review</button>
+        <button class="tab-btn" data-tab="workflows" role="tab" aria-selected="false">Workflows</button>
       </nav>
 
       <!-- GeneratedFrom Flags Bar -->
@@ -104,12 +104,12 @@
             <div class="stat-value" id="dash-symbols">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Call Edges</div>
-            <div class="stat-value" id="dash-call-edges">-</div>
+            <div class="stat-label">Nodes / Edges</div>
+            <div class="stat-value" id="dash-nodes-edges">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Packages</div>
-            <div class="stat-value" id="dash-packages">-</div>
+            <div class="stat-label">Language</div>
+            <div class="stat-value" id="dash-language">-</div>
           </div>
         </div>
 
@@ -117,9 +117,16 @@
         <div class="section-block">
           <h3 class="section-title">
             Quality Gates
-            <span class="badge badge-success" id="dash-quality-status">-</span>
+            <span class="badge" id="dash-quality-status">-</span>
+            <span class="text-muted text-sm" id="dash-gate-summary"></span>
           </h3>
           <div id="dash-quality-gates" class="gate-list"></div>
+        </div>
+
+        <!-- Generated From Flags -->
+        <div class="section-block">
+          <h3 class="section-title">Analysis Metadata</h3>
+          <div id="dash-generated-from" class="meta-list"></div>
         </div>
 
         <!-- Limitations -->
@@ -137,11 +144,17 @@
           <select id="explore-kind-filter" class="filter-select">
             <option value="">All Kinds</option>
           </select>
+          <select id="explore-sort" class="filter-select">
+            <option value="name">Sort by Name</option>
+            <option value="file">Sort by File</option>
+            <option value="kind">Sort by Kind</option>
+          </select>
         </div>
         <div class="explore-layout">
           <div class="explore-list-panel">
             <div class="panel-header">
               Symbols <span id="explore-count" class="text-muted text-sm">(0)</span>
+              <span id="explore-total" class="text-muted text-sm"></span>
             </div>
             <div id="explore-symbol-list" class="symbol-list"></div>
           </div>
@@ -150,6 +163,19 @@
               <p class="text-muted text-center">Select a symbol to view details.</p>
             </div>
           </div>
+        </div>
+        <!-- Source Files Summary -->
+        <div class="section-block" style="margin-top: 12px;">
+          <h3 class="section-title">
+            Source Files
+            <span class="text-muted text-sm" id="explore-file-count"></span>
+          </h3>
+          <div id="explore-file-list" class="file-grid"></div>
+        </div>
+        <!-- Top Files -->
+        <div class="section-block">
+          <h3 class="section-title">Top Files (by Symbol Count)</h3>
+          <div id="top-files-list" class="file-grid"></div>
         </div>
       </section>
 
@@ -166,7 +192,7 @@
             <div id="cleanup-dead-code" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Reachability</h4>
+            <h4 class="info-card-title">Unreachable / No Callers</h4>
             <div id="cleanup-reachability" class="info-card-body"></div>
           </div>
           <div class="info-card">
@@ -174,35 +200,47 @@
             <div id="cleanup-external-api" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Framework Entries</h4>
+            <h4 class="info-card-title">Framework Entry Hints</h4>
             <div id="cleanup-framework" class="info-card-body"></div>
           </div>
         </div>
-        <div class="cleanup-caution caution-box">
-          <strong>&#9888; Cleanup candidates are NOT deletion-proof.</strong>
-          Always verify manually before removing any code. Public/exported APIs may have external consumers. Framework callbacks/routes may be invoked at runtime.
+        <div class="cleanup-caution caution-box" id="cleanup-cautions-box">
+          <strong>&#9888; Cleanup candidates are heuristic-based and NOT deletion-proof.</strong>
+          <ul id="cleanup-caution-list" class="caution-list"></ul>
         </div>
       </section>
 
       <!-- Release Review View -->
       <section id="view-release" class="view-section" role="tabpanel" style="display:none;">
         <div class="release-caution caution-box">
-          <strong>&#9888; Static review only.</strong>
-          Run project tests separately before release. This analysis does not execute scripts, build Docker images, or run CI pipelines.
+          <strong>&#9888; Static review only — not a release gate.</strong>
+          Run project tests, CI, and manual QA before any release. This analysis does not execute code or validate runtime behavior.
         </div>
         <div class="card-grid card-grid-3">
           <div class="info-card">
-            <h4 class="info-card-title">Breaking Change Review</h4>
+            <h4 class="info-card-title">Breaking Change Risk</h4>
             <div id="release-breaking" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Consistency Review</h4>
-            <div id="release-consistency" class="info-card-body"></div>
+            <h4 class="info-card-title">Doc Stale Candidates</h4>
+            <div id="release-docs" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Config/Examples Review</h4>
+            <h4 class="info-card-title">Config/Examples Issues</h4>
             <div id="release-config-examples" class="info-card-body"></div>
           </div>
+        </div>
+        <div class="cleanup-caution caution-box" id="release-cautions-box">
+          <ul id="release-caution-list" class="caution-list"></ul>
+        </div>
+      </section>
+
+      <!-- Workflow Presets View -->
+      <section id="view-workflows" class="view-section" role="tabpanel" style="display:none;">
+        <p class="text-muted">Recommended workflow presets for common CodeLattice usage scenarios. Each preset suggests tool combinations and stop-lines to follow.</p>
+        <div id="workflow-presets-list" class="workflow-grid"></div>
+        <div class="cleanup-caution caution-box" style="margin-top: 16px;">
+          <strong>These are recommendations only.</strong> Workflows do not execute tools automatically. Always adapt to your project context.
         </div>
       </section>
 
