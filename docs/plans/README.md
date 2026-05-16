@@ -919,3 +919,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - JSON + Markdown 报告输出，方便 AI / 人类复核
     - Plan: `docs/plans/2026-05-15-real-project-regression-baseline-preflight.md`
     - Closure: `docs/plans/2026-05-15-real-project-regression-baseline-closure.md`
+
+70. **AI Prompt Cookbook Pack** ✅ 完成（2026-05-16）：
+    - 新增 `docs/guides/ai-prompt-cookbook.md`：12 组可复制 AI 提示词，覆盖 onboarding、before_edit、after_edit、delete_code、release_check、legacy_cleanup 等场景
+    - 新增 `docs/guides/workflow-presets.md`：`codelattice_workflow_presets` 的场景到工具链映射、关注字段和 stop-line
+    - README 新增 AI 工作流指南入口，并修复 `codelattice_consistency_review` 工具表展示
+    - 文档包，无 runtime/MCP 行为变更
+    - Plan: `docs/plans/2026-05-16-ai-prompt-cookbook-preflight.md`
+    - Closure: `docs/plans/2026-05-16-ai-prompt-cookbook-closure.md`

@@ -354,11 +354,20 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_external_api_surface` | 外部 API Surface / Public API 风险提示：识别可能被外部消费者使用的公开 API 符号，输出注意事项和推荐验证步骤 |
 | `codelattice_workflow_presets` | AI 工作流预设：返回 10 个常见场景的 MCP 工具调用顺序和每步关注字段，不执行分析 |
 | `codelattice_config_examples_review` | 配置与示例一致性审查：扫描 package.json/tsconfig/Cargo/CI/Docker/examples 中的 stale 引用，不执行脚本/构建 |
-| 文档与测试一致性审查：将变更符号与文档/测试文件交叉对比，标记 stale docs、缺失 docs、related tests、missing tests 和 stale tests |
+| `codelattice_consistency_review` | 文档与测试一致性审查：将变更符号与文档/测试文件交叉对比，标记 stale docs、缺失 docs、related tests、missing tests 和 stale tests |
 | `codelattice_breaking_change_review` | 破坏性变更审查：将变更符号与 public API / framework entry / 文档交叉对比，评估兼容风险并生成审查清单和 release note 提示 |
 | `codelattice_framework_entry_hints` | 框架入口提示 / 回调入口警示：识别可能由框架路由/装饰器/回调注册/CLI 命令调用的符号，降低 dead-code/reachability 误判 |
 | `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
 | `codelattice_cache_clear` | 清理 memory / persistent / both 缓存层 |
+
+### AI 工作流指南
+
+CodeLattice MCP 工具较多，推荐先用 `codelattice_workflow_presets` 选择场景，再按返回顺序调用具体工具。外部用户和执行 AI 可以直接使用这些指南：
+
+- [AI Prompt Cookbook](docs/guides/ai-prompt-cookbook.md)：接手项目、改代码前后、删代码前、发布前、遗留代码清理等可复制提示词。
+- [Workflow Presets](docs/guides/workflow-presets.md)：10 个场景对应的 MCP 工具链、关注字段和 stop-line。
+
+这些工作流只组织静态分析工具，不会执行项目代码，也不会证明运行时行为、外部真实使用、测试覆盖率或删除安全性。
 
 AI 编程助手推荐使用这条链路完成“接手项目 → 改代码 → 看影响 → 审查 → 提交”的闭环：
 
