@@ -456,6 +456,18 @@ pre.code-block {
   margin-top: auto;
 }
 
+/* ── Graph View (Phase B) ────────────────────────────────────────── */
+.graph-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 400px; }
+@media (max-width: 768px) { .graph-layout { grid-template-columns: 1fr; } }
+.graph-summary { margin-left: auto; }
+.detail-table { width: 100%; border-collapse: collapse; font-size: .88em; }
+.detail-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
+.detail-table .detail-label { color: var(--clr-text-secondary); font-size: .82em; width: 120px; }
+
+/* ── Diff View (Phase B) ────────────────────────────────────────── */
+.diff-controls { border-bottom: 1px solid var(--clr-border); padding-bottom: 8px; }
+.diff-summary-card { text-align: center; padding: 10px; background: var(--clr-surface); border: 1px solid var(--clr-border); border-radius: var(--radius); }
+
 /* --- Responsive tweaks for small screens --- */
 @media (max-width: 480px) {
   .app-header { padding: 10px 14px; }

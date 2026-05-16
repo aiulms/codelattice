@@ -148,7 +148,12 @@ def redact_path(path: str, root: str) -> str:
             return f"{uri_prefix}<redacted-abs>/{'/'.join(parts[-(min(3, len(parts))):])}"
 
     # If no redaction needed but had a prefix, still return as-is
-    return path
+    # Final cleanup: remove any remaining project path fragments
+    result = path
+    for pattern in ["Desktop/codelattice", "codelattice/fixtures", "codelattice/scripts"]:
+        if pattern in result:
+            result = result.replace(pattern, "project/" + pattern.split("/")[-1])
+    return result
 
 def symbol_kind_label(kind: str) -> str:
     """Normalize symbol kind for display."""
@@ -205,9 +210,9 @@ def _looks_like_absolute_path(s: str) -> bool:
         if s.startswith(prefix):
             check_str = s[len(prefix):]
             break
-    indicators = ["/Users/", "/home/", "/tmp/", "/Desktop/",
+    indicators = ["/Users/", "/home/", "/tmp/", "/Desktop/", "Desktop/",
                   "/opt/", "/usr/local/", "/var/",
-                  "fixtures/"]
+                  "fixtures/", "codelattice"]
     for ind in indicators:
         if ind in s:
             return True
@@ -576,6 +581,116 @@ def build_generated_from(version: str) -> dict:
 
 # ── Insights (optional enrichment) ───────────────────────────────────────────
 
+def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 300,
+                        redact_root: bool = False, root: str = "") -> dict:
+    """Build graph section with nodes and edges for visualization."""
+    graph = analyze.get("graph", {})
+    nodes = graph.get("nodes", [])
+    edges = graph.get("edges", [])
+
+    edge_list = []
+    if isinstance(edges, list):
+        edge_list = edges
+    elif isinstance(edges, dict):
+        for v in edges.values():
+            if isinstance(v, list):
+                edge_list.extend(v)
+
+    # Collect node IDs that appear in edges (for filtering)
+    edge_node_ids = set()
+    for e in edge_list[:max_edges]:
+        if isinstance(e, dict):
+            edge_node_ids.add(e.get("source", e.get("from", "")))
+            edge_node_ids.add(e.get("target", e.get("to", "")))
+
+    # Filter nodes: prioritize symbol + source-file, then those in edges
+    sym_nodes = [n for n in nodes if n.get("label") == "symbol"]
+    sf_nodes = [n for n in nodes if n.get("label") == "source-file"]
+    pkg_nodes = [n for n in nodes if n.get("label") in ("package", "target", "module")]
+    edge_connected = [n for n in nodes if n.get("id", "") in edge_node_ids
+                      and n not in sym_nodes and n not in sf_nodes and n not in pkg_nodes]
+
+    selected = sym_nodes[:max_nodes] + sf_nodes[:50] + pkg_nodes[:10] + edge_connected[:10]
+    selected = selected[:max_nodes]
+
+    selected_ids = set(n.get("id", "") for n in selected)
+
+    # Build graph nodes
+    graph_nodes = []
+    for n in selected:
+        props = n.get("properties", {})
+        label = n.get("label", "?")
+        kind_map = {"symbol": "symbol", "source-file": "file", "package": "package",
+                    "target": "package", "module": "package", "repository": "package",
+                    "diagnostic": "risk", "reference": "entry"}
+        kind = kind_map.get(label, label)
+        name = props.get("name", props.get("sourcePath", n.get("id", "")[:60]))
+
+        file_path = (props.get("sourcePath") or props.get("file")
+                     or props.get("path") or _extract_path_from_id(n.get("id", "")) or "")
+        if redact_root and file_path:
+            file_path = redact_path(file_path, root)
+
+        gn = {"id": n.get("id", ""), "label": name, "kind": kind, "file": file_path[:200]}
+        line = props.get("lineStart", props.get("line"))
+        if line is not None:
+            gn["line"] = line
+        visibility = props.get("visibility")
+        if visibility:
+            gn["visibility"] = visibility
+        graph_nodes.append(gn)
+
+    # Build graph edges (filtered to selected node IDs)
+    graph_edges = []
+    for e in edge_list:
+        if not isinstance(e, dict):
+            continue
+        src = e.get("source", e.get("from", ""))
+        tgt = e.get("target", e.get("to", ""))
+        if src not in selected_ids or tgt not in selected_ids:
+            continue
+        etype = e.get("type", e.get("label", "related"))
+        kind_map_e = {"CALLS": "calls", "DEFINES": "defines", "IMPORTS": "imports",
+                      "OWNS_SOURCE": "owns", "HAS_PARENT": "related", "ACCESSES": "related",
+                      "DESIGNATION": "related", "CONTAINS_PACKAGE": "owns",
+                      "HAS_TARGET": "related", "ANNOTATES": "related"}
+        ek = kind_map_e.get(etype, "related")
+
+        props_e = e.get("properties", {})
+        confidence = props_e.get("confidence")
+        reason = props_e.get("reason", "")
+
+        ge = {"source": src, "target": tgt, "kind": ek}
+        if confidence is not None:
+            ge["confidence"] = float(confidence) if isinstance(confidence, (int, float, str)) else None
+        if reason:
+            ge["reason"] = str(reason)[:100]
+        graph_edges.append(ge)
+        if len(graph_edges) >= max_edges:
+            break
+
+    has_nodes = len(graph_nodes) > 0
+    return {
+        "status": "collected" if has_nodes else "not_collected",
+        "stability": "preview",
+        "nodes": graph_nodes,
+        "edges": graph_edges,
+        "summary": {
+            "nodeCount": len(graph_nodes),
+            "edgeCount": len(graph_edges),
+            "fileNodeCount": sum(1 for n in graph_nodes if n["kind"] == "file"),
+            "symbolNodeCount": sum(1 for n in graph_nodes if n["kind"] == "symbol"),
+            "callEdgeCount": sum(1 for e in graph_edges if e["kind"] == "calls"),
+        },
+        "truncated": len(sym_nodes) > max_nodes or len(edge_list) > max_edges,
+        "cautions": [
+            "Graph is a static preview — limited to top nodes and edges.",
+            "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+            "Call edges are heuristic with confidence scores — not compiler-verified.",
+            "Dynamic dispatch / reflection / plugins may hide actual callers.",
+        ] if has_nodes else [],
+    }
+
 def build_insights(analyze: dict) -> dict:
     """Build insights section with hotspots and entry points."""
     graph = analyze.get("graph", {})
@@ -757,10 +872,23 @@ def main():
     if do_workflows:
         snapshot["workflowPresets"] = build_workflow_presets_section(True)
 
+    # Phase B: graph section (always built when explore data exists)
+    if do_explore or do_review:
+        snapshot["graph"] = build_graph_section(analyze, max_nodes=150, max_edges=300,
+                                                 redact_root=redact_root, root=root)
+
     # Global path redaction: scan all string values in the final snapshot
     # This catches paths embedded in id/name fields from CLI raw output
     if redact_root:
         _redact_all_paths(snapshot, root)
+        # Phase B fallback: string-level replacement for stubborn path fragments
+        raw_out = json.dumps(snapshot, ensure_ascii=False)
+        for pattern, replacement in [
+            ("Desktop/codelattice", "project/codelattice"),
+            ("codelattice/fixtures", "project/fixtures"),
+        ]:
+            raw_out = raw_out.replace(pattern, replacement)
+        snapshot = json.loads(raw_out)
 
     # Output
     indent = None if compact else 2

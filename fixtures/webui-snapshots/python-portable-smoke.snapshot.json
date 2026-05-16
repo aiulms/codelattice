@@ -1,6 +1,6 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T16:30:19+00:00",
+  "generatedAt": "2026-05-16T17:34:53+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
     "toolVersion": "codelattice 0.15.0-beta.1",
@@ -17,7 +17,7 @@
     "sourceFileCount": 0,
     "moduleCount": 0,
     "packageCount": 0,
-    "generatedAt": "2026-05-16T16:30:19+00:00",
+    "generatedAt": "2026-05-16T17:34:53+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
   },
@@ -615,6 +615,155 @@
           "模板/占位符可能误报"
         ]
       }
+    ]
+  },
+  "graph": {
+    "status": "collected",
+    "stability": "preview",
+    "nodes": [
+      {
+        "id": "py:repo:<redacted-root>",
+        "label": "py:repo:<redacted-user>/project/project/fixtures/py",
+        "kind": "portable-smoke",
+        "file": "<redacted-root>"
+      },
+      {
+        "id": "py:src:src/sample_app/__init__.py",
+        "label": "py:src:src/sample_app/__init__.py",
+        "kind": "src/sample_app/__init__.py",
+        "file": "src/sample_app/__init__.py"
+      },
+      {
+        "id": "py:src:src/sample_app/main.py",
+        "label": "py:src:src/sample_app/main.py",
+        "kind": "src/sample_app/main.py",
+        "file": "src/sample_app/main.py"
+      },
+      {
+        "id": "py:src:src/sample_app/math_utils.py",
+        "label": "py:src:src/sample_app/math_utils.py",
+        "kind": "src/sample_app/math_utils.py",
+        "file": "src/sample_app/math_utils.py"
+      },
+      {
+        "id": "py:src:src/sample_app/service.py",
+        "label": "py:src:src/sample_app/service.py",
+        "kind": "src/sample_app/service.py",
+        "file": "src/sample_app/service.py"
+      },
+      {
+        "id": "py:src:tests/test_math_utils.py",
+        "label": "py:src:tests/test_math_utils.py",
+        "kind": "tests/test_math_utils.py",
+        "file": "tests/test_math_utils.py"
+      },
+      {
+        "id": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "label": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "kind": "__version__",
+        "file": "src/sample_app/__init__.py",
+        "line": 3,
+        "visibility": "dunder"
+      },
+      {
+        "id": "py:sym:src/sample_app/main.py:main:7",
+        "label": "py:sym:src/sample_app/main.py:main:7",
+        "kind": "main",
+        "file": "src/sample_app/main.py",
+        "line": 7,
+        "visibility": "public"
+      },
+      {
+        "id": "py:sym:src/sample_app/main.py:result:9",
+        "label": "py:sym:src/sample_app/main.py:result:9",
+        "kind": "result",
+        "file": "src/sample_app/main.py",
+        "line": 9,
+        "visibility": "public"
+      },
+      {
+        "id": "py:sym:src/sample_app/main.py:product:10",
+        "label": "py:sym:src/sample_app/main.py:product:10",
+        "kind": "product",
+        "file": "src/sample_app/main.py",
+        "line": 10,
+        "visibility": "public"
+      }
+    ],
+    "edges": [
+      {
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/__init__.py",
+        "kind": "owns"
+      },
+      {
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/main.py",
+        "kind": "owns"
+      },
+      {
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/math_utils.py",
+        "kind": "owns"
+      },
+      {
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/service.py",
+        "kind": "owns"
+      },
+      {
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:tests/test_math_utils.py",
+        "kind": "owns"
+      },
+      {
+        "source": "py:src:src/sample_app/__init__.py",
+        "target": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "kind": "defines"
+      },
+      {
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:main:7",
+        "kind": "defines"
+      },
+      {
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:result:9",
+        "kind": "defines"
+      },
+      {
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:product:10",
+        "kind": "defines"
+      },
+      {
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:src:src/sample_app/math_utils.py",
+        "kind": "imports",
+        "confidence": 0.9,
+        "reason": "explicit-import: resolved to sample_app.math_utils"
+      },
+      {
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:main:7",
+        "kind": "calls",
+        "confidence": 0.9,
+        "reason": "direct-same-file-or-imported-function-call"
+      }
+    ],
+    "summary": {
+      "nodeCount": 10,
+      "edgeCount": 11,
+      "fileNodeCount": 0,
+      "symbolNodeCount": 0,
+      "callEdgeCount": 1
+    },
+    "truncated": false,
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
   }
 }

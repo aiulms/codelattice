@@ -1,6 +1,6 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T16:30:19+00:00",
+  "generatedAt": "2026-05-16T17:34:53+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
     "toolVersion": "codelattice 0.15.0-beta.1",
@@ -17,7 +17,7 @@
     "sourceFileCount": 0,
     "moduleCount": 0,
     "packageCount": 0,
-    "generatedAt": "2026-05-16T16:30:19+00:00",
+    "generatedAt": "2026-05-16T17:34:53+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
   },
@@ -557,6 +557,172 @@
           "模板/占位符可能误报"
         ]
       }
+    ]
+  },
+  "graph": {
+    "status": "collected",
+    "stability": "preview",
+    "nodes": [
+      {
+        "id": "repo:root",
+        "label": "repo:root",
+        "kind": "portable-smoke",
+        "file": ""
+      },
+      {
+        "id": "file:src/logger.c",
+        "label": "file:src/logger.c",
+        "kind": "src/logger.c",
+        "file": "src/logger.c"
+      },
+      {
+        "id": "file:src/main.c",
+        "label": "file:src/main.c",
+        "kind": "src/main.c",
+        "file": "src/main.c"
+      },
+      {
+        "id": "file:src/math_utils.c",
+        "label": "file:src/math_utils.c",
+        "kind": "src/math_utils.c",
+        "file": "src/math_utils.c"
+      },
+      {
+        "id": "file:include/logger.h",
+        "label": "file:include/logger.h",
+        "kind": "include/logger.h",
+        "file": "include/logger.h"
+      },
+      {
+        "id": "file:include/math_utils.h",
+        "label": "file:include/math_utils.h",
+        "kind": "include/math_utils.h",
+        "file": "include/math_utils.h"
+      },
+      {
+        "id": "sym:macroDefinition:LOGGER_H:0",
+        "label": "sym:macroDefinition:LOGGER_H:0",
+        "kind": "LOGGER_H",
+        "file": "",
+        "visibility": "default"
+      },
+      {
+        "id": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "label": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "kind": "LOG_LEVEL_DEBUG",
+        "file": "",
+        "visibility": "default"
+      },
+      {
+        "id": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "label": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "kind": "LOG_LEVEL_INFO",
+        "file": "",
+        "visibility": "default"
+      },
+      {
+        "id": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "label": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "kind": "LOG_LEVEL_ERROR",
+        "file": "",
+        "visibility": "default"
+      }
+    ],
+    "edges": [
+      {
+        "source": "repo:root",
+        "target": "file:src/logger.c",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:root",
+        "target": "file:src/main.c",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:root",
+        "target": "file:src/math_utils.c",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:root",
+        "target": "file:include/logger.h",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:root",
+        "target": "file:include/math_utils.h",
+        "kind": "owns"
+      },
+      {
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOGGER_H:0",
+        "kind": "defines"
+      },
+      {
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "kind": "defines"
+      },
+      {
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "kind": "defines"
+      },
+      {
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/logger.c",
+        "target": "file:include/logger.h",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "c-filename-unique-fallback"
+      },
+      {
+        "source": "file:src/main.c",
+        "target": "file:include/math_utils.h",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "c-filename-unique-fallback"
+      },
+      {
+        "source": "file:src/main.c",
+        "target": "file:include/logger.h",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "c-filename-unique-fallback"
+      },
+      {
+        "source": "file:src/math_utils.c",
+        "target": "file:include/math_utils.h",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "c-filename-unique-fallback"
+      },
+      {
+        "source": "file:src/math_utils.c",
+        "target": "file:include/logger.h",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "c-filename-unique-fallback"
+      }
+    ],
+    "summary": {
+      "nodeCount": 10,
+      "edgeCount": 14,
+      "fileNodeCount": 0,
+      "symbolNodeCount": 0,
+      "callEdgeCount": 0
+    },
+    "truncated": false,
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
   }
 }

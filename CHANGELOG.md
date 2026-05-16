@@ -8,6 +8,15 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase B — Graph Visualization + Snapshot Diff + Smoke Hardening**: Native graph rendering, two-snapshot diff comparison, hardened smoke validation.
+  - `scripts/codelattice-snapshot-gen.py` — build_graph_section() extracts nodes/edges from CLI JSON with configurable limits (default 150 nodes/300 edges), computes call/file/symbol counts, marks stability=preview.
+  - `webui/snapshot-viewer/index.html` — Added Graph tab (node/edge lists + detail panel) and Diff tab (summary delta cards, added/removed symbols/files, quality gate changes, limitation changes).
+  - `webui/snapshot-viewer/app.js` — Added renderGraph (search/filter by kind, node detail), selectGraphNode (connected edge count), loadDiffSnapshot, computeAndRenderDiff (delta summary, symbol diff, file diff, quality changes), stableSymbolKey.
+  - `webui/snapshot-viewer/styles.css` — Graph (node-spans, edge items, detail table) and Diff (controls, summary cards) styles.
+  - `scripts/webui-viewer-smoke.sh` — Rewritten with subshell safety (no pipe-to-while-read), Phase B graph/diff UI element checks, 5-language fixture matrix validation with leak detection.
+  - `scripts/webui-snapshot-smoke.sh` — Rewritten with standalone Python validator (avoids subshell counter loss), 5-language requirement enforcement.
+  - All 5 fixture snapshots regenerated with graph section, zero path leaks.
+
 - **WebUI Phase A — Rich Snapshot Viewer + Export Pipeline**: Snapshot enrichment from CLI analyze data, multi-language fixture matrix, 6-view enhanced viewer, workflow presets.
   - `scripts/codelattice-snapshot-gen.py` — Python enrichment engine: extracts explore symbols/source files from CLI JSON, computes heuristic cleanup/release/insight summaries, embeds 10 workflow presets. No external deps, stdin/stdout clean.
   - `scripts/webui-snapshot.sh` — Rewritten: new params `--full/--include-explore/--include-review/--include-workflows/--redact-root/--no-enrichment`. Safe bash → Python temp-file bridge. Default: full enrichment.

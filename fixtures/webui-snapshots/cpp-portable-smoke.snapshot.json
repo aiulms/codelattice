@@ -1,6 +1,6 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T16:30:19+00:00",
+  "generatedAt": "2026-05-16T17:34:53+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
     "toolVersion": "codelattice 0.15.0-beta.1",
@@ -17,7 +17,7 @@
     "sourceFileCount": 0,
     "moduleCount": 0,
     "packageCount": 0,
-    "generatedAt": "2026-05-16T16:30:19+00:00",
+    "generatedAt": "2026-05-16T17:34:53+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
   },
@@ -674,6 +674,180 @@
           "模板/占位符可能误报"
         ]
       }
+    ]
+  },
+  "graph": {
+    "status": "collected",
+    "stability": "preview",
+    "nodes": [
+      {
+        "id": "repo:<redacted-root>",
+        "label": "repo:<redacted-user>/project/project/fixtures/cpp/p",
+        "kind": "portable-smoke",
+        "file": ""
+      },
+      {
+        "id": "file:1:src/logger.cpp",
+        "label": "file:1:src/logger.cpp",
+        "kind": "src/logger.cpp",
+        "file": "src/logger.cpp"
+      },
+      {
+        "id": "file:2:src/main.cpp",
+        "label": "file:2:src/main.cpp",
+        "kind": "src/main.cpp",
+        "file": "src/main.cpp"
+      },
+      {
+        "id": "file:3:src/math_utils.cpp",
+        "label": "file:3:src/math_utils.cpp",
+        "kind": "src/math_utils.cpp",
+        "file": "src/math_utils.cpp"
+      },
+      {
+        "id": "file:4:include/logger.hpp",
+        "label": "file:4:include/logger.hpp",
+        "kind": "include/logger.hpp",
+        "file": "include/logger.hpp"
+      },
+      {
+        "id": "file:5:include/math_utils.hpp",
+        "label": "file:5:include/math_utils.hpp",
+        "kind": "include/math_utils.hpp",
+        "file": "include/math_utils.hpp"
+      },
+      {
+        "id": "ns:6:utils",
+        "label": "ns:6:utils",
+        "kind": "utils",
+        "file": "",
+        "line": 6
+      },
+      {
+        "id": "sym:7:LOGGER_HPP",
+        "label": "LOGGER_HPP",
+        "kind": "LOGGER_HPP",
+        "file": "",
+        "line": 2,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:8:utils::LogLevel",
+        "label": "LogLevel",
+        "kind": "LogLevel",
+        "file": "",
+        "line": 8,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:9:utils::Logger",
+        "label": "Logger",
+        "kind": "Logger",
+        "file": "",
+        "line": 15,
+        "visibility": "default"
+      }
+    ],
+    "edges": [
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:1:src/logger.cpp",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:2:src/main.cpp",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:3:src/math_utils.cpp",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:4:include/logger.hpp",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:5:include/math_utils.hpp",
+        "kind": "owns"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:7:LOGGER_HPP",
+        "kind": "defines"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:8:utils::LogLevel",
+        "kind": "defines"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:8:utils::LogLevel",
+        "kind": "related"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:9:utils::Logger",
+        "kind": "defines"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:9:utils::Logger",
+        "kind": "related"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "file:4:include/logger.hpp",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "cpp-filename-unique-fallback"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "file:5:include/math_utils.hpp",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "cpp-filename-unique-fallback"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "file:4:include/logger.hpp",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "cpp-filename-unique-fallback"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "file:5:include/math_utils.hpp",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "cpp-filename-unique-fallback"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "file:4:include/logger.hpp",
+        "kind": "related",
+        "confidence": 0.6,
+        "reason": "cpp-filename-unique-fallback"
+      }
+    ],
+    "summary": {
+      "nodeCount": 10,
+      "edgeCount": 15,
+      "fileNodeCount": 0,
+      "symbolNodeCount": 0,
+      "callEdgeCount": 0
+    },
+    "truncated": false,
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
   }
 }

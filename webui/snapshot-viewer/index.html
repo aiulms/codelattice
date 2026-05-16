@@ -83,9 +83,11 @@
       <nav class="tab-bar" role="tablist">
         <button class="tab-btn active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
         <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">Explore</button>
+        <button class="tab-btn" data-tab="graph" role="tab" aria-selected="false">Graph</button>
         <button class="tab-btn" data-tab="cleanup" role="tab" aria-selected="false">Cleanup</button>
-        <button class="tab-btn" data-tab="release" role="tab" aria-selected="false">Release Review</button>
+        <button class="tab-btn" data-tab="release" role="tab" aria-selected="false">Release</button>
         <button class="tab-btn" data-tab="workflows" role="tab" aria-selected="false">Workflows</button>
+        <button class="tab-btn" data-tab="diff" role="tab" aria-selected="false">Diff</button>
       </nav>
 
       <!-- GeneratedFrom Flags Bar -->
@@ -179,6 +181,29 @@
         </div>
       </section>
 
+      <!-- Graph View -->
+      <section id="view-graph" class="view-section" role="tabpanel" style="display:none;">
+        <div class="graph-toolbar" id="graph-toolbar" style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+          <input type="text" id="graph-search" class="search-input" placeholder="Search nodes..." style="max-width:200px;">
+          <select id="graph-kind-filter" class="filter-select"><option value="">All</option><option value="symbol">Symbol</option><option value="file">File</option><option value="package">Package</option></select>
+          <span class="text-muted text-sm graph-summary" id="graph-summary-text"></span>
+        </div>
+        <div class="graph-layout">
+          <div class="explore-list-panel" style="max-height:500px;">
+            <div class="panel-header">Nodes <span id="graph-node-count" class="text-muted text-sm">(0)</span></div>
+            <div id="graph-node-list" class="symbol-list"></div>
+          </div>
+          <div class="explore-list-panel" style="max-height:500px;">
+            <div class="panel-header">Edges <span id="graph-edge-count" class="text-muted text-sm">(0)</span></div>
+            <div id="graph-edge-list" class="symbol-list"></div>
+          </div>
+        </div>
+        <div id="graph-selected-detail" class="symbol-detail" style="display:none;background:var(--clr-surface);padding:12px;border:1px solid var(--clr-border);border-radius:6px;margin-top:8px;"></div>
+        <div class="cleanup-caution caution-box" style="margin-top:8px;" id="graph-caution-box">
+          <strong>&#9888; Graph is a static preview</strong> — limited to top nodes/edges. Use CLI/MCP for full analysis.
+        </div>
+      </section>
+
       <!-- Impact View -->
       <section id="view-impact" class="view-section" role="tabpanel" style="display:none;">
         <div id="impact-content"></div>
@@ -241,6 +266,39 @@
         <div id="workflow-presets-list" class="workflow-grid"></div>
         <div class="cleanup-caution caution-box" style="margin-top: 16px;">
           <strong>These are recommendations only.</strong> Workflows do not execute tools automatically. Always adapt to your project context.
+        </div>
+      </section>
+
+      <!-- Diff View -->
+      <section id="view-diff" class="view-section" role="tabpanel" style="display:none;">
+        <div class="diff-controls" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 0;">
+          <label for="diff-file-input" class="btn btn-sm btn-secondary">&#128194; Load Compare Snapshot</label>
+          <input type="file" id="diff-file-input" accept=".json,application/json" style="display:none;">
+          <span class="text-muted text-sm" id="diff-compare-name"></span>
+          <button id="diff-clear-btn" class="btn btn-sm btn-secondary" style="display:none;" onclick="clearDiff()">Clear</button>
+        </div>
+        <div id="diff-empty" class="impact-empty">
+          <h3>&#128270; Snapshot Diff</h3>
+          <p>Load a second snapshot to compare against the current baseline.</p>
+          <p class="text-sm text-muted">Diff compares summary counts, symbols, source files, quality gates, and limitations between two snapshots.</p>
+        </div>
+        <div id="diff-results" style="display:none;">
+          <div class="cleanup-caution caution-box">
+            <strong>&#9888; Snapshot diff only</strong> — does not prove behavior changed, does not replace tests. Static analysis comparison of two point-in-time snapshots.
+          </div>
+          <div id="diff-summary-cards" class="card-grid card-grid-4" style="margin-bottom:12px;"></div>
+          <div class="card-grid card-grid-2" style="margin-bottom:12px;">
+            <div class="info-card"><h4 class="info-card-title">Added Symbols</h4><div id="diff-added-symbols" class="info-card-body"></div></div>
+            <div class="info-card"><h4 class="info-card-title">Removed Symbols</h4><div id="diff-removed-symbols" class="info-card-body"></div></div>
+          </div>
+          <div class="card-grid card-grid-2" style="margin-bottom:12px;">
+            <div class="info-card"><h4 class="info-card-title">Added Source Files</h4><div id="diff-added-files" class="info-card-body"></div></div>
+            <div class="info-card"><h4 class="info-card-title">Removed Source Files</h4><div id="diff-removed-files" class="info-card-body"></div></div>
+          </div>
+          <div class="card-grid card-grid-2">
+            <div class="info-card"><h4 class="info-card-title">Quality Gate Changes</h4><div id="diff-quality-changes" class="info-card-body"></div></div>
+            <div class="info-card"><h4 class="info-card-title">Limitations Changed</h4><div id="diff-limits-changes" class="info-card-body"></div></div>
+          </div>
         </div>
       </section>
 

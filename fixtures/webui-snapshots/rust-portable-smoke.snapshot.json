@@ -1,6 +1,6 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T16:30:18+00:00",
+  "generatedAt": "2026-05-16T17:34:52+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
     "toolVersion": "codelattice 0.15.0-beta.1",
@@ -17,7 +17,7 @@
     "sourceFileCount": 2,
     "moduleCount": 0,
     "packageCount": 1,
-    "generatedAt": "2026-05-16T16:30:18+00:00",
+    "generatedAt": "2026-05-16T17:34:52+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
   },
@@ -440,6 +440,277 @@
           "模板/占位符可能误报"
         ]
       }
+    ]
+  },
+  "graph": {
+    "status": "collected",
+    "stability": "preview",
+    "nodes": [
+      {
+        "id": "symbol:portable-smoke::crate::Calculator",
+        "label": "Calculator",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 5,
+        "visibility": "public"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::_impl_Calculator",
+        "label": "_impl_Calculator",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 9,
+        "visibility": "private"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::add",
+        "label": "add",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 14,
+        "visibility": "public"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::add::_L29",
+        "label": "add",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 29,
+        "visibility": "public"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::create_calculator",
+        "label": "create_calculator",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 24,
+        "visibility": "public"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::get",
+        "label": "get",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 18,
+        "visibility": "public"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::main",
+        "label": "main",
+        "kind": "symbol",
+        "file": "src/main.rs",
+        "line": 7,
+        "visibility": "private"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::multiply",
+        "label": "multiply",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 34,
+        "visibility": "public"
+      },
+      {
+        "id": "symbol:portable-smoke::crate::new",
+        "label": "new",
+        "kind": "symbol",
+        "file": "src/lib.rs",
+        "line": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "file:src/lib.rs",
+        "label": "src/lib.rs",
+        "kind": "file",
+        "file": "src/lib.rs"
+      },
+      {
+        "id": "file:src/main.rs",
+        "label": "src/main.rs",
+        "kind": "file",
+        "file": "src/main.rs"
+      },
+      {
+        "id": "package:Cargo.toml",
+        "label": "portable-smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "target:portable-smoke::portable_smoke::bin",
+        "label": "portable_smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "target:portable-smoke::portable_smoke::lib",
+        "label": "portable_smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "repo:<redacted-root>",
+        "label": "repo:<redacted-user>/project/project/fixtures/rust/",
+        "kind": "package",
+        "file": ""
+      }
+    ],
+    "edges": [
+      {
+        "source": "symbol:portable-smoke::crate::create_calculator",
+        "target": "symbol:portable-smoke::crate::Calculator",
+        "kind": "related",
+        "confidence": 0.85,
+        "reason": "function-return-type-access"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::new",
+        "target": "symbol:portable-smoke::crate::Calculator",
+        "kind": "related",
+        "confidence": 0.85,
+        "reason": "function-return-type-access"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::create_calculator",
+        "target": "symbol:portable-smoke::crate::new",
+        "kind": "calls",
+        "confidence": 0.75,
+        "reason": "call-associated-fn-resolved"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::add",
+        "kind": "calls",
+        "confidence": 0.6499999761581421,
+        "reason": "call-method-name-resolved"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::get",
+        "kind": "calls",
+        "confidence": 0.6499999761581421,
+        "reason": "call-method-name-resolved"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::multiply",
+        "kind": "calls",
+        "confidence": 0.8999999761581421,
+        "reason": "call-same-module-resolved"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::new",
+        "kind": "calls",
+        "confidence": 0.75,
+        "reason": "call-associated-fn-resolved"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "package:Cargo.toml",
+        "kind": "owns"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::Calculator",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::add",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::add::_L29",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::create_calculator",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::get",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::multiply",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::new",
+        "kind": "defines"
+      },
+      {
+        "source": "file:src/main.rs",
+        "target": "symbol:portable-smoke::crate::main",
+        "kind": "defines"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::_impl_Calculator",
+        "target": "symbol:portable-smoke::crate::Calculator",
+        "kind": "related",
+        "confidence": 0.95,
+        "reason": "impl-block-target-designation"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::add",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator",
+        "kind": "related"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::get",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator",
+        "kind": "related"
+      },
+      {
+        "source": "symbol:portable-smoke::crate::new",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator",
+        "kind": "related"
+      },
+      {
+        "source": "package:Cargo.toml",
+        "target": "target:portable-smoke::portable_smoke::bin",
+        "kind": "related"
+      },
+      {
+        "source": "package:Cargo.toml",
+        "target": "target:portable-smoke::portable_smoke::lib",
+        "kind": "related"
+      },
+      {
+        "source": "target:portable-smoke::portable_smoke::lib",
+        "target": "file:src/lib.rs",
+        "kind": "owns"
+      },
+      {
+        "source": "target:portable-smoke::portable_smoke::lib",
+        "target": "file:src/main.rs",
+        "kind": "owns"
+      }
+    ],
+    "summary": {
+      "nodeCount": 15,
+      "edgeCount": 25,
+      "fileNodeCount": 2,
+      "symbolNodeCount": 9,
+      "callEdgeCount": 5
+    },
+    "truncated": false,
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
   }
 }

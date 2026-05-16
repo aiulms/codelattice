@@ -1,6 +1,6 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T16:30:19+00:00",
+  "generatedAt": "2026-05-16T17:34:53+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
     "toolVersion": "codelattice 0.15.0-beta.1",
@@ -17,7 +17,7 @@
     "sourceFileCount": 4,
     "moduleCount": 0,
     "packageCount": 1,
-    "generatedAt": "2026-05-16T16:30:19+00:00",
+    "generatedAt": "2026-05-16T17:34:53+00:00",
     "language": "unknown",
     "toolVersion": "codelattice 0.15.0-beta.1"
   },
@@ -543,6 +543,357 @@
           "模板/占位符可能误报"
         ]
       }
+    ]
+  },
+  "graph": {
+    "status": "collected",
+    "stability": "preview",
+    "nodes": [
+      {
+        "id": "sym:src/index.ts:interface:User:6",
+        "label": "User",
+        "kind": "symbol",
+        "file": "src/index.ts",
+        "line": 6
+      },
+      {
+        "id": "sym:src/index.ts:function:main:11",
+        "label": "main",
+        "kind": "symbol",
+        "file": "src/index.ts",
+        "line": 11
+      },
+      {
+        "id": "sym:src/math.ts:function:add:3",
+        "label": "add",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 3
+      },
+      {
+        "id": "sym:src/math.ts:function:subtract:7",
+        "label": "subtract",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 7
+      },
+      {
+        "id": "sym:src/math.ts:class:Calculator:13",
+        "label": "Calculator",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 13
+      },
+      {
+        "id": "sym:src/math.ts:property:result:14",
+        "label": "result",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 14
+      },
+      {
+        "id": "sym:src/math.ts:method:constructor:16",
+        "label": "constructor",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 16
+      },
+      {
+        "id": "sym:src/math.ts:method:add:20",
+        "label": "add",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 20
+      },
+      {
+        "id": "sym:src/math.ts:method:getResult:25",
+        "label": "getResult",
+        "kind": "symbol",
+        "file": "src/math.ts",
+        "line": 25
+      },
+      {
+        "id": "sym:src/model.ts:interface:Shape:3",
+        "label": "Shape",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 3
+      },
+      {
+        "id": "sym:src/model.ts:typeAlias:Point:8",
+        "label": "Point",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 8
+      },
+      {
+        "id": "sym:src/model.ts:typeAlias:Vector:10",
+        "label": "Vector",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 10
+      },
+      {
+        "id": "sym:src/model.ts:class:Circle:12",
+        "label": "Circle",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 12
+      },
+      {
+        "id": "sym:src/model.ts:method:constructor:13",
+        "label": "constructor",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 13
+      },
+      {
+        "id": "sym:src/model.ts:method:area:15",
+        "label": "area",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 15
+      },
+      {
+        "id": "sym:src/model.ts:method:circumference:19",
+        "label": "circumference",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 19
+      },
+      {
+        "id": "sym:src/model.ts:class:Rectangle:24",
+        "label": "Rectangle",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 24
+      },
+      {
+        "id": "sym:src/model.ts:method:constructor:25",
+        "label": "constructor",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 25
+      },
+      {
+        "id": "sym:src/model.ts:method:area:31",
+        "label": "area",
+        "kind": "symbol",
+        "file": "src/model.ts",
+        "line": 31
+      },
+      {
+        "id": "sym:src/utils.ts:function:greet:1",
+        "label": "greet",
+        "kind": "symbol",
+        "file": "src/utils.ts",
+        "line": 1
+      },
+      {
+        "id": "file:<redacted-root>/src/index.ts",
+        "label": "src/index.ts",
+        "kind": "file",
+        "file": "src/index.ts"
+      },
+      {
+        "id": "file:<redacted-root>/src/math.ts",
+        "label": "src/math.ts",
+        "kind": "file",
+        "file": "src/math.ts"
+      },
+      {
+        "id": "file:<redacted-root>/src/model.ts",
+        "label": "src/model.ts",
+        "kind": "file",
+        "file": "src/model.ts"
+      },
+      {
+        "id": "file:<redacted-root>/src/utils.ts",
+        "label": "src/utils.ts",
+        "kind": "file",
+        "file": "src/utils.ts"
+      },
+      {
+        "id": "pkg:portable-smoke",
+        "label": "portable-smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "repo:<redacted-root>",
+        "label": "portable-smoke",
+        "kind": "package",
+        "file": ""
+      }
+    ],
+    "edges": [
+      {
+        "source": "repo:<redacted-root>",
+        "target": "pkg:portable-smoke",
+        "kind": "owns"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/index.ts",
+        "kind": "owns"
+      },
+      {
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/index.ts:interface:User:6",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/index.ts:function:main:11",
+        "kind": "defines"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/math.ts",
+        "kind": "owns"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:function:add:3",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:function:subtract:7",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:class:Calculator:13",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:property:result:14",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:method:constructor:16",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:method:add:20",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:method:getResult:25",
+        "kind": "defines"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/model.ts",
+        "kind": "owns"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:interface:Shape:3",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:typeAlias:Point:8",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:typeAlias:Vector:10",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:class:Circle:12",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:constructor:13",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:area:15",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:circumference:19",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:class:Rectangle:24",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:constructor:25",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:area:31",
+        "kind": "defines"
+      },
+      {
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/utils.ts",
+        "kind": "owns"
+      },
+      {
+        "source": "file:<redacted-root>/src/utils.ts",
+        "target": "sym:src/utils.ts:function:greet:1",
+        "kind": "defines"
+      },
+      {
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/utils.ts",
+        "kind": "imports",
+        "confidence": 0.9,
+        "reason": "typescript-relative-import-resolved"
+      },
+      {
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/math.ts",
+        "kind": "imports",
+        "confidence": 0.9,
+        "reason": "typescript-relative-import-resolved"
+      },
+      {
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/model.ts",
+        "kind": "imports",
+        "confidence": 0.9,
+        "reason": "typescript-relative-import-resolved"
+      },
+      {
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/model.ts",
+        "kind": "imports",
+        "confidence": 0.9,
+        "reason": "typescript-relative-import-resolved"
+      }
+    ],
+    "summary": {
+      "nodeCount": 26,
+      "edgeCount": 29,
+      "fileNodeCount": 4,
+      "symbolNodeCount": 20,
+      "callEdgeCount": 0
+    },
+    "truncated": false,
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
   }
 }
