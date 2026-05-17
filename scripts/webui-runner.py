@@ -532,7 +532,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
 
     def _fs_list(self, qp):
         path=(qp.get("path",[""])[0] or "").strip() or os.path.expanduser("~")
-        if ".." in path or not path.startswith("/"): return err("invalid path",400)
+        path=os.path.expanduser(path) if path.startswith("~") else path
+        if ".." in path.split("/") or not path.startswith("/"): return err("invalid path",400)
         if not os.path.isdir(path): return err("not a directory",400)
         try:
             entries=[]
@@ -546,7 +547,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
 
     def _fs_validate(self, qp):
         path=(qp.get("path",[""])[0] or "").strip()
-        if ".." in path or not path.startswith("/"): return ok({"valid":False,"reason":"invalid path"})
+        path=os.path.expanduser(path) if path.startswith("~") else path
+        if ".." in path.split("/") or not path.startswith("/"): return ok({"valid":False,"reason":"invalid path"})
         if not os.path.exists(path): return ok({"valid":False,"reason":"path not found"})
         if not os.path.isdir(path): return ok({"valid":False,"reason":"not a directory"})
         return ok({"valid":True,"language":"auto","name":os.path.basename(path) or path})

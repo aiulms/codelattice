@@ -255,25 +255,58 @@ function pickerRefresh(){
 }
 function pickerOpenDialog(){
   document.getElementById("picker-dialog").style.display="";
-  // Browse home dir
-  if(RUNNER.connected) pickerBrowse(osPath("~"));
+  document.getElementById("picker-generate-btn").disabled=true;
+  document.getElementById("picker-selected-path").textContent="Choose a folder below";
+  // Show quick roots from API
+  if(RUNNER.connected){
+    var el=document.getElementById("picker-browse");
+    document.getElementById("picker-breadcrumb").innerHTML='<span style="color:#9ca3af;">Quick Access</span>';
+    rapi("/api/fs/roots").then(function(d){
+      var roots=d.data||[];
+      el.innerHTML=roots.map(function(r){
+        return '<div class="picker-item" style="padding:8px 12px;cursor:pointer;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f3f4f6;" onclick="pickerBrowse(&quot;'+escAttr(r.path)+'&quot;)">'+
+          '<span style="font-size:1.2em;">'+r.icon+'</span>'+
+          '<div><div style="font-weight:500;color:#2563eb;">'+esc(r.label)+'</div><div style="font-size:0.75em;color:#9ca3af;">'+esc(r.path)+'</div></div></div>';
+      }).join("");
+    }).catch(function(){});
+  }
 }
+
 function pickerBrowse(path){
   if(!RUNNER.connected)return;
   rapi("/api/fs/list?path="+encodeURIComponent(path)).then(function(d){
     var dd=d.data; var el=document.getElementById("picker-browse");
-    if(!dd||!dd.entries){el.innerHTML='<span class="text-muted">'+CTL_I18N.t("error.loadFailed")+'</span>';return;}
-    document.getElementById("picker-path-input").value=dd.path;
-    el.innerHTML='<div style="padding:2px 0;cursor:pointer;color:#2563eb;" onclick="pickerBrowse(&quot;'+escAttr(dd.parentPath||'')+'&quot;)">📁 ..</div>'+
-      dd.entries.map(function(e){
-        return '<div style="padding:2px 0;cursor:pointer;'+(e.isDir?'color:#2563eb;':'')+'" '+
-          (e.isDir?'onclick="pickerBrowse(&quot;'+escAttr(e.path)+'&quot;)"':'')+'>'+(e.isDir?'📁 ':'📄 ')+esc(e.name)+'</div>';
-      }).join("");
+    if(!dd||!dd.entries){el.innerHTML='<div style="padding:12px;color:#dc2626;">Cannot browse this path.</div>';return;}
+    // Breadcrumb
+    var parts=dd.path.split("/").filter(Boolean); var bc='/';
+    var bcHTML='<a href="#" onclick="pickerBrowse(&quot;/&quot;);return false;" style="color:#2563eb;">/</a>';
+    parts.forEach(function(p,i){bc+=(i>0?"/":"")+p;
+      bcHTML+=' / <a href="#" onclick="pickerBrowse(&quot;'+escAttr(bc)+'&quot;);return false;" style="color:#2563eb;">'+esc(p)+'</a>';
+    });
+    document.getElementById("picker-breadcrumb").innerHTML=bcHTML;
+    // Browse items
+    el.innerHTML='<div class="picker-item" style="padding:10px 12px;cursor:pointer;background:#ecfdf5;border-bottom:1px solid #d1fae5;" onclick="pickerSelectRoot(&quot;'+escAttr(dd.path)+'&quot;)">'+
+      '🟢 <strong style="color:#059669;">Select this folder: '+esc(dd.path)+'</strong></div>';
+    dd.entries.filter(function(e){return e.isDir;}).map(function(e){
+      el.innerHTML+='<div class="picker-item" style="padding:7px 12px;cursor:pointer;display:flex;align-items:center;gap:6px;border-bottom:1px solid #f9fafb;" onclick="pickerBrowse(&quot;'+escAttr(e.path)+'&quot;)">'+
+        '📁 <span style="color:#2563eb;font-weight:500;">'+esc(e.name)+'</span></div>';
+    });
   });
 }
-function osPath(p){if(p==="~")return "/Users/jiangxuanyang"; return p;}
+
+var pickerSelectedRoot='';
+function pickerSelectRoot(path){
+  pickerSelectedRoot=path;
+  document.getElementById("picker-breadcrumb").innerHTML='<span style="color:#059669;font-weight:500;">Selected:</span> '+esc(path);
+  var el=document.getElementById("picker-browse");
+  el.innerHTML='<div style="padding:16px;text-align:center;color:#059669;font-size:1.1em;">✅ <strong>'+esc(path)+'</strong></div>'+
+    '<div style="padding:0 12px 12px;text-align:center;color:#6b7280;font-size:0.9em;">Click <strong>Generate</strong> below to analyze this project.</div>';
+  document.getElementById("picker-selected-path").textContent=path;
+  document.getElementById("picker-generate-btn").disabled=false;
+}
+
 function pickerAnalyzePath(){
-  var root=document.getElementById("picker-path-input").value.trim();
+  var root=pickerSelectedRoot||document.getElementById("picker-path-input").value.trim();
   if(!root){alert(CTL_I18N.t("error.missingRoot")); return;}
   var lang=document.getElementById("picker-lang-select").value;
   document.getElementById("picker-hint").textContent=CTL_I18N.t("gen.generating");
