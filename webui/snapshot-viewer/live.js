@@ -4,7 +4,11 @@ LIVE.mcpAvailable=false; LIVE.tools=[]; LIVE.jobs=[]; LIVE.pollInterval=null;
 
 function livePollJobs(){
   if(!RUNNER.connected){if(LIVE.pollInterval)clearInterval(LIVE.pollInterval); return;}
-  rapi("/api/mcp/jobs").then(function(d){LIVE.jobs=(d.data||[]).slice(-20); renderLiveJobs();});
+  rapi("/api/mcp/jobs").then(function(d){
+    var jobs=Array.isArray(d.data)?d.data:((d.data&&Array.isArray(d.data.jobs))?d.data.jobs:[]);
+    LIVE.jobs=jobs.slice(-20);
+    renderLiveJobs();
+  });
 }
 function liveCheckMcp(){
   if(!RUNNER.connected)return;
@@ -14,7 +18,10 @@ function liveCheckMcp(){
   }).catch(function(){LIVE.mcpAvailable=false; renderLiveStatus();});
 }
 function liveLoadTools(){if(!RUNNER.connected)return;
-  rapi("/api/mcp/tools").then(function(d){LIVE.tools=d.data||[]; renderLiveTools();});}
+  rapi("/api/mcp/tools").then(function(d){
+    LIVE.tools=Array.isArray(d.data)?d.data:((d.data&&Array.isArray(d.data.tools))?d.data.tools:[]);
+    renderLiveTools();
+  });}
 
 function renderLiveStatus(){
   var el=document.getElementById("live-mcp-status"); if(!el)return;

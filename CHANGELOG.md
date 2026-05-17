@@ -9,6 +9,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 ### Fixed
 
 - **WebUI Project Picker folder selection**: the main "Choose Folder" action now uses the local runner to open a native macOS folder picker, with the in-page directory browser as fallback. Also fixed the default language precedence so a saved English preference is respected.
+- **WebUI first-screen runner wiring**: exported shared viewer helpers for runner/live/report scripts, preserved empty-array API responses, and added cache-busting script URLs so the browser does not keep stale JavaScript after an update.
 
 ### Added
 

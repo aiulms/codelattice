@@ -14,7 +14,7 @@ GEN_TIMEOUT = 120
 SUPPORTED = ["rust","typescript","c","cpp","python","arkts","cangjie","auto"]
 
 
-def ok(data=None): return {"success": True, "data": data or {}, "error": None, "hint": None}
+def ok(data=None): return {"success": True, "data": data if data is not None else {}, "error": None, "hint": None}
 def err(msg, code=400, hint=None):
     return {"success": False, "data": None, "error": msg, "hint": hint or "", "status": code}
 

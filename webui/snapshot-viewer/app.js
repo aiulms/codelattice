@@ -744,4 +744,26 @@
     return "<tr><td class='detail-label'>" + esc(label) + "</td><td>" + value + "</td></tr>";
   }
 
+  // Phase I/H: runner/live/report scripts are loaded as plain browser scripts.
+  // Keep these helpers explicit on window so those modules do not depend on
+  // accidental globals from this IIFE.
+  window.show = show;
+  window.esc = esc;
+  window.renderAll = renderAll;
+  window.updateCautionBanner = updateCautionBanner;
+  window.computeAndRenderDiff = computeAndRenderDiff;
+  window.loadSnapshot = loadSnapshot;
+  window.showWelcome = showWelcome;
+  window.showError = showError;
+  Object.defineProperty(window, "currentSnapshot", {
+    configurable: true,
+    get: function () { return currentSnapshot; },
+    set: function (value) { currentSnapshot = value; }
+  });
+  Object.defineProperty(window, "diffSnapshot", {
+    configurable: true,
+    get: function () { return diffSnapshot; },
+    set: function (value) { diffSnapshot = value; }
+  });
+
 })();

@@ -1,6 +1,7 @@
 // runner.js — CodeLattice WebUI Runner Client (Phase E: Workbench)
 var RUNNER=window.RUNNER||{}; window.RUNNER=RUNNER;
 RUNNER.base=""; RUNNER.connected=false; RUNNER.profiles=[]; RUNNER.snaps=[];
+var SUPPORTED_LANGS=["auto","rust","typescript","c","cpp","python","arkts","cangjie"];
 
 function rapi(path,opts){
   opts=opts||{}; var url=RUNNER.base+path;
@@ -17,7 +18,7 @@ function runnerCheckHealth(){
   var o=window.location.origin||"http://127.0.0.1:8765"; RUNNER.base=o;
   return rapi("/api/health").then(function(d){
     RUNNER.connected=true; showBadge("runner"); showEl("runner-panel",true); showEl("live-mcp-panel",true);
-    runnerLoadProfiles(); runnerLoadLibrary(); pickerLoadQuickRoots();
+    runnerLoadProfiles(); runnerLoadLibrary(); pickerLoadQuickRoots(); pickerRefresh();
     if(typeof liveCheckMcp==="function"){liveCheckMcp(); liveLoadTools();}
     return true;
   }).catch(function(){
@@ -116,7 +117,6 @@ function renderSnapshotLibrary(){
     '<select id="lib-lang" class="filter-select" onchange="libraryFilter.language=this.value;runnerLoadLibrary()"><option value="">All lang</option>'+SUPPORTED_LANGS.map(function(l){return '<option value="'+l+'">'+l+'</option>';}).join("")+'</select>'+
     '<select class="filter-select" onchange="var p=this.value.split(\":\");libraryFilter.sort=p[0];libraryFilter.order=p[1];runnerLoadLibrary()"><option value="createdAt:desc">Newest</option><option value="createdAt:asc">Oldest</option><option value="symbolCount:desc">Most syms</option><option value="sourceFileCount:desc">Most files</option></select>'+
     '<button class="btn btn-sm btn-secondary" onclick="runnerLoadLibrary()">Refresh</button></div>';
-  var SUPPORTED_LANGS=["auto","rust","typescript","c","cpp","python","arkts","cangjie"];
   if(s.length===0){el.innerHTML=html+'<span class="text-muted text-sm">No snapshots.</span>';return;}
   el.innerHTML=html+'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+s.map(function(e){
     var sm=e.summary||{},sc=e.secondary||{};
