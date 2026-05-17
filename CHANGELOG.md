@@ -8,6 +8,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **WebUI graph interaction polish**: the Graph tab now behaves as an exploration surface rather than a static picture: click selects and highlights a node, double-click or "drill down" focuses its 1/2-hop neighborhood, edge-mode filters switch between all/calls/structure, selected-node details show connected edges and neighbor count, and the visual density/labels/legend were tightened for large project graphs.
 - **WebUI graph/network visualization and Cangjie retry UX**: the Graph tab now renders an SVG relationship network in addition to node/edge lists. Snapshot generation failures now surface the real analyze error, expand the workbench browse panel, and suggest candidate child projects instead of leaving users with a vague `generation failed`. Cangjie `sourceFile`/`symbol` node shapes are now counted correctly in WebUI snapshots.
 - **WebUI loaded workbench project selection**: the post-analysis workbench runner panel now includes the same folder-selection path as the first screen: a native "Choose Folder" action plus an in-page directory browser with quick roots. Users no longer have to manually type a path after a snapshot has loaded.
 - **WebUI Chinese workbench localization**: localized the loaded workbench path (runner panels, snapshot library, Live MCP controls, tab bar, dashboard/explore/graph/cleanup/release views) so Chinese mode no longer leaves the main analysis screen in English.

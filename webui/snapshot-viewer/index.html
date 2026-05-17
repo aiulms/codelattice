@@ -264,6 +264,18 @@
         <div class="graph-toolbar" id="graph-toolbar" style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
           <input type="text" id="graph-search" class="search-input" data-i18n-placeholder="graph.search" placeholder="搜索节点…" style="max-width:200px;">
           <select id="graph-kind-filter" class="filter-select"><option value="" data-i18n="graph.all">全部</option><option value="symbol" data-i18n="graph.symbol">符号</option><option value="file" data-i18n="graph.file">文件</option><option value="package" data-i18n="graph.package">包</option></select>
+          <select id="graph-edge-mode" class="filter-select" onchange="setGraphEdgeMode(this.value)">
+            <option value="all" data-i18n="graph.edgeAll">全部关系</option>
+            <option value="calls" data-i18n="graph.edgeCallsOnly">只看调用</option>
+            <option value="structure" data-i18n="graph.edgeStructure">结构关系</option>
+          </select>
+          <select id="graph-depth-filter" class="filter-select" onchange="setGraphDepth(Number(this.value))">
+            <option value="1" data-i18n="graph.depth1">1 跳</option>
+            <option value="2" data-i18n="graph.depth2">2 跳</option>
+          </select>
+          <button class="btn btn-sm btn-secondary" onclick="focusSelectedGraphNode()" data-i18n="graph.drillSelected">下探选中</button>
+          <button class="btn btn-sm btn-secondary" onclick="resetGraphFocus()" data-i18n="graph.resetFocus">回到全图</button>
+          <span class="text-muted text-sm" id="graph-focus-status"></span>
           <span class="text-muted text-sm graph-summary" id="graph-summary-text"></span>
         </div>
         <div class="graph-visual-panel">

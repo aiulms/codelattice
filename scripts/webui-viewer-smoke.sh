@@ -121,6 +121,10 @@ grep -qF "graph-visual" "$VD/index.html" && chk "graph visual html" yes yes || c
 grep -qF "renderGraphVisual" "$VD/app.js" && chk "graph visual renderer" yes yes || chk "graph visual renderer" yes no
 grep -qF "<svg" "$VD/app.js" && chk "graph svg renderer" yes yes || chk "graph svg renderer" yes no
 grep -qF ".graph-visual" "$VD/styles.css" && chk "graph visual css" yes yes || chk "graph visual css" yes no
+grep -qF "focusGraphNode" "$VD/app.js" && chk "graph drill function" yes yes || chk "graph drill function" yes no
+grep -qF "graphNeighborIds" "$VD/app.js" && chk "graph neighbor function" yes yes || chk "graph neighbor function" yes no
+grep -qF "setGraphEdgeMode" "$VD/app.js" && chk "graph edge mode" yes yes || chk "graph edge mode" yes no
+grep -qF "graph-depth-filter" "$VD/index.html" && chk "graph depth control" yes yes || chk "graph depth control" yes no
 
 echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
 for f in timeline.js report.js; do
