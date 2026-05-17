@@ -74,6 +74,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             "setup.py": "python",
             "CMakeLists.txt": "c/cpp",
             "compile_commands.json": "c/cpp",
+            ".sln": "unsupported:csharp",
+            ".csproj": "unsupported:csharp",
         }
         skip = {".git",".gitnexus",".claude",".opencode","target","node_modules","dist","build","__pycache__",".venv","venv"}
         out = []
@@ -87,7 +89,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
                 continue
             langs = []
             for m, lang in markers.items():
-                if m in files and lang not in langs:
+                if (m in files or any(name.endswith(m) for name in files)) and lang not in langs:
                     langs.append(lang)
             if not langs:
                 ext_langs = []
@@ -97,12 +99,13 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
                     elif name.endswith((".rs",)): ext_langs.append("rust")
                     elif name.endswith((".ts",".tsx")): ext_langs.append("typescript")
                     elif name.endswith(".py"): ext_langs.append("python")
+                    elif name.endswith(".cs"): ext_langs.append("unsupported:csharp")
                 for lang in ext_langs:
                     if lang not in langs:
                         langs.append(lang)
             if langs and base != root:
                 out.append({"path": base, "label": os.path.basename(base) or base, "languages": langs[:3], "depth": depth})
-        priority = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5}
+        priority = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "unsupported:csharp": 9}
         out.sort(key=lambda c: (min(priority.get(l, 9) for l in c["languages"]), c.get("depth", 99), c["path"]))
         return out[:limit]
     def _generation_error_hint(self, root, detail):

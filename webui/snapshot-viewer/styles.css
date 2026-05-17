@@ -460,6 +460,37 @@ pre.code-block {
 .graph-layout { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; min-height: 400px; }
 @media (max-width: 768px) { .graph-layout { grid-template-columns: 1fr; } }
 .graph-summary { margin-left: auto; }
+.graph-native-select {
+  display: none !important;
+}
+.segmented-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--clr-border);
+  border-radius: 8px;
+  background: var(--clr-surface);
+}
+.segmented-control .segment {
+  min-height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--clr-text-secondary);
+  font: inherit;
+  font-size: .88em;
+  cursor: pointer;
+}
+.segmented-control .segment:hover { background: #f1f5f9; color: var(--clr-text); }
+.segmented-control .segment.active { background: #2563eb; color: #fff; }
+.graph-layout-buttons { max-width: 100%; overflow-x: auto; }
+.graph-zoom-lock.is-locked {
+  border-color: #60a5fa;
+  color: #1d4ed8;
+  background: #eff6ff;
+}
 .graph-visual-panel { background: var(--clr-surface); border: 1px solid var(--clr-border); border-radius: var(--radius); margin-bottom: 12px; overflow: hidden; }
 .graph-visual { height: 600px; min-height: 420px; background: linear-gradient(180deg, #fbfdff 0%, #f7fafc 100%); position: relative; }
 .graph-visual.graph-layout-galaxy { background:
@@ -576,6 +607,45 @@ pre.code-block {
 .detail-table { width: 100%; border-collapse: collapse; font-size: .88em; }
 .detail-table td { padding: 4px 8px; border-bottom: 1px solid #f0f0f0; }
 .detail-table .detail-label { color: var(--clr-text-secondary); font-size: .82em; width: 120px; }
+.candidate-projects {
+  margin-top: 10px;
+  display: grid;
+  gap: 6px;
+}
+.candidate-title {
+  font-weight: 650;
+  color: #374151;
+  margin-bottom: 2px;
+}
+.candidate-project {
+  width: 100%;
+  text-align: left;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid #bfdbfe;
+  border-radius: 6px;
+  background: #eff6ff;
+  color: #1f2937;
+  cursor: pointer;
+}
+.candidate-project:hover { border-color: #2563eb; background: #dbeafe; }
+.candidate-project.disabled {
+  cursor: not-allowed;
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #991b1b;
+}
+.candidate-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.candidate-lang {
+  font-size: .78em;
+  color: #64748b;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.72);
+}
 
 /* ── Diff View (Phase B) ────────────────────────────────────────── */
 .diff-controls { border-bottom: 1px solid var(--clr-border); padding-bottom: 8px; }

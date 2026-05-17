@@ -172,9 +172,54 @@ function showGenerationError(e, where){
   if(listEl){
     var details=listEl.closest&&listEl.closest("details");
     if(details)details.open=true;
+    var candidates=extractProjectCandidates(hint);
+    var candidateHtml=candidates.length?renderProjectCandidates(candidates, where):"";
     listEl.innerHTML='<div style="padding:10px;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;white-space:pre-wrap;">'+
-      esc(msg)+(hint?'\n\n'+esc(hint):'')+'\n\n'+esc(tr("gen.showingPrevious"))+'</div>';
+      esc(msg)+(hint?'\n\n'+esc(hint):'')+'\n\n'+esc(tr("gen.showingPrevious"))+'</div>'+candidateHtml;
   }
+}
+
+function extractProjectCandidates(hint){
+  if(!hint)return[];
+  return hint.split(/\n/).map(function(line){
+    var m=line.match(/^- (\/.+?) \((.+?)\)\s*$/);
+    if(!m)return null;
+    var langs=m[2].split(",").map(function(s){return s.trim();}).filter(Boolean);
+    return {path:m[1],languages:langs,unsupported:langs.some(function(l){return l.indexOf("unsupported:")===0;})};
+  }).filter(Boolean).slice(0,12);
+}
+function candidateLang(c){
+  var lang=(c.languages||[]).find(function(l){return l.indexOf("unsupported:")!==0;})||"auto";
+  if(lang==="c/cpp")return"cpp";
+  return lang;
+}
+function renderProjectCandidates(candidates, where){
+  var rows=candidates.map(function(c){
+    var lang=candidateLang(c);
+    var unsupported=c.unsupported&&!c.languages.some(function(l){return l.indexOf("unsupported:")!==0;});
+    var label=c.unsupported?tr("gen.unsupportedModule"):tr("gen.useCandidate");
+    var action=where==="picker"?"pickerUseCandidate":"runnerUseCandidate";
+    return '<button class="candidate-project '+(unsupported?'disabled':'')+'" '+(unsupported?'disabled':'onclick="'+action+'(&quot;'+escAttr(c.path)+'&quot;,&quot;'+escAttr(lang)+'&quot;)"')+'>'+
+      '<span class="candidate-path">'+esc(c.path)+'</span>'+
+      '<span class="candidate-lang">'+esc(c.languages.join(", "))+'</span>'+
+      '<strong>'+esc(label)+'</strong>'+
+    '</button>';
+  }).join("");
+  return '<div class="candidate-projects"><div class="candidate-title">'+esc(tr("gen.candidateProjects"))+'</div>'+rows+'</div>';
+}
+function runnerUseCandidate(path, lang){
+  var input=document.getElementById("runner-root-input");
+  var sel=document.getElementById("runner-lang-select");
+  if(input)input.value=path;
+  if(sel&&SUPPORTED_LANGS.indexOf(lang)>=0)sel.value=lang;
+  runnerGenerate();
+}
+function pickerUseCandidate(path, lang){
+  var input=document.getElementById("picker-path-input");
+  var sel=document.getElementById("picker-lang-select");
+  if(input)input.value=path;
+  if(sel&&SUPPORTED_LANGS.indexOf(lang)>=0)sel.value=lang;
+  pickerAnalyzePath();
 }
 
 // ── Workbench Project Folder Picker ─────────────────────────────

@@ -64,6 +64,14 @@
       return (degree[b.id] || 0) - (degree[a.id] || 0);
     }).slice(0, limit);
   }
+  function uniqueNodes(nodes) {
+    var seen = new Set();
+    return (nodes || []).filter(function (n) {
+      if (!n || !n.id || seen.has(n.id)) return false;
+      seen.add(n.id);
+      return true;
+    });
+  }
   function computePositions(nodes, edges, layout, width, height) {
     var degree = degreeMap(edges);
     var cx = width / 2, cy = height / 2;
@@ -196,7 +204,7 @@
     var colors = colorSet(layout);
     var width = Math.max(960, host.clientWidth || 1040);
     var height = Math.max(620, host.clientHeight || 640);
-    var sourceNodes = rankNodes(options.nodes || [], options.edges || [], options.focusNodeId ? 220 : 180, options.focusNodeId);
+    var sourceNodes = uniqueNodes(rankNodes(options.nodes || [], options.edges || [], options.focusNodeId ? 220 : 180, options.focusNodeId));
     var visible = new Set(sourceNodes.map(function (n) { return n.id; }));
     var sourceEdges = (options.edges || []).filter(function (e) { return visible.has(e.source) && visible.has(e.target); }).slice(0, options.focusNodeId ? 420 : 320);
     var degree = degreeMap(sourceEdges);
@@ -230,9 +238,14 @@
         }
       };
     });
+    var usedEdgeIds = new Set();
     var edges = sourceEdges.map(function (e, i) {
+      var baseId = e.id || ("edge-" + e.source + "-" + e.target);
+      var edgeId = baseId;
+      if (usedEdgeIds.has(edgeId)) edgeId = baseId + "#" + i;
+      usedEdgeIds.add(edgeId);
       return {
-        id: e.id || ("edge-" + i + "-" + e.source + "-" + e.target),
+        id: edgeId,
         source: e.source,
         target: e.target,
         data: {raw: e, kind: e.kind || "related"},
@@ -272,10 +285,9 @@
         },
         behaviors: [
           "drag-canvas",
-          "zoom-canvas",
           "drag-element",
           {type: "click-select", degree: Number(options.depth || 1), state: "active", neighborState: "selected", unselectedState: "inactive"}
-        ],
+        ].concat(options.zoomLocked ? [] : ["zoom-canvas"]),
         transforms: ["process-parallel-edges"]
       });
       graph.on("node:click", function (evt) {

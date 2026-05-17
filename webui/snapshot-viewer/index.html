@@ -264,13 +264,20 @@
         <div class="graph-toolbar" id="graph-toolbar" style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
           <input type="text" id="graph-search" class="search-input" data-i18n-placeholder="graph.search" placeholder="搜索节点…" style="max-width:200px;">
           <select id="graph-kind-filter" class="filter-select"><option value="" data-i18n="graph.all">全部</option><option value="symbol" data-i18n="graph.symbol">符号</option><option value="file" data-i18n="graph.file">文件</option><option value="package" data-i18n="graph.package">包</option></select>
-          <select id="graph-layout-mode" class="filter-select" onchange="setGraphLayout(this.value)">
+          <select id="graph-layout-mode" class="filter-select graph-native-select" onchange="setGraphLayout(this.value)" aria-label="Graph layout">
             <option value="galaxy" data-i18n="graph.layoutGalaxy">代码星云</option>
             <option value="communities" data-i18n="graph.layoutCommunities">模块星团</option>
             <option value="flow" data-i18n="graph.layoutFlow">调用流向</option>
             <option value="blueprint" data-i18n="graph.layoutBlueprint">蓝图架构</option>
             <option value="orbit" data-i18n="graph.layoutOrbit">工程探索</option>
           </select>
+          <div id="graph-layout-buttons" class="segmented-control graph-layout-buttons" role="group" aria-label="Graph layout buttons">
+            <button type="button" class="segment active" data-layout="galaxy" onclick="setGraphLayout('galaxy')" data-i18n="graph.layoutGalaxy">代码星云</button>
+            <button type="button" class="segment" data-layout="communities" onclick="setGraphLayout('communities')" data-i18n="graph.layoutCommunities">模块星团</button>
+            <button type="button" class="segment" data-layout="flow" onclick="setGraphLayout('flow')" data-i18n="graph.layoutFlow">调用流向</button>
+            <button type="button" class="segment" data-layout="blueprint" onclick="setGraphLayout('blueprint')" data-i18n="graph.layoutBlueprint">蓝图架构</button>
+            <button type="button" class="segment" data-layout="orbit" onclick="setGraphLayout('orbit')" data-i18n="graph.layoutOrbit">工程探索</button>
+          </div>
           <select id="graph-engine-mode" class="filter-select" onchange="setGraphEngine(this.value)">
             <option value="g6" data-i18n="graph.engineG6">G6 高级图谱</option>
             <option value="svg" data-i18n="graph.engineSvg">SVG 兼容图谱</option>
@@ -286,6 +293,7 @@
           </select>
           <button class="btn btn-sm btn-secondary" onclick="focusSelectedGraphNode()" data-i18n="graph.drillSelected">下探选中</button>
           <button class="btn btn-sm btn-secondary" onclick="resetGraphFocus()" data-i18n="graph.resetFocus">回到全图</button>
+          <button class="btn btn-sm btn-secondary graph-zoom-lock is-locked" id="graph-zoom-lock-btn" onclick="toggleGraphZoomLock()" data-i18n="graph.zoomLocked">滚轮锁定</button>
           <button class="btn btn-sm btn-secondary" id="graph-poster-btn" onclick="toggleGraphPosterMode()" data-i18n="graph.posterMode">海报模式</button>
           <span class="text-muted text-sm" id="graph-focus-status"></span>
           <span class="text-muted text-sm graph-summary" id="graph-summary-text"></span>

@@ -11,7 +11,7 @@
   let allSymbols = [];
   let filteredSymbols = [];
   let selectedSymbolId = null;
-  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy", engine: "g6" };
+  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy", engine: "g6", zoomLocked: true };
 
   // ── DOM Helpers ─────────────────────────────────────────────────────
 
@@ -635,6 +635,8 @@
     var host = $("#graph-visual");
     if (!host) return;
     var layout = graphState.layout || "galaxy";
+    updateGraphLayoutButtons();
+    updateGraphZoomLockButton();
     if (graphState.engine !== "svg" && window.CodeLatticeG6Graph && CodeLatticeG6Graph.available()) {
       var usedG6 = CodeLatticeG6Graph.render({
         host: host,
@@ -646,6 +648,7 @@
         selectedNodeId: graphState.selectedNodeId,
         focusNodeId: graphState.focusNodeId,
         depth: graphState.depth,
+        zoomLocked: graphState.zoomLocked,
         onSelect: window.selectGraphNode,
         onFocus: window.focusGraphNode
       });
@@ -929,6 +932,7 @@
     graphState.layout = layout || "galaxy";
     var layoutMode = $("#graph-layout-mode");
     if (layoutMode) layoutMode.value = graphState.layout;
+    updateGraphLayoutButtons();
     if (currentSnapshot) renderGraph(currentSnapshot);
   };
   window.setGraphEngine = function(engine) {
@@ -936,6 +940,23 @@
     var engineMode = $("#graph-engine-mode");
     if (engineMode) engineMode.value = graphState.engine;
     if (window.CodeLatticeG6Graph && graphState.engine === "svg") CodeLatticeG6Graph.destroy();
+    if (currentSnapshot) renderGraph(currentSnapshot);
+  };
+  function updateGraphLayoutButtons() {
+    $$("#graph-layout-buttons .segment").forEach(function(btn) {
+      btn.classList.toggle("active", btn.getAttribute("data-layout") === graphState.layout);
+    });
+  }
+  function updateGraphZoomLockButton() {
+    var btn = $("#graph-zoom-lock-btn");
+    if (!btn) return;
+    btn.classList.toggle("is-locked", !!graphState.zoomLocked);
+    btn.textContent = graphState.zoomLocked ? t("graph.zoomLocked") : t("graph.zoomUnlocked");
+    btn.setAttribute("aria-pressed", graphState.zoomLocked ? "true" : "false");
+  }
+  window.toggleGraphZoomLock = function() {
+    graphState.zoomLocked = !graphState.zoomLocked;
+    updateGraphZoomLockButton();
     if (currentSnapshot) renderGraph(currentSnapshot);
   };
   window.toggleGraphPosterMode = function() {

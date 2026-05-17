@@ -113,6 +113,8 @@ grep -qF "pickerPickDirectory" "$VD/runner.js" && chk "project picker folder cho
 grep -qF "picker.chooseFolder" "$VD/index.html" && chk "choose folder i18n html" yes yes || chk "choose folder i18n html" yes no
 grep -qF "runnerPickDirectory" "$VD/runner.js" && chk "workbench folder chooser" yes yes || chk "workbench folder chooser" yes no
 grep -qF "runnerBrowse" "$VD/runner.js" && chk "workbench in-page browse" yes yes || chk "workbench in-page browse" yes no
+grep -qF "extractProjectCandidates" "$VD/runner.js" && chk "candidate project parser" yes yes || chk "candidate project parser" yes no
+grep -qF "runnerUseCandidate" "$VD/runner.js" && chk "candidate project action" yes yes || chk "candidate project action" yes no
 grep -qF "runner-browse-list" "$VD/index.html" && chk "workbench browse html" yes yes || chk "workbench browse html" yes no
 grep -qF "restoreWorkbenchSnapshot" "$VD/runner.js" && chk "refresh restores snapshot" yes yes || chk "refresh restores snapshot" yes no
 grep -qF "snapshot" "$VD/runner.js" && grep -qF "history.replaceState" "$VD/runner.js" && chk "snapshot url persistence" yes yes || chk "snapshot url persistence" yes no
@@ -128,16 +130,22 @@ grep -qF "graphNeighborIds" "$VD/app.js" && chk "graph neighbor function" yes ye
 grep -qF "setGraphEdgeMode" "$VD/app.js" && chk "graph edge mode" yes yes || chk "graph edge mode" yes no
 grep -qF "graph-depth-filter" "$VD/index.html" && chk "graph depth control" yes yes || chk "graph depth control" yes no
 grep -qF "graph-layout-mode" "$VD/index.html" && chk "graph layout mode" yes yes || chk "graph layout mode" yes no
+grep -qF "graph-layout-buttons" "$VD/index.html" && chk "graph segmented layouts" yes yes || chk "graph segmented layouts" yes no
 grep -qF "setGraphLayout" "$VD/app.js" && chk "graph layout function" yes yes || chk "graph layout function" yes no
 grep -qF "graph-engine-mode" "$VD/index.html" && chk "graph engine mode" yes yes || chk "graph engine mode" yes no
 grep -qF "setGraphEngine" "$VD/app.js" && chk "graph engine function" yes yes || chk "graph engine function" yes no
+grep -qF "graph-zoom-lock-btn" "$VD/index.html" && chk "graph wheel lock button" yes yes || chk "graph wheel lock button" yes no
+grep -qF "toggleGraphZoomLock" "$VD/app.js" && chk "graph wheel lock function" yes yes || chk "graph wheel lock function" yes no
 grep -qF "CodeLatticeG6Graph" "$VD/graph-g6.js" && chk "G6 adapter" yes yes || chk "G6 adapter" yes no
 grep -qF "new Graph" "$VD/graph-g6.js" && chk "G6 graph constructor" yes yes || chk "G6 graph constructor" yes no
 grep -qF "drag-canvas" "$VD/graph-g6.js" && chk "G6 drag canvas" yes yes || chk "G6 drag canvas" yes no
 grep -qF "zoom-canvas" "$VD/graph-g6.js" && chk "G6 zoom canvas" yes yes || chk "G6 zoom canvas" yes no
+grep -qF "zoomLocked" "$VD/graph-g6.js" && chk "G6 zoom lock" yes yes || chk "G6 zoom lock" yes no
+grep -qF "uniqueNodes" "$VD/graph-g6.js" && chk "G6 duplicate node guard" yes yes || chk "G6 duplicate node guard" yes no
 grep -qF "g6.min.js" "$VD/index.html" && chk "G6 script ref" yes yes || chk "G6 script ref" yes no
 grep -qF "MIT" "$VD/vendor/g6/LICENSE" && chk "G6 license" yes yes || chk "G6 license" yes no
 grep -qF "graph.engineG6" "$VD/i18n.js" && chk "G6 i18n" yes yes || chk "G6 i18n" yes no
+grep -qF "graph.zoomLocked" "$VD/i18n.js" && chk "graph zoom i18n" yes yes || chk "graph zoom i18n" yes no
 grep -qF ".graph-g6-host" "$VD/styles.css" && chk "G6 css" yes yes || chk "G6 css" yes no
 grep -qF "graph-layout-blueprint" "$VD/styles.css" && chk "graph blueprint style" yes yes || chk "graph blueprint style" yes no
 grep -qF "graph.layoutGalaxy" "$VD/i18n.js" && chk "graph layout i18n" yes yes || chk "graph layout i18n" yes no
