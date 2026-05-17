@@ -107,6 +107,7 @@
         <!-- Generate -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="text" id="runner-root-input" class="search-input" data-i18n-placeholder="runner.rootPlaceholder" placeholder="项目根目录路径…" style="flex:1;min-width:200px;">
+          <button class="btn btn-sm btn-secondary" onclick="runnerPickDirectory()">📁 <span data-i18n="picker.chooseFolder">选择文件夹</span></button>
           <select id="runner-lang-select" class="filter-select">
             <option value="auto">auto</option>
             <option value="rust">rust</option><option value="typescript">typescript</option>
@@ -116,6 +117,13 @@
           <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()">&#9889; <span data-i18n="gen.generate">生成</span></button>
           <span class="text-muted text-sm" id="runner-status"></span>
         </div>
+        <details style="margin-top:8px;">
+          <summary style="cursor:pointer;font-weight:600;" data-i18n="picker.quickBrowse">网页内浏览文件夹</summary>
+          <div id="runner-quick-roots" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
+            <button class="btn btn-sm btn-secondary" onclick="runnerBrowse('/')">📂 /</button>
+          </div>
+          <div id="runner-browse-list" style="max-height:180px;overflow-y:auto;margin-top:6px;font-size:0.85em;"></div>
+        </details>
         <!-- Library -->
         <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;" data-i18n="library.title">分析快照库</summary>
           <div id="runner-library-list" style="margin-top:6px;font-size:0.85em;"></div>

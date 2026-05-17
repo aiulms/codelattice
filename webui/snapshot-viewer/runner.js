@@ -27,7 +27,7 @@ function runnerCheckHealth(){
   var o=window.location.origin||"http://127.0.0.1:8765"; RUNNER.base=o;
   return rapi("/api/health").then(function(d){
     RUNNER.connected=true; showBadge("runner"); showEl("runner-panel",true); showEl("live-mcp-panel",true);
-    runnerLoadProfiles(); runnerLoadLibrary(); pickerLoadQuickRoots(); pickerRefresh();
+    runnerLoadProfiles(); runnerLoadLibrary(); pickerLoadQuickRoots(); runnerLoadQuickRoots(); pickerRefresh();
     if(typeof liveCheckMcp==="function"){liveCheckMcp(); liveLoadTools();}
     setTimeout(restoreWorkbenchSnapshot, 150);
     return true;
@@ -159,6 +159,74 @@ function runnerGenerate(){
     if(st)st.textContent=tr("gen.done")+": "+sid; runnerLoadLibrary(); runnerLoadProfiles();
     if(sid)runnerLoadSnap(sid,{tab:"dashboard"});
   }).catch(function(e){if(st)st.textContent=tr("gen.error")+": "+e.message;});
+}
+
+// ── Workbench Project Folder Picker ─────────────────────────────
+function runnerPickDirectory(){
+  if(!RUNNER.connected){alert(tr("runner.startHint"));return;}
+  var st=document.getElementById("runner-status");
+  var input=document.getElementById("runner-root-input");
+  var current=input?input.value.trim():"";
+  if(st)st.textContent=tr("picker.folderPickerOpening");
+  rapi("/api/fs/pick-directory",{method:"POST",body:{currentPath:current}}).then(function(d){
+    var path=(d.data||{}).path||"";
+    if(!path)throw new Error(tr("picker.browseUnavailable"));
+    runnerSelectPath(path);
+    if(st)st.textContent=tr("picker.selectedFolder");
+  }).catch(function(e){
+    if(st)st.textContent=tr("picker.folderPickerFallback");
+    runnerBrowse(current || "/");
+  });
+}
+
+function runnerBrowse(path){
+  if(!RUNNER.connected){alert(tr("runner.startHint"));return;}
+  var listEl=document.getElementById("runner-browse-list");
+  if(!listEl)return;
+  listEl.innerHTML='<div style="padding:8px;color:#9ca3af;">'+esc(tr("picker.browseLoading"))+'</div>';
+  rapi("/api/fs/list?path="+encodeURIComponent(path)).then(function(d){
+    var dd=d.data;
+    if(!dd||!dd.entries){
+      listEl.innerHTML='<div style="padding:8px;color:#dc2626;">'+esc(tr("picker.browseUnavailable"))+'</div>';
+      return;
+    }
+    var input=document.getElementById("runner-root-input");
+    if(input)input.value=dd.path;
+    var parts=dd.path.split("/").filter(Boolean);
+    var bc=parts.map(function(p,i){
+      var bp="/"+parts.slice(0,i+1).join("/");
+      return '<a href="#" onclick="runnerBrowse(&quot;'+escAttr(bp)+'&quot;);return false;" style="color:#2563eb;">'+esc(p)+'</a>';
+    }).join(" / ");
+    var dirs=dd.entries.filter(function(e){return e.isDir;});
+    listEl.innerHTML='<div style="padding:2px 0;color:#6b7280;">📂 / '+bc+'</div>'+
+      '<div style="padding:4px 0;cursor:pointer;color:#059669;font-weight:600;" onclick="runnerSelectPath(&quot;'+escAttr(dd.path)+'&quot;)">✅ 选定此文件夹</div>'+
+      dirs.map(function(e){
+        return '<div style="padding:3px 6px;cursor:pointer;color:#2563eb;" onclick="runnerBrowse(&quot;'+escAttr(e.path)+'&quot;)">📁 '+esc(e.name)+'</div>';
+      }).join("");
+  }).catch(function(){
+    listEl.innerHTML='<div style="padding:8px;color:#dc2626;">'+esc(tr("picker.browseUnavailable"))+'</div>';
+  });
+}
+
+function runnerSelectPath(path){
+  var input=document.getElementById("runner-root-input");
+  var listEl=document.getElementById("runner-browse-list");
+  if(input)input.value=path;
+  if(listEl)listEl.innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — '+esc(tr("picker.selectedFolder"))+'</div>';
+  var st=document.getElementById("runner-status");
+  if(st)st.textContent=tr("picker.selectedFolder");
+}
+
+function runnerLoadQuickRoots(){
+  if(!RUNNER.connected)return;
+  rapi("/api/fs/roots").then(function(d){
+    var roots=d.data||[];
+    var rootBtns=roots.map(function(r){
+      return '<button class="btn btn-sm btn-secondary" onclick="runnerBrowse(&quot;'+escAttr(r.path)+'&quot;)">'+r.icon+' '+esc(r.label)+'</button>';
+    }).join(" ");
+    var el=document.getElementById("runner-quick-roots");
+    if(el)el.innerHTML=rootBtns+' <button class="btn btn-sm btn-secondary" onclick="runnerBrowse(&quot;/&quot;)">📂 /</button>';
+  });
 }
 
 // ── Snapshot Library (Phase E enhanced) ──────────────────────────

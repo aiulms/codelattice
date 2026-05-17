@@ -109,6 +109,9 @@ grep -qF "runner-panel" "$VD/index.html" && chk "runner panel html" yes yes || c
 grep -qF "runner-mode-badge" "$VD/index.html" && chk "runner badge" yes yes || chk "runner badge" yes no
 grep -qF "pickerPickDirectory" "$VD/runner.js" && chk "project picker folder chooser" yes yes || chk "project picker folder chooser" yes no
 grep -qF "picker.chooseFolder" "$VD/index.html" && chk "choose folder i18n html" yes yes || chk "choose folder i18n html" yes no
+grep -qF "runnerPickDirectory" "$VD/runner.js" && chk "workbench folder chooser" yes yes || chk "workbench folder chooser" yes no
+grep -qF "runnerBrowse" "$VD/runner.js" && chk "workbench in-page browse" yes yes || chk "workbench in-page browse" yes no
+grep -qF "runner-browse-list" "$VD/index.html" && chk "workbench browse html" yes yes || chk "workbench browse html" yes no
 grep -qF "restoreWorkbenchSnapshot" "$VD/runner.js" && chk "refresh restores snapshot" yes yes || chk "refresh restores snapshot" yes no
 grep -qF "snapshot" "$VD/runner.js" && grep -qF "history.replaceState" "$VD/runner.js" && chk "snapshot url persistence" yes yes || chk "snapshot url persistence" yes no
 grep -qF "rememberWorkbenchTab" "$VD/index.html" && chk "tab url persistence" yes yes || chk "tab url persistence" yes no

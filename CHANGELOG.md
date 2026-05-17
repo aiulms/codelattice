@@ -8,6 +8,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **WebUI loaded workbench project selection**: the post-analysis workbench runner panel now includes the same folder-selection path as the first screen: a native "Choose Folder" action plus an in-page directory browser with quick roots. Users no longer have to manually type a path after a snapshot has loaded.
 - **WebUI Chinese workbench localization**: localized the loaded workbench path (runner panels, snapshot library, Live MCP controls, tab bar, dashboard/explore/graph/cleanup/release views) so Chinese mode no longer leaves the main analysis screen in English.
 - **WebUI refresh-safe analysis state**: one-click analysis and snapshot-library loads now persist `snapshot=<id>` and `tab=<view>` in the URL/localStorage, so browser refresh restores the current analysis instead of returning to the project picker. Runner-served static assets now send no-store cache headers to avoid stale English JavaScript.
 - **WebUI Project Picker folder selection**: the main "Choose Folder" action now uses the local runner to open a native macOS folder picker, with the in-page directory browser as fallback. Also fixed the default language precedence so a saved English preference is respected.
