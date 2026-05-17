@@ -37,7 +37,7 @@ grep -qF 'tab-btn' "$VD/index.html" && chk "tab nav" yes yes || chk "tab nav" ye
 for v in dashboard explore graph cleanup release workflows diff; do
   grep -qF "view-$v" "$VD/index.html" && chk "view:$v" yes yes || chk "view:$v" yes no
 done
-CAUT=$(cat "$VD/index.html" "$VD/app.js" 2>/dev/null | grep -cE 'static.?analysis.?only|deletion.?proof|heuristic|candidate|NOT.*deletion' 2>/dev/null || echo 0)
+CAUT=$(cat "$VD/index.html" "$VD/app.js" 2>/dev/null | grep -cE 'static.?analysis.?only|deletion.?proof|heuristic|candidate|NOT.*deletion|静态分析|静态审查|删除|启发式|候选' 2>/dev/null || echo 0)
 [[ $CAUT -ge 4 ]] && chk "caution text (>=4)" pass pass || chk "caution text (>=4)" pass "fail($CAUT)"
 echo ""; echo "--- CSS ---"
 grep -q ':root' "$VD/styles.css" && chk "css vars" yes yes || chk "css vars" yes no

@@ -27,12 +27,12 @@ curl -sI "$B/runner.js"|grep -q "200" 2>/dev/null && pass "runner.js 200"||fail 
 curl -s "$B/api/health"|grep -q '"success"' && pass "health api json"||fail "health api"
 
 # Page content checks
-echo "$PAGE"|grep -q "Project Profiles" && pass "Profiles text"||fail "Profiles text"
-echo "$PAGE"|grep -q "Snapshot Library" && pass "Library text"||fail "Library text"
-echo "$PAGE"|grep -q "Guided Review" && pass "Guided text"||fail "Guided text"
-echo "$PAGE"|grep -q "Report" && pass "Report text"||fail "Report text"
-echo "$PAGE"|grep -q "Static Analysis Only" && pass "Caution text"||fail "Caution text"
-echo "$PAGE"|grep -q "Generate" && pass "Generate button"||fail "Generate button"
+echo "$PAGE"|grep -Eq "Project Profiles|项目配置" && pass "Profiles text"||fail "Profiles text"
+echo "$PAGE"|grep -Eq "Snapshot Library|分析快照库" && pass "Library text"||fail "Library text"
+echo "$PAGE"|grep -Eq "Guided Review|引导式审查" && pass "Guided text"||fail "Guided text"
+echo "$PAGE"|grep -Eq "Report|报告" && pass "Report text"||fail "Report text"
+echo "$PAGE"|grep -Eq "Static Analysis Only|仅静态分析" && pass "Caution text"||fail "Caution text"
+echo "$PAGE"|grep -Eq "Generate|生成" && pass "Generate button"||fail "Generate button"
 
 # Browser check (optional)
 BROWSER=""

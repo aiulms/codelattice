@@ -9,20 +9,17 @@
 <body>
   <!-- Global Caution Banner -->
   <div id="caution-banner" class="caution-banner" role="alert" style="display:none;">
-    <strong>&#9888; Static Analysis Only</strong>
-    Results are based on source-code graph analysis.
-    This is <strong>not</strong> compiler-verified, runtime-tested,
-    or coverage-proven. Use findings as investigation leads,
-    not as proof of safety or deletion-worthiness.
+    <strong>&#9888; <span data-i18n="caution.staticOnly">仅静态分析</span></strong>
+    <span data-i18n="caution.staticOnlyFull">仅静态分析：结果来自源代码图谱分析，不是编译器验证、运行时测试或覆盖率证明。</span>
   </div>
 
   <!-- Header -->
   <header class="app-header">
     <div class="header-left">
       <h1 class="app-title">CodeLattice</h1>
-      <span class="app-subtitle">Snapshot Viewer</span>
-      <span id="runner-mode-badge" class="badge badge-info" style="display:none;">&#128268; Runner</span>
-      <span id="static-mode-badge" class="badge" style="display:none;">&#128194; File Mode</span>
+      <span class="app-subtitle" data-i18n="app.subtitle">项目分析工作台</span>
+      <span id="runner-mode-badge" class="badge badge-info" style="display:none;">&#128268; <span data-i18n="runner.badge">Runner</span></span>
+      <span id="static-mode-badge" class="badge" style="display:none;">&#128194; <span data-i18n="runner.disconnected">文件模式</span></span>
     </div>
     <div class="header-center" id="project-info" style="display:none;">
       <span class="badge badge-lang" id="hdr-language"></span>
@@ -41,7 +38,7 @@
   <!-- Drop Zone (overlay) -->
   <div id="drop-zone" class="drop-zone" style="display:none;">
     <div class="drop-zone-inner">
-      &#128179; Drop snapshot JSON file here
+      &#128179; <span data-i18n="picker.dropJson">把 snapshot JSON 拖到这里</span>
     </div>
   </div>
 
@@ -73,14 +70,14 @@
 
           <!-- Recent Projects -->
           <div id="picker-recent" style="margin-top:10px;text-align:left;width:100%;">
-            <strong data-i18n="picker.recentProjects">Recent Projects</strong>
+            <strong data-i18n="picker.recentProjects">最近项目</strong>
             <div id="picker-recent-list" class="text-muted text-sm" style="margin-top:4px;">暂无最近项目。首次分析后显示。</div>
           </div>
           <div style="margin-top:10px;">
-            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('file-input').click()">📄 加载 JSON</button>
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('file-input').click()">📄 <span data-i18n="picker.loadJson">加载 JSON</span></button>
           </div>
           <div id="picker-runner-hint" class="text-muted text-sm" style="display:none;">
-            <p style="margin-bottom:4px;">启动 runner 开始本地分析</p>
+            <p style="margin-bottom:4px;" data-i18n="picker.startRunner">启动 runner 开始本地分析</p>
             <pre class="code-block">bash scripts/webui-runner.sh --open</pre>
           </div>
         </div>
@@ -90,10 +87,10 @@
     <!-- Error View -->
     <div id="error-view" class="error-view" style="display:none;">
       <div class="error-card">
-        <h2>&#10060; Error Loading Snapshot</h2>
+        <h2>&#10060; <span data-i18n="error.loadingSnapshot">加载 Snapshot 出错</span></h2>
         <p id="error-message"></p>
         <pre id="error-detail" class="code-block"></pre>
-        <button class="btn btn-secondary" onclick="showWelcome()">Try Again</button>
+        <button class="btn btn-secondary" onclick="showWelcome()" data-i18n="error.tryAgain">重试</button>
       </div>
     </div>
 
@@ -103,24 +100,24 @@
       <!-- Runner Panel (Phase E: Workbench) -->
       <div id="runner-panel" class="runner-panel" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:var(--radius);">
         <!-- Profiles -->
-        <details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;">Project Profiles</summary>
+        <details style="margin-bottom:8px;"><summary style="cursor:pointer;font-weight:600;" data-i18n="profile.title">项目配置</summary>
           <div id="runner-profiles-list" style="margin-top:6px;"></div>
-          <button class="btn btn-sm btn-secondary" onclick="createProfile()" style="margin-top:4px;">+ New Profile</button>
+          <button class="btn btn-sm btn-secondary" onclick="createProfile()" style="margin-top:4px;" data-i18n="profile.create">+ 新建配置</button>
         </details>
         <!-- Generate -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="text" id="runner-root-input" class="search-input" placeholder="Project root path..." style="flex:1;min-width:200px;">
+          <input type="text" id="runner-root-input" class="search-input" data-i18n-placeholder="runner.rootPlaceholder" placeholder="项目根目录路径…" style="flex:1;min-width:200px;">
           <select id="runner-lang-select" class="filter-select">
             <option value="auto">auto</option>
             <option value="rust">rust</option><option value="typescript">typescript</option>
             <option value="c">c</option><option value="cpp">cpp</option><option value="python">python</option>
             <option value="arkts">arkts</option><option value="cangjie">cangjie</option>
           </select>
-          <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()">&#9889; Generate</button>
+          <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()">&#9889; <span data-i18n="gen.generate">生成</span></button>
           <span class="text-muted text-sm" id="runner-status"></span>
         </div>
         <!-- Library -->
-        <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;">Snapshot Library</summary>
+        <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;" data-i18n="library.title">分析快照库</summary>
           <div id="runner-library-list" style="margin-top:6px;font-size:0.85em;"></div>
         </details>
       </div>
@@ -135,15 +132,15 @@
         </div>
         <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
           <select id="live-workflow-select" class="filter-select">
-            <option value="project_overview">Project Overview</option>
-            <option value="symbol_search">Symbol Search</option>
-            <option value="impact_preview">Impact Preview</option>
-            <option value="project_insights">Project Insights</option>
-            <option value="dead_code_candidates">Dead Code Candidates</option>
-            <option value="release_check">Release Check</option>
+            <option value="project_overview" data-i18n="live.projectOverview">项目总览</option>
+            <option value="symbol_search" data-i18n="live.symbolSearch">符号搜索</option>
+            <option value="impact_preview" data-i18n="live.impactPreview">影响预览</option>
+            <option value="project_insights" data-i18n="live.projectInsights">项目洞察</option>
+            <option value="dead_code_candidates" data-i18n="live.deadCodeCandidates">死代码候选</option>
+            <option value="release_check" data-i18n="live.releaseCheck">发布检查</option>
           </select>
-          <input type="text" id="live-symbol-query" class="search-input" placeholder="symbol/query..." style="max-width:160px;">
-          <button class="btn btn-sm btn-primary" onclick="liveCreateJob()">&#9654; Run</button>
+          <input type="text" id="live-symbol-query" class="search-input" data-i18n-placeholder="live.symbolPlaceholder" placeholder="符号/查询…" style="max-width:160px;">
+          <button class="btn btn-sm btn-primary" onclick="liveCreateJob()">&#9654; <span data-i18n="live.run">运行</span></button>
           <span class="text-muted text-sm" id="live-job-status"></span>
         </div>
         <div id="live-jobs-list" style="margin-top:8px;font-size:0.85em;"></div>
@@ -152,15 +149,15 @@
 
       <!-- Tab Bar -->
       <nav class="tab-bar" role="tablist">
-        <button class="tab-btn active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
-        <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false">Explore</button>
-        <button class="tab-btn" data-tab="graph" role="tab" aria-selected="false">Graph</button>
-        <button class="tab-btn" data-tab="cleanup" role="tab" aria-selected="false">Cleanup</button>
-        <button class="tab-btn" data-tab="release" role="tab" aria-selected="false">Release</button>
-        <button class="tab-btn" data-tab="workflows" role="tab" aria-selected="false">Workflow</button>
-        <button class="tab-btn" data-tab="diff" role="tab" aria-selected="false">Diff</button>
-        <button class="tab-btn" data-tab="timeline" role="tab" aria-selected="false">Timeline</button>
-        <button class="tab-btn" data-tab="report" role="tab" aria-selected="false">Report</button>
+        <button class="tab-btn active" data-tab="dashboard" role="tab" aria-selected="true" data-i18n="tab.dashboard">总览</button>
+        <button class="tab-btn" data-tab="explore" role="tab" aria-selected="false" data-i18n="tab.explore">探索</button>
+        <button class="tab-btn" data-tab="graph" role="tab" aria-selected="false" data-i18n="tab.graph">图谱</button>
+        <button class="tab-btn" data-tab="cleanup" role="tab" aria-selected="false" data-i18n="tab.cleanup">清理</button>
+        <button class="tab-btn" data-tab="release" role="tab" aria-selected="false" data-i18n="tab.release">发布</button>
+        <button class="tab-btn" data-tab="workflows" role="tab" aria-selected="false" data-i18n="tab.workflows">工作流</button>
+        <button class="tab-btn" data-tab="diff" role="tab" aria-selected="false" data-i18n="tab.diff">对比</button>
+        <button class="tab-btn" data-tab="timeline" role="tab" aria-selected="false" data-i18n="tab.timeline">时间线</button>
+        <button class="tab-btn" data-tab="report" role="tab" aria-selected="false" data-i18n="tab.report">报告</button>
       </nav>
 
       <!-- GeneratedFrom Flags Bar -->
@@ -171,19 +168,19 @@
         <!-- Summary Cards Row -->
         <div class="card-grid card-grid-4">
           <div class="stat-card">
-            <div class="stat-label">Source Files</div>
+            <div class="stat-label" data-i18n="dashboard.sourceFiles">源文件</div>
             <div class="stat-value" id="dash-source-files">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Symbols</div>
+            <div class="stat-label" data-i18n="dashboard.symbols">符号</div>
             <div class="stat-value" id="dash-symbols">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Nodes / Edges</div>
+            <div class="stat-label" data-i18n="dashboard.nodesEdges">节点 / 边</div>
             <div class="stat-value" id="dash-nodes-edges">-</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">Language</div>
+            <div class="stat-label" data-i18n="dashboard.language">语言</div>
             <div class="stat-value" id="dash-language">-</div>
           </div>
         </div>
@@ -191,7 +188,7 @@
         <!-- Quality Gates -->
         <div class="section-block">
           <h3 class="section-title">
-            Quality Gates
+            <span data-i18n="dashboard.qualityGates">质量门</span>
             <span class="badge" id="dash-quality-status">-</span>
             <span class="text-muted text-sm" id="dash-gate-summary"></span>
           </h3>
@@ -200,13 +197,13 @@
 
         <!-- Generated From Flags -->
         <div class="section-block">
-          <h3 class="section-title">Analysis Metadata</h3>
+          <h3 class="section-title" data-i18n="dashboard.metadata">分析元数据</h3>
           <div id="dash-generated-from" class="meta-list"></div>
         </div>
 
         <!-- Limitations -->
         <div class="section-block">
-          <h3 class="section-title">Limitations &amp; Cautions</h3>
+          <h3 class="section-title" data-i18n="dashboard.limitations">限制 &amp; 警告</h3>
           <ul id="dash-limitations" class="limitation-list"></ul>
         </div>
       </section>
@@ -215,41 +212,41 @@
       <section id="view-explore" class="view-section" role="tabpanel" style="display:none;">
         <div class="explore-toolbar">
           <input type="text" id="explore-search" class="search-input"
-                 placeholder="Search symbols by name..." autocomplete="off">
+                 data-i18n-placeholder="explore.searchByName" placeholder="按名称搜索符号…" autocomplete="off">
           <select id="explore-kind-filter" class="filter-select">
-            <option value="">All Kinds</option>
+            <option value="" data-i18n="explore.allKinds">全部类型</option>
           </select>
           <select id="explore-sort" class="filter-select">
-            <option value="name">Sort by Name</option>
-            <option value="file">Sort by File</option>
-            <option value="kind">Sort by Kind</option>
+            <option value="name" data-i18n="explore.sortName">按名称</option>
+            <option value="file" data-i18n="explore.sortFile">按文件</option>
+            <option value="kind" data-i18n="explore.sortKind">按类型</option>
           </select>
         </div>
         <div class="explore-layout">
           <div class="explore-list-panel">
             <div class="panel-header">
-              Symbols <span id="explore-count" class="text-muted text-sm">(0)</span>
+              <span data-i18n="explore.symbols">符号</span> <span id="explore-count" class="text-muted text-sm">(0)</span>
               <span id="explore-total" class="text-muted text-sm"></span>
             </div>
             <div id="explore-symbol-list" class="symbol-list"></div>
           </div>
           <div class="explore-detail-panel">
             <div id="explore-detail" class="symbol-detail">
-              <p class="text-muted text-center">Select a symbol to view details.</p>
+              <p class="text-muted text-center" data-i18n="explore.selectSymbol">选择一个符号查看详情。</p>
             </div>
           </div>
         </div>
         <!-- Source Files Summary -->
         <div class="section-block" style="margin-top: 12px;">
           <h3 class="section-title">
-            Source Files
+            <span data-i18n="explore.sourceFiles">源文件</span>
             <span class="text-muted text-sm" id="explore-file-count"></span>
           </h3>
           <div id="explore-file-list" class="file-grid"></div>
         </div>
         <!-- Top Files -->
         <div class="section-block">
-          <h3 class="section-title">Top Files (by Symbol Count)</h3>
+          <h3 class="section-title" data-i18n="explore.topFiles">高频文件（按符号数）</h3>
           <div id="top-files-list" class="file-grid"></div>
         </div>
       </section>
@@ -257,23 +254,23 @@
       <!-- Graph View -->
       <section id="view-graph" class="view-section" role="tabpanel" style="display:none;">
         <div class="graph-toolbar" id="graph-toolbar" style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
-          <input type="text" id="graph-search" class="search-input" placeholder="Search nodes..." style="max-width:200px;">
-          <select id="graph-kind-filter" class="filter-select"><option value="">All</option><option value="symbol">Symbol</option><option value="file">File</option><option value="package">Package</option></select>
+          <input type="text" id="graph-search" class="search-input" data-i18n-placeholder="graph.search" placeholder="搜索节点…" style="max-width:200px;">
+          <select id="graph-kind-filter" class="filter-select"><option value="" data-i18n="graph.all">全部</option><option value="symbol" data-i18n="graph.symbol">符号</option><option value="file" data-i18n="graph.file">文件</option><option value="package" data-i18n="graph.package">包</option></select>
           <span class="text-muted text-sm graph-summary" id="graph-summary-text"></span>
         </div>
         <div class="graph-layout">
           <div class="explore-list-panel" style="max-height:500px;">
-            <div class="panel-header">Nodes <span id="graph-node-count" class="text-muted text-sm">(0)</span></div>
+            <div class="panel-header"><span data-i18n="graph.nodes">节点</span> <span id="graph-node-count" class="text-muted text-sm">(0)</span></div>
             <div id="graph-node-list" class="symbol-list"></div>
           </div>
           <div class="explore-list-panel" style="max-height:500px;">
-            <div class="panel-header">Edges <span id="graph-edge-count" class="text-muted text-sm">(0)</span></div>
+            <div class="panel-header"><span data-i18n="graph.edges">边</span> <span id="graph-edge-count" class="text-muted text-sm">(0)</span></div>
             <div id="graph-edge-list" class="symbol-list"></div>
           </div>
         </div>
         <div id="graph-selected-detail" class="symbol-detail" style="display:none;background:var(--clr-surface);padding:12px;border:1px solid var(--clr-border);border-radius:6px;margin-top:8px;"></div>
         <div class="cleanup-caution caution-box" style="margin-top:8px;" id="graph-caution-box">
-          <strong>&#9888; Graph is a static preview</strong> — limited to top nodes/edges. Use CLI/MCP for full analysis.
+          <strong>&#9888; <span data-i18n="graph.staticPreview">图谱是静态预览</span></strong> <span data-i18n="graph.staticPreviewFull">图谱是静态预览，只展示 Top 节点/边。完整分析请使用 CLI/MCP。</span>
         </div>
       </section>
 
@@ -286,24 +283,24 @@
       <section id="view-cleanup" class="view-section" role="tabpanel" style="display:none;">
         <div class="card-grid card-grid-4">
           <div class="info-card">
-            <h4 class="info-card-title">Dead Code Candidates</h4>
+            <h4 class="info-card-title" data-i18n="cleanup.deadCode">死代码候选</h4>
             <div id="cleanup-dead-code" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Unreachable / No Callers</h4>
+            <h4 class="info-card-title" data-i18n="cleanup.unreachableNoCallers">不可达 / 无调用者</h4>
             <div id="cleanup-reachability" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">External API Surface</h4>
+            <h4 class="info-card-title" data-i18n="cleanup.externalApi">外部 API</h4>
             <div id="cleanup-external-api" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Framework Entry Hints</h4>
+            <h4 class="info-card-title" data-i18n="cleanup.frameworkHints">框架入口提示</h4>
             <div id="cleanup-framework" class="info-card-body"></div>
           </div>
         </div>
         <div class="cleanup-caution caution-box" id="cleanup-cautions-box">
-          <strong>&#9888; Cleanup candidates are heuristic-based and NOT deletion-proof.</strong>
+          <strong>&#9888; <span data-i18n="caution.notDeletionProof">清理候选不可安全删除 — 始终手动验证。</span></strong>
           <ul id="cleanup-caution-list" class="caution-list"></ul>
         </div>
       </section>
@@ -311,20 +308,20 @@
       <!-- Release Review View -->
       <section id="view-release" class="view-section" role="tabpanel" style="display:none;">
         <div class="release-caution caution-box">
-          <strong>&#9888; Static review only — not a release gate.</strong>
-          Run project tests, CI, and manual QA before any release. This analysis does not execute code or validate runtime behavior.
+          <strong>&#9888; <span data-i18n="caution.staticReview">仅静态审查 — 不是发布门。</span></strong>
+          <span data-i18n="release.cautionFull">仅静态审查，不是发布门。发布前仍需运行项目测试、CI 和人工 QA。</span>
         </div>
         <div class="card-grid card-grid-3">
           <div class="info-card">
-            <h4 class="info-card-title">Breaking Change Risk</h4>
+            <h4 class="info-card-title" data-i18n="release.breaking">破坏性变更风险</h4>
             <div id="release-breaking" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Doc Stale Candidates</h4>
+            <h4 class="info-card-title" data-i18n="release.docs">文档陈旧候选</h4>
             <div id="release-docs" class="info-card-body"></div>
           </div>
           <div class="info-card">
-            <h4 class="info-card-title">Config/Examples Issues</h4>
+            <h4 class="info-card-title" data-i18n="release.config">配置/示例问题</h4>
             <div id="release-config-examples" class="info-card-body"></div>
           </div>
         </div>
@@ -337,21 +334,21 @@
       <section id="view-workflows" class="view-section" role="tabpanel" style="display:none;">
         <div id="workflow-presets-list" class="workflow-grid"></div>
         <div class="cleanup-caution caution-box" style="margin-top: 16px;">
-          <strong>Checklist is a human review aid, not proof that checks passed.</strong> Checked items are saved to browser localStorage.
+          <strong data-i18n="workflow.caution">清单是人工审查辅助，不等同于通过验证。</strong>
         </div>
       </section>
 
       <!-- Diff View (Phase B) -->
       <section id="view-diff" class="view-section" role="tabpanel" style="display:none;">
         <div class="diff-controls" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:8px 0;">
-          <label for="diff-file-input" class="btn btn-sm btn-secondary">&#128194; Load Compare Snapshot</label>
+          <label for="diff-file-input" class="btn btn-sm btn-secondary">&#128194; <span data-i18n="diff.loadCompare">加载对比 Snapshot</span></label>
           <input type="file" id="diff-file-input" accept=".json,application/json" style="display:none;">
           <span class="text-muted text-sm" id="diff-compare-name"></span>
-          <button id="diff-clear-btn" class="btn btn-sm btn-secondary" style="display:none;" onclick="clearDiff()">Clear</button>
+          <button id="diff-clear-btn" class="btn btn-sm btn-secondary" style="display:none;" onclick="clearDiff()" data-i18n="diff.clear">清除</button>
         </div>
         <div id="diff-empty" class="impact-empty">
           <h3>&#128270; Snapshot Diff</h3>
-          <p>Load a second snapshot to compare against the current baseline.</p>
+          <p data-i18n="diff.empty">加载第二个 Snapshot 进行对比。</p>
         </div>
         <div id="diff-results" style="display:none;">
           <div class="cleanup-caution caution-box"><strong>&#9888; Snapshot diff only</strong> — does not prove behavior changed, does not replace tests.</div>
@@ -374,10 +371,10 @@
       <!-- Timeline View (Phase C) -->
       <section id="view-timeline" class="view-section" role="tabpanel" style="display:none;">
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px;">
-          <label for="timeline-file-input" class="btn btn-sm btn-primary">&#128194; Load Snapshots</label>
+          <label for="timeline-file-input" class="btn btn-sm btn-primary">&#128194; <span data-i18n="timeline.load">加载 Snapshot</span></label>
           <input type="file" id="timeline-file-input" accept=".json,application/json" multiple style="display:none;">
           <span class="text-muted text-sm" id="timeline-snapshot-count"></span>
-          <button class="btn btn-sm btn-secondary" onclick="CTL.timelineSnapshots=[];CTL.renderTimeline();document.getElementById('timeline-snapshot-count').textContent='';" id="timeline-clear-btn" style="display:none;">Clear</button>
+          <button class="btn btn-sm btn-secondary" onclick="CTL.timelineSnapshots=[];CTL.renderTimeline();document.getElementById('timeline-snapshot-count').textContent='';" id="timeline-clear-btn" style="display:none;" data-i18n="timeline.clear">清除</button>
         </div>
         <div id="timeline-content"></div>
       </section>
@@ -385,7 +382,7 @@
       <!-- Report View (Phase C) -->
       <section id="view-report" class="view-section" role="tabpanel" style="display:none;">
         <div class="cleanup-caution caution-box">
-          <strong>&#9888; Report is a static analysis review summary, not a release gate or safety proof.</strong>
+          <strong>&#9888; <span data-i18n="caution.staticReview">仅静态审查 — 不是发布门。</span></strong>
         </div>
         <div id="report-content"></div>
       </section>
@@ -397,16 +394,16 @@
   <!-- Footer -->
   <footer class="app-footer">
     <a href="https://gitcode.com/aiulms/codelattice" target="_blank" rel="noopener">CodeLattice</a>
-    &mdash; Snapshot Viewer v1 &mdash;
-    Read-only static analysis visualization
+    &mdash; <span data-i18n="app.subtitle">项目分析工作台</span> v1 &mdash;
+    <span data-i18n="footer.readonly">只读静态分析可视化</span>
   </footer>
 
-  <script src="i18n.js?v=webui-audit-20260517"></script>
-  <script src="app.js?v=webui-audit-20260517"></script>
-  <script src="timeline.js?v=webui-audit-20260517"></script>
-  <script src="report.js?v=webui-audit-20260517"></script>
-  <script src="runner.js?v=webui-audit-20260517"></script>
-  <script src="live.js?v=webui-audit-20260517"></script>
+  <script src="i18n.js?v=webui-i18n-20260517"></script>
+  <script src="app.js?v=webui-i18n-20260517"></script>
+  <script src="timeline.js?v=webui-i18n-20260517"></script>
+  <script src="report.js?v=webui-i18n-20260517"></script>
+  <script src="runner.js?v=webui-i18n-20260517"></script>
+  <script src="live.js?v=webui-i18n-20260517"></script>
 
   <!-- Phase E: timeline + report + guided review + guided panel visibility -->
   <script>

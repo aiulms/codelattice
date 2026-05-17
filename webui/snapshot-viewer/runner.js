@@ -2,6 +2,7 @@
 var RUNNER=window.RUNNER||{}; window.RUNNER=RUNNER;
 RUNNER.base=""; RUNNER.connected=false; RUNNER.profiles=[]; RUNNER.snaps=[];
 var SUPPORTED_LANGS=["auto","rust","typescript","c","cpp","python","arkts","cangjie"];
+function tr(k,p){return window.CTL_I18N?CTL_I18N.t(k,p):k;}
 
 function rapi(path,opts){
   opts=opts||{}; var url=RUNNER.base+path;
@@ -30,7 +31,7 @@ function runnerCheckHealth(){
   }).catch(function(){
     RUNNER.connected=false; showBadge("static"); showEl("runner-panel",false); showEl("live-mcp-panel",false);
     var rl=document.getElementById("runner-library-list");
-    if(rl)rl.innerHTML='<span class="text-muted text-sm">Start <code>bash scripts/webui-runner.sh --open</code> for local analysis.</span>';
+    if(rl)rl.innerHTML='<span class="text-muted text-sm">'+esc(tr("runner.startHint"))+' <code>bash scripts/webui-runner.sh --open</code></span>';
     return false;
   });
 }
@@ -46,8 +47,8 @@ function runnerLoadProfiles(){
 }
 function createProfile(){
   if(!RUNNER.connected)return;
-  var n=prompt("Profile name:"); if(!n)return;
-  var r=prompt("Project root path:"); if(!r)return;
+  var n=prompt(tr("profile.namePrompt")); if(!n)return;
+  var r=prompt(tr("profile.rootPrompt")); if(!r)return;
   var l=document.getElementById("runner-lang-select").value;
   rapi("/api/profiles",{method:"POST",body:{name:n,root:r,language:l}}).then(function(d){
     runnerLoadProfiles();
@@ -65,44 +66,44 @@ function selectProfile(pid){
   });
 }
 function deleteProfile(pid){
-  if(!RUNNER.connected||!confirm("Delete profile?"))return;
+  if(!RUNNER.connected||!confirm(tr("profile.delete")))return;
   rapi("/api/profile/"+pid,{method:"DELETE"}).then(function(){RUNNER.selectedProfile=null;runnerLoadProfiles();runnerLoadLibrary();});
 }
 function renderProfilesList(){
   var el=document.getElementById("runner-profiles-list"); if(!el)return;
   var pl=RUNNER.profiles; var sp=RUNNER.selectedProfile;
-  if(pl.length===0){el.innerHTML='<span class="text-muted text-sm">No profiles. <a href="#" onclick="createProfile();return false;">Create one</a>.</span>';return;}
+  if(pl.length===0){el.innerHTML='<span class="text-muted text-sm">'+esc(tr("profile.noProfiles"))+' <a href="#" onclick="createProfile();return false;">'+esc(tr("profile.createOne"))+'</a>.</span>';return;}
   el.innerHTML=pl.map(function(p){
     var sel=p.id===sp?'style="border-color:#2563eb;background:#eff6ff;"':"";
     return '<div class="profile-item" '+sel+' style="padding:6px 10px;border:1px solid #e5e7eb;border-radius:4px;margin:2px 0;font-size:0.85em;display:flex;align-items:center;gap:6px;flex-wrap:wrap;">'+
       '<strong style="cursor:pointer;" onclick="selectProfile(&quot;'+p.id+'&quot;)">'+esc(p.name)+'</strong>'+
       '<span class="badge badge-lang">'+esc(p.language)+'</span>'+
       '<span style="color:#9ca3af;font-size:0.75em;">'+esc(p.rootLabel||"")+'</span>'+
-      '<span style="color:#9ca3af;">'+p.snapshotCount+' snaps</span>'+
-      '<button class="btn btn-sm btn-primary" onclick="selectProfile(&quot;'+p.id+'&quot;);runnerGenForProfile(&quot;'+p.id+'&quot;)" style="margin-left:auto;">Gen</button>'+
+      '<span style="color:#9ca3af;">'+p.snapshotCount+' '+esc(tr("profile.snaps"))+'</span>'+
+      '<button class="btn btn-sm btn-primary" onclick="selectProfile(&quot;'+p.id+'&quot;);runnerGenForProfile(&quot;'+p.id+'&quot;)" style="margin-left:auto;">'+esc(tr("profile.gen"))+'</button>'+
       '<button class="btn btn-sm btn-secondary" onclick="deleteProfile(&quot;'+p.id+'&quot;)">×</button>'+
       '</div>';
   }).join("");
 }
 function runnerGenForProfile(pid){
   if(!RUNNER.connected)return; var st=document.getElementById("runner-status");
-  if(st)st.textContent="Generating...";
+  if(st)st.textContent=tr("gen.generating");
   rapi("/api/profile/"+pid+"/generate-snapshot",{method:"POST"}).then(function(d){
-    if(st)st.textContent="Done: "+(d.data||{}).id; runnerLoadProfiles(); runnerLoadLibrary();
-  }).catch(function(e){if(st)st.textContent="Error: "+e.message;});
+    if(st)st.textContent=tr("gen.done")+": "+(d.data||{}).id; runnerLoadProfiles(); runnerLoadLibrary();
+  }).catch(function(e){if(st)st.textContent=tr("gen.error")+": "+e.message;});
 }
 
 // ── Generate (standalone) ────────────────────────────────────────
 function runnerGenerate(){
-  if(!RUNNER.connected){alert("Runner not connected.");return;}
+  if(!RUNNER.connected){alert(tr("runner.notConnected"));return;}
   var root=document.getElementById("runner-root-input").value.trim();
-  if(!root){alert("Enter project root.");return;}
+  if(!root){alert(tr("error.missingRoot"));return;}
   var lang=document.getElementById("runner-lang-select").value;
   var pid=RUNNER.selectedProfile||"";
-  var st=document.getElementById("runner-status"); if(st)st.textContent="Generating...";
+  var st=document.getElementById("runner-status"); if(st)st.textContent=tr("gen.generating");
   rapi("/api/generate-snapshot",{method:"POST",body:{root:root,language:lang,full:true,redactRoot:true,profileId:pid}}).then(function(d){
-    if(st)st.textContent="Done: "+(d.data||{}).id; runnerLoadLibrary(); runnerLoadProfiles();
-  }).catch(function(e){if(st)st.textContent="Error: "+e.message;});
+    if(st)st.textContent=tr("gen.done")+": "+(d.data||{}).id; runnerLoadLibrary(); runnerLoadProfiles();
+  }).catch(function(e){if(st)st.textContent=tr("gen.error")+": "+e.message;});
 }
 
 // ── Snapshot Library (Phase E enhanced) ──────────────────────────
@@ -119,24 +120,24 @@ function renderSnapshotLibrary(){
   var el=document.getElementById("runner-library-list"); if(!el)return;
   var s=RUNNER.snaps;
   var html='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:8px 0;">'+
-    '<input id="lib-search" class="search-input" style="max-width:180px;" placeholder="Search..." oninput="libraryFilter.q=this.value;runnerLoadLibrary()">'+
-    '<select id="lib-lang" class="filter-select" onchange="libraryFilter.language=this.value;runnerLoadLibrary()"><option value="">All lang</option>'+SUPPORTED_LANGS.map(function(l){return '<option value="'+l+'">'+l+'</option>';}).join("")+'</select>'+
-    '<select class="filter-select" onchange="var p=this.value.split(\":\");libraryFilter.sort=p[0];libraryFilter.order=p[1];runnerLoadLibrary()"><option value="createdAt:desc">Newest</option><option value="createdAt:asc">Oldest</option><option value="symbolCount:desc">Most syms</option><option value="sourceFileCount:desc">Most files</option></select>'+
-    '<button class="btn btn-sm btn-secondary" onclick="runnerLoadLibrary()">Refresh</button></div>';
-  if(s.length===0){el.innerHTML=html+'<span class="text-muted text-sm">No snapshots.</span>';return;}
+    '<input id="lib-search" class="search-input" style="max-width:180px;" placeholder="'+escAttr(tr("library.search"))+'" oninput="libraryFilter.q=this.value;runnerLoadLibrary()">'+
+    '<select id="lib-lang" class="filter-select" onchange="libraryFilter.language=this.value;runnerLoadLibrary()"><option value="">'+esc(tr("library.allLang"))+'</option>'+SUPPORTED_LANGS.map(function(l){return '<option value="'+l+'">'+l+'</option>';}).join("")+'</select>'+
+    '<select class="filter-select" onchange="var p=this.value.split(\":\");libraryFilter.sort=p[0];libraryFilter.order=p[1];runnerLoadLibrary()"><option value="createdAt:desc">'+esc(tr("library.newest"))+'</option><option value="createdAt:asc">'+esc(tr("library.oldest"))+'</option><option value="symbolCount:desc">'+esc(tr("library.mostSymbols"))+'</option><option value="sourceFileCount:desc">'+esc(tr("library.mostFiles"))+'</option></select>'+
+    '<button class="btn btn-sm btn-secondary" onclick="runnerLoadLibrary()">'+esc(tr("library.refresh"))+'</button></div>';
+  if(s.length===0){el.innerHTML=html+'<span class="text-muted text-sm">'+esc(tr("library.noSnapshots"))+'</span>';return;}
   el.innerHTML=html+'<div style="display:flex;gap:6px;flex-wrap:wrap;">'+s.map(function(e){
     var sm=e.summary||{},sc=e.secondary||{};
     return '<div class="snap-card" style="padding:8px 10px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:4px;font-size:0.82em;min-width:220px;">'+
       '<div style="display:flex;justify-content:space-between;align-items:center;">'+
       '<strong title="'+esc(e.id)+'">'+(e.profileName?esc(e.profileName)+" · ":"")+esc(e.createdAt||"").slice(0,16)+'</strong>'+
       '<span class="badge badge-lang">'+esc(e.language||"?")+'</span></div>'+
-      '<div style="color:#6b7280;">'+esc(e.rootLabel||"")+' &middot; '+sm.symbolCount+' syms, '+sm.sourceFileCount+' files</div>'+
+      '<div style="color:#6b7280;">'+esc(e.rootLabel||"")+' &middot; '+sm.symbolCount+' '+esc(tr("library.syms"))+', '+sm.sourceFileCount+' '+esc(tr("library.files"))+'</div>'+
       '<div style="margin-top:4px;display:flex;gap:4px;flex-wrap:wrap;">'+
-      '<button class="btn btn-sm btn-primary" onclick="runnerLoadSnap(&quot;'+escAttr(e.id)+'&quot;)">Load</button>'+
-      '<button class="btn btn-sm btn-secondary" onclick="runnerCompareSnap(&quot;'+escAttr(e.id)+'&quot;)">Diff</button>'+
-      '<button class="btn btn-sm btn-secondary" onclick="runnerAddTimeline(&quot;'+escAttr(e.id)+'&quot;)">+TL</button>'+
-      '<button class="btn btn-sm btn-secondary" onclick="runnerDownloadSnap(&quot;'+escAttr(e.id)+'&quot;)">DL</button>'+
-      '<button class="btn btn-sm btn-secondary" onclick="if(confirm(&quot;Delete?&quot;))runnerDeleteSnap(&quot;'+escAttr(e.id)+'&quot;)" style="color:#dc2626;">×</button></div></div>';
+      '<button class="btn btn-sm btn-primary" onclick="runnerLoadSnap(&quot;'+escAttr(e.id)+'&quot;)">'+esc(tr("library.load"))+'</button>'+
+      '<button class="btn btn-sm btn-secondary" onclick="runnerCompareSnap(&quot;'+escAttr(e.id)+'&quot;)">'+esc(tr("library.diff"))+'</button>'+
+      '<button class="btn btn-sm btn-secondary" onclick="runnerAddTimeline(&quot;'+escAttr(e.id)+'&quot;)">'+esc(tr("library.timeline"))+'</button>'+
+      '<button class="btn btn-sm btn-secondary" onclick="runnerDownloadSnap(&quot;'+escAttr(e.id)+'&quot;)">'+esc(tr("library.download"))+'</button>'+
+      '<button class="btn btn-sm btn-secondary" onclick="if(confirm(&quot;'+escAttr(tr("library.deleteConfirm"))+'&quot;))runnerDeleteSnap(&quot;'+escAttr(e.id)+'&quot;)" style="color:#dc2626;">×</button></div></div>';
   }).join("")+'</div>';
 }
 function runnerLoadSnap(sid){
@@ -147,13 +148,13 @@ function runnerLoadSnap(sid){
 }
 function runnerCompareSnap(sid){if(!RUNNER.connected)return;
   rapi("/api/snapshot/"+sid).then(function(d){diffSnapshot=d.data;
-    document.getElementById("diff-compare-name").textContent="vs "+sid;
+    document.getElementById("diff-compare-name").textContent=tr("library.vs")+" "+sid;
     showEl("diff-clear-btn",true);computeAndRenderDiff();show("diff");}).catch(function(e){alert(e.message);});}
 function runnerAddTimeline(sid){if(!RUNNER.connected||typeof CTL==="undefined")return;
   rapi("/api/snapshot/"+sid).then(function(d){CTL.timelineSnapshots=CTL.timelineSnapshots||[];
     CTL.timelineSnapshots.push({name:sid+".json",data:d.data});
     CTL.timelineSnapshots.sort(function(a,b){return(a.data.generatedAt||"").localeCompare(b.data.generatedAt||"");});
-    document.getElementById("timeline-snapshot-count").textContent=CTL.timelineSnapshots.length+" snaps";
+    document.getElementById("timeline-snapshot-count").textContent=CTL.timelineSnapshots.length+" "+tr("library.snaps");
     showEl("timeline-clear-btn",true);CTL.renderTimeline();show("timeline");}).catch(function(e){alert(e.message);});}
 function runnerDownloadSnap(sid){if(!RUNNER.connected)return;
   rapi("/api/snapshot/"+sid).then(function(d){var b=new Blob([JSON.stringify(d.data,null,2)],{type:"application/json"});
@@ -195,7 +196,7 @@ RUNNER.guidedScenario=null; RUNNER.guidedChecks={};
 function guidedRender(){
   var el=document.getElementById("guided-review-panel"); if(!el)return;
   if(!RUNNER.guidedScenario){
-    el.innerHTML='<h3>Guided Review</h3><p class="text-muted">Select a scenario to begin a structured code review workflow.</p>'+
+    el.innerHTML='<h3>'+esc(tr("guided.title"))+'</h3><p class="text-muted">'+esc(tr("guided.select"))+'</p>'+
       '<div style="display:flex;gap:6px;flex-wrap:wrap;">'+GUIDED_SCENARIOS.map(function(s){
         return '<button class="btn btn-secondary" onclick="guidedSelect(&quot;'+s.id+'&quot;)">'+esc(s.name)+'</button>';
       }).join("")+'</div>';
@@ -210,14 +211,14 @@ function guidedRender(){
     '<p class="text-muted" style="font-size:0.88em;">'+esc(sc.purpose)+'</p>'+
     '<div style="display:flex;gap:4px;flex-wrap:wrap;margin:8px 0;">'+
     sc.tabs.map(function(t){return '<button class="btn btn-sm btn-secondary" onclick="show(&quot;'+t+'&quot;)">'+t+'</button>';}).join("")+' '+
-    '<button class="btn btn-sm btn-primary" onclick="guidedReport()">Report</button>'+
-    '<button class="btn btn-sm btn-secondary" onclick="guidedReset()">Reset</button>'+
-    '<button class="btn btn-sm btn-secondary" onclick="RUNNER.guidedScenario=null;guidedRender();">Back</button></div>'+
+    '<button class="btn btn-sm btn-primary" onclick="guidedReport()">'+esc(tr("guided.report"))+'</button>'+
+    '<button class="btn btn-sm btn-secondary" onclick="guidedReset()">'+esc(tr("guided.reset"))+'</button>'+
+    '<button class="btn btn-sm btn-secondary" onclick="RUNNER.guidedScenario=null;guidedRender();">'+esc(tr("common.back"))+'</button></div>'+
     '<div style="font-size:0.88em;">'+sc.steps.map(function(s,i){
       return '<label style="display:flex;align-items:flex-start;gap:6px;padding:4px 0;cursor:pointer;"><input type="checkbox" '+
         (checks[i]?'checked':'')+' onchange="guidedToggle(&quot;'+sc.id+'&quot;,'+i+',this.checked)">'+esc(s)+'</label>';
     }).join("")+'</div>'+
-    '<div class="caution-box" style="margin-top:8px;"><strong>Guided Review is a human workflow aid, not proof that checks passed.</strong> Verify externally before release.</div>';
+    '<div class="caution-box" style="margin-top:8px;"><strong>'+esc(tr("guided.humanAid"))+'</strong></div>';
 }
 function guidedSelect(sid){RUNNER.guidedScenario=sid; guidedRender();}
 function guidedToggle(sid,i,v){
@@ -328,9 +329,9 @@ function pickerLoadQuickRoots(){
 
 function pickerAnalyzePath(){
   var root=document.getElementById("picker-path-input").value.trim();
-  if(!root){alert("请输入项目路径"); return;}
+  if(!root){alert(tr("error.missingRoot")); return;}
   var lang=document.getElementById("picker-lang-select").value;
-  document.getElementById("picker-hint").textContent="分析中…";
+  document.getElementById("picker-hint").textContent=tr("gen.generating");
   rapi("/api/quick-analyze",{method:"POST",body:{root:root,language:lang}}).then(function(d){
     currentSnapshot=d.data.snapshot; renderAll();
     document.getElementById("loaded-content").style.display=""; document.getElementById("welcome-view").style.display="none";

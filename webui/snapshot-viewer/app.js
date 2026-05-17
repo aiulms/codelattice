@@ -34,6 +34,10 @@
     return d.innerHTML;
   }
 
+  function t(key, params) {
+    return window.CTL_I18N ? CTL_I18N.t(key, params) : key;
+  }
+
   function badge(text, cls) {
     cls = cls || "";
     return '<span class="badge ' + cls + '">' + esc(text) + "</span>";
@@ -68,11 +72,11 @@
     try {
       currentSnapshot = JSON.parse(jsonText);
     } catch (e) {
-      showError("Invalid JSON: " + e.message);
+      showError(t("error.invalidJson", {message: e.message}));
       return;
     }
     if (!currentSnapshot.schemaVersion) {
-      showError("Not a valid CodeLattice snapshot — missing schemaVersion.");
+      showError(t("error.invalidSnapshot"));
       return;
     }
     renderAll();
@@ -193,13 +197,13 @@
 
     var passed = q.passedGateCount != null ? q.passedGateCount : "?";
     var failed = q.failedGateCount != null ? q.failedGateCount : "?";
-    setText("dash-gate-summary", passed + " passed, " + failed + " failed");
+    setText("dash-gate-summary", t("dashboard.passedFailed", {passed: passed, failed: failed}));
 
     var gateList = $("#dash-quality-gates");
     gateList.innerHTML = "";
     var gates = q.gates || [];
     if (gates.length === 0) {
-      gateList.innerHTML = '<p class="text-muted text-sm">No quality gate data collected.</p>';
+      gateList.innerHTML = '<p class="text-muted text-sm">' + esc(t("dashboard.noQuality")) + '</p>';
     } else {
       gates.forEach(function (g) {
         var name = g.name || g.label || "unnamed";
@@ -216,15 +220,15 @@
     // Generated From metadata
     var metaList = $("#dash-generated-from");
     metaList.innerHTML =
-      '<div class="meta-item"><strong>Tool:</strong> ' + esc(gf.tool || "-") + '</div>' +
-      '<div class="meta-item"><strong>Version:</strong> ' + esc(gf.toolVersion || "-") + '</div>' +
-      '<div class="meta-item"><strong>Schema:</strong> ' + esc(gf.snapshotSchema || currentSnapshot.schemaVersion || "-") + '</div>' +
-      '<div class="meta-item"><strong>Static Analysis:</strong> ' +
-        (gf.staticAnalysis ? badge("Yes", "badge-success") : badge("No")) + '</div>' +
-      '<div class="meta-item"><strong>Runtime Verified:</strong> ' +
+      '<div class="meta-item"><strong>' + esc(t("dashboard.tool")) + ':</strong> ' + esc(gf.tool || "-") + '</div>' +
+      '<div class="meta-item"><strong>' + esc(t("dashboard.version")) + ':</strong> ' + esc(gf.toolVersion || "-") + '</div>' +
+      '<div class="meta-item"><strong>' + esc(t("dashboard.schema")) + ':</strong> ' + esc(gf.snapshotSchema || currentSnapshot.schemaVersion || "-") + '</div>' +
+      '<div class="meta-item"><strong>' + esc(t("dashboard.staticAnalysis")) + ':</strong> ' +
+        (gf.staticAnalysis ? badge(t("common.yes"), "badge-success") : badge(t("common.no"))) + '</div>' +
+      '<div class="meta-item"><strong>' + esc(t("dashboard.runtimeVerified")) + ':</strong> ' +
         (gf.runtimeVerified === false ?
-          badge("False", "badge-danger") + ' <span class="text-muted text-sm">— results are heuristic only</span>' :
-          badge("Unknown")) + '</div>';
+          badge(t("common.false"), "badge-danger") + ' <span class="text-muted text-sm">— ' + esc(t("dashboard.heuristicOnly")) + '</span>' :
+          badge(t("common.unknown"))) + '</div>';
 
     // Limitations
     var limList = $("#dash-limitations");
@@ -237,10 +241,10 @@
     } else {
       limList.innerHTML =
         "<li>" + (lim.runtimeVerified !== true ?
-          "<strong>Runtime not verified.</strong> No project code was executed." :
+          "<strong>" + esc(t("dashboard.runtimeNotVerified")) + "</strong> " + esc(t("dashboard.noCodeExecuted")) :
           "") + "</li>" +
-        "<li><strong>No coverage data.</strong> Test execution was not performed.</li>" +
-        "<li><strong>Deletion safety not verified.</strong> Dead-code candidates require manual review.</li>";
+        "<li><strong>" + esc(t("dashboard.noCoverage")) + "</strong> " + esc(t("dashboard.testsNotRun")) + "</li>" +
+        "<li><strong>" + esc(t("dashboard.deletionNotVerified")) + "</strong> " + esc(t("dashboard.deadCodeManualReview")) + "</li>";
     }
   }
 
@@ -256,7 +260,7 @@
     var currentValue = kindFilter.value;
     var kinds = {};
     allSymbols.forEach(function (s) { kinds[s.kind] = true; });
-    var opts = '<option value="">All Kinds (' + allSymbols.length + ")</option>";
+    var opts = '<option value="">' + esc(t("explore.allKinds")) + ' (' + allSymbols.length + ")</option>";
     Object.keys(kinds).sort().forEach(function (k) {
       var count = allSymbols.filter(function (s) { return s.kind === k; }).length;
       opts += '<option value="' + esc(k) + '">' + esc(k || "unknown") + " (" + count + ")</option>";
@@ -303,10 +307,10 @@
     setText("explore-count", "(" + filteredSymbols.length + ")");
     setText("explore-total",
       filteredSymbols.length !== allSymbols.length ?
-        " of " + allSymbols.total : "");
+        " / " + allSymbols.length : "");
 
     if (filteredSymbols.length === 0) {
-      list.innerHTML = '<p class="text-muted text-center text-sm">No symbols match filters.</p>';
+      list.innerHTML = '<p class="text-muted text-center text-sm">' + esc(t("explore.noMatch")) + '</p>';
       return;
     }
 
@@ -341,19 +345,19 @@
     }
     var detail = $("#explore-detail");
     if (!sym) {
-      detail.innerHTML = '<p class="text-muted text-center">Symbol not found.</p>';
+      detail.innerHTML = '<p class="text-muted text-center">' + esc(t("explore.symbolNotFound")) + '</p>';
       return;
     }
 
     var html =
       '<h4>' + esc(sym.name || sym.id) + '</h4>' +
       '<table class="detail-table"><tbody>' +
-      row("Kind", (sym.kindLabel || sym.kind || "-") +
+      row(t("common.kind"), (sym.kindLabel || sym.kind || "-") +
         (sym.exported ? " " + badge("exported", "badge-success") : "")) +
-      row("ID", '<code class="code-inline">' + esc(sym.id) + '</code>') +
-      row("File", esc(sym.file || "-")) +
-      row("Line", sym.line != null ? sym.line + (sym.endLine ? "-" + sym.endLine : "") : "-") +
-      row("Visibility", sym.visibility || "-") +
+      row(t("common.id"), '<code class="code-inline">' + esc(sym.id) + '</code>') +
+      row(t("common.file"), esc(sym.file || "-")) +
+      row(t("common.line"), sym.line != null ? sym.line + (sym.endLine ? "-" + sym.endLine : "") : "-") +
+      row(t("common.visibility"), sym.visibility || "-") +
       "</tbody></table>";
 
     detail.innerHTML = html;
@@ -365,7 +369,7 @@
     setText("explore-file-count", "(" + files.length + ")");
 
     if (files.length === 0) {
-      container.innerHTML = '<p class="text-muted text-sm">No source file data.</p>';
+      container.innerHTML = '<p class="text-muted text-sm">' + esc(t("explore.noSourceFiles")) + '</p>';
       return;
     }
 
@@ -375,7 +379,7 @@
         '<div class="file-card">' +
         '<div class="file-path">' + esc(f.path || "-") + '</div>' +
         '<div class="file-stats">' +
-        '<span>Symbols: <strong>' + (f.symbolCount || 0) + '</strong></span>' +
+        '<span>' + esc(t("explore.symbolCount")) + ': <strong>' + (f.symbolCount || 0) + '</strong></span>' +
         (f.riskHint ? '<span class="text-warning">' + esc(f.riskHint) + '</span>' : "") +
         "</div></div>";
     });
@@ -387,7 +391,7 @@
     var container = $("#top-files-list");
 
     if (topFiles.length === 0) {
-      container.innerHTML = '<p class="text-muted text-sm">No top file ranking data.</p>';
+      container.innerHTML = '<p class="text-muted text-sm">' + esc(t("explore.noTopFiles")) + '</p>';
       return;
     }
 
@@ -397,7 +401,7 @@
         '<div class="file-card">' +
         '<span class="rank-badge">' + (i + 1) + '</span>' +
         '<div class="file-path">' + esc(f.path || "-") + '</div>' +
-        '<div class="file-stats">Symbols: <strong>' + (f.symbolCount || 0) + '</strong>' +
+        '<div class="file-stats">' + esc(t("explore.symbolCount")) + ': <strong>' + (f.symbolCount || 0) + '</strong>' +
         (f.reason ? '<span class="text-sm text-muted"> — ' + esc(f.reason) + '</span>' : "") +
         "</div></div>";
     });
@@ -411,31 +415,31 @@
 
     setInfoCard("cleanup-dead-code",
       cleanup.deadCodeCandidateCount != null ?
-        "<strong>" + cleanup.deadCodeCandidateCount + "</strong> candidates" :
-        '<span class="text-muted">not_collected</span>');
+        "<strong>" + cleanup.deadCodeCandidateCount + "</strong> " + esc(t("cleanup.candidates")) :
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
     setInfoCard("cleanup-reachability",
       cleanup.unreachableCandidateCount != null ?
-        "<strong>" + cleanup.unreachableCandidateCount + "</strong> unreachable" :
-        '<span class="text-muted">not_collected</span>');
+        "<strong>" + cleanup.unreachableCandidateCount + "</strong> " + esc(t("cleanup.unreachableCount")) :
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
     setInfoCard("cleanup-external-api",
       cleanup.externalApiSurfaceCount != null ?
-        "<strong>" + cleanup.externalApiSurfaceCount + "</strong> exported symbols" :
-        '<span class="text-muted">not_collected</span>');
+        "<strong>" + cleanup.externalApiSurfaceCount + "</strong> " + esc(t("cleanup.exportedSymbols")) :
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
     setInfoCard("cleanup-framework",
       cleanup.frameworkEntryHintCount != null ?
-        "<strong>" + cleanup.frameworkEntryHintCount + "</strong> hints" :
-        '<span class="text-muted">not_collected</span>');
+        "<strong>" + cleanup.frameworkEntryHintCount + "</strong> " + esc(t("cleanup.hints")) :
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
     // Cautions
     var cautionList = $("#cleanup-caution-list");
     var cautions = cleanup.cautions || [
-      "Dead-code detection is heuristic-based on call-graph shape.",
-      "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch.",
-      "Public/exported symbols may be used by external crates not analyzed here.",
-      "Auto-deletion is explicitly forbidden without human review."
+      t("cleanup.defaultCaution1"),
+      t("cleanup.defaultCaution2"),
+      t("cleanup.defaultCaution3"),
+      t("cleanup.defaultCaution4")
     ];
     cautionList.innerHTML = cautions.map(function (c) {
       return "<li>" + esc(c) + "</li>";
@@ -453,27 +457,27 @@
          rr.breakingChangeRisk === "medium" ? "badge-warning" : "badge-success") +
         '">' + esc(rr.breakingChangeRisk) + "</span>" +
         (rr.breakingChangeSurface ?
-          " <span class='text-muted text-sm'>" + rr.breakingChangeSurface + " public symbols</span>" :
+          " <span class='text-muted text-sm'>" + rr.breakingChangeSurface + esc(t("release.publicSymbols")) + "</span>" :
         "") :
-      '<span class="text-muted">not_collected</span>';
+      '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>';
     setInfoCard("release-breaking", riskHtml);
 
     setInfoCard("release-docs",
       rr.staleDocCandidateCount != null ?
-        "<strong>" + rr.staleDocCandidateCount + "</strong> candidate docs to review" :
-        '<span class="text-muted">not_collected</span>');
+        "<strong>" + rr.staleDocCandidateCount + "</strong> " + esc(t("release.docsToReview")) :
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
     setInfoCard("release-config-examples",
       rr.configExampleIssueCount != null ?
-        "<strong>" + rr.configExampleIssueCount + "</strong> issues found" :
-        '<span class="text-muted">not_collected</span>');
+        "<strong>" + rr.configExampleIssueCount + "</strong> " + esc(t("release.issuesFound")) :
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
     // Release cautions
     var cautionList = $("#release-caution-list");
     var cautions = rr.cautions || [
-      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
-      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
-      "Documentation staleness requires manual review.",
+      t("release.defaultCaution1"),
+      t("release.defaultCaution2"),
+      t("release.defaultCaution3"),
     ];
     cautionList.innerHTML = cautions.map(function (c) {
       return "<li>" + esc(c) + "</li>";
@@ -494,7 +498,7 @@
     var container = $("#workflow-presets-list");
 
     if (wp.status === "not_collected" || presets.length === 0) {
-      container.innerHTML = '<p class="text-muted">No workflow presets collected in this snapshot. Generate with --include-workflows for full recommendations.</p>';
+      container.innerHTML = '<p class="text-muted">' + esc(t("common.notCollected")) + '</p>';
       return;
     }
 
@@ -512,7 +516,7 @@
         '<span class="workflow-id text-muted text-sm">' + esc(p.id) + "</span>" +
         "</div>" +
         '<p class="workflow-desc">' + esc(p.description) + "</p>" +
-        '<div class="workflow-tools">Recommended tools: ' + tools + "</div>" +
+        '<div class="workflow-tools">' + tools + "</div>" +
         (stopLines.length > 0 ?
           '<div class="workflow-stop-lines"><strong>Stop-lines:</strong><ul>' +
             stopLines.map(function (sl) { return "<li>" + esc(sl) + "</li>"; }).join("") +
@@ -527,15 +531,15 @@
   function renderGraph(data) {
     var g = data.graph || {};
     if (g.status !== "collected" || !g.nodes || g.nodes.length === 0) {
-      $("#graph-summary-text").textContent = g.status === "not_collected" ? "Graph not collected in this snapshot" : "No graph nodes";
-      $("#graph-node-list").innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">Graph data not available</div>';
+      $("#graph-summary-text").textContent = g.status === "not_collected" ? t("graph.notCollected") : t("graph.noNodes");
+      $("#graph-node-list").innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">' + esc(t("graph.empty")) + '</div>';
       $("#graph-edge-list").innerHTML = "";
       $("#graph-node-count").textContent = "(0)";
       $("#graph-edge-count").textContent = "(0)";
       return;
     }
     var nodes = g.nodes, edges = g.edges || [];
-    $("#graph-summary-text").textContent = g.summary.nodeCount + " nodes, " + g.summary.edgeCount + " edges (" + g.summary.callEdgeCount + " calls)";
+    $("#graph-summary-text").textContent = t("graph.summary", {nodes: g.summary.nodeCount, edges: g.summary.edgeCount, calls: g.summary.callEdgeCount});
     $("#graph-node-count").textContent = "(" + g.summary.nodeCount + ")";
     $("#graph-edge-count").textContent = "(" + g.summary.edgeCount + ")";
 
@@ -554,8 +558,8 @@
       return '<div class="symbol-item graph-node" data-node-idx="' + i + '" onclick="selectGraphNode(&quot;' + escAttr(n.id) + '&quot;)" style="cursor:pointer;">' +
         '<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + c + ';margin-right:6px;"></span>' +
         '<span class="sym-name">' + esc(n.label) + '</span>' +
-        '<span class="sym-meta">' + esc(n.kind) + (n.file ? ' · ' + n.file.split('/').pop() : '') + '</span></div>';
-    }).join("") || '<div class="text-muted" style="padding:24px;text-align:center;">No matching nodes</div>';
+        '<span class="sym-meta">' + esc(t("graph." + n.kind) || n.kind) + (n.file ? ' · ' + n.file.split('/').pop() : '') + '</span></div>';
+    }).join("") || '<div class="text-muted" style="padding:24px;text-align:center;">' + esc(t("graph.noMatchingNodes")) + '</div>';
 
     var selectedIds = new Set(filtered.map(function(n) { return n.id; }));
     var filteredEdges = edges.filter(function(e) {
@@ -572,8 +576,8 @@
       return '<div class="symbol-item" style="font-size:0.82em;">' +
         '<span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:' + c + ';margin-right:4px;"></span>' +
         '<span>' + esc(srcName) + ' → ' + esc(tgtName) + '</span>' +
-        '<span class="sym-meta">' + e.kind + conf + '</span></div>';
-    }).join("") || '<div class="text-muted" style="padding:24px;text-align:center;">No edges matching filter</div>';
+        '<span class="sym-meta">' + esc(t("graph.edge." + e.kind) || e.kind) + conf + '</span></div>';
+    }).join("") || '<div class="text-muted" style="padding:24px;text-align:center;">' + esc(t("graph.noMatchingEdges")) + '</div>';
 
     $("#graph-selected-detail").style.display = "none";
   }
@@ -589,10 +593,10 @@
       '<span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:' + c + ';margin-right:6px;"></span>' +
       esc(node.label) + ' <span class="badge badge-info">' + esc(node.kind) + '</span></h4>';
     html += '<table class="detail-table">';
-    if (node.file) html += '<tr><td class="detail-label">File</td><td>' + esc(node.file) + '</td></tr>';
-    if (node.line) html += '<tr><td class="detail-label">Line</td><td>' + node.line + '</td></tr>';
-    if (node.visibility) html += '<tr><td class="detail-label">Visibility</td><td>' + esc(node.visibility) + '</td></tr>';
-    html += '<tr><td class="detail-label">Connected Edges</td><td>' + edges.length + '</td></tr>';
+    if (node.file) html += '<tr><td class="detail-label">' + esc(t("common.file")) + '</td><td>' + esc(node.file) + '</td></tr>';
+    if (node.line) html += '<tr><td class="detail-label">' + esc(t("common.line")) + '</td><td>' + node.line + '</td></tr>';
+    if (node.visibility) html += '<tr><td class="detail-label">' + esc(t("common.visibility")) + '</td><td>' + esc(node.visibility) + '</td></tr>';
+    html += '<tr><td class="detail-label">' + esc(t("graph.connectedEdges")) + '</td><td>' + edges.length + '</td></tr>';
     html += '</table>';
     var detail = $("#graph-selected-detail");
     detail.innerHTML = html;
