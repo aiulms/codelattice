@@ -398,12 +398,12 @@
     <span data-i18n="footer.readonly">只读静态分析可视化</span>
   </footer>
 
-  <script src="i18n.js?v=webui-i18n-20260517"></script>
-  <script src="app.js?v=webui-i18n-20260517"></script>
-  <script src="timeline.js?v=webui-i18n-20260517"></script>
-  <script src="report.js?v=webui-i18n-20260517"></script>
-  <script src="runner.js?v=webui-i18n-20260517"></script>
-  <script src="live.js?v=webui-i18n-20260517"></script>
+  <script src="i18n.js?v=webui-refresh-state-20260517"></script>
+  <script src="app.js?v=webui-refresh-state-20260517"></script>
+  <script src="timeline.js?v=webui-refresh-state-20260517"></script>
+  <script src="report.js?v=webui-refresh-state-20260517"></script>
+  <script src="runner.js?v=webui-refresh-state-20260517"></script>
+  <script src="live.js?v=webui-refresh-state-20260517"></script>
 
   <!-- Phase E: timeline + report + guided review + guided panel visibility -->
   <script>
@@ -419,6 +419,7 @@
       var origShow = show;
       show = function(id) {
         origShow(id);
+        if (typeof rememberWorkbenchTab === "function") rememberWorkbenchTab(id);
         if (id === "report") { if (CTL.renderReport) CTL.renderReport(); }
         if (id === "timeline") { if (CTL.renderTimeline) CTL.renderTimeline(); }
         if (id === "workflows") {

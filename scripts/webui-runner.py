@@ -31,6 +31,12 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if "api/" in str(a[0] if a else ""):
             sys.stderr.write(f"[api] {a[0]}\n")
 
+    def end_headers(self):
+        self.send_header("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+        super().end_headers()
+
     def _resp(self, data, code=200):
         b = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(code); self.send_header("Content-Type","application/json; charset=utf-8")

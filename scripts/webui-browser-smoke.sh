@@ -24,6 +24,7 @@ PAGE=$(curl -s "$B/")
 echo "$PAGE"|grep -q "CodeLattice" 2>/dev/null && pass "HTML serves CodeLattice"||fail "HTML missing CodeLattice"
 curl -sI "$B/app.js"|grep -q "200" 2>/dev/null && pass "app.js 200"||fail "app.js serve"
 curl -sI "$B/runner.js"|grep -q "200" 2>/dev/null && pass "runner.js 200"||fail "runner.js serve"
+curl -sI "$B/runner.js"|grep -qi "Cache-Control:.*no-store" 2>/dev/null && pass "runner.js no-store"||fail "runner.js cache header"
 curl -s "$B/api/health"|grep -q '"success"' && pass "health api json"||fail "health api"
 
 # Page content checks
