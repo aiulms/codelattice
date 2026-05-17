@@ -9,7 +9,13 @@ function rapi(path,opts){
   if(opts.body)init.body=JSON.stringify(opts.body);
   return fetch(url,init).then(function(r){
     return r.json().then(function(d){
-      if(!d.success&&!opts.raw)throw new Error(d.error||r.statusText);
+      if(!d.success&&!opts.raw){
+        var ex=new Error(d.error||r.statusText);
+        ex.hint=d.hint||"";
+        ex.status=d.status||r.status;
+        ex.response=d;
+        throw ex;
+      }
       return d;
     });
   });
@@ -329,7 +335,11 @@ function pickerAnalyzePath(){
     currentSnapshot=d.data.snapshot; renderAll();
     document.getElementById("loaded-content").style.display=""; document.getElementById("welcome-view").style.display="none";
     updateCautionBanner(); show("dashboard"); pickerRefresh();
-  }).catch(function(e){alert(e.message); document.getElementById("picker-hint").textContent="输入项目路径开始分析";});
+  }).catch(function(e){
+    var msg=e.message+(e.hint?" — "+e.hint:"");
+    document.getElementById("picker-hint").textContent=msg;
+    document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#dc2626;">'+esc(msg)+'</div>';
+  });
 }
 function pickerAnalyzeProfile(pid){
   document.getElementById("picker-hint").textContent=CTL_I18N.t("gen.generating");

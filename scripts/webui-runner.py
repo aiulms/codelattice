@@ -256,7 +256,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         try:
             r=subprocess.run(cmd,capture_output=True,text=True,timeout=GEN_TIMEOUT,cwd=str(REPO_ROOT))
             if r.returncode!=0:
-                return err("snapshot generation failed",500,r.stderr[:300] or "unknown error")
+                detail = (r.stderr or r.stdout or "").strip()
+                return err("snapshot generation failed",500,detail[:500] or f"exit code {r.returncode}")
         except subprocess.TimeoutExpired:
             return err("timeout",504,f"generation exceeded {GEN_TIMEOUT}s")
         except OSError as e: return err("command error",500,str(e))

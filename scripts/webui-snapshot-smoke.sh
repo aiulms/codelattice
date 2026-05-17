@@ -38,11 +38,21 @@ for L in "${REQ[@]}"; do
     FA=$((FA+1)); echo "  [FAIL] $L generate failed"
   fi
 done
+if [[ -z "$LF" || "$LF" == "arkts-auto" ]]; then
+  echo ""; echo "=== Generate arkts-auto ==="
+  FX="$WS/fixtures/arkts/portable-smoke"
+  O="$TD/arkts_auto.json"
+  if [[ -d "$FX" ]] && bash "$SS" --root "$FX" --language auto --output "$O" --redact-root ${FLAG:---full} >/dev/null 2>&1; then
+    SZ=$(wc -c < "$O" | tr -d ' '); echo "  [OK] arkts-auto ($SZ bytes)"; SL="$SL arkts_auto:$O"
+  else
+    FA=$((FA+1)); echo "  [FAIL] arkts-auto generate failed"
+  fi
+fi
 echo ""; echo "=== Validate ==="
 PYV="$TD/validate.py"
 cat > "$PYV" << 'PYEOF'
 import sys, json, os
-REQ = ["rust","typescript","c","cpp","python"]
+REQ = ["rust","typescript","c","cpp","python","arkts_auto"]
 results = {"pass":0, "fail":0}
 for lang in REQ:
     fpath = os.environ.get(f"SNAP_{lang}","")
@@ -58,6 +68,9 @@ for lang in REQ:
     if gf.get("runtimeVerified") is not False: print(f"[FAIL] {lang}: runtimeVerified"); results["fail"]+=1; continue
     sd=d.get("summary",{}); e=d.get("explore",{})
     sfc=sd.get("sourceFileCount",0); sc=sd.get("symbolCount",0)
+    slang=sd.get("language","")
+    if not slang or slang in ("unknown","auto"):
+        print(f"[FAIL] {lang}: language={slang}"); results["fail"]+=1; continue
     es=len(e.get("symbols",[])); efs=len(e.get("sourceFiles",[]))
     if max(sfc,es,efs)<=0: print(f"[FAIL] {lang}: no data"); results["fail"]+=1; continue
     if not d.get("quality"): print(f"[FAIL] {lang}: no quality"); results["fail"]+=1; continue
@@ -69,6 +82,8 @@ for lang in REQ:
     if "/Users/" in raw or "/Desktop/codelattice" in raw: print(f"[FAIL] {lang}: path leak"); results["fail"]+=1; continue
     # graph check (Phase B)
     g=d.get("graph",{}); gn=len(g.get("nodes",[])); ge=len(g.get("edges",[]))
+    if lang=="arkts_auto" and (gn<=0 or ge<=0):
+        print(f"[FAIL] {lang}: graph nodes={gn} edges={ge}"); results["fail"]+=1; continue
     if gn>0 and ge>=0: gstatus="graph_ok"
     else: gstatus="graph_empty"
     print(f"[PASS] {lang}: sfc={sfc}, sc={sc}, es={es}, efs={efs}, wpn={wpn}, {gstatus}")
@@ -80,6 +95,7 @@ PYEOF
 for L in "${REQ[@]}"; do
   for E in $SL; do LN="${E%%:*}"; F="${E#*:}"; [[ "$LN" == "$L" ]] && export "SNAP_$L=$F" && break; done
 done
+for E in $SL; do LN="${E%%:*}"; F="${E#*:}"; [[ "$LN" == "arkts_auto" ]] && export SNAP_arkts_auto="$F" && break; done
 python3 "$PYV"
 RC=$?
 T=$((P+FA))

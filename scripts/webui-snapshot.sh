@@ -103,16 +103,30 @@ fi
 
 run_analyze() {
   local out; out=$("$CODELATTICE" analyze --root "$ROOT" --language "$LANGUAGE" --format json 2>/dev/null) || true
-  if [[ -z "$out" ]] || ! echo "$out" | head -c1 | grep -q '{'; then
+  if [[ -z "$out" ]] || [[ "${out:0:1}" != "{" ]]; then
     echo '{"_error": "analyze_failed"}'; return 1
   fi
   echo "$out"
 }
 
+detect_analyzed_language() {
+  python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); print(d.get("language") or d.get("summary",{}).get("language") or "auto")' 2>/dev/null || echo auto
+}
+
 run_quality() {
-  local out; out=$("$CODELATTICE" quality --root "$ROOT" --language "$LANGUAGE" 2>/dev/null) || true
-  if [[ -z "$out" ]] || ! echo "$out" | head -c1 | grep -q '{'; then
-    echo '{"overall": "unknown", "gates": []}'; return 1
+  local analyze_json="${1:-}" qlang out
+  qlang="$LANGUAGE"
+  if [[ "$qlang" == "auto" && -n "$analyze_json" ]]; then
+    qlang="$(detect_analyzed_language <<< "$analyze_json")"
+  fi
+  if [[ "$qlang" == "auto" ]]; then
+    echo '{"overall": "unknown", "gates": []}'
+    return 0
+  fi
+  out=$("$CODELATTICE" quality --root "$ROOT" --language "$qlang" 2>/dev/null) || true
+  if [[ -z "$out" ]] || [[ "${out:0:1}" != "{" ]]; then
+    echo '{"overall": "unknown", "gates": []}'
+    return 0
   fi
   echo "$out"
 }
@@ -122,7 +136,7 @@ run_quality() {
 generate_snapshot() {
   local analyze_json quality_json timestamp version_str tmp_analyze tmp_quality
   analyze_json=$(run_analyze)
-  quality_json=$(run_quality)
+  quality_json=$(run_quality "$analyze_json")
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S%z")
   version_str=$("$CODELATTICE" --version 2>/dev/null | head -1 || echo "unknown")
 

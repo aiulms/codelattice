@@ -117,6 +117,16 @@ def redact_path(path: str, root: str) -> str:
     if not path:
         return path
 
+    # Some language adapters embed absolute paths inside semantic IDs, e.g.
+    # arkts:component:/Users/name/project/file.ets:Symbol. Redact the root
+    # wherever it appears, not only when the whole string starts with a path.
+    if root and root in path:
+        return path.replace(root, "<redacted-root>")
+    user_redacted = re.sub(r"/Users/[^/]+/", "<redacted-user>/", path)
+    user_redacted = re.sub(r"/home/[^/]+/", "<redacted-user>/", user_redacted)
+    if user_redacted != path:
+        return user_redacted
+
     # Strip URI-like prefixes (file:/, repo:/, py:repo:) before processing
     uri_prefix = ""
     check = path
@@ -197,6 +207,8 @@ def _looks_like_absolute_path(s: str) -> bool:
     """Check if a string looks like an absolute file path that needs redaction."""
     if not s or len(s) < 5:
         return False
+    if "/Users/" in s or "/home/" in s or "/tmp/" in s:
+        return True
     # Check both absolute (/path) and prefixed (file:/path, repo:/path) patterns FIRST
     is_prefixed = s.startswith("file:/") or s.startswith("repo:/") or s.startswith("py:repo:/")
     is_abs = s.startswith("/")
@@ -264,7 +276,10 @@ def build_summary(analyze: dict, quality: dict, requested_language: str = "") ->
 
     # Language from metadata; fall back to the requested language because some
     # CLI JSON formats do not currently populate analyze.metadata.language.
-    language = analyze.get("metadata", {}).get("language", "unknown")
+    language = (analyze.get("metadata", {}).get("language")
+                or analyze.get("language")
+                or analyze.get("summary", {}).get("language")
+                or "unknown")
     if (not language or language == "unknown") and requested_language and requested_language != "auto":
         language = requested_language
 
@@ -613,7 +628,14 @@ def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 30
     edge_connected = [n for n in nodes if n.get("id", "") in edge_node_ids
                       and n not in sym_nodes and n not in sf_nodes and n not in pkg_nodes]
 
-    selected = sym_nodes[:max_nodes] + sf_nodes[:50] + pkg_nodes[:10] + edge_connected[:10]
+    # Keep file/package context before filling with symbols. Large projects can
+    # have thousands of symbols; selecting symbols first would crowd out source
+    # files and make the WebUI graph look empty because DEFINES/OWNS edges lose
+    # their file endpoints.
+    pkg_limit = min(10, max_nodes)
+    file_limit = min(50, max(0, max_nodes - pkg_limit))
+    symbol_limit = max(0, max_nodes - pkg_limit - file_limit)
+    selected = pkg_nodes[:pkg_limit] + sf_nodes[:file_limit] + sym_nodes[:symbol_limit] + edge_connected[:10]
     selected = selected[:max_nodes]
 
     selected_ids = set(n.get("id", "") for n in selected)
