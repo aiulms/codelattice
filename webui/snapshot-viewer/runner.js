@@ -17,7 +17,7 @@ function runnerCheckHealth(){
   var o=window.location.origin||"http://127.0.0.1:8765"; RUNNER.base=o;
   return rapi("/api/health").then(function(d){
     RUNNER.connected=true; showBadge("runner"); showEl("runner-panel",true); showEl("live-mcp-panel",true);
-    runnerLoadProfiles(); runnerLoadLibrary();
+    runnerLoadProfiles(); runnerLoadLibrary(); pickerLoadQuickRoots();
     if(typeof liveCheckMcp==="function"){liveCheckMcp(); liveLoadTools();}
     return true;
   }).catch(function(){
@@ -253,6 +253,52 @@ function pickerRefresh(){
     document.getElementById("picker-runner-hint").style.display="";
   }
 }
+// 用 runner API 浏览本地文件夹（不经过浏览器上传，数据不离开本机）
+function pickerBrowse(path){
+  if(!RUNNER.connected){alert("请先启动 runner: bash scripts/webui-runner.sh --open"); return;}
+  var listEl=document.getElementById("picker-browse-list");
+  if(!listEl)return;
+  listEl.innerHTML='<div style="padding:8px;color:#9ca3af;">加载中…</div>';
+  rapi("/api/fs/list?path="+encodeURIComponent(path)).then(function(d){
+    var dd=d.data;
+    if(!dd||!dd.entries){listEl.innerHTML='<div style="padding:8px;color:#dc2626;">无法浏览此路径</div>';return;}
+    document.getElementById("picker-path-input").value=dd.path;
+    // 面包屑
+    var parts=dd.path.split("/").filter(Boolean);
+    var bc=parts.map(function(p,i){
+      var bp="/"+parts.slice(0,i+1).join("/");
+      return '<a href="#" onclick="pickerBrowse(&quot;'+escAttr(bp)+'&quot;);return false;" style="color:#2563eb;">'+esc(p)+'</a>';
+    }).join(" / ");
+    // 子目录列表
+    var dirs=dd.entries.filter(function(e){return e.isDir;});
+    listEl.innerHTML='<div style="padding:2px 0;color:#6b7280;">📂 / '+bc+'</div>'+
+      '<div style="padding:4px 0;cursor:pointer;color:#059669;font-weight:600;" onclick="pickerSelect(&quot;'+escAttr(dd.path)+'&quot;)">✅ 选定此文件夹</div>'+
+      dirs.map(function(e){
+        return '<div style="padding:3px 6px;cursor:pointer;color:#2563eb;" onclick="pickerBrowse(&quot;'+escAttr(e.path)+'&quot;)">📁 '+esc(e.name)+'</div>';
+      }).join("");
+    // 更新快速入口
+    document.getElementById("picker-quick-roots").innerHTML=
+      '<button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;/&quot;)">📂 /</button> ';
+  });
+}
+
+function pickerSelect(path){
+  document.getElementById("picker-path-input").value=path;
+  document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — 已选定。点击 ⚡ 分析 开始。</div>';
+}
+
+// Runner 连接时加载快速入口
+function pickerLoadQuickRoots(){
+  if(!RUNNER.connected)return;
+  rapi("/api/fs/roots").then(function(d){
+    var roots=d.data||[];
+    var rootBtns=roots.map(function(r){
+      return '<button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;'+escAttr(r.path)+'&quot;)">'+r.icon+' '+esc(r.label)+'</button>';
+    }).join(" ");
+    document.getElementById("picker-quick-roots").innerHTML=rootBtns+' <button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;/&quot;)">📂 /</button>';
+  });
+}
+
 function pickerAnalyzePath(){
   var root=document.getElementById("picker-path-input").value.trim();
   if(!root){alert("请输入项目路径"); return;}
