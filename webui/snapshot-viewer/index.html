@@ -52,42 +52,26 @@
     <div id="welcome-view" class="welcome-view">
       <div class="welcome-card" style="max-width:600px;">
         <h2 data-i18n="app.title">CodeLattice</h2>
-        <p class="text-muted" id="picker-hint" data-i18n="picker.openProject">Open a project folder to analyze.</p>
+        <p class="text-muted" id="picker-hint">输入项目路径开始分析</p>
         <div class="welcome-actions">
-          <button class="btn btn-primary" onclick="pickerOpenDialog()" style="font-size:1.05em;padding:10px 24px;" data-i18n="picker.analyze">📂 Analyze Project</button>
-          <div style="margin-top:4px;">
-            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('file-input').click()" data-i18n="picker.loadJson">📄 Load JSON</button>
+          <div style="display:flex;gap:8px;align-items:center;width:100%;">
+            <input type="text" id="picker-path-input" class="search-input" placeholder="输入项目完整路径" style="flex:1;font-size:0.95em;padding:10px 12px;">
+            <button class="btn btn-primary" onclick="pickerAnalyzePath()" style="padding:10px 20px;white-space:nowrap;">⚡ 分析</button>
           </div>
-
-          <!-- File Browser Dialog -->
-          <div id="picker-dialog" style="display:none;width:100%;text-align:left;margin-top:12px;border:1px solid var(--clr-border);border-radius:var(--radius);overflow:hidden;">
-            <div style="background:#f8fafc;padding:8px 12px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
-              <span style="font-weight:600;font-size:0.9em;">📂 Select Project Folder</span>
-              <span style="flex:1;">&nbsp;</span>
-              <button class="btn btn-sm btn-secondary" onclick="document.getElementById('picker-dialog').style.display='none'">✕</button>
-            </div>
-            <!-- Breadcrumb -->
-            <div id="picker-breadcrumb" style="padding:6px 12px;font-size:0.82em;color:#6b7280;border-bottom:1px solid #e5e7eb;overflow-x:auto;white-space:nowrap;"></div>
-            <!-- Folder list -->
-            <div id="picker-browse" style="max-height:300px;overflow-y:auto;font-size:0.88em;"></div>
-            <!-- Action bar -->
-            <div id="picker-action-bar" style="padding:8px 12px;border-top:1px solid #e5e7eb;background:#f8fafc;display:flex;justify-content:space-between;align-items:center;">
-              <span id="picker-selected-path" style="font-size:0.82em;color:#6b7280;"></span>
-              <div style="display:flex;gap:6px;">
-                <span id="picker-lang-wrap"><select id="picker-lang-select" class="filter-select"><option value="auto">auto</option><option value="rust">rust</option><option value="typescript">typescript</option><option value="c">c</option><option value="cpp">cpp</option><option value="python">python</option></select></span>
-                <button class="btn btn-sm btn-primary" id="picker-generate-btn" onclick="pickerAnalyzePath()" disabled data-i18n="gen.generate">Generate</button>
-              </div>
-            </div>
-          </div>
+          <select id="picker-lang-select" class="filter-select" style="margin-top:6px;">
+            <option value="auto">auto（自动检测）</option><option value="rust">Rust</option><option value="typescript">TypeScript</option><option value="c">C</option><option value="cpp">C++</option><option value="python">Python</option></select>
 
           <!-- Recent Projects -->
           <div id="picker-recent" style="margin-top:12px;text-align:left;width:100%;">
             <strong data-i18n="picker.recentProjects">Recent Projects</strong>
             <div id="picker-recent-list" class="text-muted text-sm" style="margin-top:4px;" data-i18n="picker.noRecent">No recent projects.</div>
           </div>
+          <div style="margin-top:12px;">
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('file-input').click()">📄 加载 JSON</button>
+          </div>
           <div id="picker-runner-hint" class="text-muted text-sm" style="display:none;">
-            <p data-i18n="picker.startRunner" style="margin-bottom:4px;">Start runner for local analysis</p>
-            <pre class="code-block" data-i18n="picker.startCmd">bash scripts/webui-runner.sh --open</pre>
+            <p style="margin-bottom:4px;">启动 runner 开始本地分析</p>
+            <pre class="code-block">bash scripts/webui-runner.sh --open</pre>
           </div>
         </div>
       </div>
