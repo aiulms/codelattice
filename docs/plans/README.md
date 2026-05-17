@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI Phase F — Beta Ready） — Project Workbench + Guided Review） — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
+最后更新：2026-05-17（WebUI Phase G — Live MCP Mode） — Beta Ready） — Project Workbench + Guided Review） — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Phase G — Live MCP Job Mode（2026-05-17，已完成）：**
+- 📝 [2026-05-17-webui-phase-g-live-mcp-preflight.md](2026-05-17-webui-phase-g-live-mcp-preflight.md) — Phase G: JSON-RPC stdio MCP protocol, 6 workflow mappings, job lifecycle.
+- ✅ [2026-05-17-webui-phase-g-live-mcp-closure.md](2026-05-17-webui-phase-g-live-mcp-closure.md) — closure: MCP backend (subprocess JSON-RPC), live.js frontend, smoke (10 checks), 61 viewer checks, 37 tools validated.
 
 **WebUI Phase F — Beta Readiness + Product Hardening（2026-05-17，已完成）：**
 - 📝 [2026-05-17-webui-phase-f-preflight.md](2026-05-17-webui-phase-f-preflight.md) — Phase F: hardening plan, contract tests, browser smoke, beta docs.

@@ -8,6 +8,12 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase G — Live MCP Job Mode**: True MCP tool calls via runner, job lifecycle management, live result rendering in WebUI.
+  - `scripts/webui-runner.py` — MCP backend: JSON-RPC stdio protocol calling `codelattice mcp`, initialize+list tools+call via subprocess. 6 workflow mappings (project_overview/symbol_search/impact_preview/project_insights/dead_code_candidates/release_check + custom_tool). Job lifecycle: queued→running→succeeded/failed/cancelled with thread worker. APIs: GET /api/mcp/status, GET /api/mcp/tools, GET/POST/DELETE /api/mcp/jobs, GET /api/mcp/job/<id>, POST /api/mcp/job/<id>/cancel.
+  - `webui/snapshot-viewer/live.js` — Frontend: auto-detect MCP status, workflow selector, Run button, job list with status badges, poll interval, result viewer, cancel/delete, report integration.
+  - `scripts/webui-live-mcp-smoke.sh` — Smoke test: MCP status, tools list (37 tools), create project_overview job, poll until success, list jobs, error cases (bad workflow, missing root), cancel, delete (10+ checks).
+  - `scripts/webui-viewer-smoke.sh` — Phase G: live.js + 9 live functions (61 total checks).
+
 - **WebUI Phase F — Beta Readiness + Product Hardening**: Contract test suite, browser smoke, beta sanity, beta user docs.
   - `scripts/webui-runner-contract-test.sh` — 21 API contract tests: 10 happy path + 11 error path (invalid JSON, missing root, root not found, root is file, unsupported lang, path traversal, missing snap/profile, delete missing, corrupt rebuild). All verify unified `{success,data,error,hint}` response format.
   - `scripts/webui-browser-smoke.sh` — Browser smoke: 10 static HTTP checks (HTML serves, JS assets 200, health API), page content checks (Profiles/Library/Guided/Report/Caution/Generate text), graceful browser skip (12+1 checks).

@@ -22,7 +22,7 @@ HAS_NODE=no; command -v node >/dev/null 2>&1 && HAS_NODE=yes; chk "node" yes "$H
 HAS_PY=no; command -v python3 >/dev/null 2>&1 && HAS_PY=yes; chk "python3" yes "$HAS_PY"
 echo ""; echo "--- JS Syntax ---"
 if [[ "$HAS_NODE" == yes ]]; then
-  for f in app.js timeline.js report.js runner.js; do
+  for f in app.js timeline.js report.js runner.js live.js; do
     node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail
   done
 fi
@@ -76,6 +76,13 @@ done
 MT=$((MP+MF))
 printf '  Matrix: %d/%d pass\n' "$MP" "$MT"
 [[ $MF -gt 0 ]] && chk "matrix all pass" pass "fail($MF failed)"
+echo ""; echo "--- Phase G Live MCP Checks ---"
+[[ -f "$VD/live.js" ]] && chk "live.js exists" yes yes || chk "live.js exists" yes no
+for f in live.js; do node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail; done
+grep -qF "live-mcp-panel" "$VD/index.html" && chk "live panel html" yes yes || chk "live panel html" yes no
+LG_FC=$(grep -cE '(liveCheckMcp|liveLoadTools|liveCreateJob|livePollJobs|renderLiveJobs|renderLiveStatus|liveCancelJob|liveDeleteJob|liveViewResult)' "$VD/live.js" 2>/dev/null||echo 0)
+[[ $LG_FC -ge 6 ]] && chk "live functions (>=6)" pass pass || chk "live functions (>=6)" pass "fail($LG_FC)"
+
 echo ""; echo "--- Phase E Workbench Checks ---"
 # Profiles
 grep -qF "runner-profiles-list" "$VD/index.html" && chk "profiles html" yes yes || chk "profiles html" yes no

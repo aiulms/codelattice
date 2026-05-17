@@ -108,6 +108,29 @@
       <!-- Guided Review Panel (Phase E) -->
       <div id="guided-review-panel" class="runner-panel" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:var(--radius);"></div>
 
+      <!-- Live MCP Panel (Phase G) -->
+      <div id="live-mcp-panel" class="runner-panel" style="display:none;margin-bottom:12px;padding:10px 14px;background:var(--clr-surface);border:1px solid var(--clr-border);border-radius:var(--radius);">
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span id="live-mcp-status" style="font-size:0.85em;"></span>
+          <span id="live-tools-list" style="font-size:0.82em;"></span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;">
+          <select id="live-workflow-select" class="filter-select">
+            <option value="project_overview">Project Overview</option>
+            <option value="symbol_search">Symbol Search</option>
+            <option value="impact_preview">Impact Preview</option>
+            <option value="project_insights">Project Insights</option>
+            <option value="dead_code_candidates">Dead Code Candidates</option>
+            <option value="release_check">Release Check</option>
+          </select>
+          <input type="text" id="live-symbol-query" class="search-input" placeholder="symbol/query..." style="max-width:160px;">
+          <button class="btn btn-sm btn-primary" onclick="liveCreateJob()">&#9654; Run</button>
+          <span class="text-muted text-sm" id="live-job-status"></span>
+        </div>
+        <div id="live-jobs-list" style="margin-top:8px;font-size:0.85em;"></div>
+        <div id="live-job-result" style="margin-top:8px;"></div>
+      </div>
+
       <!-- Tab Bar -->
       <nav class="tab-bar" role="tablist">
         <button class="tab-btn active" data-tab="dashboard" role="tab" aria-selected="true">Dashboard</button>
@@ -363,6 +386,7 @@
   <script src="timeline.js"></script>
   <script src="report.js"></script>
   <script src="runner.js"></script>
+  <script src="live.js"></script>
 
   <!-- Phase E: timeline + report + guided review + guided panel visibility -->
   <script>

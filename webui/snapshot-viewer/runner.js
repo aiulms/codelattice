@@ -16,10 +16,12 @@ function rapi(path,opts){
 function runnerCheckHealth(){
   var o=window.location.origin||"http://127.0.0.1:8765"; RUNNER.base=o;
   return rapi("/api/health").then(function(d){
-    RUNNER.connected=true; showBadge("runner"); showEl("runner-panel",true);
-    runnerLoadProfiles(); runnerLoadLibrary(); return true;
+    RUNNER.connected=true; showBadge("runner"); showEl("runner-panel",true); showEl("live-mcp-panel",true);
+    runnerLoadProfiles(); runnerLoadLibrary();
+    if(typeof liveCheckMcp==="function"){liveCheckMcp(); liveLoadTools();}
+    return true;
   }).catch(function(){
-    RUNNER.connected=false; showBadge("static"); showEl("runner-panel",false);
+    RUNNER.connected=false; showBadge("static"); showEl("runner-panel",false); showEl("live-mcp-panel",false);
     var rl=document.getElementById("runner-library-list");
     if(rl)rl.innerHTML='<span class="text-muted text-sm">Start <code>bash scripts/webui-runner.sh --open</code> for local analysis.</span>';
     return false;
