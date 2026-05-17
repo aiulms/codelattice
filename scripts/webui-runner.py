@@ -79,7 +79,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             return self._r(lambda:self._get_snap(sid))
         if p.path=="/api/rebuild-index": return self._r(self._rebuild_index)
         if p.path=="/api/mcp/status": return self._r(self._mcp_status)
-        if p.path=="/api/mcp/tools": return self._r(lambda:ok(self._mcp_list_tools()))
+        if p.path=="/api/mcp/tools": return self._r(self._mcp_tools_api)
         if p.path=="/api/mcp/jobs": return self._r(lambda:self._list_jobs(urllib.parse.parse_qs(p.query)))
         if p.path.startswith("/api/mcp/job/"):
             jid=p.path.split("/api/mcp/job/",1)[1]
@@ -303,87 +303,116 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         self._save_index(idx)
         return ok({"rebuilt":len(idx)})
 
-    # ── Live MCP Jobs (Phase G) ────────────────────────────────────
-    mcp_bin = None; _mcp_ok = None; _mcp_tools = None
+    # ── Live MCP Jobs (Phase H: Stabilized) ─────────────────────────
+    _mcp_state = {"available":None,"toolCount":0,"serverVersion":"","lastError":"","initializedAt":None}
 
-    def _find_mcp(self):
-        if self.mcp_bin and os.path.isfile(self.mcp_bin): return self.mcp_bin
+    def _find_mcp_bin(self):
         for p in [str(REPO_ROOT/"target"/"release"/"codelattice"),
                   str(REPO_ROOT/"target"/"debug"/"codelattice")]:
-            if os.path.isfile(p): self.mcp_bin=p; return p
+            if os.path.isfile(p): return p
         return None
 
-    def _mcp_health(self):
-        if self._mcp_ok is not None: return self._mcp_ok
-        bin = self._find_mcp()
-        if not bin: self._mcp_ok=False; return False
+    def _probe_mcp(self):
+        """One-shot probe: does MCP binary respond to initialize?"""
+        if self._mcp_state["available"] is not None and self._mcp_state["initializedAt"]:
+            return self._mcp_state["available"]
+        bin = self._find_mcp_bin()
+        if not bin:
+            self._mcp_state["available"]=False; self._mcp_state["lastError"]="binary not found"
+            return False
         try:
-            r=subprocess.run([bin,"mcp"], input='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"runner","version":"1.0"}}}\n',capture_output=True,text=True,timeout=10)
+            r = subprocess.run([bin,"mcp"], input='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"runner","version":"1.0"}}}\n',
+                capture_output=True,text=True,timeout=8)
             for line in r.stdout.split("\n"):
-                try: d=json.loads(line.strip()); self._mcp_ok=(d.get("id")==1 and "result" in d); break
-                except: pass
-        except: self._mcp_ok=False
-        return self._mcp_ok
+                try: d=json.loads(line.strip())
+                except: continue
+                if d.get("id")==1 and "result" in d:
+                    sv=d["result"].get("serverInfo",{})
+                    self._mcp_state["available"]=True
+                    self._mcp_state["serverVersion"]=sv.get("version","")
+                    self._mcp_state["toolCount"]=sv.get("toolCount",0)
+                    self._mcp_state["initializedAt"]=self._now()
+                    self._mcp_state["lastError"]=""
+                    return True
+            self._mcp_state["available"]=False; self._mcp_state["lastError"]="no init response"
+        except Exception as e:
+            self._mcp_state["available"]=False; self._mcp_state["lastError"]=str(e)
+        return self._mcp_state["available"]
 
-    def _mcp_call(self, tool, params, timeout=120):
-        bin = self._find_mcp()
-        if not bin: raise Exception("MCP binary not found")
-        p=subprocess.Popen([bin,"mcp"], stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
-        # initialize
-        p.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"runner","version":"1.0"}}}\n')
-        p.stdin.flush()
-        lines=[]; start=time.time()
-        while time.time()-start<timeout:
-            l=p.stdout.readline(); lines.append(l)
-            try: d=json.loads(l); break
-            except: pass
-        # send tools/call
-        req = {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":tool,"arguments":params}}
-        p.stdin.write(json.dumps(req)+"\n"); p.stdin.flush()
-        resp=""; start2=time.time()
-        while time.time()-start2<timeout:
-            l=p.stdout.readline(); resp+=l
-            try:
-                d=json.loads(l)
-                p.terminate()
-                return d.get("result",{}).get("content",[{}])[0].get("text","") if d.get("result") else d
-            except: pass
-        p.terminate()
-        return {"error":"timeout","hint":f"timed out after {str(timeout)}s"}
-
-    def _mcp_list_tools(self):
-        if self._mcp_tools: return self._mcp_tools
-        if not self._mcp_health(): return []
+    def _list_mcp_tools(self, force=False):
+        if not force and self._mcp_state.get("_tools_cached"): return self._mcp_state.get("_tools",[])
+        self._probe_mcp()
+        if not self._mcp_state["available"]: return []
+        bin = self._find_mcp_bin()
+        if not bin: return []
         try:
-            bin=self._find_mcp()
-            p=subprocess.Popen([bin,"mcp"],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+            p = subprocess.Popen([bin,"mcp"], stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
             p.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"runner","version":"1.0"}}}\n')
             p.stdin.flush()
-            t0=time.time()
-            while time.time()-t0<10:
+            _t0=time.time()
+            while time.time()-_t0<8:
                 l=p.stdout.readline()
                 try:
-                    d=json.loads(l)
-                    if d.get("id")==1 and "result" in d: break
+                    if json.loads(l).get("id")==1: break
                 except: pass
             p.stdin.write('{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}\n'); p.stdin.flush()
-            resp=""; t1=time.time()
-            while time.time()-t1<10:
+            _t1=time.time(); resp=""
+            while time.time()-_t1<8:
                 l=p.stdout.readline(); resp+=l
                 try:
-                    d=json.loads(l)
-                    p.terminate()
+                    d=json.loads(l); p.terminate()
                     tools=d.get("result",{}).get("tools",[])
-                    self._mcp_tools=tools
+                    self._mcp_state["_tools"]=tools; self._mcp_state["_tools_cached"]=True
+                    self._mcp_state["toolCount"]=len(tools)
                     return tools
                 except: pass
             p.terminate()
         except: pass
         return []
 
+    def _call_mcp_tool(self, tool, params, timeout=120):
+        bin = self._find_mcp_bin()
+        if not bin: raise Exception("MCP binary not found")
+        p = subprocess.Popen([bin,"mcp"], stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        p.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"runner","version":"1.0"}}}\n')
+        p.stdin.flush()
+        _t0=time.time()
+        while time.time()-_t0<min(timeout,15):
+            l=p.stdout.readline()
+            try:
+                if json.loads(l).get("id")==1: break
+            except: pass
+        req = {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":tool,"arguments":params}}
+        p.stdin.write(json.dumps(req)+"\n"); p.stdin.flush()
+        _t1=time.time(); resp=""
+        while time.time()-_t1<timeout:
+            l=p.stdout.readline(); resp+=l
+            try:
+                d=json.loads(l); p.terminate()
+                r=d.get("result",{})
+                text=r.get("content",[{}])[0].get("text","")
+                if text:
+                    try: return json.loads(text)
+                    except: return {"text":text}
+                return r
+            except: pass
+        p.terminate()
+        raise TimeoutError(f"timed out after {timeout}s")
+
+    # ── MCP API endpoints ──────────────────────────────────────────
+
     def _mcp_status(self):
-        ok=self._mcp_health(); tools=self._mcp_list_tools() if ok else []
-        return ok({"available":ok,"toolCount":len(tools),"serverVersion":"v0.12","binary":self._find_mcp() or "","mode":"jsonrpc-stdio"})
+        self._probe_mcp()
+        return ok({"available":self._mcp_state["available"],"toolCount":self._mcp_state["toolCount"],
+            "serverVersion":self._mcp_state["serverVersion"],"initializedAt":self._mcp_state["initializedAt"],
+            "lastError":self._mcp_state["lastError"],"staticOnly":True})
+
+    def _mcp_tools_api(self):
+        tools=self._list_mcp_tools(force=True)
+        if not tools: return err("failed to load tools",503,"Run 'cargo build --release --bins' first")
+        return ok(tools)
+
+# ── Job management ─────────────────────────────────────────────
 
     # ── Job management ────────────────────────────────────────────
     def _job_dir(self): return os.path.join(os.path.dirname(self.sn_dir),"jobs")
@@ -398,7 +427,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if not job: return
         job["status"]="running"; job["startedAt"]=self._now(); self._save_jobs(lst)
         try:
-            result=self._mcp_call(tool,params)
+            result=self._call_mcp_tool(tool,params)
             job["status"]="succeeded"; job["finishedAt"]=self._now()
             # redact if needed
             if rd and isinstance(result,dict):
@@ -461,7 +490,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         else:
             return err(f"unsupported workflow: {wf}",400,f"supported: {','.join(WF_MAP.keys())},custom_tool")
 
-        if not self._mcp_health(): return err("MCP server not available",503,"Run 'cargo build --release --bins' first")
+        if not self._probe_mcp(): return err("MCP server not available",503,"Run 'cargo build --release --bins' first")
 
         jid=self._nid(); now=self._now()
         job={"id":jid,"workflow":wf,"tool":tool,"status":"queued","createdAt":now,

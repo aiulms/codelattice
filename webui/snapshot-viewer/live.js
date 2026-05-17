@@ -65,14 +65,42 @@ function liveViewResult(jid){
   if(!RUNNER.connected)return;
   rapi("/api/mcp/job/"+jid).then(function(d){
     var job=d.data; if(!job||!job.result){alert("No result yet.");return;}
-    var r=job.result; var html='<h4>'+esc(job.workflow||job.tool)+'</h4>';
-    if(typeof r==="string"){html+='<pre class="code-block" style="max-height:400px;overflow:auto;">'+esc(r.slice(0,5000))+'</pre>';}
-    else{html+='<pre class="code-block" style="max-height:400px;overflow:auto;">'+esc(JSON.stringify(r,null,2).slice(0,8000))+'</pre>';}
+    LIVE.lastJob=job; var r=job.result; var html='<h4>'+esc(job.workflow||job.tool)+' '+
+      (job.status==="succeeded"?'<span class="badge badge-success">done</span>':'<span class="badge badge-danger">'+esc(job.status)+'</span>')+'</h4>';
+    if(job.error){html+='<div class="caution-box">'+esc(job.error)+'</div>';}
+    // Structured rendering by workflow
+    try{
+      var d=typeof r==="string"?JSON.parse(r):r;
+      if(typeof d==="object"&&d!==null){
+        if(job.workflow==="project_overview") html+=renderProjectOverview(d);
+        else if(job.workflow==="symbol_search") html+=renderSymbolSearch(d);
+        else if(job.workflow==="impact_preview") html+=renderImpactResult(d);
+        else if(job.workflow==="dead_code_candidates") html+=renderDeadCodeCandidates(d);
+        else html+='<pre class="code-block" style="max-height:400px;overflow:auto;font-size:.78em;">'+esc(JSON.stringify(d,null,2).slice(0,6000))+'</pre>';
+      }else{html+='<pre class="code-block" style="max-height:300px;overflow:auto;">'+esc(String(r).slice(0,3000))+'</pre>';}
+    }catch(e){html+='<pre class="code-block" style="max-height:300px;overflow:auto;">'+esc(String(r).slice(0,3000))+'</pre>';}
     html+='<div class="caution-box" style="margin-top:8px;"><strong>Static analysis only</strong> — not runtime proof.</div>';
     html+='<button class="btn btn-sm btn-secondary" onclick="liveIncludeInReport(&quot;'+jid+'&quot;)">Include in Report</button>';
     var el=document.getElementById("live-job-result"); if(el)el.innerHTML=html;
   });
 }
+function renderProjectOverview(d){
+  var s=d.summary||d; return '<div class="card-grid card-grid-4" style="margin-top:8px;">'+
+    ['sourceFileCount','symbolCount','edgeCount','nodeCount'].map(function(k){
+      return '<div class="stat-card"><div class="stat-label">'+k+'</div><div class="stat-value">'+(s[k]||0)+'</div></div>';}).join("")+'</div>';}
+function renderSymbolSearch(d){
+  var c=d.candidates||d.data||[]; if(!c.length)return '<span class="text-muted">No matches.</span>';
+  return '<div style="max-height:300px;overflow:auto;font-size:.85em;">'+c.slice(0,20).map(function(s){
+    return '<div class="gate-item"><span><strong>'+esc(s.name||s.id)+'</strong> '+esc(s.kind||'')+'</span><span class="text-muted">'+esc(s.file||'')+'</span></div>';}).join("")+'</div>';}
+function renderImpactResult(d){
+  return '<div class="card-grid card-grid-3">'+
+    '<div class="stat-card"><div class="stat-label">Risk</div><div class="stat-value">'+esc(d.risk||d.riskLevel||'?')+'</div></div>'+
+    '<div class="stat-card"><div class="stat-label">Reasons</div><div class="stat-value" style="font-size:.85em;">'+(d.riskReasons||[]).map(esc).join('<br>')+'</div></div>'+
+    '<div class="stat-card"><div class="stat-label">Files</div><div class="stat-value">'+(d.impactedFileCount||(d.impactMetrics||{}).impactedFileCount||'?')+'</div></div></div>';}
+function renderDeadCodeCandidates(d){
+  var c=d.candidateSymbols||d.candidates||[]; return '<div class="caution-box">NOT deletion-proof — verify manually.</div>'+
+    '<div style="max-height:300px;overflow:auto;font-size:.85em;">'+c.slice(0,20).map(function(s){
+      return '<div class="gate-item"><span>'+esc(s.name||s.id)+'</span><span class="badge '+(s.confidence==='high'?'badge-danger':'badge-warning')+'">'+esc(s.confidence||s.score)+'</span></div>';}).join("")+'</div>';}
 function liveIncludeInReport(jid){
   LIVE.lastJobResultId=jid; if(typeof CTL!=="undefined"){CTL.selectedTemplate="general_snapshot_review"; show("report"); CTL.renderReport();}
 }
