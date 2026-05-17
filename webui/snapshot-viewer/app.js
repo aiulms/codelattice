@@ -11,7 +11,7 @@
   let allSymbols = [];
   let filteredSymbols = [];
   let selectedSymbolId = null;
-  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all" };
+  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy" };
 
   // ── DOM Helpers ─────────────────────────────────────────────────────
 
@@ -633,20 +633,29 @@
   function renderGraphVisual(filteredNodes, filteredEdges, allNodes, allEdges) {
     var host = $("#graph-visual");
     if (!host) return;
+    var layout = graphState.layout || "galaxy";
+    host.className = "graph-visual graph-layout-" + layout;
     var priority = {package: 0, file: 1, entry: 2, risk: 3, symbol: 4};
+    var degree = {};
+    (filteredEdges || []).forEach(function(e) {
+      degree[e.source] = (degree[e.source] || 0) + 1;
+      degree[e.target] = (degree[e.target] || 0) + 1;
+    });
     var nodes = filteredNodes.slice().sort(function(a, b) {
-      return (priority[a.kind] || 9) - (priority[b.kind] || 9);
-    }).slice(0, graphState.focusNodeId ? 120 : 90);
+      var pa = priority[a.kind] || 9, pb = priority[b.kind] || 9;
+      if (pa !== pb) return pa - pb;
+      return (degree[b.id] || 0) - (degree[a.id] || 0);
+    }).slice(0, graphState.focusNodeId ? 150 : (layout === "galaxy" ? 150 : 120));
     if (nodes.length === 0) {
       host.innerHTML = '<div class="graph-visual-empty">' + esc(t("graph.noMatchingNodes")) + '</div>';
       return;
     }
     var visible = new Set(nodes.map(function(n) { return n.id; }));
-    var edges = filteredEdges.filter(function(e) { return visible.has(e.source) && visible.has(e.target); }).slice(0, graphState.focusNodeId ? 240 : 170);
+    var edges = filteredEdges.filter(function(e) { return visible.has(e.source) && visible.has(e.target); }).slice(0, graphState.focusNodeId ? 280 : (layout === "galaxy" ? 260 : 190));
     var selectedNeighbors = graphState.selectedNodeId ? graphNeighborIds(allEdges || edges, graphState.selectedNodeId, 1) : new Set();
 
-    var w = Math.max(860, host.clientWidth || 980);
-    var h = Math.max(500, host.clientHeight || 560);
+    var w = Math.max(920, host.clientWidth || 1040);
+    var h = Math.max(540, host.clientHeight || 600);
     var cx = w / 2, cy = h / 2;
     var byId = {};
     nodes.forEach(function(n) { byId[n.id] = n; });
@@ -664,70 +673,187 @@
     var symbols = nodes.filter(function(n) { return n.kind === "symbol"; });
     var others = nodes.filter(function(n) { return n.kind !== "package" && n.kind !== "file" && n.kind !== "symbol"; });
     var pos = {};
-
-    packages.forEach(function(n, i) {
-      var angle = (Math.PI * 2 * i / Math.max(1, packages.length)) - Math.PI / 2;
-      var r = packages.length <= 1 ? 0 : 50;
-      pos[n.id] = {x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r};
-    });
-    files.forEach(function(n, i) {
-      var angle = (Math.PI * 2 * i / Math.max(1, files.length)) - Math.PI / 2;
-      var rx = graphState.focusNodeId ? Math.min(w * 0.34, 310) : Math.min(w * 0.32, 290);
-      var ry = graphState.focusNodeId ? Math.min(h * 0.30, 205) : Math.min(h * 0.31, 190);
-      pos[n.id] = {x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry};
-    });
     var symbolsByFile = {};
     symbols.forEach(function(n) {
       var fid = fileForSymbol[n.id] || "_orphan";
       (symbolsByFile[fid] = symbolsByFile[fid] || []).push(n);
     });
-    Object.keys(symbolsByFile).forEach(function(fid, groupIdx) {
-      var group = symbolsByFile[fid];
-      var anchor = pos[fid] || {x: cx + Math.cos(groupIdx) * w * 0.20, y: cy + Math.sin(groupIdx) * h * 0.20};
-      group.forEach(function(n, i) {
-        var angle = Math.PI * 2 * i / Math.max(1, group.length);
-        var ring = graphState.focusNodeId ? 64 + Math.min(95, group.length * 2.6) : 38 + Math.min(64, group.length * 1.65);
-        var x = anchor.x + Math.cos(angle) * ring;
-        var y = anchor.y + Math.sin(angle) * ring;
-        pos[n.id] = {x: Math.max(30, Math.min(w - 30, x)), y: Math.max(28, Math.min(h - 28, y))};
-      });
-    });
-    others.forEach(function(n, i) {
-      var angle = Math.PI * 2 * i / Math.max(1, others.length);
-      pos[n.id] = {x: cx + Math.cos(angle) * w * 0.38, y: cy + Math.sin(angle) * h * 0.36};
-    });
 
-    var color = {symbol:"#bfdbfe", file:"#bbf7d0", package:"#fed7aa", entry:"#ddd6fe", risk:"#fecaca"};
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function placeRing(list, rx, ry, phase) {
+      list.forEach(function(n, i) {
+        var angle = (Math.PI * 2 * i / Math.max(1, list.length)) + (phase || 0);
+        pos[n.id] = {x: clamp(cx + Math.cos(angle) * rx, 36, w - 36), y: clamp(cy + Math.sin(angle) * ry, 34, h - 34)};
+      });
+    }
+    function placeOrbit() {
+      placeRing(packages, packages.length <= 1 ? 0 : 50, packages.length <= 1 ? 0 : 50, -Math.PI / 2);
+      placeRing(files, graphState.focusNodeId ? Math.min(w * 0.34, 310) : Math.min(w * 0.32, 290), graphState.focusNodeId ? Math.min(h * 0.30, 205) : Math.min(h * 0.31, 190), -Math.PI / 2);
+      Object.keys(symbolsByFile).forEach(function(fid, groupIdx) {
+        var group = symbolsByFile[fid];
+        var anchor = pos[fid] || {x: cx + Math.cos(groupIdx) * w * 0.20, y: cy + Math.sin(groupIdx) * h * 0.20};
+        group.forEach(function(n, i) {
+          var angle = Math.PI * 2 * i / Math.max(1, group.length);
+          var ring = graphState.focusNodeId ? 64 + Math.min(95, group.length * 2.6) : 38 + Math.min(64, group.length * 1.65);
+          pos[n.id] = {x: clamp(anchor.x + Math.cos(angle) * ring, 30, w - 30), y: clamp(anchor.y + Math.sin(angle) * ring, 28, h - 28)};
+        });
+      });
+      placeRing(others, w * 0.38, h * 0.36, 0);
+    }
+    function topFiles(limit) {
+      return files.slice().sort(function(a, b) {
+        return (symbolsByFile[b.id] || []).length - (symbolsByFile[a.id] || []).length || (degree[b.id] || 0) - (degree[a.id] || 0);
+      }).slice(0, limit);
+    }
+    function placeGalaxy() {
+      packages.forEach(function(n, i) {
+        var angle = Math.PI * 2 * i / Math.max(1, packages.length);
+        pos[n.id] = {x: cx + Math.cos(angle) * 34, y: cy + Math.sin(angle) * 28};
+      });
+      var hubs = topFiles(Math.min(18, Math.max(8, files.length)));
+      var hubSet = new Set(hubs.map(function(n) { return n.id; }));
+      hubs.forEach(function(n, i) {
+        var angle = (Math.PI * 2 * i / Math.max(1, hubs.length)) - Math.PI / 2;
+        var rx = Math.min(w * 0.39, 420), ry = Math.min(h * 0.35, 240);
+        pos[n.id] = {x: clamp(cx + Math.cos(angle) * rx, 68, w - 68), y: clamp(cy + Math.sin(angle) * ry, 58, h - 58)};
+      });
+      files.filter(function(n) { return !hubSet.has(n.id); }).forEach(function(n, i) {
+        var angle = (Math.PI * 2 * i / Math.max(1, files.length)) + Math.PI / 10;
+        pos[n.id] = {x: clamp(cx + Math.cos(angle) * w * 0.45, 42, w - 42), y: clamp(cy + Math.sin(angle) * h * 0.39, 36, h - 36)};
+      });
+      Object.keys(symbolsByFile).forEach(function(fid, groupIdx) {
+        var group = symbolsByFile[fid].slice().sort(function(a, b) { return (degree[b.id] || 0) - (degree[a.id] || 0); });
+        var anchor = pos[fid] || {x: cx + Math.cos(groupIdx) * w * 0.30, y: cy + Math.sin(groupIdx) * h * 0.26};
+        group.forEach(function(n, i) {
+          var angle = (Math.PI * 2 * i / Math.max(1, group.length)) + groupIdx * 0.37;
+          var ring = 34 + Math.min(118, Math.sqrt(group.length) * 14 + i * 0.9);
+          pos[n.id] = {x: clamp(anchor.x + Math.cos(angle) * ring, 24, w - 24), y: clamp(anchor.y + Math.sin(angle) * ring, 24, h - 24)};
+        });
+      });
+      placeRing(others, w * 0.44, h * 0.40, Math.PI / 5);
+    }
+    function placeCommunities() {
+      var hubs = topFiles(Math.min(10, Math.max(4, files.length)));
+      var cols = Math.ceil(Math.sqrt(Math.max(1, hubs.length)));
+      hubs.forEach(function(n, i) {
+        var col = i % cols, row = Math.floor(i / cols);
+        var x = w * (0.16 + (col / Math.max(1, cols - 1)) * 0.68);
+        var y = h * (0.22 + (row / Math.max(1, Math.ceil(hubs.length / cols) - 1)) * 0.56);
+        pos[n.id] = {x: clamp(x, 70, w - 70), y: clamp(y, 60, h - 60)};
+      });
+      packages.forEach(function(n, i) { pos[n.id] = {x: cx + (i - packages.length / 2) * 34, y: 58}; });
+      files.filter(function(n) { return !pos[n.id]; }).forEach(function(n, i) {
+        var angle = Math.PI * 2 * i / Math.max(1, files.length);
+        pos[n.id] = {x: clamp(cx + Math.cos(angle) * w * 0.44, 42, w - 42), y: clamp(cy + Math.sin(angle) * h * 0.38, 42, h - 42)};
+      });
+      Object.keys(symbolsByFile).forEach(function(fid, groupIdx) {
+        var anchor = pos[fid] || {x: cx, y: cy};
+        var group = symbolsByFile[fid];
+        group.forEach(function(n, i) {
+          var angle = (Math.PI * 2 * i / Math.max(1, group.length)) + (groupIdx * 0.19);
+          var ring = 40 + Math.min(88, group.length * 2.1);
+          pos[n.id] = {x: clamp(anchor.x + Math.cos(angle) * ring, 24, w - 24), y: clamp(anchor.y + Math.sin(angle) * ring, 24, h - 24)};
+        });
+      });
+      placeRing(others, w * 0.42, h * 0.34, 0);
+    }
+    function distributeLayer(list, x, top, bottom) {
+      list.forEach(function(n, i) {
+        var t = list.length <= 1 ? 0.5 : i / (list.length - 1);
+        pos[n.id] = {x: x, y: top + t * (bottom - top)};
+      });
+    }
+    function placeFlow() {
+      distributeLayer(packages, w * 0.10, h * 0.18, h * 0.82);
+      distributeLayer(files, w * 0.38, h * 0.10, h * 0.90);
+      var grouped = [];
+      Object.keys(symbolsByFile).forEach(function(fid) { grouped = grouped.concat(symbolsByFile[fid]); });
+      distributeLayer(grouped, w * 0.72, h * 0.08, h * 0.92);
+      distributeLayer(others, w * 0.90, h * 0.18, h * 0.82);
+    }
+    function placeBlueprint() {
+      placeFlow();
+      Object.keys(pos).forEach(function(id, i) {
+        var p = pos[id];
+        p.x = clamp(p.x + ((i % 3) - 1) * 18, 24, w - 24);
+        p.y = clamp(p.y + ((i % 5) - 2) * 7, 24, h - 24);
+      });
+    }
+    if (layout === "orbit") placeOrbit();
+    else if (layout === "communities") placeCommunities();
+    else if (layout === "flow") placeFlow();
+    else if (layout === "blueprint") placeBlueprint();
+    else placeGalaxy();
+
+    var palettes = {
+      galaxy: {symbol:"#6ee7f9", file:"#8b5cf6", package:"#f97316", entry:"#22c55e", risk:"#ef4444", bgText:"#0f172a", edge:"#38bdf8"},
+      communities: {symbol:"#86efac", file:"#60a5fa", package:"#facc15", entry:"#c084fc", risk:"#fb7185", bgText:"#111827", edge:"#22c55e"},
+      flow: {symbol:"#bfdbfe", file:"#fde68a", package:"#a7f3d0", entry:"#ddd6fe", risk:"#fecaca", bgText:"#1f2937", edge:"#2563eb"},
+      blueprint: {symbol:"#fde047", file:"#93c5fd", package:"#fb7185", entry:"#4ade80", risk:"#f97316", bgText:"#e0f2fe", edge:"#facc15"},
+      orbit: {symbol:"#bfdbfe", file:"#bbf7d0", package:"#fed7aa", entry:"#ddd6fe", risk:"#fecaca", bgText:"#1f2937", edge:"#3b82f6"}
+    };
+    var color = palettes[layout] || palettes.galaxy;
     var strokeColor = {symbol:"#2563eb", file:"#059669", package:"#d97706", entry:"#7c3aed", risk:"#dc2626"};
-    var radius = {package:18, file:12, symbol:7, entry:10, risk:10};
+    if (layout === "blueprint") strokeColor = {symbol:"#fef08a", file:"#bfdbfe", package:"#fb7185", entry:"#86efac", risk:"#fdba74"};
+    function radiusFor(n) {
+      var d = degree[n.id] || 0;
+      var base = n.kind === "package" ? 24 : n.kind === "file" ? 14 : n.kind === "symbol" ? 6 : 10;
+      if (layout === "galaxy" || layout === "communities") base += Math.min(18, Math.sqrt(d) * 3.6);
+      if (layout === "flow" || layout === "blueprint") base += Math.min(8, Math.sqrt(d) * 1.8);
+      return base;
+    }
     function labelText(n) { var s = n.label || n.id || ""; return s.length > 24 ? s.slice(0, 22) + "…" : s; }
     var grid = "";
-    for (var gx = 80; gx < w; gx += 120) grid += '<line class="graph-grid-line" x1="' + gx + '" y1="0" x2="' + gx + '" y2="' + h + '"></line>';
-    for (var gy = 80; gy < h; gy += 120) grid += '<line class="graph-grid-line" x1="0" y1="' + gy + '" x2="' + w + '" y2="' + gy + '"></line>';
+    if (layout === "orbit" || layout === "flow" || layout === "blueprint") {
+      for (var gx = 80; gx < w; gx += 120) grid += '<line class="graph-grid-line" x1="' + gx + '" y1="0" x2="' + gx + '" y2="' + h + '"></line>';
+      for (var gy = 80; gy < h; gy += 120) grid += '<line class="graph-grid-line" x1="0" y1="' + gy + '" x2="' + w + '" y2="' + gy + '"></line>';
+    }
+    var backdrop = "";
+    if (layout === "galaxy" || layout === "communities") {
+      backdrop += '<circle class="graph-backdrop-orb" cx="' + cx + '" cy="' + cy + '" r="' + Math.min(w, h) * 0.36 + '"></circle>';
+    }
+    if (layout === "blueprint") {
+      backdrop += '<rect class="graph-blueprint-vignette" x="0" y="0" width="' + w + '" height="' + h + '"></rect>';
+    }
 
     var edgeHtml = edges.map(function(e) {
       var a = pos[e.source], b = pos[e.target];
       if (!a || !b) return "";
       var highlight = graphState.selectedNodeId && (e.source === graphState.selectedNodeId || e.target === graphState.selectedNodeId);
       var dim = graphState.selectedNodeId && !highlight;
-      return '<line class="graph-edge-line ' + escAttr(e.kind || "related") + (highlight ? ' highlight' : '') + (dim ? ' dimmed' : '') + '" x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '"><title>' + esc(e.kind || "related") + '</title></line>';
+      var d;
+      if (layout === "flow" || layout === "blueprint") {
+        var mid = Math.max(50, Math.abs(b.x - a.x) * 0.52);
+        d = 'M ' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) + ' C ' + (a.x + mid).toFixed(1) + ' ' + a.y.toFixed(1) + ', ' + (b.x - mid).toFixed(1) + ' ' + b.y.toFixed(1) + ', ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1);
+      } else if (layout === "galaxy" || layout === "communities") {
+        var mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+        var bend = ((a.x - cx) * (b.y - cy) - (a.y - cy) * (b.x - cx)) > 0 ? 26 : -26;
+        d = 'M ' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) + ' Q ' + (mx + bend).toFixed(1) + ' ' + (my - bend).toFixed(1) + ' ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1);
+      } else {
+        d = 'M ' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) + ' L ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1);
+      }
+      return '<path class="graph-edge-line ' + escAttr(e.kind || "related") + (highlight ? ' highlight' : '') + (dim ? ' dimmed' : '') + '" d="' + d + '"><title>' + esc(e.kind || "related") + '</title></path>';
     }).join("");
     var nodeHtml = nodes.map(function(n) {
       var p = pos[n.id] || {x: cx, y: cy};
-      var r = radius[n.kind] || 9;
+      var r = radiusFor(n);
       var dy = n.kind === "package" ? -22 : 18;
       var selected = n.id === graphState.selectedNodeId;
       var neighbor = !selected && selectedNeighbors.has(n.id);
       var dim = graphState.selectedNodeId && !selected && !neighbor;
-      var showLabel = selected || neighbor || n.kind === "package" || n.kind === "file" || graphState.focusNodeId;
+      var big = r >= 14 || (degree[n.id] || 0) >= 4;
+      var showFileLabel = layout === "orbit" || layout === "flow";
+      var posterLabel = (layout === "galaxy" || layout === "communities") && big;
+      var blueprintLabel = layout === "blueprint" && n.kind !== "file" && ((degree[n.id] || 0) >= 2 || big);
+      var showLabel = selected || neighbor || n.kind === "package" || graphState.focusNodeId || (showFileLabel && n.kind === "file") || posterLabel || blueprintLabel;
       return '<g class="graph-node-g ' + (selected ? 'selected ' : '') + (neighbor ? 'neighbor ' : '') + (dim ? 'dimmed' : '') + '" onclick="selectGraphNode(&quot;' + escAttr(n.id) + '&quot;)" ondblclick="focusGraphNode(&quot;' + escAttr(n.id) + '&quot;)">' +
-        '<circle class="graph-node-circle" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r + '" fill="' + (color[n.kind] || "#e5e7eb") + '" stroke="' + (strokeColor[n.kind] || "#64748b") + '"><title>' + esc(n.label || n.id) + '</title></circle>' +
-        '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="2.2" fill="#334155"></circle>' +
-        '<text class="graph-node-label ' + escAttr(n.kind || "") + (showLabel ? '' : ' hidden') + '" x="' + p.x.toFixed(1) + '" y="' + (p.y + dy).toFixed(1) + '" text-anchor="middle">' + esc(labelText(n)) + '</text>' +
+        '<circle class="graph-node-circle" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + (color[n.kind] || "#e5e7eb") + '" stroke="' + (strokeColor[n.kind] || "#64748b") + '"><title>' + esc(n.label || n.id) + '</title></circle>' +
+        '<circle class="graph-node-core" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + Math.max(2.1, Math.min(4.2, r * 0.22)).toFixed(1) + '"></circle>' +
+        '<text class="graph-node-label ' + escAttr(n.kind || "") + (big ? ' big' : '') + (showLabel ? '' : ' hidden') + '" x="' + p.x.toFixed(1) + '" y="' + (p.y + dy).toFixed(1) + '" text-anchor="middle">' + esc(labelText(n)) + '</text>' +
         '</g>';
     }).join("");
-    var legend = '<div class="graph-legend"><span><i style="background:#bbf7d0"></i>' + esc(t("graph.file")) + '</span><span><i style="background:#bfdbfe"></i>' + esc(t("graph.symbol")) + '</span><span><i style="background:#fed7aa"></i>' + esc(t("graph.package")) + '</span><span style="color:#f97316;">─ ' + esc(t("graph.edge.calls")) + '</span></div>';
-    host.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + escAttr(t("graph.visual")) + '">' + grid + edgeHtml + nodeHtml + '</svg>' + legend;
+    var legend = '<div class="graph-legend"><span><i style="background:' + color.file + '"></i>' + esc(t("graph.file")) + '</span><span><i style="background:' + color.symbol + '"></i>' + esc(t("graph.symbol")) + '</span><span><i style="background:' + color.package + '"></i>' + esc(t("graph.package")) + '</span><span style="color:' + color.edge + ';">─ ' + esc(t("graph.edge.calls")) + '</span></div>';
+    host.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + escAttr(t("graph.visual")) + '">' + backdrop + grid + edgeHtml + nodeHtml + '</svg>' + legend;
   }
 
   function renderGraphNodeDetail(nodeId, nodeById, allEdges) {
@@ -778,6 +904,21 @@
     graphState.edgeMode = mode || "all";
     var edgeMode = $("#graph-edge-mode");
     if (edgeMode) edgeMode.value = graphState.edgeMode;
+    if (currentSnapshot) renderGraph(currentSnapshot);
+  };
+  window.setGraphLayout = function(layout) {
+    graphState.layout = layout || "galaxy";
+    var layoutMode = $("#graph-layout-mode");
+    if (layoutMode) layoutMode.value = graphState.layout;
+    if (currentSnapshot) renderGraph(currentSnapshot);
+  };
+  window.toggleGraphPosterMode = function() {
+    var view = $("#view-graph");
+    var btn = $("#graph-poster-btn");
+    if (!view) return;
+    var enabled = !view.classList.contains("graph-poster-mode");
+    view.classList.toggle("graph-poster-mode", enabled);
+    if (btn) btn.textContent = enabled ? t("graph.exitPosterMode") : t("graph.posterMode");
     if (currentSnapshot) renderGraph(currentSnapshot);
   };
 

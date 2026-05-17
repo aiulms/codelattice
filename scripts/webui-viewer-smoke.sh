@@ -125,6 +125,11 @@ grep -qF "focusGraphNode" "$VD/app.js" && chk "graph drill function" yes yes || 
 grep -qF "graphNeighborIds" "$VD/app.js" && chk "graph neighbor function" yes yes || chk "graph neighbor function" yes no
 grep -qF "setGraphEdgeMode" "$VD/app.js" && chk "graph edge mode" yes yes || chk "graph edge mode" yes no
 grep -qF "graph-depth-filter" "$VD/index.html" && chk "graph depth control" yes yes || chk "graph depth control" yes no
+grep -qF "graph-layout-mode" "$VD/index.html" && chk "graph layout mode" yes yes || chk "graph layout mode" yes no
+grep -qF "setGraphLayout" "$VD/app.js" && chk "graph layout function" yes yes || chk "graph layout function" yes no
+grep -qF "graph-layout-blueprint" "$VD/styles.css" && chk "graph blueprint style" yes yes || chk "graph blueprint style" yes no
+grep -qF "graph.layoutGalaxy" "$VD/i18n.js" && chk "graph layout i18n" yes yes || chk "graph layout i18n" yes no
+grep -qF "toggleGraphPosterMode" "$VD/app.js" && chk "graph poster mode" yes yes || chk "graph poster mode" yes no
 
 echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
 for f in timeline.js report.js; do

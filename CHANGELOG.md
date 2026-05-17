@@ -21,6 +21,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI graph presentation templates**: added multiple visual graph templates for product demos and social sharing: Code Galaxy, Module Clusters, Call Flow, Blueprint, and Engineering mode. Graph view also gains Poster Mode, larger SVG canvas styling, curved relation paths, weighted bubble sizing, and bilingual layout labels while preserving click, double-click drill-down, 1/2-hop focus, and edge filtering.
 - **WebUI Phase I — Project Picker + One-Click Analyze + i18n (Chinese/English)**: Safe directory browser, one-click project analysis, full bilingual UI.
   - `webui/snapshot-viewer/i18n.js` — 100+ zh/en key translations, language toggle, localStorage persistence, auto-detect from browser language.
   - `scripts/webui-runner.py` — FS API (safe dir browse: `/api/fs/roots`, `/api/fs/list`, `/api/fs/validate-root`), quick-analyze endpoint (`POST /api/quick-analyze`: auto-create profile + generate snapshot + return result).
