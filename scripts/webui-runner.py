@@ -84,6 +84,9 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path.startswith("/api/mcp/job/"):
             jid=p.path.split("/api/mcp/job/",1)[1]
             return self._r(lambda:self._get_job(jid))
+        if p.path=="/api/fs/roots": return self._r(self._fs_roots)
+        if p.path=="/api/fs/list": return self._r(lambda:self._fs_list(urllib.parse.parse_qs(p.query)))
+        if p.path=="/api/fs/validate-root": return self._r(lambda:self._fs_validate(urllib.parse.parse_qs(p.query)))
         return super().do_GET()
 
     def do_POST(self):
@@ -92,6 +95,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/generate-snapshot": return self._r(lambda:self._generate(self._rb()))
         if p.path=="/api/rebuild-index": return self._r(self._rebuild_index)
         if p.path=="/api/mcp/jobs": return self._r(lambda:self._create_job(self._rb()))
+        if p.path=="/api/quick-analyze": return self._r(self._quick_analyze)
         if p.path.startswith("/api/mcp/job/") and p.path.endswith("/cancel"):
             jid=p.path.split("/api/mcp/job/",1)[1].split("/",1)[0]
             return self._r(lambda:self._cancel_job(jid))
@@ -517,6 +521,65 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if not job: return err("job not found",404)
         lst=[j for j in lst if j["id"]!=jid]; self._save_jobs(lst)
         return ok({"deleted":jid})
+
+    # ── File System API (Phase I: safe directory browsing) ─────────
+
+    def _fs_roots(self):
+        roots=[{"path":os.path.expanduser("~"),"label":"Home","icon":"🏠"},
+               {"path":os.path.expanduser("~/Desktop"),"label":"Desktop","icon":"🖥️"},
+               {"path":str(REPO_ROOT),"label":"CodeLattice Repo","icon":"📦"}]
+        return ok(roots)
+
+    def _fs_list(self, qp):
+        path=(qp.get("path",[""])[0] or "").strip() or os.path.expanduser("~")
+        if ".." in path or not path.startswith("/"): return err("invalid path",400)
+        if not os.path.isdir(path): return err("not a directory",400)
+        try:
+            entries=[]
+            for name in sorted(os.listdir(path)):
+                fp=os.path.join(path,name)
+                if name.startswith(".") and not qp.get("showHidden"): continue
+                entries.append({"name":name,"path":fp,"isDir":os.path.isdir(fp)})
+            return ok({"path":path,"entries":entries,"parentPath":os.path.dirname(path)})
+        except PermissionError: return err("permission denied",403)
+        except OSError as e: return err(str(e),500)
+
+    def _fs_validate(self, qp):
+        path=(qp.get("path",[""])[0] or "").strip()
+        if ".." in path or not path.startswith("/"): return ok({"valid":False,"reason":"invalid path"})
+        if not os.path.exists(path): return ok({"valid":False,"reason":"path not found"})
+        if not os.path.isdir(path): return ok({"valid":False,"reason":"not a directory"})
+        return ok({"valid":True,"language":"auto","name":os.path.basename(path) or path})
+
+    # ── One-Click Analyze (Phase I: profile+generate+return snapshot) ──
+    def _quick_analyze(self):
+        body=self._rb()
+        root=(body.get("root") or "").strip()
+        lang=(body.get("language") or "auto").strip()
+        if not root or not os.path.isdir(root): return err("invalid root",400)
+        if lang not in SUPPORTED: return err(f"unsupported language: {lang}",400)
+        # Create/touch profile
+        pl=self._load_profiles()
+        pf=next((p for p in pl if p["root"]==root),None)
+        if not pf:
+            pf={"id":self._nid(),"name":os.path.basename(root),"root":root,"rootLabel":os.path.basename(root),
+                "language":lang,"createdAt":self._now(),"updatedAt":self._now(),
+                "lastSnapshotId":None,"snapshotCount":0,"notes":""}
+            pl.append(pf); self._save_profiles(pl)
+        # Generate snapshot
+        sid=self._nid(); fn=f"snapshot-{sid}.json"; op=os.path.join(self.sn_dir,fn)
+        self._ensure(self.sn_dir)
+        cmd=["bash",str(SNAP_SCRIPT),"--root",root,"--language",lang,"--output",op,"--full","--redact-root"]
+        r=subprocess.run(cmd,capture_output=True,text=True,timeout=GEN_TIMEOUT,cwd=str(REPO_ROOT))
+        if r.returncode!=0: return err("generation failed",500,r.stderr[:300])
+        d=self._load_json(op)
+        if not d: return err("invalid snapshot json",500)
+        # Update profile + index
+        pf["lastSnapshotId"]=sid; pf["snapshotCount"]=pf.get("snapshotCount",0)+1; pf["updatedAt"]=self._now(); self._save_profiles(pl)
+        entry={"id":sid,"filename":fn,"createdAt":self._now(),"rootLabel":os.path.basename(root),"language":lang,
+               "profileId":pf["id"],"profileName":pf["name"],"schemaVersion":d.get("schemaVersion",""),"label":""}
+        idx=self._load_index(); idx.append(entry); self._save_index(idx)
+        return ok({"snapshotId":sid,"snapshot":d,"profileId":pf["id"],"summary":{"sourceFileCount":d.get("summary",{}).get("sourceFileCount",0),"symbolCount":d.get("summary",{}).get("symbolCount",0)}})
 
 
 def main():

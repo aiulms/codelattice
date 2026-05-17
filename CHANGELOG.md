@@ -8,6 +8,12 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Phase I — Project Picker + One-Click Analyze + i18n (Chinese/English)**: Safe directory browser, one-click project analysis, full bilingual UI.
+  - `webui/snapshot-viewer/i18n.js` — 100+ zh/en key translations, language toggle, localStorage persistence, auto-detect from browser language.
+  - `scripts/webui-runner.py` — FS API (safe dir browse: `/api/fs/roots`, `/api/fs/list`, `/api/fs/validate-root`), quick-analyze endpoint (`POST /api/quick-analyze`: auto-create profile + generate snapshot + return result).
+  - `webui/snapshot-viewer/runner.js` — Project Picker (recent profiles, directory browser dialog, one-click analyze), auto-loads result to Dashboard.
+  - `scripts/webui-i18n-smoke.sh` — 23 checks: i18n syntax, zh/en messages, 15 key translations, picker UI.
+
 - **WebUI Phase G — Live MCP Job Mode**: True MCP tool calls via runner, job lifecycle management, live result rendering in WebUI.
   - `scripts/webui-runner.py` — MCP backend: JSON-RPC stdio protocol calling `codelattice mcp`, initialize+list tools+call via subprocess. 6 workflow mappings (project_overview/symbol_search/impact_preview/project_insights/dead_code_candidates/release_check + custom_tool). Job lifecycle: queued→running→succeeded/failed/cancelled with thread worker. APIs: GET /api/mcp/status, GET /api/mcp/tools, GET/POST/DELETE /api/mcp/jobs, GET /api/mcp/job/<id>, POST /api/mcp/job/<id>/cancel.
   - `webui/snapshot-viewer/live.js` — Frontend: auto-detect MCP status, workflow selector, Run button, job list with status badges, poll interval, result viewer, cancel/delete, report integration.

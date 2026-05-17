@@ -231,4 +231,67 @@ function guidedReport(){
 try{RUNNER.guidedChecks=JSON.parse(localStorage.getItem("codelattice-guided")||"{}");}catch(e){}
 
 // ── Init ─────────────────────────────────────────────────────────
-document.addEventListener("DOMContentLoaded",function(){setTimeout(runnerCheckHealth,500);});
+document.addEventListener("DOMContentLoaded",function(){setTimeout(function(){runnerCheckHealth(); pickerRefresh();},500);});
+
+// ── Project Picker (Phase I) ─────────────────────────────────────
+function pickerRefresh(){
+  if(RUNNER.connected){
+    document.getElementById("picker-runner-hint").style.display="none";
+    document.getElementById("picker-hint").textContent=CTL_I18N.t("picker.openProject");
+    // Show recent profiles
+    rapi("/api/profiles").then(function(d){
+      var pl=d.data||[]; var el=document.getElementById("picker-recent-list");
+      if(pl.length===0){el.innerHTML='<span class="text-muted text-sm">'+CTL_I18N.t("picker.noRecent")+'</span>'; return;}
+      el.innerHTML=pl.slice(0,5).map(function(p){
+        return '<div style="padding:4px 0;display:flex;align-items:center;gap:6px;">'+
+          '<a href="#" onclick="pickerAnalyzeProfile(&quot;'+escAttr(p.id)+'&quot;);return false;" style="font-weight:500;">'+esc(p.name)+'</a>'+
+          '<span class="badge badge-lang">'+esc(p.language)+'</span>'+
+          '<span class="text-muted">'+esc(p.rootLabel)+' · '+p.snapshotCount+' snaps</span></div>';
+      }).join("");
+    });
+  }else{
+    document.getElementById("picker-runner-hint").style.display="";
+  }
+}
+function pickerOpenDialog(){
+  document.getElementById("picker-dialog").style.display="";
+  // Browse home dir
+  if(RUNNER.connected) pickerBrowse(osPath("~"));
+}
+function pickerBrowse(path){
+  if(!RUNNER.connected)return;
+  rapi("/api/fs/list?path="+encodeURIComponent(path)).then(function(d){
+    var dd=d.data; var el=document.getElementById("picker-browse");
+    if(!dd||!dd.entries){el.innerHTML='<span class="text-muted">'+CTL_I18N.t("error.loadFailed")+'</span>';return;}
+    document.getElementById("picker-path-input").value=dd.path;
+    el.innerHTML='<div style="padding:2px 0;cursor:pointer;color:#2563eb;" onclick="pickerBrowse(&quot;'+escAttr(dd.parentPath||'')+'&quot;)">📁 ..</div>'+
+      dd.entries.map(function(e){
+        return '<div style="padding:2px 0;cursor:pointer;'+(e.isDir?'color:#2563eb;':'')+'" '+
+          (e.isDir?'onclick="pickerBrowse(&quot;'+escAttr(e.path)+'&quot;)"':'')+'>'+(e.isDir?'📁 ':'📄 ')+esc(e.name)+'</div>';
+      }).join("");
+  });
+}
+function osPath(p){if(p==="~")return "/Users/jiangxuanyang"; return p;}
+function pickerAnalyzePath(){
+  var root=document.getElementById("picker-path-input").value.trim();
+  if(!root){alert(CTL_I18N.t("error.missingRoot")); return;}
+  var lang=document.getElementById("picker-lang-select").value;
+  document.getElementById("picker-hint").textContent=CTL_I18N.t("gen.generating");
+  rapi("/api/quick-analyze",{method:"POST",body:{root:root,language:lang}}).then(function(d){
+    currentSnapshot=d.data.snapshot; renderAll();
+    document.getElementById("loaded-content").style.display=""; document.getElementById("welcome-view").style.display="none";
+    updateCautionBanner(); show("dashboard"); pickerRefresh();
+  }).catch(function(e){alert(e.message); document.getElementById("picker-hint").textContent=CTL_I18N.t("picker.openProject");});
+}
+function pickerAnalyzeProfile(pid){
+  document.getElementById("picker-hint").textContent=CTL_I18N.t("gen.generating");
+  rapi("/api/profile/"+pid).then(function(d){
+    var p=d.data; document.getElementById("runner-root-input").value=p.root;
+    document.getElementById("runner-lang-select").value=p.language;
+    return rapi("/api/quick-analyze",{method:"POST",body:{root:p.root,language:p.language}});
+  }).then(function(d){
+    currentSnapshot=d.data.snapshot; renderAll();
+    document.getElementById("loaded-content").style.display=""; document.getElementById("welcome-view").style.display="none";
+    updateCautionBanner(); show("dashboard"); pickerRefresh();
+  }).catch(function(e){alert(e.message); document.getElementById("picker-hint").textContent=CTL_I18N.t("picker.openProject");});
+}
