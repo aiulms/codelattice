@@ -158,7 +158,23 @@ function runnerGenerate(){
     var sid=(d.data||{}).id;
     if(st)st.textContent=tr("gen.done")+": "+sid; runnerLoadLibrary(); runnerLoadProfiles();
     if(sid)runnerLoadSnap(sid,{tab:"dashboard"});
-  }).catch(function(e){if(st)st.textContent=tr("gen.error")+": "+e.message;});
+  }).catch(function(e){showGenerationError(e, "runner");});
+}
+
+function showGenerationError(e, where){
+  var msg=tr("gen.error")+": "+(e.message||"snapshot generation failed");
+  var hint=e.hint||"";
+  var full=msg+(hint?" — "+hint:"")+" "+tr("gen.showingPrevious");
+  var st=document.getElementById("runner-status");
+  if(st)st.textContent=full.length>260?full.slice(0,260)+"…":full;
+  var target=where==="picker"?"picker-browse-list":"runner-browse-list";
+  var listEl=document.getElementById(target);
+  if(listEl){
+    var details=listEl.closest&&listEl.closest("details");
+    if(details)details.open=true;
+    listEl.innerHTML='<div style="padding:10px;color:#b91c1c;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;white-space:pre-wrap;">'+
+      esc(msg)+(hint?'\n\n'+esc(hint):'')+'\n\n'+esc(tr("gen.showingPrevious"))+'</div>';
+  }
 }
 
 // ── Workbench Project Folder Picker ─────────────────────────────
@@ -462,7 +478,7 @@ function pickerAnalyzePath(){
   }).catch(function(e){
     var msg=e.message+(e.hint?" — "+e.hint:"");
     document.getElementById("picker-hint").textContent=msg;
-    document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#dc2626;">'+esc(msg)+'</div>';
+    showGenerationError(e, "picker");
   });
 }
 function pickerAnalyzeProfile(pid){

@@ -64,6 +64,55 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
     def _save_json(self, p, d):
         self._ensure(os.path.dirname(p))
         with open(p,"w") as f: json.dump(d,f,ensure_ascii=False,indent=2)
+    def _project_candidates(self, root, limit=8):
+        markers = {
+            "cjpm.toml": "cangjie",
+            "oh-package.json5": "arkts",
+            "Cargo.toml": "rust",
+            "tsconfig.json": "typescript",
+            "pyproject.toml": "python",
+            "setup.py": "python",
+            "CMakeLists.txt": "c/cpp",
+            "compile_commands.json": "c/cpp",
+        }
+        skip = {".git",".gitnexus",".claude",".opencode","target","node_modules","dist","build","__pycache__",".venv","venv"}
+        out = []
+        root = os.path.abspath(root)
+        for base, dirs, files in os.walk(root):
+            rel = os.path.relpath(base, root)
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+            dirs[:] = [d for d in dirs if d not in skip and not d.startswith(".tmp")]
+            if depth > 4:
+                dirs[:] = []
+                continue
+            langs = []
+            for m, lang in markers.items():
+                if m in files and lang not in langs:
+                    langs.append(lang)
+            if not langs:
+                ext_langs = []
+                for name in files[:80]:
+                    if name.endswith(".cj"): ext_langs.append("cangjie")
+                    elif name.endswith(".ets"): ext_langs.append("arkts")
+                    elif name.endswith((".rs",)): ext_langs.append("rust")
+                    elif name.endswith((".ts",".tsx")): ext_langs.append("typescript")
+                    elif name.endswith(".py"): ext_langs.append("python")
+                for lang in ext_langs:
+                    if lang not in langs:
+                        langs.append(lang)
+            if langs and base != root:
+                out.append({"path": base, "label": os.path.basename(base) or base, "languages": langs[:3], "depth": depth})
+        priority = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5}
+        out.sort(key=lambda c: (min(priority.get(l, 9) for l in c["languages"]), c.get("depth", 99), c["path"]))
+        return out[:limit]
+    def _generation_error_hint(self, root, detail):
+        candidates = self._project_candidates(root)
+        hint = (detail or "").strip()
+        if candidates:
+            lines = ["请选择具体项目目录，或显式选择语言。候选子项目："]
+            lines += [f"- {c['path']} ({', '.join(c['languages'])})" for c in candidates]
+            hint = (hint + "\n\n" if hint else "") + "\n".join(lines)
+        return hint[:1200]
 
     def do_OPTIONS(self):
         self.send_response(204); self.send_header("Access-Control-Allow-Origin","*")
@@ -263,7 +312,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             r=subprocess.run(cmd,capture_output=True,text=True,timeout=GEN_TIMEOUT,cwd=str(REPO_ROOT))
             if r.returncode!=0:
                 detail = (r.stderr or r.stdout or "").strip()
-                return err("snapshot generation failed",500,detail[:500] or f"exit code {r.returncode}")
+                return err("snapshot generation failed",500,self._generation_error_hint(root, detail or f"exit code {r.returncode}"))
         except subprocess.TimeoutExpired:
             return err("timeout",504,f"generation exceeded {GEN_TIMEOUT}s")
         except OSError as e: return err("command error",500,str(e))
@@ -606,7 +655,9 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         self._ensure(self.sn_dir)
         cmd=["bash",str(SNAP_SCRIPT),"--root",root,"--language",lang,"--output",op,"--full","--redact-root"]
         r=subprocess.run(cmd,capture_output=True,text=True,timeout=GEN_TIMEOUT,cwd=str(REPO_ROOT))
-        if r.returncode!=0: return err("generation failed",500,r.stderr[:300])
+        if r.returncode!=0:
+            detail = (r.stderr or r.stdout or "").strip()
+            return err("generation failed",500,self._generation_error_hint(root, detail or f"exit code {r.returncode}"))
         d=self._load_json(op)
         if not d: return err("invalid snapshot json",500)
         # Update profile + index

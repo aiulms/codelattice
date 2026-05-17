@@ -266,6 +266,13 @@
           <select id="graph-kind-filter" class="filter-select"><option value="" data-i18n="graph.all">全部</option><option value="symbol" data-i18n="graph.symbol">符号</option><option value="file" data-i18n="graph.file">文件</option><option value="package" data-i18n="graph.package">包</option></select>
           <span class="text-muted text-sm graph-summary" id="graph-summary-text"></span>
         </div>
+        <div class="graph-visual-panel">
+          <div class="panel-header">
+            <span data-i18n="graph.visual">关系网络</span>
+            <span class="text-muted text-sm" data-i18n="graph.visualHint">点击节点查看详情，搜索/过滤会同步影响网络。</span>
+          </div>
+          <div id="graph-visual" class="graph-visual"></div>
+        </div>
         <div class="graph-layout">
           <div class="explore-list-panel" style="max-height:500px;">
             <div class="panel-header"><span data-i18n="graph.nodes">节点</span> <span id="graph-node-count" class="text-muted text-sm">(0)</span></div>

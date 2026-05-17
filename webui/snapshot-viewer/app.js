@@ -532,6 +532,7 @@
     var g = data.graph || {};
     if (g.status !== "collected" || !g.nodes || g.nodes.length === 0) {
       $("#graph-summary-text").textContent = g.status === "not_collected" ? t("graph.notCollected") : t("graph.noNodes");
+      $("#graph-visual").innerHTML = '<div class="graph-visual-empty">' + esc(t("graph.empty")) + '</div>';
       $("#graph-node-list").innerHTML = '<div class="text-muted" style="padding:24px;text-align:center;">' + esc(t("graph.empty")) + '</div>';
       $("#graph-edge-list").innerHTML = "";
       $("#graph-node-count").textContent = "(0)";
@@ -565,6 +566,7 @@
     var filteredEdges = edges.filter(function(e) {
       return selectedIds.has(e.source) || selectedIds.has(e.target);
     });
+    renderGraphVisual(filtered, filteredEdges, nodes);
     var eKindColor = {calls: "#dc2626", defines: "#2563eb", imports: "#059669", owns: "#d97706", related: "#6b7280"};
     $("#graph-edge-list").innerHTML = filteredEdges.slice(0, 100).map(function(e) {
       var src = nodes.find(function(n) { return n.id === e.source; });
@@ -580,6 +582,99 @@
     }).join("") || '<div class="text-muted" style="padding:24px;text-align:center;">' + esc(t("graph.noMatchingEdges")) + '</div>';
 
     $("#graph-selected-detail").style.display = "none";
+  }
+
+  function renderGraphVisual(filteredNodes, filteredEdges, allNodes) {
+    var host = $("#graph-visual");
+    if (!host) return;
+    var nodes = filteredNodes.slice(0, 95);
+    if (nodes.length === 0) {
+      host.innerHTML = '<div class="graph-visual-empty">' + esc(t("graph.noMatchingNodes")) + '</div>';
+      return;
+    }
+    var visible = new Set(nodes.map(function(n) { return n.id; }));
+    var edges = filteredEdges.filter(function(e) {
+      return visible.has(e.source) && visible.has(e.target);
+    }).slice(0, 180);
+
+    var w = Math.max(760, host.clientWidth || 900);
+    var h = Math.max(420, host.clientHeight || 520);
+    var cx = w / 2, cy = h / 2;
+    var byId = {};
+    nodes.forEach(function(n) { byId[n.id] = n; });
+
+    var fileForSymbol = {};
+    edges.forEach(function(e) {
+      var s = byId[e.source], tgt = byId[e.target];
+      if (!s || !tgt) return;
+      if (e.kind === "defines" && s.kind === "file" && tgt.kind === "symbol") fileForSymbol[tgt.id] = s.id;
+      if (e.kind === "defines" && s.kind === "symbol" && tgt.kind === "file") fileForSymbol[s.id] = tgt.id;
+    });
+
+    var packages = nodes.filter(function(n) { return n.kind === "package"; });
+    var files = nodes.filter(function(n) { return n.kind === "file"; });
+    var symbols = nodes.filter(function(n) { return n.kind === "symbol"; });
+    var others = nodes.filter(function(n) { return n.kind !== "package" && n.kind !== "file" && n.kind !== "symbol"; });
+    var pos = {};
+
+    packages.forEach(function(n, i) {
+      var angle = (Math.PI * 2 * i / Math.max(1, packages.length)) - Math.PI / 2;
+      var r = packages.length <= 1 ? 0 : 44;
+      pos[n.id] = {x: cx + Math.cos(angle) * r, y: cy + Math.sin(angle) * r};
+    });
+    files.forEach(function(n, i) {
+      var angle = (Math.PI * 2 * i / Math.max(1, files.length)) - Math.PI / 2;
+      var rx = Math.min(w * 0.30, 260), ry = Math.min(h * 0.28, 170);
+      pos[n.id] = {x: cx + Math.cos(angle) * rx, y: cy + Math.sin(angle) * ry};
+    });
+    var symbolsByFile = {};
+    symbols.forEach(function(n) {
+      var fid = fileForSymbol[n.id] || "_orphan";
+      (symbolsByFile[fid] = symbolsByFile[fid] || []).push(n);
+    });
+    Object.keys(symbolsByFile).forEach(function(fid, groupIdx) {
+      var group = symbolsByFile[fid];
+      var anchor = pos[fid] || {x: cx + Math.cos(groupIdx) * w * 0.22, y: cy + Math.sin(groupIdx) * h * 0.22};
+      group.forEach(function(n, i) {
+        var angle = Math.PI * 2 * i / Math.max(1, group.length);
+        var ring = 42 + Math.min(70, group.length * 2.2);
+        var x = anchor.x + Math.cos(angle) * ring;
+        var y = anchor.y + Math.sin(angle) * ring;
+        pos[n.id] = {
+          x: Math.max(36, Math.min(w - 36, x)),
+          y: Math.max(28, Math.min(h - 28, y))
+        };
+      });
+    });
+    others.forEach(function(n, i) {
+      var angle = Math.PI * 2 * i / Math.max(1, others.length);
+      pos[n.id] = {x: cx + Math.cos(angle) * w * 0.38, y: cy + Math.sin(angle) * h * 0.36};
+    });
+
+    var color = {symbol:"#93c5fd", file:"#86efac", package:"#fed7aa", entry:"#c4b5fd", risk:"#fca5a5"};
+    var radius = {package:15, file:11, symbol:8, entry:10, risk:10};
+    function labelText(n) {
+      var s = n.label || n.id || "";
+      if (s.length > 22) return s.slice(0, 20) + "…";
+      return s;
+    }
+    var edgeHtml = edges.map(function(e) {
+      var a = pos[e.source], b = pos[e.target];
+      if (!a || !b) return "";
+      return '<line class="graph-edge-line ' + escAttr(e.kind || "related") + '" x1="' + a.x.toFixed(1) + '" y1="' + a.y.toFixed(1) + '" x2="' + b.x.toFixed(1) + '" y2="' + b.y.toFixed(1) + '"><title>' + esc(e.kind || "related") + '</title></line>';
+    }).join("");
+    var nodeHtml = nodes.map(function(n) {
+      var p = pos[n.id] || {x: cx, y: cy};
+      var r = radius[n.kind] || 9;
+      var c = color[n.kind] || "#d1d5db";
+      var dy = n.kind === "package" ? -18 : 18;
+      return '<g class="graph-node-g" onclick="selectGraphNode(&quot;' + escAttr(n.id) + '&quot;)">' +
+        '<circle class="graph-node-circle" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r + '" fill="' + c + '"><title>' + esc(n.label || n.id) + '</title></circle>' +
+        '<circle cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="2.4" fill="#475569"></circle>' +
+        '<text class="graph-node-label ' + escAttr(n.kind || "") + '" x="' + p.x.toFixed(1) + '" y="' + (p.y + dy).toFixed(1) + '" text-anchor="middle">' + esc(labelText(n)) + '</text>' +
+        '</g>';
+    }).join("");
+    host.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + escAttr(t("graph.visual")) + '">' + edgeHtml + nodeHtml + '</svg>';
   }
 
   window.selectGraphNode = function(nodeId) {

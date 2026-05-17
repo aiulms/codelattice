@@ -258,12 +258,22 @@ def build_summary(analyze: dict, quality: dict, requested_language: str = "") ->
     nodes = graph.get("nodes", [])
     edges = graph.get("edges", {})
 
-    # Count by node label
-    label_counts = Counter(n.get("label", "?") for n in nodes)
-    symbol_count = label_counts.get("symbol", 0)
-    source_file_count = label_counts.get("source-file", 0)
-    module_count = label_counts.get("module", 0)
-    package_count = label_counts.get("package", 0)
+    def normalized_node_kind(node: dict) -> str:
+        label = str(node.get("label", ""))
+        kind = str(node.get("kind", ""))
+        if label in ("symbol", "source-file", "package", "module"):
+            return label
+        if kind in ("symbol", "source-file", "sourceFile"):
+            return "source-file" if kind == "sourceFile" else kind
+        if kind in ("package", "module", "repository", "repo"):
+            return "package" if kind in ("repository", "repo") else kind
+        return kind or label or "?"
+
+    kind_counts = Counter(normalized_node_kind(n) for n in nodes)
+    symbol_count = kind_counts.get("symbol", 0)
+    source_file_count = kind_counts.get("source-file", 0)
+    module_count = kind_counts.get("module", 0)
+    package_count = kind_counts.get("package", 0)
 
     # Edge counts
     edge_count = 0
@@ -354,7 +364,7 @@ def build_explore_section(analyze: dict, max_symbols: int, max_files: int,
         return n.get("label") == "symbol" or n.get("kind") == "symbol"
 
     def is_source_file_node(n):
-        return n.get("label") == "source-file" or n.get("kind") == "source-file"
+        return n.get("label") == "source-file" or n.get("kind") in ("source-file", "sourceFile")
 
     def is_repo_node(n):
         return n.get("kind") in ("repository", "repo") or n.get("label") in ("repository", "repo")
@@ -618,13 +628,22 @@ def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 30
     edge_node_ids = set()
     for e in edge_list[:max_edges]:
         if isinstance(e, dict):
-            edge_node_ids.add(e.get("source", e.get("from", "")))
-            edge_node_ids.add(e.get("target", e.get("to", "")))
+            edge_node_ids.add(e.get("source", e.get("sourceId", e.get("from", ""))))
+            edge_node_ids.add(e.get("target", e.get("targetId", e.get("to", ""))))
 
     # Filter nodes: prioritize symbol + source-file, then those in edges
-    sym_nodes = [n for n in nodes if n.get("label") == "symbol"]
-    sf_nodes = [n for n in nodes if n.get("label") == "source-file"]
-    pkg_nodes = [n for n in nodes if n.get("label") in ("package", "target", "module")]
+    def is_symbol_node(n):
+        return n.get("label") == "symbol" or n.get("kind") == "symbol"
+
+    def is_source_file_node(n):
+        return n.get("label") == "source-file" or n.get("kind") in ("source-file", "sourceFile")
+
+    def is_package_node(n):
+        return n.get("label") in ("package", "target", "module", "repository", "repo") or n.get("kind") in ("package", "target", "module", "repository", "repo")
+
+    sym_nodes = [n for n in nodes if is_symbol_node(n)]
+    sf_nodes = [n for n in nodes if is_source_file_node(n)]
+    pkg_nodes = [n for n in nodes if is_package_node(n)]
     edge_connected = [n for n in nodes if n.get("id", "") in edge_node_ids
                       and n not in sym_nodes and n not in sf_nodes and n not in pkg_nodes]
 
@@ -645,10 +664,16 @@ def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 30
     for n in selected:
         props = n.get("properties", {})
         label = n.get("label", "?")
+        raw_kind = n.get("kind", "")
         kind_map = {"symbol": "symbol", "source-file": "file", "package": "package",
                     "target": "package", "module": "package", "repository": "package",
                     "diagnostic": "risk", "reference": "entry"}
-        kind = kind_map.get(label, label)
+        if raw_kind == "sourceFile":
+            kind = "file"
+        elif raw_kind in ("symbol", "package", "module", "repository", "repo") and label not in kind_map:
+            kind = "package" if raw_kind in ("repository", "repo", "module") else raw_kind
+        else:
+            kind = kind_map.get(label, label)
         name = props.get("name", props.get("sourcePath", n.get("id", "")[:60]))
 
         file_path = (props.get("sourcePath") or props.get("file")
@@ -670,12 +695,14 @@ def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 30
     for e in edge_list:
         if not isinstance(e, dict):
             continue
-        src = e.get("source", e.get("from", ""))
-        tgt = e.get("target", e.get("to", ""))
+        src = e.get("source", e.get("sourceId", e.get("from", "")))
+        tgt = e.get("target", e.get("targetId", e.get("to", "")))
         if src not in selected_ids or tgt not in selected_ids:
             continue
-        etype = e.get("type", e.get("label", "related"))
+        etype = e.get("type", e.get("kind", e.get("label", "related")))
         kind_map_e = {"CALLS": "calls", "DEFINES": "defines", "IMPORTS": "imports",
+                      "calls": "calls", "uses": "calls", "defines": "defines", "imports": "imports",
+                      "ownsSource": "owns", "containsPackage": "owns",
                       "OWNS_SOURCE": "owns", "HAS_PARENT": "related", "ACCESSES": "related",
                       "DESIGNATION": "related", "CONTAINS_PACKAGE": "owns",
                       "HAS_TARGET": "related", "ANNOTATES": "related"}

@@ -116,6 +116,12 @@ grep -qF "restoreWorkbenchSnapshot" "$VD/runner.js" && chk "refresh restores sna
 grep -qF "snapshot" "$VD/runner.js" && grep -qF "history.replaceState" "$VD/runner.js" && chk "snapshot url persistence" yes yes || chk "snapshot url persistence" yes no
 grep -qF "rememberWorkbenchTab" "$VD/index.html" && chk "tab url persistence" yes yes || chk "tab url persistence" yes no
 
+echo ""; echo "--- Graph Visual Checks ---"
+grep -qF "graph-visual" "$VD/index.html" && chk "graph visual html" yes yes || chk "graph visual html" yes no
+grep -qF "renderGraphVisual" "$VD/app.js" && chk "graph visual renderer" yes yes || chk "graph visual renderer" yes no
+grep -qF "<svg" "$VD/app.js" && chk "graph svg renderer" yes yes || chk "graph svg renderer" yes no
+grep -qF ".graph-visual" "$VD/styles.css" && chk "graph visual css" yes yes || chk "graph visual css" yes no
+
 echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
 for f in timeline.js report.js; do
   [[ -f "$VD/$f" ]] && chk "$f exists" yes yes || chk "$f exists" yes no

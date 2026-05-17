@@ -102,9 +102,14 @@ fi
 # ── Run CLI commands & collect output ────────────────────────────────────────
 
 run_analyze() {
-  local out; out=$("$CODELATTICE" analyze --root "$ROOT" --language "$LANGUAGE" --format json 2>/dev/null) || true
+  local out err_file err_text
+  err_file=$(mktemp /tmp/codelattice-snap-analyze-err.XXXXXX.txt)
+  out=$("$CODELATTICE" analyze --root "$ROOT" --language "$LANGUAGE" --format json 2>"$err_file") || true
+  err_text=$(cat "$err_file" 2>/dev/null || true)
+  rm -f "$err_file"
   if [[ -z "$out" ]] || [[ "${out:0:1}" != "{" ]]; then
-    echo '{"_error": "analyze_failed"}'; return 1
+    printf '%s' "$err_text" | python3 -c 'import json,sys; msg=sys.stdin.read().strip(); print(json.dumps({"_error":"analyze_failed","message":msg or "analyze produced no JSON"}, ensure_ascii=False))'
+    return 0
   fi
   echo "$out"
 }
@@ -136,6 +141,10 @@ run_quality() {
 generate_snapshot() {
   local analyze_json quality_json timestamp version_str tmp_analyze tmp_quality
   analyze_json=$(run_analyze)
+  if python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); sys.exit(0 if d.get("_error") else 1)' <<< "$analyze_json"; then
+    python3 -c 'import json,sys; d=json.loads(sys.stdin.read() or "{}"); print("Error: analyze failed: " + (d.get("message") or d.get("_error") or "unknown"), file=sys.stderr)' <<< "$analyze_json"
+    return 1
+  fi
   quality_json=$(run_quality "$analyze_json")
   timestamp=$(date -u +"%Y-%m-%dT%H:%M:%S+00:00" 2>/dev/null || date +"%Y-%m-%dT%H:%M:%S%z")
   version_str=$("$CODELATTICE" --version 2>/dev/null | head -1 || echo "unknown")
