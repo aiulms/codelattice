@@ -253,15 +253,36 @@ function pickerRefresh(){
     document.getElementById("picker-runner-hint").style.display="";
   }
 }
+
+function pickerPickDirectory(){
+  if(!RUNNER.connected){
+    alert(CTL_I18N.t("picker.startRunner") + ": " + CTL_I18N.t("picker.startCmd"));
+    return;
+  }
+  var hint=document.getElementById("picker-hint");
+  var current=document.getElementById("picker-path-input").value.trim();
+  if(hint)hint.textContent=CTL_I18N.t("picker.folderPickerOpening");
+  rapi("/api/fs/pick-directory",{method:"POST",body:{currentPath:current}}).then(function(d){
+    var path=(d.data||{}).path||"";
+    if(!path)throw new Error(CTL_I18N.t("picker.browseUnavailable"));
+    pickerSelect(path);
+    if(hint)hint.textContent=CTL_I18N.t("picker.selectedFolder");
+  }).catch(function(e){
+    if(hint)hint.textContent=CTL_I18N.t("picker.folderPickerFallback");
+    var fallback=current || "/";
+    pickerBrowse(fallback);
+  });
+}
+
 // 用 runner API 浏览本地文件夹（不经过浏览器上传，数据不离开本机）
 function pickerBrowse(path){
-  if(!RUNNER.connected){alert("请先启动 runner: bash scripts/webui-runner.sh --open"); return;}
+  if(!RUNNER.connected){alert(CTL_I18N.t("picker.startRunner") + ": " + CTL_I18N.t("picker.startCmd")); return;}
   var listEl=document.getElementById("picker-browse-list");
   if(!listEl)return;
-  listEl.innerHTML='<div style="padding:8px;color:#9ca3af;">加载中…</div>';
+  listEl.innerHTML='<div style="padding:8px;color:#9ca3af;">'+esc(CTL_I18N.t("picker.browseLoading"))+'</div>';
   rapi("/api/fs/list?path="+encodeURIComponent(path)).then(function(d){
     var dd=d.data;
-    if(!dd||!dd.entries){listEl.innerHTML='<div style="padding:8px;color:#dc2626;">无法浏览此路径</div>';return;}
+    if(!dd||!dd.entries){listEl.innerHTML='<div style="padding:8px;color:#dc2626;">'+esc(CTL_I18N.t("picker.browseUnavailable"))+'</div>';return;}
     document.getElementById("picker-path-input").value=dd.path;
     // 面包屑
     var parts=dd.path.split("/").filter(Boolean);
@@ -284,7 +305,7 @@ function pickerBrowse(path){
 
 function pickerSelect(path){
   document.getElementById("picker-path-input").value=path;
-  document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — 已选定。点击 ⚡ 分析 开始。</div>';
+  document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — '+esc(CTL_I18N.t("picker.selectedFolder"))+'</div>';
 }
 
 // Runner 连接时加载快速入口

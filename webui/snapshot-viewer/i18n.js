@@ -1,6 +1,6 @@
 // i18n.js — CodeLattice WebUI i18n (Chinese/English) — Phase I
 window.CTL_I18N = {
-  lang: localStorage.getItem("codelattice.ui.lang") || (navigator.language||"").startsWith("zh")?"zh":"en",
+  lang: localStorage.getItem("codelattice.ui.lang") || (((navigator.language||"").startsWith("zh")) ? "zh" : "en"),
   msgs: {
     zh: {
       "app.title": "CodeLattice",
@@ -25,6 +25,14 @@ window.CTL_I18N = {
       "picker.noRecent": "暂无最近项目。首次分析后显示。",
       "picker.startRunner": "启动 runner 开始本地分析",
       "picker.startCmd": "bash scripts/webui-runner.sh --open",
+      "picker.pathPlaceholder": "输入项目完整路径，或点击选择文件夹",
+      "picker.chooseFolder": "选择文件夹",
+      "picker.quickBrowse": "网页内浏览文件夹",
+      "picker.folderPickerOpening": "正在打开系统文件夹选择器…",
+      "picker.folderPickerFallback": "系统选择器不可用，已打开网页内目录浏览。",
+      "picker.selectedFolder": "已选定。点击分析开始。",
+      "picker.browseLoading": "加载中…",
+      "picker.browseUnavailable": "无法浏览此路径",
       "gen.generate": "生成",
       "gen.generating": "生成中…",
       "gen.done": "完成",
@@ -121,6 +129,14 @@ window.CTL_I18N = {
       "picker.noRecent": "No recent projects. They appear after first analysis.",
       "picker.startRunner": "Start runner for local analysis",
       "picker.startCmd": "bash scripts/webui-runner.sh --open",
+      "picker.pathPlaceholder": "Enter a project path, or choose a folder",
+      "picker.chooseFolder": "Choose Folder",
+      "picker.quickBrowse": "Browse in page",
+      "picker.folderPickerOpening": "Opening system folder picker…",
+      "picker.folderPickerFallback": "System picker unavailable; opened in-page folder browser.",
+      "picker.selectedFolder": "Selected. Click Analyze to start.",
+      "picker.browseLoading": "Loading…",
+      "picker.browseUnavailable": "Cannot browse this path",
       "gen.generate": "Generate",
       "gen.generating": "Generating…",
       "gen.done": "Done",

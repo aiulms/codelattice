@@ -107,6 +107,8 @@ RD_FC=$(grep -cE '(runnerCheckHealth|runnerGenerate|runnerLoadLibrary|runnerLoad
 [[ $RD_FC -ge 6 ]] && chk "runner functions (>=6)" pass pass || chk "runner functions (>=6)" pass "fail($RD_FC)"
 grep -qF "runner-panel" "$VD/index.html" && chk "runner panel html" yes yes || chk "runner panel html" yes no
 grep -qF "runner-mode-badge" "$VD/index.html" && chk "runner badge" yes yes || chk "runner badge" yes no
+grep -qF "pickerPickDirectory" "$VD/runner.js" && chk "project picker folder chooser" yes yes || chk "project picker folder chooser" yes no
+grep -qF "picker.chooseFolder" "$VD/index.html" && chk "choose folder i18n html" yes yes || chk "choose folder i18n html" yes no
 
 echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
 for f in timeline.js report.js; do

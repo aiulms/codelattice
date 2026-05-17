@@ -20,13 +20,13 @@ pass "runner started"
 B="http://127.0.0.1:$PORT"
 
 # Static HTTP checks
-curl -s "$B/"|grep -q "CodeLattice" 2>/dev/null && pass "HTML serves CodeLattice"||fail "HTML missing CodeLattice"
+PAGE=$(curl -s "$B/")
+echo "$PAGE"|grep -q "CodeLattice" 2>/dev/null && pass "HTML serves CodeLattice"||fail "HTML missing CodeLattice"
 curl -sI "$B/app.js"|grep -q "200" 2>/dev/null && pass "app.js 200"||fail "app.js serve"
 curl -sI "$B/runner.js"|grep -q "200" 2>/dev/null && pass "runner.js 200"||fail "runner.js serve"
 curl -s "$B/api/health"|grep -q '"success"' && pass "health api json"||fail "health api"
 
 # Page content checks
-PAGE=$(curl -s "$B/")
 echo "$PAGE"|grep -q "Project Profiles" && pass "Profiles text"||fail "Profiles text"
 echo "$PAGE"|grep -q "Snapshot Library" && pass "Library text"||fail "Library text"
 echo "$PAGE"|grep -q "Guided Review" && pass "Guided text"||fail "Guided text"

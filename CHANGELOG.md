@@ -6,6 +6,10 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Fixed
+
+- **WebUI Project Picker folder selection**: the main "Choose Folder" action now uses the local runner to open a native macOS folder picker, with the in-page directory browser as fallback. Also fixed the default language precedence so a saved English preference is respected.
+
 ### Added
 
 - **WebUI Phase I — Project Picker + One-Click Analyze + i18n (Chinese/English)**: Safe directory browser, one-click project analysis, full bilingual UI.

@@ -14,7 +14,11 @@ trap '[[ -z "$KT" ]] && rm -rf "$TD"' EXIT
 echo "CodeLattice Snapshot Smoke (Phase B)"
 echo ""
 echo "=== Prerequisites ==="
-[[ -x "$SS" ]] || fail "webui-snapshot.sh missing" && exit 1; echo "  [OK] script"
+if [[ ! -x "$SS" ]]; then
+  echo "  [FAIL] webui-snapshot.sh missing or not executable"
+  exit 1
+fi
+echo "  [OK] script"
 CB=""
 for c in "$WS/target/release/codelattice" "$WS/target/debug/codelattice"; do [[ -x "$c" ]] && CB="$c" && break; done
 [[ -z "$CB" ]] && echo "  [FAIL] no codelattice binary" && exit 1 || echo "  [OK] binary: $CB"

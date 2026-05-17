@@ -96,6 +96,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/rebuild-index": return self._r(self._rebuild_index)
         if p.path=="/api/mcp/jobs": return self._r(lambda:self._create_job(self._rb()))
         if p.path=="/api/quick-analyze": return self._r(self._quick_analyze)
+        if p.path=="/api/fs/pick-directory": return self._r(self._fs_pick_directory)
         if p.path.startswith("/api/mcp/job/") and p.path.endswith("/cancel"):
             jid=p.path.split("/api/mcp/job/",1)[1].split("/",1)[0]
             return self._r(lambda:self._cancel_job(jid))
@@ -552,6 +553,31 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if not os.path.exists(path): return ok({"valid":False,"reason":"path not found"})
         if not os.path.isdir(path): return ok({"valid":False,"reason":"not a directory"})
         return ok({"valid":True,"language":"auto","name":os.path.basename(path) or path})
+
+    def _fs_pick_directory(self):
+        body = self._rb()
+        if body.get("dryRun"):
+            return ok({"supported": sys.platform == "darwin", "method": "osascript" if sys.platform == "darwin" else "in-page-browser"})
+        if sys.platform != "darwin":
+            return err("native folder picker unavailable", 501, "Use the in-page directory browser or paste an absolute path.")
+        prompt = str(body.get("prompt") or "选择 CodeLattice 项目文件夹")
+        prompt = prompt.replace("\\", "\\\\").replace('"', '\\"')
+        script = f'POSIX path of (choose folder with prompt "{prompt}")'
+        try:
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=120)
+        except subprocess.TimeoutExpired:
+            return err("folder picker timed out", 504, "Try pasting the project path or use the in-page browser.")
+        except OSError as exc:
+            return err("folder picker failed", 500, str(exc))
+        if result.returncode != 0:
+            return err("folder selection cancelled", 400, "Use the in-page directory browser or paste a project path.")
+        path = result.stdout.strip()
+        path = os.path.expanduser(path) if path.startswith("~") else path
+        if ".." in path.split("/") or not path.startswith("/"):
+            return err("invalid selected path", 400)
+        if not os.path.isdir(path):
+            return err("selected path is not a directory", 400)
+        return ok({"path": path, "name": os.path.basename(path) or path, "method": "native"})
 
     # ── One-Click Analyze (Phase I: profile+generate+return snapshot) ──
     def _quick_analyze(self):

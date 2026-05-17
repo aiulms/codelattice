@@ -11,34 +11,37 @@ bash scripts/webui-runner.sh --open
 
 ## 基础使用
 
-### 1. 创建 Project Profile
-点击 **Project Profiles → + New Profile**，输入名称和项目路径，选择语言。
+### 1. 打开项目
+首页点击 **选择文件夹**，在 macOS 文件夹选择器中选中项目目录；如果系统选择器不可用，可使用页面里的 **网页内浏览文件夹** 或手动粘贴绝对路径。
 
-### 2. 生成 Snapshot
-选择 profile 后点击 **⚡ Generate**，runner 调用 `webui-snapshot.sh` 生成 enriched snapshot。
+### 2. 一键分析
+选择语言或保持 `auto`，点击 **分析项目**。runner 会自动创建/更新 Project Profile，调用 `webui-snapshot.sh` 生成 enriched snapshot，并加载到 Dashboard。
 
-### 3. Snapshot Library
+### 3. Project Profiles
+后续也可以在 **Project Profiles** 中选择已有项目，点击 **Gen** 重新分析。
+
+### 4. Snapshot Library
 展开 **Snapshot Library**，可搜索/过滤/排序、Load/Diff/Timeline/Download/Delete。
 
-### 4. 浏览 Dashboard
+### 5. 浏览 Dashboard
 查看 source files、symbols、edges、quality gates passed/failed。
 
-### 5. Explore 符号
+### 6. Explore 符号
 搜索/过滤符号、查看 detail、source files 列表。
 
-### 6. Graph 视图
+### 7. Graph 视图
 查看 node/edge list、search by kind、click for detail。
 
-### 7. Diff 对比
+### 8. Diff 对比
 Load Compare Snapshot → 对比 summary counts、added/removed symbols。
 
-### 8. Timeline 趋势
+### 9. Timeline 趋势
 加载 2+ snapshots → SVG 趋势图 + metric 表格。
 
-### 9. Guided Review
+### 10. Guided Review
 选择场景（onboarding/before_edit/release_check 等）→ 按 steps 勾选 → 导出 report。
 
-### 10. Report 导出
+### 11. Report 导出
 选择模板 → Generate → Copy/Download .md。
 
 ## 清理
