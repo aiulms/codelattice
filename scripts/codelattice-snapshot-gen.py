@@ -240,7 +240,7 @@ def _redact_all_paths(obj, root: str) -> None:
 
 # ── Section Builders ─────────────────────────────────────────────────────────
 
-def build_summary(analyze: dict, quality: dict) -> dict:
+def build_summary(analyze: dict, quality: dict, requested_language: str = "") -> dict:
     """Build summary section from analyze output."""
     graph = analyze.get("graph", {})
     nodes = graph.get("nodes", [])
@@ -262,8 +262,11 @@ def build_summary(analyze: dict, quality: dict) -> dict:
             if isinstance(val, list):
                 edge_count += len(val)
 
-    # Language from metadata
+    # Language from metadata; fall back to the requested language because some
+    # CLI JSON formats do not currently populate analyze.metadata.language.
     language = analyze.get("metadata", {}).get("language", "unknown")
+    if (not language or language == "unknown") and requested_language and requested_language != "auto":
+        language = requested_language
 
     return {
         "schemaVersion": SCHEMA_VERSION,
@@ -845,7 +848,7 @@ def main():
 
     # ── Build the snapshot ───────────────────────────────────────────
 
-    summary = build_summary(analyze, quality)
+    summary = build_summary(analyze, quality, language)
     summary["generatedAt"] = timestamp
     summary["toolVersion"] = version_str
 
