@@ -23,6 +23,8 @@ B="http://127.0.0.1:$PORT"
 PAGE=$(curl -s "$B/")
 echo "$PAGE"|grep -q "CodeLattice" 2>/dev/null && pass "HTML serves CodeLattice"||fail "HTML missing CodeLattice"
 curl -sI "$B/app.js"|grep -q "200" 2>/dev/null && pass "app.js 200"||fail "app.js serve"
+curl -sI "$B/graph-g6.js"|grep -q "200" 2>/dev/null && pass "graph-g6.js 200"||fail "graph-g6.js serve"
+curl -sI "$B/vendor/g6/g6.min.js"|grep -q "200" 2>/dev/null && pass "G6 vendor 200"||fail "G6 vendor serve"
 curl -sI "$B/runner.js"|grep -q "200" 2>/dev/null && pass "runner.js 200"||fail "runner.js serve"
 curl -sI "$B/runner.js"|grep -qi "Cache-Control:.*no-store" 2>/dev/null && pass "runner.js no-store"||fail "runner.js cache header"
 curl -s "$B/api/health"|grep -q '"success"' && pass "health api json"||fail "health api"
@@ -32,6 +34,7 @@ echo "$PAGE"|grep -Eq "Project Profiles|项目配置" && pass "Profiles text"||f
 echo "$PAGE"|grep -Eq "Snapshot Library|分析快照库" && pass "Library text"||fail "Library text"
 echo "$PAGE"|grep -Eq "Guided Review|引导式审查" && pass "Guided text"||fail "Guided text"
 echo "$PAGE"|grep -Eq "Report|报告" && pass "Report text"||fail "Report text"
+echo "$PAGE"|grep -Eq "G6|高级图谱" && pass "G6 graph engine text"||fail "G6 graph engine text"
 echo "$PAGE"|grep -Eq "Static Analysis Only|仅静态分析" && pass "Caution text"||fail "Caution text"
 echo "$PAGE"|grep -Eq "Generate|生成" && pass "Generate button"||fail "Generate button"
 

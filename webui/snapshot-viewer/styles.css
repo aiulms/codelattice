@@ -476,6 +476,52 @@ pre.code-block {
 .graph-visual.graph-layout-blueprint { background:
   radial-gradient(circle at 50% 112%, rgba(37,99,235,0.40), transparent 34%),
   linear-gradient(180deg, #071833 0%, #08224a 48%, #07101f 100%); }
+.graph-g6-host {
+  overflow: hidden;
+  touch-action: none;
+}
+.graph-g6-host canvas {
+  outline: none;
+}
+.graph-g6-host.graph-layout-galaxy {
+  background:
+    radial-gradient(circle at 52% 48%, rgba(56,189,248,0.20), transparent 32%),
+    radial-gradient(circle at 24% 26%, rgba(139,92,246,0.15), transparent 24%),
+    linear-gradient(180deg, #071225 0%, #0b1730 100%) !important;
+}
+.graph-g6-host.graph-layout-communities {
+  background:
+    radial-gradient(circle at 18% 28%, rgba(34,197,94,0.18), transparent 25%),
+    radial-gradient(circle at 76% 34%, rgba(14,165,233,0.16), transparent 24%),
+    linear-gradient(180deg, #081c16 0%, #0f1d2e 100%) !important;
+}
+.graph-g6-host.graph-layout-flow {
+  background:
+    linear-gradient(90deg, rgba(59,130,246,0.14), transparent 48%, rgba(249,115,22,0.12)),
+    linear-gradient(180deg, #08111f 0%, #0b1730 100%) !important;
+}
+.graph-g6-host.graph-layout-blueprint {
+  background:
+    linear-gradient(rgba(147,197,253,0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(147,197,253,0.08) 1px, transparent 1px),
+    radial-gradient(circle at 50% 108%, rgba(37,99,235,0.38), transparent 34%),
+    linear-gradient(180deg, #06142f 0%, #081e48 54%, #06101f 100%) !important;
+  background-size: auto, 42px 42px, auto, auto !important;
+}
+.graph-engine-badge {
+  position: absolute;
+  left: 12px;
+  top: 10px;
+  z-index: 2;
+  color: #dbeafe;
+  background: rgba(2,6,23,0.62);
+  border: 1px solid rgba(147,197,253,0.22);
+  border-radius: 999px;
+  padding: 5px 9px;
+  font-size: 12px;
+  letter-spacing: 0;
+  backdrop-filter: blur(10px);
+}
 .graph-visual svg { width: 100%; height: 100%; display: block; }
 .graph-visual .graph-grid-line { stroke: #edf2f7; stroke-width: 1; }
 .graph-visual.graph-layout-blueprint .graph-grid-line { stroke: rgba(147,197,253,0.12); }

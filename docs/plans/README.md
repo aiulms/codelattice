@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI Phase G — Live MCP Mode） — Beta Ready） — Project Workbench + Guided Review） — Local Runner + Snapshot Library + Live-lite — Timeline + Report + Review Workflow）
+最后更新：2026-05-17（WebUI G6 Graph Engine Upgrade）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI G6 Graph Engine Upgrade（2026-05-17，已完成）：**
+- 📝 [2026-05-17-webui-g6-graph-engine-preflight.md](2026-05-17-webui-g6-graph-engine-preflight.md) — G6 图谱引擎升级：AntV G6 vendored bundle、G6/SVG engine switch、交互图谱、海报级视觉、fallback stop-lines。
+- ✅ [2026-05-17-webui-g6-graph-engine-closure.md](2026-05-17-webui-g6-graph-engine-closure.md) — closure：G6 adapter、browser runtime 验证、smoke 扩展、fallback 保留。
 
 **WebUI Phase G — Live MCP Job Mode（2026-05-17，已完成）：**
 - 📝 [2026-05-17-webui-phase-g-live-mcp-preflight.md](2026-05-17-webui-phase-g-live-mcp-preflight.md) — Phase G: JSON-RPC stdio MCP protocol, 6 workflow mappings, job lifecycle.

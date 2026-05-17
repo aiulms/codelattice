@@ -18,11 +18,13 @@ echo ""; echo "--- Prerequisites ---"
 [[ -f "$VD/app.js" ]] && chk "app.js" yes yes || chk "app.js" yes no
 [[ -f "$VD/timeline.js" ]] && chk "timeline.js" yes yes || chk "timeline.js" yes no
 [[ -f "$VD/report.js" ]] && chk "report.js" yes yes || chk "report.js" yes no
+[[ -f "$VD/graph-g6.js" ]] && chk "graph-g6.js" yes yes || chk "graph-g6.js" yes no
+[[ -f "$VD/vendor/g6/g6.min.js" ]] && chk "vendored G6" yes yes || chk "vendored G6" yes no
 HAS_NODE=no; command -v node >/dev/null 2>&1 && HAS_NODE=yes; chk "node" yes "$HAS_NODE"
 HAS_PY=no; command -v python3 >/dev/null 2>&1 && HAS_PY=yes; chk "python3" yes "$HAS_PY"
 echo ""; echo "--- JS Syntax ---"
 if [[ "$HAS_NODE" == yes ]]; then
-  for f in app.js timeline.js report.js runner.js live.js; do
+  for f in app.js timeline.js report.js runner.js live.js graph-g6.js vendor/g6/g6.min.js; do
     node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail
   done
 fi
@@ -127,6 +129,16 @@ grep -qF "setGraphEdgeMode" "$VD/app.js" && chk "graph edge mode" yes yes || chk
 grep -qF "graph-depth-filter" "$VD/index.html" && chk "graph depth control" yes yes || chk "graph depth control" yes no
 grep -qF "graph-layout-mode" "$VD/index.html" && chk "graph layout mode" yes yes || chk "graph layout mode" yes no
 grep -qF "setGraphLayout" "$VD/app.js" && chk "graph layout function" yes yes || chk "graph layout function" yes no
+grep -qF "graph-engine-mode" "$VD/index.html" && chk "graph engine mode" yes yes || chk "graph engine mode" yes no
+grep -qF "setGraphEngine" "$VD/app.js" && chk "graph engine function" yes yes || chk "graph engine function" yes no
+grep -qF "CodeLatticeG6Graph" "$VD/graph-g6.js" && chk "G6 adapter" yes yes || chk "G6 adapter" yes no
+grep -qF "new Graph" "$VD/graph-g6.js" && chk "G6 graph constructor" yes yes || chk "G6 graph constructor" yes no
+grep -qF "drag-canvas" "$VD/graph-g6.js" && chk "G6 drag canvas" yes yes || chk "G6 drag canvas" yes no
+grep -qF "zoom-canvas" "$VD/graph-g6.js" && chk "G6 zoom canvas" yes yes || chk "G6 zoom canvas" yes no
+grep -qF "g6.min.js" "$VD/index.html" && chk "G6 script ref" yes yes || chk "G6 script ref" yes no
+grep -qF "MIT" "$VD/vendor/g6/LICENSE" && chk "G6 license" yes yes || chk "G6 license" yes no
+grep -qF "graph.engineG6" "$VD/i18n.js" && chk "G6 i18n" yes yes || chk "G6 i18n" yes no
+grep -qF ".graph-g6-host" "$VD/styles.css" && chk "G6 css" yes yes || chk "G6 css" yes no
 grep -qF "graph-layout-blueprint" "$VD/styles.css" && chk "graph blueprint style" yes yes || chk "graph blueprint style" yes no
 grep -qF "graph.layoutGalaxy" "$VD/i18n.js" && chk "graph layout i18n" yes yes || chk "graph layout i18n" yes no
 grep -qF "toggleGraphPosterMode" "$VD/app.js" && chk "graph poster mode" yes yes || chk "graph poster mode" yes no

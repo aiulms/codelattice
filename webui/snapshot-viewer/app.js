@@ -11,7 +11,7 @@
   let allSymbols = [];
   let filteredSymbols = [];
   let selectedSymbolId = null;
-  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy" };
+  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy", engine: "g6" };
 
   // ── DOM Helpers ─────────────────────────────────────────────────────
 
@@ -60,6 +60,7 @@
   // Graph filter event listeners (Phase B)
   var gs = $("#graph-search"); if (gs) gs.addEventListener("input", function() { if (currentSnapshot) renderGraph(currentSnapshot); });
   var gkf = $("#graph-kind-filter"); if (gkf) gkf.addEventListener("change", function() { if (currentSnapshot) renderGraph(currentSnapshot); });
+  var gem = $("#graph-engine-mode"); if (gem) gem.addEventListener("change", function() { window.setGraphEngine(gem.value); });
 
   // Diff file input (Phase B)
   var dfi = $("#diff-file-input");
@@ -634,6 +635,24 @@
     var host = $("#graph-visual");
     if (!host) return;
     var layout = graphState.layout || "galaxy";
+    if (graphState.engine !== "svg" && window.CodeLatticeG6Graph && CodeLatticeG6Graph.available()) {
+      var usedG6 = CodeLatticeG6Graph.render({
+        host: host,
+        nodes: filteredNodes,
+        edges: filteredEdges,
+        allNodes: allNodes,
+        allEdges: allEdges,
+        layout: layout,
+        selectedNodeId: graphState.selectedNodeId,
+        focusNodeId: graphState.focusNodeId,
+        depth: graphState.depth,
+        onSelect: window.selectGraphNode,
+        onFocus: window.focusGraphNode
+      });
+      if (usedG6) return;
+    } else if (window.CodeLatticeG6Graph) {
+      CodeLatticeG6Graph.destroy();
+    }
     host.className = "graph-visual graph-layout-" + layout;
     var priority = {package: 0, file: 1, entry: 2, risk: 3, symbol: 4};
     var degree = {};
@@ -910,6 +929,13 @@
     graphState.layout = layout || "galaxy";
     var layoutMode = $("#graph-layout-mode");
     if (layoutMode) layoutMode.value = graphState.layout;
+    if (currentSnapshot) renderGraph(currentSnapshot);
+  };
+  window.setGraphEngine = function(engine) {
+    graphState.engine = engine === "svg" ? "svg" : "g6";
+    var engineMode = $("#graph-engine-mode");
+    if (engineMode) engineMode.value = graphState.engine;
+    if (window.CodeLatticeG6Graph && graphState.engine === "svg") CodeLatticeG6Graph.destroy();
     if (currentSnapshot) renderGraph(currentSnapshot);
   };
   window.toggleGraphPosterMode = function() {

@@ -1,14 +1,14 @@
 # CodeLattice Snapshot Viewer
 
-> **版本：** Phase A (Rich Snapshot Viewer)
-> **状态：** 可用 — 纯静态 HTML/CSS/JS，零依赖
+> **版本：** Workbench + G6 Graph Engine
+> **状态：** 可用 — 本地 Runner / 静态 snapshot 双模式，AntV G6 vendored 图谱引擎
 > **位置：** `webui/snapshot-viewer/`
 
 ## 是什么
 
 CodeLattice Snapshot Viewer 是一个**只读本地 Web 页面**，用于可视化浏览 `CodeLatticeWebSnapshotV1` JSON snapshot。
 
-它不是完整 WebUI、不是桌面应用、不调用 MCP server、不执行项目代码。它只是一个静态 HTML 页面，加载 snapshot JSON 并渲染为人类可读的视图。
+它不是桌面应用，不执行项目代码。静态模式下，它只是一个 HTML 页面，加载 snapshot JSON 并渲染为人类可读的视图；Runner 模式下，它可以在本机生成 snapshot、管理快照库，并通过受控 API 发起 Live MCP job。
 
 ## 快速开始
 
@@ -88,6 +88,14 @@ cd webui/snapshot-viewer && python3 -m http.server 8080
 - 显示 checklist 或 not_collected 状态
 - 全局 caution banner：Static review only
 
+### Graph
+
+- 默认使用 `vendor/g6/g6.min.js` 中 vendored 的 AntV G6 5.1.1
+- 支持拖拽、缩放、点击选中、双击下探
+- 支持 G6 高级图谱 / SVG 兼容图谱切换
+- 支持代码星云、模块星团、调用流向、蓝图架构、工程探索五种布局模板
+- 支持海报模式，用于截图传播
+
 ## Caution 渲染
 
 所有视图中都包含以下 caution 标注：
@@ -105,7 +113,7 @@ cd webui/snapshot-viewer && python3 -m http.server 8080
 | 前端框架 | 无（纯原生 HTML/CSS/JS） |
 | 构建工具 | 无 |
 | 包管理器 | 无 |
-| 依赖项 | 零 |
+| 依赖项 | AntV G6 5.1.1 vendored browser bundle（MIT），无 npm/pnpm/yarn 工程 |
 | 浏览器支持 | 现代浏览器（Chrome/Firefox/Safari/Edge） |
 | JS 函数数量 | ~28 个核心函数 |
 | CSS 变量 | 完整主题变量系统 |
@@ -118,6 +126,8 @@ webui/snapshot-viewer/
 ├── index.html      # 主页面 (~8 KB)
 ├── styles.css      # 样式表 (~6 KB)
 ├── app.js          # 应用逻辑 (~18 KB, ~540 行)
+├── graph-g6.js     # AntV G6 adapter
+├── vendor/g6/      # vendored G6 bundle + license
 └── README.md       # 本文档
 ```
 

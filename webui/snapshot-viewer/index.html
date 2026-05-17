@@ -271,6 +271,10 @@
             <option value="blueprint" data-i18n="graph.layoutBlueprint">蓝图架构</option>
             <option value="orbit" data-i18n="graph.layoutOrbit">工程探索</option>
           </select>
+          <select id="graph-engine-mode" class="filter-select" onchange="setGraphEngine(this.value)">
+            <option value="g6" data-i18n="graph.engineG6">G6 高级图谱</option>
+            <option value="svg" data-i18n="graph.engineSvg">SVG 兼容图谱</option>
+          </select>
           <select id="graph-edge-mode" class="filter-select" onchange="setGraphEdgeMode(this.value)">
             <option value="all" data-i18n="graph.edgeAll">全部关系</option>
             <option value="calls" data-i18n="graph.edgeCallsOnly">只看调用</option>
@@ -433,8 +437,10 @@
     <span data-i18n="footer.readonly">只读静态分析可视化</span>
   </footer>
 
-  <script src="i18n.js?v=webui-refresh-state-20260517"></script>
-  <script src="app.js?v=webui-refresh-state-20260517"></script>
+  <script src="i18n.js?v=webui-g6-graph-engine-20260517"></script>
+  <script src="vendor/g6/g6.min.js?v=5.1.1"></script>
+  <script src="graph-g6.js?v=webui-g6-graph-engine-20260517"></script>
+  <script src="app.js?v=webui-g6-graph-engine-20260517"></script>
   <script src="timeline.js?v=webui-refresh-state-20260517"></script>
   <script src="report.js?v=webui-refresh-state-20260517"></script>
   <script src="runner.js?v=webui-refresh-state-20260517"></script>
