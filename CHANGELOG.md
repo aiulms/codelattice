@@ -6,6 +6,10 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Added
+
+- **WebUI Workspace Intelligence Pack**: the WebUI now detects multi-project workspaces and provides automatic sub-project discovery, language distribution analysis, unsupported module identification, and bulk snapshot generation. Workspace-level APIs (`/api/workspace/inventory`, `/api/workspace/analyze`, `/api/workspace/runs`, `/api/workspace/run/<id>`) enable scanning large directories for supported (Rust, Cangjie, ArkTS, TypeScript, C, C++, Python, Shell) and unsupported (C#, Java, Go, Swift, Kotlin) language modules without executing any target project code. The UI adds a Workspace tab with summary cards, language breakdown bars, project selection checkboxes with recommended/high-confidence marking, unsupported module tables, and analysis history. Workspace smoke tests validate inventory, recommended/single-project/error flows, and clean shutdown.
+
 ### Fixed
 
 - **WebUI Alpha usability for real project roots**: added a Project Radar inventory flow so selecting a broad workspace such as `/Users/.../cangjie` no longer fails immediately; the UI now shows supported child projects, recommends concrete analysis targets, and marks unsupported language modules such as C# as unsupported. Graph node details now include clickable incoming/outgoing relationship sections so a selected node can be investigated instead of behaving like a static picture.

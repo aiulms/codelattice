@@ -705,6 +705,22 @@ bash scripts/webui-viewer-smoke.sh              # viewer 结构验证 (35+ check
 | **Cleanup** | Dead Code / Reachability / External API / Framework Hints + cautions | cleanup.* (heuristic) |
 | **Release Review** | Breaking Change Risk / Doc Stale / Config Issues / Automation Graph + release cautions | releaseReview.* + automationGraph |
 | **Workflows** | 10 个场景预设（工具推荐 + stop-lines）和自动化图谱审查 | workflowPresets + automationGraph |
+| **🆕 Workspace** | 工作区发现：多项目扫描、语言分布、支持/暂不支持模块识别、批量分析、聚合摘要 | `/api/workspace/inventory` + `/api/workspace/analyze` |
+
+### Runner 模式（本地分析工作台）
+
+```bash
+bash scripts/webui-runner.sh --open
+```
+
+启动后浏览器可：
+- 直接分析单个项目
+- **选择大目录时自动跳到 Workspace 发现视图**，列出所有支持/暂不支持的子项目
+- 分析推荐项目（一键）或勾选子项目批量分析
+- 查看 Workspace 分析历史、每个子项目状态和 snapshot
+- 暂不支持的语言（C#、Java、Go、Swift、Kotlin）会标注为「暂不支持模块」
+
+**Workspace 扫描规则**：只读取目录结构和 manifest 文件名，不读取文件内容、不执行任何项目代码。上限 depth=5、entries=5000，超出后标记 `truncated=true`。
 
 ### Multi-Language Fixture Snapshot Matrix
 

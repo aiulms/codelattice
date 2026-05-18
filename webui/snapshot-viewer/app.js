@@ -1389,6 +1389,8 @@
   window.show = show;
   window.esc = esc;
   window.renderAll = renderAll;
+  window.renderWorkspace = renderWorkspace;
+  window.showWorkspaceOverview = showWorkspaceOverview;
   window.updateCautionBanner = updateCautionBanner;
   window.computeAndRenderDiff = computeAndRenderDiff;
   window.loadSnapshot = loadSnapshot;
@@ -1404,5 +1406,136 @@
     get: function () { return diffSnapshot; },
     set: function (value) { diffSnapshot = value; }
   });
+
+  // ── Workspace Rendering (Phase F) ───────────────────────────────────
+
+  function renderWorkspace(data) {
+    var host = document.getElementById("workspace-content");
+    if (!host) return;
+    var inv = data;
+    var sp = inv.supportedProjects || [];
+    var um = inv.unsupportedModules || [];
+    var sm = inv.summary || {};
+    var lb = inv.languageBreakdown || {};
+    var html = "";
+
+    // 摘要卡片
+    html += '<div class="workspace-summary-grid">';
+    html += card("workspace.supportedProjects", sm.supportedProjectCount + "/" + (sm.supportedProjectCount + sm.unsupportedModuleCount), "#059669");
+    html += card("workspace.snapshotCount", sm.totalCandidateCount, "#2563eb");
+    html += card("workspace.languageDistribution", sm.languageCount, "#7c3aed");
+    html += card("workspace.unsupportedModules", sm.unsupportedModuleCount, "#d97706");
+    html += "</div>";
+
+    // 语言分布
+    html += '<h3 style="margin:16px 0 8px;font-size:1.05em;">' + esc(t("workspace.languageDistribution")) + '</h3>';
+    html += '<div class="workspace-lang-breakdown">';
+    var entries = Object.entries(lb).sort(function(a,b){return b[1]-a[1];});
+    var maxCnt = entries.length ? entries[0][1] : 1;
+    entries.forEach(function(e){
+      var lang = e[0], cnt = e[1];
+      var pct = Math.round(cnt/maxCnt*100);
+      var isUnsup = lang.indexOf("unsupported:") === 0;
+      var cls = isUnsup ? "unsupported" : "";
+      html += '<div class="workspace-lang-row"><span class="workspace-lang-label ' + cls + '">' + esc(lang.replace("unsupported:","")) + '</span><span class="workspace-lang-bar-wrap"><span class="workspace-lang-bar ' + cls + '" style="width:' + pct + '%;"></span></span><span class="workspace-lang-count">' + cnt + '</span></div>';
+    });
+    html += "</div>";
+
+    // 支持的项目列表
+    html += '<h3 style="margin:16px 0 8px;font-size:1.05em;">' + esc(t("workspace.supportedProjects")) + ' (' + sp.length + ')</h3>';
+    if (sp.length === 0) {
+      html += '<p class="text-muted">' + esc(t("workspace.noSupported")) + '</p>';
+    } else {
+      html += '<div class="workspace-actions" style="margin-bottom:12px;"><button class="btn btn-sm btn-primary" id="ws-analyze-recommended" onclick="workspaceAnalyzeRecommended()">' + esc(t("workspace.analyzeRecommended")) + '</button> <button class="btn btn-sm btn-secondary" id="ws-analyze-selected" onclick="workspaceAnalyzeSelected()">' + esc(t("workspace.analyzeSelected")) + '</button></div>';
+      html += '<table class="workspace-table"><thead><tr><th>Name</th><th>Path</th><th>Language</th><th>Reason</th><th>Actions</th></tr></thead><tbody>';
+      sp.forEach(function(p){
+        var rl = p.recommended ? '<span class="badge badge-success">' + esc(t("projectRadar.recommended")) + '</span>' : "";
+        html += '<tr><td><label style="cursor:pointer;display:flex;align-items:center;gap:4px;">' +
+          '<input type="checkbox" class="ws-checkbox" value="' + esc(p.relativePath || p.name) + '" ' + (p.recommended?"checked":"") + ' data-path="' + esc(p.relativePath || "") + '">' +
+          esc(p.name) + ' ' + rl + '</label></td>' +
+          '<td class="text-muted" style="font-size:0.85em;">' + esc(p.relativePath || "") + '</td>' +
+          '<td>' + (p.languages || []).join(", ") + '</td>' +
+          '<td class="text-muted" style="font-size:0.8em;">' + esc(p.reason || "") + '</td>' +
+          '<td><button class="btn btn-sm btn-primary" onclick="workspaceLoadProjectSnapshot(\'' + esc(p.relativePath || p.name) + '\',\'' + esc(p.path || "") + '\')">' + esc(t("workspace.viewSnapshot")) + '</button></td>' +
+          '</tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // 暂不支持模块
+    html += '<h3 style="margin:16px 0 8px;font-size:1.05em;">' + esc(t("workspace.unsupportedModules")) + ' (' + um.length + ')</h3>';
+    if (um.length === 0) {
+      html += '<p class="text-muted">' + esc(t("common.no")) + '</p>';
+    } else {
+      html += '<table class="workspace-table"><thead><tr><th>Name</th><th>Path</th><th>Language</th><th>Reason</th></tr></thead><tbody>';
+      um.forEach(function(u){
+        html += '<tr><td><span class="badge badge-warning">' + esc(t("workspace.unsupportedModules")) + '</span> ' + esc(u.name || "?") + '</td>' +
+          '<td class="text-muted" style="font-size:0.85em;">' + esc(u.relativePath || "") + '</td>' +
+          '<td>' + (u.languages || []).join(", ") + '</td>' +
+          '<td class="text-muted" style="font-size:0.8em;">' + esc(u.reason || "") + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // 分析历史
+    html += '<h3 style="margin:16px 0 8px;font-size:1.05em;">' + esc(t("workspace.analysisHistory")) + '</h3>';
+    var runs = (window.WORKSPACE && WORKSPACE.state && WORKSPACE.state.runs) || [];
+    if (runs.length === 0) {
+      html += '<p class="text-muted" id="ws-no-runs-msg">' + esc(t("workspace.noSupported")) + '</p>';
+    }
+    html += '<div id="workspace-runs-list"></div>';
+
+    host.innerHTML = html;
+    if (runs.length > 0) renderWorkspaceRuns(runs);
+  }
+
+  function card(key, val, color) {
+    return '<div class="workspace-card"><div class="workspace-card-val" style="color:' + (color||"#111827") + '">' + esc(val) + '</div><div class="workspace-card-label">' + esc(t(key)) + '</div></div>';
+  }
+
+  function renderWorkspaceRuns(runs) {
+    var el = document.getElementById("workspace-runs-list");
+    if (!el) return;
+    var html = runs.map(function(r){
+      var sm = r.summary || {};
+      return '<div class="workspace-run-item" style="padding:10px;border:1px solid #e5e7eb;border-radius:6px;margin:6px 0;background:white;">' +
+        '<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">' +
+        '<strong>' + esc(r.workspaceId||"?") + '</strong>' +
+        '<span class="text-muted" style="font-size:0.8em;">' + esc(r.generatedAt||"") + '</span>' +
+        '<span class="badge badge-success">' + esc(sm.succeededProjectCount+" succeeded") + '</span>' +
+        (sm.failedProjectCount > 0 ? '<span class="badge badge-danger">' + esc(sm.failedProjectCount+" failed") + '</span>' : '') +
+        '</div>' +
+        '<div style="margin-top:6px;font-size:0.85em;">' +
+        (r.projects||[]).map(function(pj){
+          var cls = pj.status === "succeeded" ? "badge-success" : "badge-danger";
+          return '<span style="margin-right:8px;">' +
+            '<span class="badge ' + cls + '" style="font-size:0.75em;">' + esc(t("workspace.status."+pj.status)) + '</span> ' +
+            esc(pj.projectId||"?") + ' ' +
+            (pj.snapshotId ? '<a href="#" onclick="openWorkbenchSnapshot(null,\'' + esc(pj.snapshotId||"") + '\');return false;">' + esc(t("workspace.viewSnapshot")) + '</a>' : '') +
+            '</span>';
+        }).join("") +
+        '</div></div>';
+    }).join("");
+    el.innerHTML = html;
+  }
+
+  function showWorkspaceOverview(root) {
+    if (!window.RUNNER || !RUNNER.connected) { alert(t("runner.notConnected")); return; }
+    show("workspace");
+    var host = document.getElementById("workspace-content");
+    if (host) host.innerHTML = '<p class="text-muted">' + esc(t("workspace.scanning")) + '</p>';
+    workspaceScanInventory(root, function(err, inv) {
+      if (err) {
+        if (host) host.innerHTML = '<p class="text-muted">' + esc(t("workspace.noSupported")) + '</p>';
+        return;
+      }
+      renderWorkspace(inv);
+      workspaceLoadRuns(function(e, runs) {
+        if (!e && runs) { WORKSPACE.state.runs = runs; renderWorkspaceRuns(runs); }
+        var msg = document.getElementById("ws-no-runs-msg");
+        if (msg && runs && runs.length) msg.style.display = "none";
+      });
+    });
+  }
 
 })();

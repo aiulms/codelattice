@@ -1268,3 +1268,131 @@ pre.code-block {
 @media (max-width: 860px) {
   .automation-columns { grid-template-columns: 1fr; }
 }
+
+/* ── Workspace (Phase F) ──────────────────────────────────── */
+
+.workspace-caution { margin-bottom: 16px; }
+
+.workspace-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.workspace-card {
+  background: var(--clr-surface-solid);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 16px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.workspace-card-val {
+  font-size: 1.8em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.workspace-card-label {
+  font-size: 0.8em;
+  color: var(--clr-text-secondary);
+  margin-top: 4px;
+}
+
+.workspace-lang-breakdown {
+  background: var(--clr-surface-solid);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.workspace-lang-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.workspace-lang-label {
+  width: 110px;
+  font-size: 0.85em;
+  font-weight: 600;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.workspace-lang-label.unsupported { color: var(--clr-warning); }
+
+.workspace-lang-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: var(--clr-bg);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.workspace-lang-bar {
+  height: 100%;
+  background: var(--clr-primary);
+  border-radius: 4px;
+  min-width: 8px;
+  transition: width 0.3s ease;
+}
+
+.workspace-lang-bar.unsupported { background: var(--clr-warning); }
+
+.workspace-lang-count {
+  width: 32px;
+  font-size: 0.8em;
+  color: var(--clr-text-secondary);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.workspace-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.workspace-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--clr-surface-solid);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  font-size: 0.9em;
+}
+
+.workspace-table th, .workspace-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--clr-border);
+}
+
+.workspace-table th {
+  background: var(--clr-panel);
+  font-weight: 600;
+  font-size: 0.8em;
+  text-transform: uppercase;
+  color: var(--clr-text-secondary);
+}
+
+.workspace-table td { background: var(--clr-surface-solid); }
+
+.workspace-run-item {
+  transition: box-shadow 0.15s ease;
+}
+
+.workspace-run-item:hover {
+  box-shadow: var(--shadow-sm);
+  border-color: var(--clr-primary);
+}
+
+@media (max-width: 860px) {
+  .workspace-summary-grid { grid-template-columns: repeat(2, 1fr); }
+  .workspace-table { font-size: 0.8em; }
+  .workspace-card-val { font-size: 1.4em; }
+}

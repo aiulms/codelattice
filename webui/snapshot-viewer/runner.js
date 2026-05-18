@@ -627,7 +627,16 @@ function pickerAnalyzePath(){
       var msg=e.message+(e.hint?" — "+e.hint:"");
       document.getElementById("picker-hint").textContent=msg;
       showGenerationError(e, "picker");
+      // 如果是多项目错误，尝试转到工作区视图
+      if (typeof showWorkspaceOverview === "function" && e.hint && e.hint.indexOf("候选子项目") !== -1) {
+        showWorkspaceOverview(root);
+      }
     });
+  }).then(function(result) {
+    // analyzeAfterInventory may return null for multi_project
+    if (result === null && typeof showWorkspaceOverview === "function") {
+      showWorkspaceOverview(root);
+    }
   });
 }
 function pickerAnalyzeProfile(pid){
@@ -640,4 +649,112 @@ function pickerAnalyzeProfile(pid){
     openWorkbenchSnapshot(d.data.snapshot,d.data.snapshotId,{tab:"dashboard"});
     pickerRefresh();
   }).catch(function(e){alert(e.message); document.getElementById("picker-hint").textContent=CTL_I18N.t("picker.openProject");});
+}
+
+// ── Workspace API ──────────────────────────────────────────────────
+var WORKSPACE = window.WORKSPACE || {};
+WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null };
+
+function workspaceScanInventory(root, cb) {
+  if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
+  var hint = document.getElementById("picker-hint");
+  if (hint) hint.textContent = tr("workspace.scanning");
+  rapi("/api/workspace/inventory?root=" + encodeURIComponent(root)).then(function(d) {
+    WORKSPACE.state.inventory = d.data;
+    if (cb) cb(null, d.data);
+    if (hint) hint.textContent = tr("workspace.scanResult", {
+      supported: d.data.summary.supportedProjectCount,
+      unsupported: d.data.summary.unsupportedModuleCount
+    });
+  }).catch(function(e) {
+    if (cb) cb(e);
+    if (hint) hint.textContent = tr("workspace.noSupported");
+    console.error("workspace scan error:", e);
+  });
+}
+
+function workspaceAnalyze(root, mode, projectIds, cb) {
+  if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
+  var body = { root: root, mode: mode, redactRoot: true };
+  if (projectIds && projectIds.length) body.projectIds = projectIds;
+  rapi("/api/workspace/analyze", { method: "POST", body: body }).then(function(d) {
+    WORKSPACE.state.currentRunId = d.data.workspaceId;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace analyze error:", e);
+    if (cb) cb(e);
+  });
+}
+
+function workspaceLoadRuns(cb) {
+  if (!RUNNER.connected) return;
+  rapi("/api/workspace/runs").then(function(d) {
+    WORKSPACE.state.runs = d.data || [];
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace runs error:", e);
+    if (cb) cb(e);
+  });
+}
+
+function workspaceGetRun(wid, cb) {
+  if (!RUNNER.connected) return;
+  rapi("/api/workspace/run/" + wid).then(function(d) {
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace run get error:", e);
+    if (cb) cb(e);
+  });
+}
+
+// ── Workspace Actions ─────────────────────────────────────────────
+
+function workspaceAnalyzeRecommended() {
+  var inv = WORKSPACE.state.inventory;
+  if (!inv) return;
+  var root = inv.root || "";
+  workspaceAnalyze(root, "recommended", null, function(err, ws) {
+    if (err) { alert("Workspace analysis failed: " + (err.message || err)); return; }
+    WORKSPACE.state.currentRunId = ws.workspaceId;
+    show("workspace");
+    workspaceLoadRuns(function() {
+      renderWorkspace(WORKSPACE.state.inventory);
+      // Open first succeeded snapshot
+      var succeeded = (ws.projects || []).filter(function(p) { return p.status === "succeeded"; });
+      if (succeeded.length > 0) {
+        openWorkbenchSnapshot(null, succeeded[0].snapshotId, { tab: "dashboard" });
+      }
+    });
+  });
+}
+
+function workspaceAnalyzeSelected() {
+  var inv = WORKSPACE.state.inventory;
+  if (!inv) return;
+  var root = inv.root || "";
+  var cbs = document.querySelectorAll(".ws-checkbox:checked");
+  var ids = [];
+  cbs.forEach(function(cb) { ids.push(cb.getAttribute("data-path") || cb.value); });
+  if (ids.length === 0) { alert(t("workspace.selectProjects")); return; }
+  workspaceAnalyze(root, "selected", ids, function(err, ws) {
+    if (err) { alert("Workspace analysis failed: " + (err.message || err)); return; }
+    WORKSPACE.state.currentRunId = ws.workspaceId;
+    show("workspace");
+    workspaceLoadRuns(function() {
+      renderWorkspace(WORKSPACE.state.inventory);
+    });
+  });
+}
+
+function workspaceLoadProjectSnapshot(projId, projPath) {
+  if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
+  var hint = document.getElementById("picker-hint");
+  if (hint) hint.textContent = tr("gen.generating");
+  rapi("/api/quick-analyze", { method: "POST", body: { root: projPath, language: "auto" } }).then(function(d) {
+    openWorkbenchSnapshot(d.data.snapshot, d.data.snapshotId, { tab: "dashboard" });
+    pickerRefresh();
+  }).catch(function(e) {
+    var msg = e.message + (e.hint ? " — " + e.hint : "");
+    if (hint) hint.textContent = msg;
+  });
 }

@@ -315,11 +315,38 @@ Runner 模式生成 snapshot 时会 best-effort 调用 `codelattice_automation_g
 | 适用场景 | AI 编程助手工作流 | 人类项目理解 / 代码走查 |
 | 置信度处理 | AI 自行判断 | UI 高亮 + caution banner |
 
-## 六、后续方向（非本轮）
+---
+
+## 七、Workspace Mode（多项目工作区）
+
+> **Phase F — 2026-05-18**  
+> 详见 [webui-workspace-smoke.sh](../../scripts/webui-workspace-smoke.sh)
+
+Workspace Mode 允许用户选择一个包含多个项目的大目录（如 monorepo），WebUI Runner 自动发现可分析子项目和暂不支持模块。
+
+### 7.1 Runner API
+
+| Endpoint | Method | 说明 |
+|----------|--------|------|
+| `/api/workspace/inventory?root=<path>` | GET | 扫描目录，返回支持/不支持项目列表、语言分布 |
+| `/api/workspace/analyze` | POST | 批量分析（recommended/selected/all 三种模式）|
+| `/api/workspace/runs` | GET | 历史 workspace run 列表 |
+| `/api/workspace/run/<id>` | GET | 某次 run 详情 |
+
+### 7.2 识别规则
+
+支持 8 种语言（Rust/Cangjie/ArkTS/TS/C/C++/Python/Shell），暂不支持但可识别 C#/Java/Go/Swift/Kotlin。只读取目录结构和文件名，不执行目标项目代码。扫描上限 depth=5、entries=5000。
+
+### 7.3 存储与合约
+
+Workspace run 存储在 `.codelattice-webui/workspaces/`（gitignored），不写入目标项目路径。workspaceRun 是 runner 内部状态，不改变单 snapshot schema。
+
+---
+
+## 八、后续方向（非本轮）
 
 - Tauri / Electron shell 包装
 - 实时 MCP streaming 到 WebUI
 - 符号级别 incremental update
 - 跨版本 snapshot diff / compare
-- 多项目 workspace 视图
 - 插件化 view extension system

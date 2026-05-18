@@ -1,9 +1,11 @@
 # CodeLattice WebUI Snapshot Contract — V1
 
-> **日期：** 2026-05-16
+> **日期：** 2026-05-18
 > **版本：** `webui.snapshot.v1`
-> **状态：** Readiness / draft（伴随 WebUI preflight 一起冻结）
+> **状态：** Active（WebUI Phase F — Workspace Intelligence Pack 已落地）
 > **关联文档：** [README.md](./README.md)、[webui-mvp.md](./webui-mvp.md)
+>
+> **Workspace 说明：** `workspaceRun` 是 WebUI Runner 内部状态，存储在 `.codelattice-webui/workspaces/` 下，不强行改变单 `CodeLatticeWebSnapshotV1` 的 schema。Workspace analyze 会为每个子项目生成独立 snapshot，最后在 workspace run JSON 中聚合结果。
 
 ---
 

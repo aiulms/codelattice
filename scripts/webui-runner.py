@@ -19,26 +19,64 @@ LANG_MARKERS = {
     "tsconfig.json": "typescript",
     "pyproject.toml": "python",
     "setup.py": "python",
-    "build.sh": "shell",
-    "test.sh": "shell",
-    "release.sh": "shell",
-    "install.sh": "shell",
+    "requirements.txt": "python",
+    "build-profile.json5": "arkts",
     "CMakeLists.txt": "c/cpp",
     "compile_commands.json": "c/cpp",
+    "Makefile": "c/cpp",
+    "go.mod": "unsupported:go",
     ".sln": "unsupported:csharp",
     ".csproj": "unsupported:csharp",
+    "pom.xml": "unsupported:java",
+    "build.gradle": "unsupported:java",
+    "build.gradle.kts": "unsupported:kotlin",
+    "Package.swift": "unsupported:swift",
 }
-LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "c": 5, "cpp": 5, "shell": 6, "unsupported:csharp": 9}
+LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "c": 5, "cpp": 5, "shell": 6, "unsupported:csharp": 9, "unsupported:go": 9, "unsupported:java": 9, "unsupported:kotlin": 9, "unsupported:swift": 9}
+
+# Workspace scan: file extensions for language detection without manifest files
+WORKSPACE_EXT_LANG = {
+    ".cj": "cangjie",
+    ".ets": "arkts",
+    ".rs": "rust",
+    ".ts": "typescript", ".tsx": "typescript",
+    ".py": "python",
+    ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".ksh": "shell", ".bats": "shell",
+    ".c": "c", ".h": "c",
+    ".cpp": "cpp", ".cc": "cpp", ".cxx": "cpp", ".hpp": "cpp", ".hh": "cpp", ".hxx": "cpp",
+    ".cs": "unsupported:csharp",
+    ".java": "unsupported:java",
+    ".go": "unsupported:go",
+    ".swift": "unsupported:swift",
+    ".kt": "unsupported:kotlin", ".kts": "unsupported:kotlin",
+}
+
+# Workspace scan skip dirs
+WORKSPACE_SKIP_DIRS = {".git", ".gitnexus", ".codelattice-webui", "target",
+    "node_modules", "dist", "build", "__pycache__", ".venv", "venv"}
+
+WORKSPACE_MAX_DEPTH = 5
+WORKSPACE_MAX_ENTRIES = 5000
+WORKSPACE_ANALYZE_MAX_PROJECTS = 20
 
 
 def ok(data=None): return {"success": True, "data": data if data is not None else {}, "error": None, "hint": None}
 def err(msg, code=400, hint=None):
     return {"success": False, "data": None, "error": msg, "hint": hint or "", "status": code}
 
+def id_path_match(project, id_set):
+    """Check if a project matches any ID in id_set (by path, relativePath, or name)."""
+    if not id_set: return False
+    for pid in id_set:
+        if pid == project.get("path", "") or pid == project.get("relativePath", "") or pid == project.get("name", ""):
+            return True
+    return False
+
 
 class Workbench(http.server.SimpleHTTPRequestHandler):
     sn_dir = str(REPO_ROOT / ".codelattice-webui" / "snapshots")
     pf_file = str(REPO_ROOT / ".codelattice-webui" / "profiles.json")
+    ws_dir = str(REPO_ROOT / ".codelattice-webui" / "workspaces")
 
     def __init__(self, *a, **kw):
         self.dir = str(STATIC_D)
@@ -193,7 +231,343 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             lines += [f"- {c['path']} (unsupported:{', '.join(c.get('unsupportedLanguages') or [])})" for c in unsupported[:8]]
         return "\n".join(lines)[:1600]
 
+    def _safe_root(self, root):
+        """Prevent path traversal: root must be absolute and exist."""
+        if not root or not root.strip(): return None, err("root is required", 400)
+        root = os.path.abspath(root.strip())
+        if ".." in os.path.relpath(root, "/"):
+            return None, err("invalid path", 400, "path traversal detected")
+        if not os.path.exists(root):
+            return None, err("root not found", 400, f"path does not exist: {root}")
+        if not os.path.isdir(root):
+            return None, err("not a directory", 400, f"path is not a directory: {root}")
+        return root, None
+
+    def _workspace_scan(self, root):
+        """Scan directory tree for supported and unsupported project markers.
+        Returns (entries, truncated). Heuristic only — no file content read, no scripts executed.
+        Skips directories that are inside already-detected project roots."""
+        entries = []
+        scanned = 0
+        truncated = False
+        # Track parent project directories to skip their children
+        project_roots = set()
+        for base, dirs, files in os.walk(root):
+            rel = os.path.relpath(base, root)
+            depth = 0 if rel == "." else rel.count(os.sep) + 1
+            # 排除目录
+            dirs[:] = [d for d in dirs if d not in WORKSPACE_SKIP_DIRS and not d.startswith(".tmp")]
+            if depth > WORKSPACE_MAX_DEPTH:
+                dirs[:] = []
+                continue
+            if scanned + len(dirs) > WORKSPACE_MAX_ENTRIES:
+                truncated = True
+                dirs[:] = dirs[:max(0, WORKSPACE_MAX_ENTRIES - scanned)]
+            scanned += len(dirs)
+            # 跳过已在父项目内部的子目录
+            skip_children = False
+            for pr in project_roots:
+                if base.startswith(pr + os.sep):
+                    skip_children = True
+                    break
+            if skip_children:
+                continue
+            # 根目录本身不算子项目
+            if rel == ".": continue
+            # 检测 marker 文件
+            found_markers_raw = [m for m in LANG_MARKERS if m in files]
+            found_markers_raw += [m for m in LANG_MARKERS if any(f.endswith(m) for f in files)]
+            # 去重
+            seen = set(); found_markers = [m for m in found_markers_raw if not (m in seen or seen.add(m))]
+            # 决定是否将此目录识别为项目/模块
+            if not found_markers:
+                # 回退：检查文件扩展名
+                ext_langs = set()
+                for name in files[:200]:
+                    _, ext = os.path.splitext(name)
+                    lang = WORKSPACE_EXT_LANG.get(ext.lower(), "")
+                    if lang: ext_langs.add(lang)
+            has_langs = bool(found_markers) or bool(ext_langs)
+            if not has_langs:
+                continue
+            if not found_markers:
+                found_markers = []
+            if has_langs:
+                # 确定语言
+                langs = []
+                for m in found_markers:
+                    lang = LANG_MARKERS.get(m, "")
+                    if lang and lang not in langs:
+                        langs.append(lang)
+                # 也扫描扩展名补充
+                ext_langs = set()
+                for name in files[:120]:
+                    _, ext = os.path.splitext(name)
+                    elang = WORKSPACE_EXT_LANG.get(ext.lower(), "")
+                    if elang and elang not in langs: ext_langs.add(elang)
+                for el in ext_langs:
+                    if el not in langs: langs.append(el)
+                if not langs: continue
+                # 区分 supported / unsupported
+                supported = [l for l in langs if not l.startswith("unsupported:")]
+                unsupported = [l.split(":", 1)[1] for l in langs if l.startswith("unsupported:")]
+                # 确定主要语言（用于分析）
+                langs_no_cc = [l for l in supported if l not in ("c/cpp", "c", "cpp")]
+                analysis_lang = langs_no_cc[0] if langs_no_cc else ("cpp" if any(l in ("c/cpp", "c", "cpp") for l in supported) else "auto")
+                # 如果当前目录被识别为项目根（有 marker 文件），标记以跳过其子目录
+                if found_markers:
+                    project_roots.add(base)
+                confidence = "high" if found_markers else ("medium" if ext_langs else "low")
+                # 确定 reason
+                if found_markers:
+                    reason = ", ".join(found_markers[:3]) + " detected"
+                else:
+                    reason = "file extensions: " + ", ".join(sorted(ext_langs)[:4])
+                entry = {
+                    "path": base,
+                    "relativePath": rel,
+                    "name": os.path.basename(base),
+                    "languages": langs[:6],
+                    "confidence": confidence,
+                    "reason": reason,
+                    "markers": found_markers[:5],
+                    "supported": bool(supported),
+                    "vendorLike": "vendor" in rel.lower() or "third_party" in rel.lower(),
+                    "depth": depth,
+                }
+                if supported:
+                    entry["recommended"] = bool(langs_no_cc) and depth <= 3 and bool(found_markers)
+                entries.append(entry)
+            if scanned >= WORKSPACE_MAX_ENTRIES:
+                truncated = True
+                break
+        return entries, truncated
+
     def _prepare_analysis_target(self, root, lang):
+        if lang != "auto":
+            return root, lang, None
+        inv = self._project_inventory_data(root)
+        status = inv.get("status")
+        if status == "single_candidate" and inv.get("recommendedRoot"):
+            return inv["recommendedRoot"], inv.get("recommendedLanguage") or "auto", None
+        if status in {"multi_project", "unsupported_only", "empty"}:
+            return root, lang, err("project selection required", 400, self._inventory_hint(inv))
+        return root, lang, None
+
+    def _workspace_inventory_data(self, root):
+        """Build workspace inventory response."""
+        # 1. 根目录自身检测
+        try:
+            root_files = [p.name for p in Path(root).iterdir() if p.is_file()]
+        except Exception:
+            return err("cannot read directory", 400, f"permission denied or unreadable: {root}")
+        root_markers = [m for m in LANG_MARKERS if m in root_files]
+        root_markers += [m for m in LANG_MARKERS if any(f.endswith(m) for f in root_files)]
+        root_langs = []
+        for m in set(root_markers):
+            lang = LANG_MARKERS.get(m, "")
+            if lang and lang not in root_langs: root_langs.append(lang)
+        # 扩展名补充
+        root_ext_langs = set()
+        for name in root_files[:120]:
+            _, ext = os.path.splitext(name)
+            elang = WORKSPACE_EXT_LANG.get(ext.lower(), "")
+            if elang: root_ext_langs.add(elang)
+        for el in root_ext_langs:
+            if el not in root_langs: root_langs.append(el)
+        root_supported = [l for l in root_langs if not l.startswith("unsupported:")]
+        root_unsupported = [l.split(":", 1)[1] for l in root_langs if l.startswith("unsupported:")]
+
+        # 2. 子目录扫描
+        entries, truncated = self._workspace_scan(root)
+
+        # 3. 分类
+        supported_projects = [e for e in entries if e.get("supported")]
+        unsupported_modules = [e for e in entries if not e.get("supported")]
+        self_projects = [e for e in supported_projects if e.get("recommended", False)]
+        if not self_projects: self_projects = supported_projects[:4]  # pick top
+
+        # 4. 语言分布
+        lang_breakdown = {}
+        for e in entries:
+            for l in e.get("languages", []):
+                key = l.replace("c/cpp", "c/cpp")
+                lang_breakdown[key] = lang_breakdown.get(key, 0) + 1
+
+        # 5. 生成时间
+        generated_at = self._now()
+
+        return ok({
+            "root": root,
+            "rootLabel": os.path.basename(root) or root,
+            "generatedAt": generated_at,
+            "staticOnly": True,
+            "truncated": truncated,
+            "summary": {
+                "supportedProjectCount": len(supported_projects),
+                "unsupportedModuleCount": len(unsupported_modules),
+                "languageCount": len(lang_breakdown),
+                "recommendedProjectCount": len(self_projects),
+                "totalCandidateCount": len(entries),
+            },
+            "languageBreakdown": lang_breakdown,
+            "supportedProjects": supported_projects,
+            "unsupportedModules": unsupported_modules,
+            "warnings": [],
+            "generatedFrom": {
+                "staticAnalysis": True,
+                "filesContentRead": False,
+                "scriptsExecuted": False,
+                "runtimeVerified": False,
+            },
+        })
+
+    def _workspace_inventory(self, qs):
+        root = (qs.get("root", [""])[0] or "").strip()
+        safe_root, blocker = self._safe_root(root)
+        if blocker: return blocker
+        return self._workspace_inventory_data(safe_root)
+
+    def _workspace_analyze(self, body):
+        """Analyze a workspace: run snapshot generation on multiple sub-projects."""
+        root = (body.get("root") or "").strip()
+        safe_root, blocker = self._safe_root(root)
+        if blocker: return blocker
+        # 先获取 inventory
+        inv_result = self._workspace_inventory_data(safe_root)
+        if not inv_result.get("success"):
+            return inv_result
+        inv = inv_result["data"]
+        all_projects = inv.get("supportedProjects", [])
+        if not all_projects:
+            return err("no supported projects found in workspace", 400,
+                       "请选择更具体的子项目，或使用 GET /api/workspace/inventory 查看详情。")
+        mode = body.get("mode", "recommended").strip()
+        project_ids = body.get("projectIds") or []
+        redact = body.get("redactRoot", True)
+        # 筛选目标项目
+        if mode == "recommended":
+            targets = [p for p in all_projects if p.get("recommended")]
+            if not targets: targets = all_projects[:4]
+        elif mode == "selected":
+            id_set = set(project_ids)
+            targets = [p for p in all_projects if id_path_match(p, id_set)]
+            if not targets: return err("no matching projects for selected IDs", 400,
+                                       f"available IDs: {[p.get('relativePath','') for p in all_projects[:10]]}")
+        elif mode == "all":
+            if len(all_projects) > WORKSPACE_ANALYZE_MAX_PROJECTS:
+                return err("too many projects", 400,
+                           f"共 {len(all_projects)} 个子项目，超过单次上限 {WORKSPACE_ANALYZE_MAX_PROJECTS}。请选择部分项目分析。")
+            targets = all_projects
+        else:
+            return err("invalid mode", 400, "mode must be: recommended, selected, or all")
+        # 执行分析
+        ws_id = self._nid()
+        ws_entry = {
+            "workspaceId": ws_id,
+            "root": safe_root,
+            "generatedAt": self._now(),
+            "summary": {"requestedProjectCount": len(targets), "succeededProjectCount": 0,
+                        "failedProjectCount": 0, "snapshotCount": 0,
+                        "totalSourceFiles": 0, "totalSymbols": 0, "totalEdges": 0},
+            "projects": [],
+            "unsupportedModules": inv.get("unsupportedModules", []),
+            "warnings": [],
+            "generatedFrom": {"staticAnalysis": True, "scriptsExecuted": False, "runtimeVerified": False},
+        }
+        for proj in targets:
+            proj_path = proj["path"]
+            proj_lang = self._detect_project_language(proj_path, proj.get("languages", []))
+            pj_entry = {
+                "projectId": proj.get("relativePath", os.path.basename(proj_path)),
+                "path": proj_path,
+                "language": proj_lang,
+                "status": "pending",
+                "snapshotId": None,
+                "error": None,
+                "summary": None,
+            }
+            try:
+                gen_body = {"root": proj_path, "language": proj_lang, "full": True, "redactRoot": redact, "label": proj.get("name", "")}
+                gen_result = self._generate(gen_body)
+                if gen_result.get("success"):
+                    pj_entry["status"] = "succeeded"
+                    pj_entry["snapshotId"] = gen_result["data"].get("id", "")
+                    pj_entry["summary"] = gen_result["data"].get("summary", {})
+                    ws_entry["summary"]["succeededProjectCount"] += 1
+                    ws_entry["summary"]["snapshotCount"] += 1
+                    ws_entry["summary"]["totalSourceFiles"] += pj_entry["summary"].get("sourceFileCount", 0)
+                    ws_entry["summary"]["totalSymbols"] += pj_entry["summary"].get("symbolCount", 0)
+                else:
+                    pj_entry["status"] = "failed"
+                    pj_entry["error"] = gen_result.get("error", "generation failed")
+                    ws_entry["summary"]["failedProjectCount"] += 1
+                    ws_entry["warnings"].append(f"{proj.get('name','')}: {gen_result.get('error','unknown error')}")
+            except Exception as exc:
+                pj_entry["status"] = "failed"
+                pj_entry["error"] = str(exc)
+                ws_entry["summary"]["failedProjectCount"] += 1
+                ws_entry["warnings"].append(f"{proj.get('name','')}: {str(exc)}")
+            ws_entry["projects"].append(pj_entry)
+        # 保存 workspace run
+        self._save_workspace_run(ws_entry)
+        return ok(ws_entry)
+
+    def _detect_project_language(self, proj_path, langs):
+        """Determine analysis language from project path and detected languages."""
+        supported = [l for l in langs if not l.startswith("unsupported:") and l != "c/cpp"]
+        if supported: return supported[0]
+        # fallback: check markers at path
+        try:
+            files = [p.name for p in Path(proj_path).iterdir() if p.is_file()]
+        except Exception:
+            files = []
+        for m, lang in LANG_MARKERS.items():
+            if (m in files or any(f.endswith(m) for f in files)) and not lang.startswith("unsupported:"):
+                if lang == "c/cpp": return "cpp"
+                return lang
+        return "auto"
+
+    def _save_workspace_run(self, entry):
+        self._ensure(self.ws_dir)
+        wid = entry["workspaceId"]
+        fp = os.path.join(self.ws_dir, f"workspace-{wid}.json")
+        self._save_json(fp, entry)
+
+    def _load_workspace_runs(self):
+        self._ensure(self.ws_dir)
+        runs = []
+        try:
+            for fn in sorted(os.listdir(self.ws_dir), reverse=True):
+                if not fn.endswith(".json"): continue
+                d = self._load_json(os.path.join(self.ws_dir, fn))
+                if d and d.get("workspaceId"): runs.append(d)
+        except Exception:
+            pass
+        return runs
+
+    def _workspace_runs(self):
+        return ok(self._load_workspace_runs())
+
+    def _workspace_run_get(self, wid):
+        if not wid or "/" in wid or "\\" in wid or ".." in wid:
+            return err("invalid workspace id", 400)
+        fp = os.path.join(self.ws_dir, f"workspace-{wid}.json")
+        d = self._load_json(fp)
+        if not d: return err("workspace run not found", 404)
+        return ok(d)
+
+    def _workspace_inventory_hint(self, inv):
+        """Generate human-readable hint from inventory data."""
+        lines = [f"工作区扫描结果：{inv['rootLabel']}"]
+        sp = inv.get("supportedProjectCount", 0)
+        um = inv.get("unsupportedModuleCount", 0)
+        if sp > 0:
+            lines.append(f"发现 {sp} 个可分析子项目，建议先分析推荐项目。")
+        if um > 0:
+            lines.append(f"发现 {um} 个暂不支持的语言模块。")
+        lines.append("只读取目录结构和文件名，不读取文件内容、不执行项目代码。")
+        return "\n".join(lines)[:1000]
         if lang != "auto":
             return root, lang, None
         inv = self._project_inventory_data(root)
@@ -241,6 +615,11 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/fs/roots": return self._r(self._fs_roots)
         if p.path=="/api/fs/list": return self._r(lambda:self._fs_list(urllib.parse.parse_qs(p.query)))
         if p.path=="/api/fs/validate-root": return self._r(lambda:self._fs_validate(urllib.parse.parse_qs(p.query)))
+        if p.path=="/api/workspace/inventory": return self._r(lambda:self._workspace_inventory(urllib.parse.parse_qs(p.query)))
+        if p.path=="/api/workspace/runs": return self._r(self._workspace_runs)
+        if p.path.startswith("/api/workspace/run/"):
+            wid = p.path.split("/api/workspace/run/", 1)[1]
+            return self._r(lambda: self._workspace_run_get(wid))
         return super().do_GET()
 
     def do_POST(self):
@@ -251,6 +630,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/mcp/jobs": return self._r(lambda:self._create_job(self._rb()))
         if p.path=="/api/quick-analyze": return self._r(self._quick_analyze)
         if p.path=="/api/fs/pick-directory": return self._r(self._fs_pick_directory)
+        if p.path=="/api/workspace/analyze": return self._r(lambda:self._workspace_analyze(self._rb()))
         if p.path.startswith("/api/mcp/job/") and p.path.endswith("/cancel"):
             jid=p.path.split("/api/mcp/job/",1)[1].split("/",1)[0]
             return self._r(lambda:self._cancel_job(jid))

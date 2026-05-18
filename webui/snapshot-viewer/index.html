@@ -196,6 +196,7 @@
         <button class="tab-btn" data-tab="diff" role="tab" aria-selected="false" data-i18n="tab.diff">对比</button>
         <button class="tab-btn" data-tab="timeline" role="tab" aria-selected="false" data-i18n="tab.timeline">时间线</button>
         <button class="tab-btn" data-tab="report" role="tab" aria-selected="false" data-i18n="tab.report">报告</button>
+       <button class="tab-btn" data-tab="workspace" role="tab" aria-selected="false" data-i18n="tab.workspace">Workspace</button>
       </nav>
 
       <!-- GeneratedFrom Flags Bar -->
@@ -471,6 +472,14 @@
           <strong>&#9888; <span data-i18n="caution.staticReview">仅静态审查 — 不是发布门。</span></strong>
         </div>
         <div id="report-content"></div>
+      </section>
+
+      <!-- Workspace View (Phase F) -->
+      <section id="view-workspace" class="view-section" role="tabpanel" style="display:none;">
+        <div class="workspace-caution caution-box">
+          <strong>&#9888; <span data-i18n="workspace.staticScanHint">仅通过静态扫描目录结构和文件名识别，未读取文件内容、不执行项目代码。</span></strong>
+        </div>
+        <div id="workspace-content"></div>
       </section>
 
       </div><!-- end loaded-content -->
