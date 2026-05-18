@@ -645,6 +645,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             "cleanupFirst": cleanup_first,
             "crossProjectSignals": cross,
             "crossProjectGraphSummary": self._ws_insights_graph_summary(run),
+            "crossProjectImpactHints": self._ws_insights_impact_hints(run),
             "cautions": [
                 "workspace insights are heuristic and static-only",
                 "no project code was executed",
@@ -1492,6 +1493,584 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             return err("graph build failed", 500, error)
         return ok(graph)
 
+    # ── Cross-Project Impact Analysis ────────────────────────────────
+
+    def _workspace_impact_get(self, qs):
+        """GET /api/workspace/impact?runId=...&projectId=...&direction=both"""
+        params = {k: (v[0] if isinstance(v, list) and len(v) > 0 else v) for k, v in qs.items()}
+        return self._workspace_impact_dispatch(params)
+
+    def _workspace_impact_post(self, body):
+        """POST /api/workspace/impact"""
+        return self._workspace_impact_dispatch(body)
+
+    def _workspace_impact_dispatch(self, params):
+        """共享 impact dispatch：验证输入、加载 run、构建 graph、resolve target、遍历、评分。"""
+        run_id = params.get("runId") or params.get("workspaceRunId") or ""
+        if not run_id:
+            return err("runId (or workspaceRunId) is required", 400,
+                       "Provide runId from a workspace analyze run.")
+        fp = os.path.join(self.ws_dir, f"workspace-{run_id}.json")
+        run = self._load_json(fp)
+        if not run:
+            return err("workspace run not found", 404,
+                       f"runId={run_id} not found. Use GET /api/workspace/runs to list available runs.")
+
+        # 方向验证
+        direction = params.get("direction", "both")
+        if direction not in ("downstream", "upstream", "both"):
+            return err("invalid direction; must be downstream, upstream, or both", 400)
+
+        # 构建 graph
+        include_unsup = params.get("includeUnsupported", True)
+        opts = {"includeConfigRefs": True, "includeScriptRefs": True,
+                "includeUnsupported": include_unsup, "limit": 1000}
+        graph, graph_err = self._workspace_graph_build(run, opts=opts)
+        if graph_err or not graph:
+            return err("graph build failed — cannot run impact analysis", 500,
+                       graph_err or "empty graph")
+
+        nodes = graph.get("nodes", [])
+        edges = graph.get("edges", [])
+
+        # Target resolution
+        target_input = params.get("target") if isinstance(params.get("target"), dict) else {}
+        # 扁平参数也接受
+        if not target_input:
+            target_input = {}
+        for flat_key in ("targetNodeId", "projectId", "path", "snapshotId", "query"):
+            if flat_key in params and flat_key not in target_input:
+                target_input[flat_key] = params[flat_key]
+
+        resolved = self._ws_impact_resolve_target(nodes, target_input, run)
+        if not resolved.get("resolvedNodeId"):
+            # 返回 structured unknown target result 而不是 error
+            return ok(self._ws_impact_unknown_result(run_id, target_input, resolved, direction, graph))
+
+        max_depth = min(int(params.get("maxDepth", 3)), 10)
+        limit = min(int(params.get("limit", 100)), 500)
+        result = self._ws_impact_analyze(run_id, resolved, nodes, edges,
+                                          direction, max_depth, limit, include_unsup, graph)
+        return ok(result)
+
+    def _ws_impact_resolve_target(self, nodes, target_input, run):
+        """Target resolution：在 graph nodes 中查找目标节点。
+        优先级：exact nodeId > projectId > snapshotId > exact path > suffix path > label > fuzzy > unknown"""
+        candidates = []
+
+        # 1. Exact node ID
+        nid = target_input.get("targetNodeId", "")
+        if nid:
+            for n in nodes:
+                if n["id"] == nid:
+                    return {"resolvedNodeId": n["id"], "resolvedKind": n["kind"],
+                            "label": n.get("label", ""), "path": n.get("path", ""),
+                            "language": n.get("language", ""),
+                            "resolutionConfidence": 1.0,
+                            "resolutionReason": "exact-node-id"}
+
+        # 2. Exact projectId
+        pid = target_input.get("projectId", "")
+        if pid:
+            for n in nodes:
+                if n.get("projectId") == pid or n.get("projectId") == pid:
+                    candidates.append((n, 1.0, "exact-project-id"))
+                elif n.get("projectId", "").endswith("/" + pid):
+                    candidates.append((n, 0.95, "project-id-suffix"))
+
+        # 3. Exact snapshotId → project node
+        sid = target_input.get("snapshotId", "")
+        if sid:
+            for n in nodes:
+                if n.get("metadata", {}).get("snapshotId") == sid:
+                    candidates.append((n, 0.95, "exact-snapshot-id"))
+
+        # 4. Path match
+        path_query = target_input.get("path", "")
+        if path_query:
+            for n in nodes:
+                np = n.get("path", "") or n.get("relativePath", "")
+                if np == path_query:
+                    candidates.append((n, 0.90, "exact-path"))
+                elif np.endswith(path_query) or path_query.endswith(np.split("/")[-1] if "/" in np else np):
+                    candidates.append((n, 0.75, "suffix-path"))
+
+        # 5. Label match
+        label_query = target_input.get("query", "") or target_input.get("label", "") or pid
+        if label_query and not candidates:
+            for n in nodes:
+                nl = n.get("label", "").lower()
+                nq = label_query.lower()
+                if nl == nq:
+                    candidates.append((n, 0.65, "exact-label"))
+                elif nq in nl or nl in nq:
+                    candidates.append((n, 0.45, "fuzzy-contains"))
+
+        # 排序取最高 confidence
+        if candidates:
+            candidates.sort(key=lambda x: -x[1])
+            # 如果并列，降级
+            top_conf = candidates[0][1]
+            top_ties = [c for c in candidates if c[1] == top_conf]
+            n, conf, reason = top_ties[0]
+            caution = ""
+            if len(top_ties) > 1:
+                conf = max(conf - 0.1, 0.1)
+                caution = f"ambiguous target: {len(top_ties)} candidates with confidence {top_conf}"
+            return {"resolvedNodeId": n["id"], "resolvedKind": n["kind"],
+                    "label": n.get("label", ""), "path": n.get("path", ""),
+                    "language": n.get("language", ""),
+                    "resolutionConfidence": round(conf, 2),
+                    "resolutionReason": reason,
+                    "caution": caution,
+                    "resolutionCandidates": [{"id": c[0]["id"], "label": c[0].get("label", ""),
+                                              "confidence": c[1], "reason": c[2]} for c in candidates[:5]]}
+
+        # 没有找到
+        return {"resolvedNodeId": None, "resolvedKind": "unknown",
+                "label": label_query or path_query or nid or "",
+                "path": "", "language": "",
+                "resolutionConfidence": 0.0,
+                "resolutionReason": "no-match"}
+
+    def _ws_impact_unknown_result(self, run_id, target_input, resolved, direction, graph):
+        """target resolution 失败时返回的 structured unknown result。"""
+        return {
+            "schemaVersion": "workspace.impact.v1",
+            "workspaceRunId": run_id,
+            "target": {
+                "input": json.dumps(target_input) if isinstance(target_input, dict) else str(target_input),
+                "resolvedNodeId": None, "resolvedKind": "unknown",
+                "label": resolved.get("label", ""), "path": "",
+                "language": "", "resolutionConfidence": 0.0,
+                "resolutionReason": resolved.get("resolutionReason", "no-match"),
+                "resolutionCandidates": resolved.get("resolutionCandidates", []),
+            },
+            "summary": {"direction": direction, "affectedProjectCount": 0,
+                        "affectedConfigCount": 0, "affectedScriptCount": 0,
+                        "affectedWorkflowCount": 0, "unsupportedBoundaryCount": 0,
+                        "maxDepth": 0, "edgeCountConsidered": 0,
+                        "riskLevel": "unknown", "confidence": "unknown"},
+            "affectedProjects": [], "affectedConfigs": [],
+            "affectedScripts": [], "affectedWorkflows": [],
+            "unsupportedBoundaries": [], "paths": [],
+            "riskReasons": ["target could not be resolved — no impact analysis possible"],
+            "reviewChecklist": ["verify target identifier is correct",
+                                "check if target exists in workspace graph"],
+            "cautions": ["target resolution failed", "impact analysis could not be performed",
+                         "all results are static-only and heuristic"],
+            "generatedFrom": {"workspaceGraph": True, "staticAnalysis": True,
+                              "scriptsExecuted": False, "buildExecuted": False,
+                              "runtimeVerified": False, "coverageVerified": False,
+                              "heuristic": True},
+        }
+
+    def _ws_impact_analyze(self, run_id, resolved, nodes, edges,
+                            direction, max_depth, limit, include_unsup, graph):
+        """核心影响分析：BFS 遍历 graph，计算受影响节点、路径、风险。"""
+        target_id = resolved["resolvedNodeId"]
+        node_by_id = {n["id"]: n for n in nodes}
+
+        # 构建邻接表
+        # downstream: target → outgoing edges → targets affected by target change
+        # upstream: incoming edges → target → sources that depend on target
+        outgoing = {}  # node_id -> [(edge, target_id)]
+        incoming = {}  # node_id -> [(edge, source_id)]
+        for e in edges:
+            s, t = e["source"], e["target"]
+            outgoing.setdefault(s, []).append((e, t))
+            incoming.setdefault(t, []).append((e, s))
+
+        affected_nodes = {}  # node_id -> {distance, paths, confidences, directions}
+        all_paths = []
+        cautions = list(graph.get("cautions", []))
+        edge_count = 0
+
+        def _bfs(start_id, edge_map, dir_label, follow_contains=True):
+            """BFS 遍历。follow_controls 控制 contains 边是否扩散。"""
+            nonlocal edge_count
+            visited = {start_id}
+            queue = [(start_id, 0, [])]  # (node_id, distance, path_edges)
+            while queue and edge_count < limit:
+                nid, dist, path_e = queue.pop(0)
+                if dist >= max_depth:
+                    continue
+                for e, neighbor_id in edge_map.get(nid, []):
+                    if neighbor_id in visited:
+                        continue
+                    if neighbor_id not in node_by_id:
+                        # dangling edge — 记录 caution
+                        cautions.append(f"dangling edge detected: {e.get('id', '?')}")
+                        continue
+                    edge_count += 1
+                    if edge_count > limit:
+                        break
+
+                    kind = e.get("kind", "")
+                    conf = e.get("confidence", 0.5)
+
+                    # contains 边策略：workspace→project 可以扩散，project→config/script 不太扩散
+                    if kind == "contains" and not follow_contains:
+                        nn = node_by_id.get(neighbor_id, {})
+                        # 只允许 workspace→project 的 contains 扩散
+                        if node_by_id.get(nid, {}).get("kind") != "workspace":
+                            continue
+
+                    # adjacent_to 和 unsupported_boundary 只记录，不作为强影响
+                    is_weak = kind in ("adjacent_to", "unsupported_boundary")
+                    path_conf = min([c for _, c in path_e] + [conf]) if path_e else conf
+                    if is_weak:
+                        path_conf = min(path_conf, 0.4)  # 降级
+
+                    new_path = path_e + [(e.get("id", ""), conf)]
+                    visited.add(neighbor_id)
+
+                    if neighbor_id not in affected_nodes:
+                        affected_nodes[neighbor_id] = {
+                            "distance": dist + 1, "confidences": [path_conf],
+                            "directions": [dir_label], "via": [e.get("id", "")]
+                        }
+                    else:
+                        an = affected_nodes[neighbor_id]
+                        an["distance"] = min(an["distance"], dist + 1)
+                        an["confidences"].append(path_conf)
+                        if dir_label not in an["directions"]:
+                            an["directions"].append(dir_label)
+                        an["via"].append(e.get("id", ""))
+
+                    # 记录 path（限制总数）
+                    if len(all_paths) < limit:
+                        nn = node_by_id[neighbor_id]
+                        all_paths.append({
+                            "from": target_id, "to": neighbor_id,
+                            "direction": dir_label, "distance": dist + 1,
+                            "edges": [{"kind": kind, "source": e["source"],
+                                       "target": e["target"],
+                                       "confidence": round(conf, 2),
+                                       "reason": e.get("reason", "")}
+                                      for e_item in [e]]
+                        })
+
+                    # 弱边不继续扩散
+                    if not is_weak:
+                        queue.append((neighbor_id, dist + 1, new_path))
+
+        # 根据方向运行 BFS
+        if direction in ("downstream", "both"):
+            _bfs(target_id, outgoing, "downstream", follow_contains=True)
+        if direction in ("upstream", "both"):
+            _bfs(target_id, incoming, "upstream", follow_contains=True)
+
+        # 分类受影响节点
+        affected_projects = []
+        affected_configs = []
+        affected_scripts = []
+        affected_workflows = []
+        unsupported_boundaries = []
+
+        for nid, info in affected_nodes.items():
+            nn = node_by_id.get(nid)
+            if not nn:
+                continue
+            best_conf = round(max(info["confidences"]), 2)
+            entry = {
+                "id": nid, "label": nn.get("label", ""), "kind": nn.get("kind", ""),
+                "path": nn.get("path", ""), "relativePath": nn.get("relativePath", ""),
+                "language": nn.get("language", ""),
+                "distance": info["distance"],
+                "directions": info["directions"],
+                "via": info["via"][:5],
+                "confidence": best_conf,
+                "reasons": self._ws_edge_reasons(nid, edges, node_by_id),
+            }
+            kind = nn.get("kind", "")
+            if kind == "project":
+                entry["projectId"] = nn.get("projectId", "")
+                affected_projects.append(entry)
+            elif kind == "config":
+                affected_configs.append(entry)
+            elif kind == "script":
+                affected_scripts.append(entry)
+            elif kind == "workflow":
+                affected_workflows.append(entry)
+            elif kind == "unsupported":
+                unsupported_boundaries.append(entry)
+
+        # unsupported_boundary edge 相关的 supported 项目也加入
+        if include_unsup:
+            for e in edges:
+                if e["kind"] == "unsupported_boundary" and e["source"] in node_by_id:
+                    src = node_by_id[e["source"]]
+                    # 如果 source 是受影响项目，记录 unsupported boundary
+                    if src["id"] in affected_nodes and src["kind"] == "project":
+                        if not any(b["id"] == src["id"] for b in unsupported_boundaries):
+                            unsupported_boundaries.append({
+                                "id": src["id"], "label": src.get("label", ""),
+                                "kind": "project-boundary",
+                                "path": src.get("path", ""),
+                                "distance": affected_nodes[src["id"]]["distance"],
+                                "directions": affected_nodes[src["id"]]["directions"],
+                                "confidence": round(max(affected_nodes[src["id"]]["confidences"]), 2),
+                                "reasons": ["adjacent to unsupported module"],
+                            })
+
+        # 排序：distance 升序，confidence 降序
+        affected_projects.sort(key=lambda x: (x["distance"], -x["confidence"]))
+        affected_configs.sort(key=lambda x: (x["distance"], -x["confidence"]))
+        affected_scripts.sort(key=lambda x: (x["distance"], -x["confidence"]))
+        affected_workflows.sort(key=lambda x: (x["distance"], -x["confidence"]))
+
+        # Risk scoring
+        proj_count = len(affected_projects)
+        cfg_count = len(affected_configs)
+        scr_count = len(affected_scripts)
+        wf_count = len(affected_workflows)
+        unsup_count = len(unsupported_boundaries)
+
+        risk_level = self._ws_impact_risk_level(proj_count, cfg_count, scr_count,
+                                                  wf_count, unsup_count, affected_nodes)
+        risk_reasons = self._ws_impact_risk_reasons(proj_count, cfg_count, scr_count,
+                                                      wf_count, unsup_count,
+                                                      affected_projects, resolved)
+        review_checklist = self._ws_impact_review_checklist(affected_projects, affected_configs,
+                                                              affected_scripts, affected_workflows,
+                                                              unsupported_boundaries)
+
+        # Confidence summary
+        all_confs = []
+        for info in affected_nodes.values():
+            all_confs.extend(info["confidences"])
+        if all_confs:
+            avg_conf = sum(all_confs) / len(all_confs)
+            if avg_conf >= 0.75:
+                conf_summary = "high"
+            elif avg_conf >= 0.5:
+                conf_summary = "medium"
+            else:
+                conf_summary = "low"
+        else:
+            conf_summary = "unknown"
+
+        # Ambiguous target caution
+        if resolved.get("caution"):
+            cautions.append(resolved["caution"])
+
+        max_dist = max((info["distance"] for info in affected_nodes.values()), default=0)
+
+        return {
+            "schemaVersion": "workspace.impact.v1",
+            "workspaceRunId": run_id,
+            "target": {
+                "input": resolved.get("resolutionReason", ""),
+                "resolvedNodeId": target_id,
+                "resolvedKind": resolved.get("resolvedKind", ""),
+                "label": resolved.get("label", ""),
+                "path": resolved.get("path", ""),
+                "language": resolved.get("language", ""),
+                "resolutionConfidence": resolved.get("resolutionConfidence", 0.0),
+                "resolutionReason": resolved.get("resolutionReason", ""),
+            },
+            "summary": {
+                "direction": direction,
+                "affectedProjectCount": proj_count,
+                "affectedConfigCount": cfg_count,
+                "affectedScriptCount": scr_count,
+                "affectedWorkflowCount": wf_count,
+                "unsupportedBoundaryCount": unsup_count,
+                "maxDepth": max_dist,
+                "edgeCountConsidered": edge_count,
+                "riskLevel": risk_level,
+                "confidence": conf_summary,
+            },
+            "affectedProjects": affected_projects[:limit],
+            "affectedConfigs": affected_configs[:limit],
+            "affectedScripts": affected_scripts[:limit],
+            "affectedWorkflows": affected_workflows[:limit],
+            "unsupportedBoundaries": unsupported_boundaries[:limit],
+            "paths": all_paths[:limit],
+            "riskReasons": risk_reasons,
+            "reviewChecklist": review_checklist,
+            "cautions": cautions + [
+                "cross-project impact is static-only and heuristic",
+                "no project code was executed to verify impact",
+                "impact paths are based on graph traversal, not runtime analysis",
+            ],
+            "generatedFrom": {
+                "workspaceGraph": True,
+                "staticAnalysis": True,
+                "scriptsExecuted": False,
+                "buildExecuted": False,
+                "runtimeVerified": False,
+                "coverageVerified": False,
+                "heuristic": True,
+            },
+        }
+
+    def _ws_edge_reasons(self, nid, edges, node_by_id):
+        """收集指向/来自某节点的边的原因描述。"""
+        reasons = []
+        for e in edges:
+            if e["source"] == nid or e["target"] == nid:
+                kind = e.get("kind", "")
+                reason = e.get("reason", "")
+                if kind != "contains":
+                    other = e["target"] if e["source"] == nid else e["source"]
+                    other_n = node_by_id.get(other, {})
+                    other_label = other_n.get("label", other)
+                    reasons.append(f"{kind} → {other_label} ({reason})")
+        return reasons[:5]
+
+    def _ws_impact_risk_level(self, proj_count, cfg_count, scr_count,
+                               wf_count, unsup_count, affected_nodes):
+        """Risk level 评分。"""
+        if proj_count >= 8:
+            return "critical"
+        if wf_count >= 3 and (scr_count > 0 or cfg_count > 0):
+            return "critical"
+        if proj_count >= 4:
+            return "high"
+        if wf_count > 0:
+            return "high"
+        if unsup_count >= 3:
+            return "high"
+        if proj_count >= 2:
+            return "medium"
+        if cfg_count > 0 or scr_count > 0:
+            return "medium"
+        if unsup_count > 0:
+            return "medium"
+        if proj_count <= 1:
+            return "low"
+        return "medium"
+
+    def _ws_impact_risk_reasons(self, proj_count, cfg_count, scr_count,
+                                 wf_count, unsup_count, affected_projects, resolved):
+        """生成可读的 risk reasons。"""
+        reasons = []
+        target_label = resolved.get("label", "target")
+        if proj_count > 0:
+            reasons.append(f"{target_label} may affect {proj_count} project(s)")
+        if wf_count > 0:
+            reasons.append(f"{wf_count} workflow(s) may be impacted — manual CI review recommended")
+        if cfg_count > 0 or scr_count > 0:
+            reasons.append(f"{cfg_count} config(s) and {scr_count} script(s) may require review")
+        if unsup_count > 0:
+            reasons.append(f"impact crosses {unsup_count} unsupported boundary/boundaries")
+        # 高连接度项目
+        for p in affected_projects[:3]:
+            if p.get("confidence", 0) >= 0.75:
+                reasons.append(f"high-confidence path to {p.get('label', '?')}")
+        if not reasons:
+            reasons.append("limited cross-project impact detected")
+        return reasons
+
+    def _ws_impact_review_checklist(self, projects, configs, scripts,
+                                     workflows, boundaries):
+        """生成 review checklist。"""
+        items = []
+        for p in projects[:3]:
+            items.append(f"review changes in {p.get('label', '?')} (distance: {p.get('distance', '?')})")
+        for c in configs[:2]:
+            items.append(f"check config {c.get('label', '?')} for compatibility")
+        for s in scripts[:2]:
+            items.append(f"verify script {s.get('label', '?')} still works")
+        for w in workflows[:2]:
+            items.append(f"update workflow {w.get('label', '?')} if paths changed")
+        for b in boundaries[:2]:
+            items.append(f"verify unsupported module boundary for {b.get('label', '?')}")
+        items.append("run project tests/builds outside CodeLattice")
+        items.append("verify no runtime regressions via manual or CI testing")
+        return items
+
+    # ── Insights Impact Hints ────────────────────────────────────────
+
+    def _ws_insights_impact_hints(self, run, graph_summary=None):
+        """从 graph 提取 impact hints，加入 insights。Best-effort。"""
+        try:
+            # 使用已有的 graph 或轻量构建
+            if graph_summary and graph_summary.get("available"):
+                pass  # graph summary 已存在
+            root = run.get("root", "")
+            if not root or not os.path.isdir(root):
+                return {"available": False, "reason": "root not accessible"}
+
+            graph, error = self._workspace_graph_build(run, opts={"limit": 500})
+            if error or not graph:
+                return {"available": False, "reason": error or "empty graph"}
+
+            nodes = graph.get("nodes", [])
+            edges = graph.get("edges", [])
+
+            # 高 fanout 项目
+            proj_fanout = {}
+            for n in nodes:
+                if n["kind"] == "project":
+                    out_count = sum(1 for e in edges if e["source"] == n["id"] and e["kind"] != "contains")
+                    in_count = sum(1 for e in edges if e["target"] == n["id"] and e["kind"] != "contains")
+                    proj_fanout[n["id"]] = {"label": n.get("label", ""),
+                                             "language": n.get("language", ""),
+                                             "projectId": n.get("projectId", ""),
+                                             "outgoing": out_count, "incoming": in_count,
+                                             "total": out_count + in_count}
+
+            high_fanout = sorted(proj_fanout.values(), key=lambda x: -x["total"])[:5]
+            high_fanout = [p for p in high_fanout if p["total"] >= 2]
+
+            # Shared scripts（被多个项目引用的脚本）
+            shared_scripts = []
+            for n in nodes:
+                if n["kind"] == "script":
+                    refs = [e for e in edges if e["target"] == n["id"] and e["kind"] == "script_refs"]
+                    if len(refs) >= 1:
+                        shared_scripts.append({"id": n["id"], "label": n.get("label", ""),
+                                               "refCount": len(refs)})
+            shared_scripts.sort(key=lambda x: -x["refCount"])
+            shared_scripts = shared_scripts[:5]
+
+            # Shared configs
+            shared_configs = []
+            for n in nodes:
+                if n["kind"] in ("config", "workflow"):
+                    refs = [e for e in edges if e["target"] == n["id"] and e["kind"] in ("config_refs", "script_refs")]
+                    if len(refs) >= 1:
+                        shared_configs.append({"id": n["id"], "label": n.get("label", ""),
+                                               "kind": n["kind"], "refCount": len(refs)})
+            shared_configs.sort(key=lambda x: -x["refCount"])
+            shared_configs = shared_configs[:5]
+
+            # Unsupported boundary projects
+            unsup_boundary_projects = []
+            for e in edges:
+                if e["kind"] == "unsupported_boundary":
+                    src = next((n for n in nodes if n["id"] == e["source"]), None)
+                    tgt = next((n for n in nodes if n["id"] == e["target"]), None)
+                    if src:
+                        unsup_boundary_projects.append({"id": src["id"], "label": src.get("label", ""),
+                                                         "language": src.get("language", "")})
+            unsup_boundary_projects = unsup_boundary_projects[:5]
+
+            # Suggested impact targets（高 fanout + shared）
+            suggested = []
+            for p in high_fanout[:3]:
+                if not any(s["id"] == p["id"] for s in suggested):
+                    suggested.append({"id": p["id"], "label": p["label"],
+                                      "reason": f"high connectivity ({p['total']} connections)"})
+            for s in shared_scripts[:2]:
+                if not any(x["id"] == s["id"] for x in suggested):
+                    suggested.append({"id": s["id"], "label": s["label"],
+                                      "reason": f"shared script ({s['refCount']} references)"})
+
+            return {
+                "available": True,
+                "highFanoutProjects": high_fanout,
+                "sharedScripts": shared_scripts,
+                "sharedConfigs": shared_configs,
+                "unsupportedBoundaryProjects": unsup_boundary_projects,
+                "suggestedImpactTargets": suggested[:5],
+            }
+        except Exception as e:
+            return {"available": False, "reason": str(e)}
+
     def _workspace_insights_get(self, qs):
         """GET /api/workspace/insights?runId=..."""
         # parse_qs returns lists; normalize to single values
@@ -1555,6 +2134,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             return self._r(lambda: self._workspace_run_get(wid))
         if p.path == "/api/workspace/graph":
             return self._r(lambda: self._workspace_graph_get(urllib.parse.parse_qs(p.query)))
+        if p.path == "/api/workspace/impact":
+            return self._r(lambda: self._workspace_impact_get(urllib.parse.parse_qs(p.query)))
         if p.path == "/api/workspace/insights":
             return self._r(lambda: self._workspace_insights_get(urllib.parse.parse_qs(p.query)))
         return super().do_GET()
@@ -1569,8 +2150,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/fs/pick-directory": return self._r(self._fs_pick_directory)
         if p.path=="/api/workspace/analyze": return self._r(lambda:self._workspace_analyze(self._rb()))
         if p.path=="/api/workspace/graph": return self._r(lambda:self._workspace_graph_post(self._rb()))
+        if p.path=="/api/workspace/impact": return self._r(lambda:self._workspace_impact_post(self._rb()))
         if p.path=="/api/workspace/insights": return self._r(lambda:self._workspace_insights_post(self._rb()))
-        if p.path=="/api/workspace/graph": return self._r(lambda:self._workspace_graph_post(self._rb()))
         if p.path.startswith("/api/mcp/job/") and p.path.endswith("/cancel"):
             jid=p.path.split("/api/mcp/job/",1)[1].split("/",1)[0]
             return self._r(lambda:self._cancel_job(jid))

@@ -302,6 +302,102 @@ CTL.generateMarkdownReport = function() {
     lines.push(zh ? "**healthScore 是基于 snapshot metadata 的启发式评分，不是编译器证明。**" : "**healthScore is heuristic and derived from snapshot metadata only, not compiler-verified.**");
     lines.push("");
 
+    // Cross-Project Impact Hints
+    var impHints = wsInsights.crossProjectImpactHints || {};
+    if (impHints.available) {
+      lines.push(zh ? "## 跨项目影响分析提示" : "## Cross-Project Impact Hints");
+      lines.push("");
+      var suggested = impHints.suggestedImpactTargets || [];
+      if (suggested.length) {
+        lines.push(zh ? "建议分析目标：" : "Suggested impact targets:");
+        suggested.forEach(function(s) { lines.push("- **" + (s.label || s.id) + "** — " + (s.reason || "")); });
+        lines.push("");
+      }
+      var hfp = impHints.highFanoutProjects || [];
+      if (hfp.length) {
+        lines.push(zh ? "高连接度项目：" : "High fanout projects:");
+        hfp.forEach(function(p) { lines.push("- " + (p.label || "?") + " (connections: " + (p.total || 0) + ")"); });
+        lines.push("");
+      }
+    }
+
+    // Cross-Project Impact Result (if available)
+    var wsImpact = (window.WORKSPACE && WORKSPACE.state && WORKSPACE.state.impact) || null;
+    if (wsImpact && wsImpact.summary) {
+      var impSm = wsImpact.summary || {};
+      var impTgt = wsImpact.target || {};
+      lines.push(zh ? "## 跨项目影响分析结果" : "## Cross-Project Impact Result");
+      lines.push("");
+      lines.push((zh ? "目标: " : "Target: ") + (impTgt.label || impTgt.resolvedNodeId || "?") + " (" + (impTgt.resolvedKind || "?") + ")");
+      lines.push((zh ? "方向: " : "Direction: ") + (impSm.direction || "?") + " | " + (zh ? "风险: " : "Risk: ") + (impSm.riskLevel || "?") + " | " + (zh ? "置信度: " : "Confidence: ") + (impSm.confidence || "?"));
+      lines.push("");
+      var impProjs = wsImpact.affectedProjects || [];
+      if (impProjs.length) {
+        lines.push(zh ? "| 受影响项目 | 距离 | 置信度 |" : "| Affected Project | Distance | Confidence |");
+        lines.push("|---|---|---|");
+        impProjs.forEach(function(p) {
+          lines.push("| " + (p.label || "?") + " | " + p.distance + " | " + p.confidence + " |");
+        });
+        lines.push("");
+      }
+      var impRR = wsImpact.riskReasons || [];
+      if (impRR.length) {
+        lines.push(zh ? "风险原因：" : "Risk reasons:");
+        impRR.forEach(function(r) { lines.push("- " + r); });
+        lines.push("");
+      }
+      var impRC = wsImpact.reviewChecklist || [];
+      if (impRC.length) {
+        lines.push(zh ? "审查清单：" : "Review checklist:");
+        impRC.forEach(function(c) { lines.push("- [ ] " + c); });
+        lines.push("");
+      }
+    }
+
+    // Cross-Project Impact Hints
+    var impHints = wsInsights.crossProjectImpactHints || {};
+    if (impHints.available) {
+      lines.push(zh ? "## 跨项目影响分析线索" : "## Cross-Project Impact Hints");
+      lines.push("");
+      var suggested = impHints.suggestedImpactTargets || [];
+      if (suggested.length) {
+        lines.push(zh ? "### 建议分析目标" : "### Suggested Impact Targets");
+        suggested.forEach(function(s) { lines.push("- **" + (s.label||"?") + "** — " + (s.reason||"")); });
+        lines.push("");
+      }
+      var hfp = impHints.highFanoutProjects || [];
+      if (hfp.length) {
+        lines.push(zh ? "### 高连接度项目" : "### High Fanout Projects");
+        hfp.forEach(function(p) { lines.push("- **" + (p.label||"?") + "** (out: " + (p.outgoing||0) + ", in: " + (p.incoming||0) + ")"); });
+        lines.push("");
+      }
+    }
+
+    // Impact result (if current impact exists)
+    var wsImpact = (window.WORKSPACE && WORKSPACE.state && WORKSPACE.state.impact) || null;
+    if (wsImpact && wsImpact.summary) {
+      var ism = wsImpact.summary;
+      var itgt = wsImpact.target || {};
+      lines.push(zh ? "## 跨项目影响分析结果" : "## Cross-Project Impact Result");
+      lines.push("");
+      lines.push((zh ? "目标：**" : "Target: **") + (itgt.label||"?") + "** (" + (itgt.resolvedKind||"?") + ")");
+      lines.push((zh ? "方向：" : "Direction: ") + (ism.direction||"?") + (zh ? "，风险：**" : ", Risk: **") + (ism.riskLevel||"?") + "**");
+      lines.push((zh ? "受影响项目：" : "Affected projects: ") + (ism.affectedProjectCount||0) + (zh ? "，配置：" : ", configs: ") + (ism.affectedConfigCount||0) + (zh ? "，脚本：" : ", scripts: ") + (ism.affectedScriptCount||0));
+      var iap = wsImpact.affectedProjects || [];
+      if (iap.length) {
+        lines.push("");
+        lines.push(zh ? "| 项目 | 距离 | 置信度 |" : "| Project | Distance | Confidence |");
+        lines.push("|---|---|---|");
+        iap.forEach(function(p) { lines.push("| " + (p.label||"?") + " | " + (p.distance||"?") + " | " + (p.confidence||0) + " |"); });
+      }
+      var irr = wsImpact.riskReasons || [];
+      if (irr.length) {
+        lines.push("");
+        irr.forEach(function(r) { lines.push("- " + r); });
+      }
+      lines.push("");
+    }
+
     lines.push(zh ? "## 建议人工验证" : "## Recommended Manual Verification");
     lines.push("");
     if (zh) {

@@ -653,7 +653,7 @@ function pickerAnalyzeProfile(pid){
 
 // ── Workspace API ──────────────────────────────────────────────────
 var WORKSPACE = window.WORKSPACE || {};
-WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null, currentRun: null, insights: null, graph: null };
+WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null, currentRun: null, insights: null, graph: null, impact: null };
 
 function workspaceScanInventory(root, cb) {
   if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
@@ -971,6 +971,16 @@ function buildWorkspaceAiSummary() {
         lines.push("高连接度项目：" + gps.topConnectedProjects.map(function(p){ return p.label + "(" + p.connections + ")"; }).join(", "));
       }
     }
+    // Impact hints
+    var impH = ins.crossProjectImpactHints || {};
+    if (impH.available) {
+      lines.push("");
+      lines.push("跨项目影响分析线索：");
+      var sug = impH.suggestedImpactTargets || [];
+      if (sug.length) { lines.push("建议分析目标：" + sug.map(function(s){ return s.label; }).join(", ")); }
+      var hfp = impH.highFanoutProjects || [];
+      if (hfp.length) { lines.push("高连接度：" + hfp.map(function(p){ return p.label + "(" + p.total + ")"; }).join(", ")); }
+    }
     lines.push("");
     lines.push("建议：请基于这些线索规划阅读/审查顺序；不要把候选项当作事实结论。");
   } else {
@@ -992,6 +1002,15 @@ function buildWorkspaceAiSummary() {
       if (gps.topConnectedProjects && gps.topConnectedProjects.length > 0) {
         lines.push("Top connected: " + gps.topConnectedProjects.map(function(p){ return p.label + "(" + p.connections + ")"; }).join(", "));
       }
+    }
+    var impH = ins.crossProjectImpactHints || {};
+    if (impH.available) {
+      lines.push("");
+      lines.push("Cross-project impact hints:");
+      var sug = impH.suggestedImpactTargets || [];
+      if (sug.length) { lines.push("Suggested targets: " + sug.map(function(s){ return s.label; }).join(", ")); }
+      var hfp = impH.highFanoutProjects || [];
+      if (hfp.length) { lines.push("High fanout: " + hfp.map(function(p){ return p.label + "(" + p.total + ")"; }).join(", ")); }
     }
     lines.push("");
     lines.push("Recommendation: use these as investigation leads and plan the next review steps manually.");
@@ -1046,5 +1065,181 @@ function fallbackCopyWorkspaceSummary(text, done) {
     done(!!ok);
   } catch(e) {
     done(false);
+  }
+}
+
+// ── Workspace Cross-Project Impact ──────────────────────────────────
+
+function workspaceRunImpact(runId, projectId, direction, cb) {
+  if (!RUNNER.connected) return;
+  var body = { workspaceRunId: runId, target: { projectId: projectId }, direction: direction || "both", maxDepth: 3 };
+  rapi("/api/workspace/impact", { method: "POST", body: body }).then(function(d) {
+    WORKSPACE.state.impact = d.data;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace impact error:", e);
+    if (cb) cb(e);
+  });
+}
+
+function workspaceRunImpactByPath(runId, path, direction, cb) {
+  if (!RUNNER.connected) return;
+  var body = { workspaceRunId: runId, target: { path: path }, direction: direction || "both", maxDepth: 3 };
+  rapi("/api/workspace/impact", { method: "POST", body: body }).then(function(d) {
+    WORKSPACE.state.impact = d.data;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace impact error:", e);
+    if (cb) cb(e);
+  });
+}
+
+function buildWorkspaceImpactAiSummary(impact) {
+  if (!impact) return "";
+  var zh = window.CTL_I18N && CTL_I18N.lang === "zh";
+  var sm = impact.summary || {};
+  var tgt = impact.target || {};
+  var lines = [];
+  if (zh) {
+    lines.push("CodeLattice 跨项目影响分析摘要（给 AI 使用）");
+    lines.push("注意：这是静态启发式结果，不证明运行时破坏。");
+    lines.push("");
+    lines.push("目标：" + (tgt.label || tgt.resolvedNodeId || "?") + "（" + (tgt.resolvedKind || "?") + "）");
+    lines.push("方向：" + (sm.direction || "?") + "，风险等级：" + (sm.riskLevel || "?") + "，置信度：" + (sm.confidence || "?"));
+    lines.push("受影响项目：" + (sm.affectedProjectCount || 0) + "，配置：" + (sm.affectedConfigCount || 0) + "，脚本：" + (sm.affectedScriptCount || 0) + "，工作流：" + (sm.affectedWorkflowCount || 0));
+    var projs = impact.affectedProjects || [];
+    if (projs.length) {
+      lines.push("");
+      lines.push("受影响项目列表：");
+      projs.slice(0, 8).forEach(function(p) { lines.push("- " + (p.label||"?") + " (距离:" + p.distance + ", 置信度:" + p.confidence + ")"); });
+    }
+    var reasons = impact.riskReasons || [];
+    if (reasons.length) {
+      lines.push("");
+      lines.push("风险原因：");
+      reasons.forEach(function(r) { lines.push("- " + r); });
+    }
+    var checklist = impact.reviewChecklist || [];
+    if (checklist.length) {
+      lines.push("");
+      lines.push("审查清单：");
+      checklist.forEach(function(c) { lines.push("- [ ] " + c); });
+    }
+  } else {
+    lines.push("CodeLattice Cross-Project Impact Analysis Summary (for AI)");
+    lines.push("Caution: static heuristic output only; does not prove runtime breakage.");
+    lines.push("");
+    lines.push("Target: " + (tgt.label || tgt.resolvedNodeId || "?") + " (" + (tgt.resolvedKind || "?") + ")");
+    lines.push("Direction: " + (sm.direction || "?") + ", Risk: " + (sm.riskLevel || "?") + ", Confidence: " + (sm.confidence || "?"));
+    lines.push("Affected projects: " + (sm.affectedProjectCount || 0) + ", configs: " + (sm.affectedConfigCount || 0) + ", scripts: " + (sm.affectedScriptCount || 0) + ", workflows: " + (sm.affectedWorkflowCount || 0));
+    var projs = impact.affectedProjects || [];
+    if (projs.length) {
+      lines.push("");
+      lines.push("Affected Projects:");
+      projs.slice(0, 8).forEach(function(p) { lines.push("- " + (p.label||"?") + " (distance:" + p.distance + ", confidence:" + p.confidence + ")"); });
+    }
+    var reasons = impact.riskReasons || [];
+    if (reasons.length) {
+      lines.push("");
+      lines.push("Risk Reasons:");
+      reasons.forEach(function(r) { lines.push("- " + r); });
+    }
+    var checklist = impact.reviewChecklist || [];
+    if (checklist.length) {
+      lines.push("");
+      lines.push("Review Checklist:");
+      checklist.forEach(function(c) { lines.push("- [ ] " + c); });
+    }
+  }
+  return lines.join("\n");
+}
+
+function workspaceCopyImpactAiSummary() {
+  var impact = WORKSPACE.state.impact;
+  if (!impact) { alert(tr("workspace.impactNotLoaded")); return; }
+  var text = buildWorkspaceImpactAiSummary(impact);
+  var status = document.getElementById("workspace-impact-status");
+  function done(ok) {
+    if (status) status.textContent = ok ? tr("workspace.aiSummaryCopied") : tr("workspace.aiSummarySelect");
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() { done(true); }).catch(function() { fallbackCopyWorkspaceSummary(text, done); });
+  } else {
+    fallbackCopyWorkspaceSummary(text, done);
+  }
+}
+
+// ── Cross-Project Impact API ────────────────────────────────────
+
+function workspaceLoadImpact(runId, target, direction, cb) {
+  if (!runId) { if (cb) cb("no runId"); return; }
+  var body = { workspaceRunId: runId, target: target, direction: direction || "both", maxDepth: 3, includeUnsupported: true };
+  rapi("/api/workspace/impact", { method: "POST", body: body }).then(function(d) {
+    WORKSPACE.state.impact = d.data;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    if (cb) cb(e);
+    console.error("workspace impact error:", e);
+  });
+}
+
+function buildWorkspaceImpactAiSummary(impact) {
+  if (!impact) return "";
+  var zh = window.CTL_I18N && CTL_I18N.lang === "zh";
+  var t = impact.target || {};
+  var sm = impact.summary || {};
+  var lines = [];
+  if (zh) {
+    lines.push("CodeLattice 跨项目影响分析摘要（给 AI 使用）");
+    lines.push("注意：这是静态启发式结果，不证明运行时影响。");
+    lines.push("");
+    lines.push("目标：" + (t.label || "unknown") + " (" + (t.resolvedKind || "?") + ")");
+    lines.push("方向：" + (sm.direction || "?") + "，风险等级：" + (sm.riskLevel || "unknown"));
+    lines.push("受影响项目：" + (sm.affectedProjectCount || 0) + "，配置：" + (sm.affectedConfigCount || 0) + "，脚本：" + (sm.affectedScriptCount || 0) + "，工作流：" + (sm.affectedWorkflowCount || 0));
+    lines.push("不支持边界：" + (sm.unsupportedBoundaryCount || 0));
+  } else {
+    lines.push("CodeLattice Cross-Project Impact Summary (for AI)");
+    lines.push("Caution: static heuristic output only; does not prove runtime impact.");
+    lines.push("");
+    lines.push("Target: " + (t.label || "unknown") + " (" + (t.resolvedKind || "?") + ")");
+    lines.push("Direction: " + (sm.direction || "?") + ", risk: " + (sm.riskLevel || "unknown"));
+    lines.push("Affected projects: " + (sm.affectedProjectCount || 0) + ", configs: " + (sm.affectedConfigCount || 0) + ", scripts: " + (sm.affectedScriptCount || 0) + ", workflows: " + (sm.affectedWorkflowCount || 0));
+    lines.push("Unsupported boundaries: " + (sm.unsupportedBoundaryCount || 0));
+  }
+  var ap = impact.affectedProjects || [];
+  if (ap.length > 0) {
+    lines.push("");
+    lines.push(zh ? "受影响项目：" : "Affected projects:");
+    ap.slice(0, 8).forEach(function(p) {
+      lines.push("- " + (p.label || "?") + " (distance: " + p.distance + ", conf: " + (p.confidence || 0) + ")");
+    });
+  }
+  var rr = impact.riskReasons || [];
+  if (rr.length > 0) {
+    lines.push("");
+    lines.push(zh ? "风险原因：" : "Risk reasons:");
+    rr.forEach(function(r) { lines.push("- " + r); });
+  }
+  var rc = impact.reviewChecklist || [];
+  if (rc.length > 0) {
+    lines.push("");
+    lines.push(zh ? "建议审查清单：" : "Review checklist:");
+    rc.forEach(function(r) { lines.push("- [ ] " + r); });
+  }
+  return lines.join("\n");
+}
+
+function workspaceCopyImpactAiSummary() {
+  var impact = WORKSPACE.state.impact;
+  if (!impact) { alert(tr("workspace.impactNotLoaded")); return; }
+  var text = buildWorkspaceImpactAiSummary(impact);
+  var status = document.getElementById("workspace-impact-status");
+  function done(ok) {
+    if (status) status.textContent = ok ? tr("workspace.aiSummaryCopied") : tr("workspace.aiSummarySelect");
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function() { done(true); }).catch(function() { fallbackCopyWorkspaceSummary(text, done); });
+  } else {
+    fallbackCopyWorkspaceSummary(text, done);
   }
 }

@@ -1392,6 +1392,8 @@
   window.renderWorkspace = renderWorkspace;
   window.renderWorkspaceRuns = renderWorkspaceRuns;
   window.renderWorkspaceInsights = renderWorkspaceInsights;
+  window.renderWorkspaceImpact = renderWorkspaceImpact;
+  window.workspaceRunImpact = workspaceRunImpact;
   window.showWorkspaceOverview = showWorkspaceOverview;
   window.updateCautionBanner = updateCautionBanner;
   window.computeAndRenderDiff = computeAndRenderDiff;
@@ -1709,6 +1711,31 @@
       html += '</div>';
     }
 
+    // Cross-Project Impact Hints
+    var impHints = ins.crossProjectImpactHints || {};
+    if (impHints.available) {
+      html += '<div class="ws-impact-hints" style="margin-top:16px;">';
+      html += '<h3>' + esc(t("workspace.impactTitle")) + '</h3>';
+      html += '<span class="ws-insight-static-hint">' + esc(t("workspace.impactStaticHint")) + '</span>';
+      // Suggested impact targets
+      var suggested = impHints.suggestedImpactTargets || [];
+      if (suggested.length) {
+        html += '<div style="margin-top:8px;"><strong>' + esc(t("workspace.suggestedTargets")) + ':</strong> ';
+        suggested.forEach(function(s) {
+          html += '<button class="btn btn-sm btn-secondary" style="margin:2px;" onclick="workspaceRunImpact(WORKSPACE.state.currentRunId,\'' + esc(s.label || s.id) + '\',\'both\',function(e,d){if(!e&&typeof renderWorkspaceImpact===\'function\')renderWorkspaceImpact(d);})">' + esc(s.label || "?") + '</button>';
+        });
+        html += '</div>';
+      }
+      // High fanout projects
+      var hfp = impHints.highFanoutProjects || [];
+      if (hfp.length) {
+        html += '<div style="margin-top:6px;"><strong>' + esc(t("workspace.highFanoutProjects")) + ':</strong> ';
+        hfp.forEach(function(p) { html += '<span class="ws-graph-item">' + esc(p.label || "?") + ' <span class="text-muted">(' + (p.total || 0) + ')</span></span> '; });
+        html += '</div>';
+      }
+      html += '</div>';
+    }
+
     host.innerHTML = html;
   }
 
@@ -1761,6 +1788,181 @@
     html += '<div style="margin-top:10px;">';
     html += '<button class="btn btn-sm btn-secondary" onclick="workspaceLoadInsights(WORKSPACE.state.currentRunId, function(e,ins){ if(!e&&typeof renderWorkspaceInsights===\'function\') renderWorkspaceInsights(ins); })">' + esc(t("workspace.backToInsights")) + '</button>';
     html += '<button class="btn btn-sm btn-secondary" onclick="workspaceCopyGraphAiSummary()">' + esc(t("workspace.copyGraphAiSummary")) + '</button>';
+    html += '</div>';
+    html += '</div>';
+    host.innerHTML = html;
+  }
+
+  function renderWorkspaceImpact(impact) {
+    var host = document.getElementById("workspace-insights");
+    if (!host || !impact) return;
+    var tgt = impact.target || {};
+    var sm = impact.summary || {};
+    var html = "";
+    html += '<div class="ws-impact-panel">';
+    html += '<h2>' + esc(t("workspace.impactTitle")) + '</h2>';
+    html += '<span class="ws-insight-static-hint">' + esc(t("workspace.impactStaticHint")) + '</span>';
+    html += '<p style="margin:4px 0;">Target: <strong>' + esc(tgt.label || tgt.resolvedNodeId || "?") + '</strong> (' + esc(tgt.resolvedKind || "?") + ')</p>';
+    // Summary cards
+    html += '<div class="ws-insight-cards">';
+    html += wsInsightCard(esc(t("workspace.affectedProjects")), String(sm.affectedProjectCount || 0), sm.affectedProjectCount > 3 ? "#dc2626" : sm.affectedProjectCount > 1 ? "#d97706" : "#059669");
+    html += wsInsightCard(esc(t("workspace.affectedAssets")), String((sm.affectedConfigCount||0)+(sm.affectedScriptCount||0)+(sm.affectedWorkflowCount||0)), "#6366f1");
+    html += wsInsightCard(esc(t("workspace.unsupportedBoundaries")), String(sm.unsupportedBoundaryCount || 0), "#d97706");
+    html += wsInsightCard(esc(t("workspace.riskLevel")), riskLabel(sm.riskLevel), riskColor(sm.riskLevel));
+    html += '</div>';
+    // Affected projects table
+    var ap = impact.affectedProjects || [];
+    if (ap.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.affectedProjects")) + '</h3>';
+      html += '<table class="ws-graph-table"><thead><tr><th>Project</th><th>Dist</th><th>Direction</th><th>Conf</th><th>Reasons</th></tr></thead><tbody>';
+      ap.forEach(function(p) {
+        html += '<tr><td>' + esc(p.label || p.projectId || "?") + '</td><td>' + p.distance + '</td><td>' + esc((p.directions||[]).join(", ")) + '</td><td>' + (p.confidence||0) + '</td><td class="text-muted" style="font-size:0.8em;">' + esc((p.reasons||[]).join("; ")) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    // Affected configs/scripts/workflows
+    var assets = [].concat(
+      (impact.affectedConfigs||[]).map(function(c){c._type="config";return c;}),
+      (impact.affectedScripts||[]).map(function(s){s._type="script";return s;}),
+      (impact.affectedWorkflows||[]).map(function(w){w._type="workflow";return w;})
+    );
+    if (assets.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.affectedAssets")) + '</h3>';
+      html += '<table class="ws-graph-table"><thead><tr><th>Asset</th><th>Type</th><th>Dist</th><th>Conf</th></tr></thead><tbody>';
+      assets.forEach(function(a) {
+        html += '<tr><td>' + esc(a.label || "?") + '</td><td><span class="badge">' + esc(a._type || "?") + '</span></td><td>' + a.distance + '</td><td>' + (a.confidence||0) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+    // Unsupported boundaries
+    var bnd = impact.unsupportedBoundaries || [];
+    if (bnd.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.unsupportedBoundaries")) + '</h3>';
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+      bnd.forEach(function(b) { html += '<span class="badge badge-warning">' + esc(b.label || b.id) + '</span>'; });
+      html += '</div>';
+    }
+    // Risk reasons
+    var rr = impact.riskReasons || [];
+    if (rr.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.riskReasons")) + '</h3>';
+      html += '<ul style="margin:4px 0;padding-left:20px;">';
+      rr.forEach(function(r) { html += '<li>' + esc(r) + '</li>'; });
+      html += '</ul>';
+    }
+    // Review checklist
+    var rc = impact.reviewChecklist || [];
+    if (rc.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.reviewChecklist")) + '</h3>';
+      html += '<ul style="margin:4px 0;padding-left:20px;">';
+      rc.forEach(function(c) { html += '<li><input type="checkbox" disabled> ' + esc(c) + '</li>'; });
+      html += '</ul>';
+    }
+    // Cautions
+    var cauts = impact.cautions || [];
+    if (cauts.length) {
+      html += '<div class="cleanup-caution caution-box" style="margin-top:12px;">';
+      html += '<strong>⚠️</strong> ' + cauts.map(esc).join(" · ");
+      html += '</div>';
+    }
+    // Buttons
+    html += '<div style="margin-top:10px;">';
+    html += '<button class="btn btn-sm btn-secondary" onclick="workspaceLoadInsights(WORKSPACE.state.currentRunId, function(e,ins){ if(!e&&typeof renderWorkspaceInsights===\'function\') renderWorkspaceInsights(ins); })">' + esc(t("workspace.backToInsights")) + '</button>';
+    html += ' <button class="btn btn-sm btn-secondary" onclick="workspaceCopyImpactAiSummary()">' + esc(t("workspace.copyImpactAiSummary")) + '</button>';
+    html += ' <span id="workspace-impact-status" class="text-muted text-sm"></span>';
+    html += '</div>';
+    html += '</div>';
+    host.innerHTML = html;
+  }
+
+  function renderWorkspaceImpact(impact) {
+    var host = document.getElementById("workspace-insights");
+    if (!host || !impact) return;
+    var tgt = impact.target || {};
+    var sm = impact.summary || {};
+    var html = "";
+    html += '<div class="ws-impact-full">';
+    html += '<h2>' + esc(t("workspace.impactTitle")) + '</h2>';
+    html += '<span class="ws-insight-static-hint">' + esc(t("workspace.impactStaticHint")) + '</span>';
+    html += '<span id="workspace-impact-status" class="text-muted text-sm"></span>';
+
+    // Target info
+    html += '<div style="margin-top:8px;">';
+    html += '<strong>Target:</strong> ' + esc(tgt.label || tgt.resolvedNodeId || "?") + ' (' + esc(tgt.resolvedKind || "?") + ')';
+    if (tgt.resolutionReason) html += ' <span class="text-muted text-sm">(' + esc(tgt.resolutionReason) + ', conf: ' + (tgt.resolutionConfidence || 0) + ')</span>';
+    html += '</div>';
+
+    // Summary cards
+    html += '<div class="ws-insight-cards" style="margin-top:12px;">';
+    html += wsInsightCard(esc(t("workspace.affectedProjects")), String(sm.affectedProjectCount || 0), sm.affectedProjectCount > 0 ? "#d97706" : "#059669");
+    html += wsInsightCard(esc(t("workspace.affectedAssets")), String((sm.affectedConfigCount || 0) + (sm.affectedScriptCount || 0)), "#6366f1");
+    html += wsInsightCard(esc(t("workspace.riskLevel")), sm.riskLevel || "unknown", riskColor(sm.riskLevel));
+    html += wsInsightCard(esc(t("workspace.unsupportedBoundaries")), String(sm.unsupportedBoundaryCount || 0), sm.unsupportedBoundaryCount > 0 ? "#dc2626" : "#059669");
+    html += '</div>';
+
+    // Affected projects table
+    var ap = impact.affectedProjects || [];
+    if (ap.length > 0) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.affectedProjects")) + '</h3>';
+      html += '<table class="ws-graph-table"><thead><tr><th>Project</th><th>Distance</th><th>Direction</th><th>Conf</th></tr></thead><tbody>';
+      ap.forEach(function(p) {
+        html += '<tr><td>' + esc(p.label || p.id || "?") + '</td><td>' + (p.distance || "?") + '</td><td>' + esc((p.directions || []).join(", ")) + '</td><td>' + (p.confidence || 0) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // Affected assets (configs + scripts + workflows)
+    var assets = [].concat(impact.affectedConfigs || [], impact.affectedScripts || [], impact.affectedWorkflows || []);
+    if (assets.length > 0) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.affectedAssets")) + '</h3>';
+      html += '<table class="ws-graph-table"><thead><tr><th>Name</th><th>Kind</th><th>Distance</th><th>Conf</th></tr></thead><tbody>';
+      assets.forEach(function(a) {
+        html += '<tr><td>' + esc(a.label || a.id || "?") + '</td><td><span class="badge">' + esc(a.kind || "?") + '</span></td><td>' + (a.distance || "?") + '</td><td>' + (a.confidence || 0) + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // Unsupported boundaries
+    var ub = impact.unsupportedBoundaries || [];
+    if (ub.length > 0) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.unsupportedBoundaries")) + '</h3>';
+      html += '<div style="display:flex;gap:6px;flex-wrap:wrap;">';
+      ub.forEach(function(b) {
+        html += '<span class="badge badge-warning">' + esc(b.label || b.id || "?") + '</span>';
+      });
+      html += '</div>';
+    }
+
+    // Risk reasons
+    var rr = impact.riskReasons || [];
+    if (rr.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.riskReasons")) + '</h3>';
+      html += '<ul style="margin:0 0 0 20px;">';
+      rr.forEach(function(r) { html += '<li>' + esc(r) + '</li>'; });
+      html += '</ul>';
+    }
+
+    // Review checklist
+    var rc = impact.reviewChecklist || [];
+    if (rc.length) {
+      html += '<h3 style="margin:12px 0 6px;">' + esc(t("workspace.reviewChecklist")) + '</h3>';
+      html += '<ul style="margin:0 0 0 20px;">';
+      rc.forEach(function(c) { html += '<li><input type="checkbox"> ' + esc(c) + '</li>'; });
+      html += '</ul>';
+    }
+
+    // Cautions
+    var cauts = impact.cautions || [];
+    if (cauts.length) {
+      html += '<div class="cleanup-caution caution-box" style="margin-top:12px;">';
+      html += '<strong>⚠️</strong> ' + cauts.map(esc).join(" · ");
+      html += '</div>';
+    }
+
+    // Buttons
+    html += '<div style="margin-top:10px;">';
+    html += '<button class="btn btn-sm btn-secondary" onclick="workspaceLoadInsights(WORKSPACE.state.currentRunId,function(e,ins){if(!e&&typeof renderWorkspaceInsights===\'function\')renderWorkspaceInsights(ins);})">' + esc(t("workspace.backToInsights")) + '</button>';
+    html += ' <button class="btn btn-sm btn-secondary" onclick="workspaceCopyImpactAiSummary()">' + esc(t("workspace.copyImpactAiSummary")) + '</button>';
     html += '</div>';
     html += '</div>';
     host.innerHTML = html;

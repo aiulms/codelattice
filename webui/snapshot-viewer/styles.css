@@ -1616,3 +1616,22 @@ pre.code-block {
 .ws-graph-section h3 {
   margin: 12px 0 6px;
 }
+
+/* ── Workspace Impact ──────────────────────────────────── */
+.ws-impact-panel {
+  margin-top: 16px;
+}
+.ws-impact-full {
+  margin-top: 8px;
+}
+.ws-impact-hints {
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--border, #e0e0e0);
+  border-radius: 6px;
+  background: var(--clr-surface-solid, #fafafa);
+}
+.ws-impact-hints h3 {
+  margin: 0 0 8px;
+}
+.ws-risk-critical { background: #fef2f2; color: #dc2626; }
