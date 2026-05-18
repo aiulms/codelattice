@@ -1390,6 +1390,7 @@
   window.esc = esc;
   window.renderAll = renderAll;
   window.renderWorkspace = renderWorkspace;
+  window.renderWorkspaceInsights = renderWorkspaceInsights;
   window.showWorkspaceOverview = showWorkspaceOverview;
   window.updateCautionBanner = updateCautionBanner;
   window.computeAndRenderDiff = computeAndRenderDiff;
@@ -1519,6 +1520,114 @@
     el.innerHTML = html;
   }
 
+  function renderWorkspaceInsights(ins) {
+    var host = document.getElementById("workspace-insights");
+    if (!host) return;
+    if (!ins) {
+      host.innerHTML = '<div class="ws-insight-empty"><p>' + esc(t("workspace.noInsightYet")) + '</p></div>';
+      return;
+    }
+    var sm = ins.summary || {};
+    var ps = ins.projectScores || [];
+    var rf = ins.readFirst || [];
+    var vf = ins.reviewFirst || [];
+    var cf = ins.cleanupFirst || [];
+    var cp = ins.crossProjectSignals || {};
+    var html = "";
+
+    // Header
+    html += '<div class="ws-insight-header">';
+    html += '<h2>' + esc(t("workspace.insights")) + '</h2>';
+    html += '<span class="ws-insight-static-hint">' + esc(t("workspace.insightStatic")) + '</span>';
+    html += '</div>';
+
+    // Summary cards
+    html += '<div class="ws-insight-cards">';
+    html += wsInsightCard(t("workspace.healthScore"), sm.overallHealthScore + "/100", scoreColor(sm.overallHealthScore));
+    html += wsInsightCard(t("workspace.riskLevel"), riskLabel(sm.overallRiskLevel), riskColor(sm.overallRiskLevel));
+    html += wsInsightCard(esc(t("workspace.supportedProjects")), sm.succeededProjectCount + "/" + sm.projectCount, "#059669");
+    html += wsInsightCard(esc(t("workspace.unsupportedModules")), sm.unsupportedModuleCount, "#d97706");
+    html += '</div>';
+
+    // Read/Review/Cleanup first
+    var recsHtml = "";
+    if (rf.length) {
+      recsHtml += '<div class="ws-insight-list">';
+      recsHtml += '<h4><span class="ws-insight-icon">📖</span> ' + esc(t("workspace.readFirst")) + '</h4>';
+      rf.forEach(function(r) { recsHtml += '<div class="ws-insight-item pri-' + (r.priority||"P1").toLowerCase() + '"><span class="ws-pri-badge">' + esc(r.priority||"") + '</span> ' + esc(r.projectId||"?") + ' <span class="text-muted">— ' + esc(r.reason||"") + '</span></div>'; });
+      recsHtml += '</div>';
+    }
+    if (vf.length) {
+      recsHtml += '<div class="ws-insight-list">';
+      recsHtml += '<h4><span class="ws-insight-icon">🔍</span> ' + esc(t("workspace.reviewFirst")) + '</h4>';
+      vf.forEach(function(r) { recsHtml += '<div class="ws-insight-item pri-' + (r.priority||"P1").toLowerCase() + '"><span class="ws-pri-badge">' + esc(r.priority||"") + '</span> ' + esc(r.projectId||"?") + ' <span class="text-muted">— ' + esc(r.reason||"") + '</span></div>'; });
+      recsHtml += '</div>';
+    }
+    if (cf.length) {
+      recsHtml += '<div class="ws-insight-list">';
+      recsHtml += '<h4><span class="ws-insight-icon">🧹</span> ' + esc(t("workspace.cleanupFirst")) + '</h4>';
+      cf.forEach(function(r) { recsHtml += '<div class="ws-insight-item pri-' + (r.priority||"P2").toLowerCase() + '"><span class="ws-pri-badge">' + esc(r.priority||"") + '</span> ' + esc(r.projectId||"?") + ' <span class="text-muted">— ' + esc(r.reason||"") + '</span></div>'; });
+      recsHtml += '</div>';
+    }
+    if (recsHtml) html += '<div class="ws-insight-recs">' + recsHtml + '</div>';
+
+    // Project scores table
+    if (ps.length) {
+      html += '<h3 style="margin:12px 0 8px;">' + esc(t("workspace.projectScores")) + '</h3>';
+      html += '<table class="workspace-table"><thead><tr><th>Project</th><th>Score</th><th>Risk</th><th>Reasons</th></tr></thead><tbody>';
+      ps.forEach(function(s) {
+        html += '<tr><td>' + esc(s.name||s.projectId||"?") + '</td>' +
+          '<td><span style="font-weight:700;color:' + scoreColor(s.healthScore) + ';">' + s.healthScore + '</span></td>' +
+          '<td><span class="ws-risk-badge ws-risk-' + (s.riskLevel||"unknown") + '">' + esc(riskLabel(s.riskLevel)) + '</span></td>' +
+          '<td class="text-muted" style="font-size:0.8em;">' + (s.scoreReasons||[]).join("; ") + '</td></tr>';
+      });
+      html += '</tbody></table>';
+    }
+
+    // Cross-project signals
+    var sigHtml = "";
+    var uc = cp.unsupportedLanguageClusters || [];
+    if (uc.length) {
+      sigHtml += '<h5>' + esc(t("workspace.unsupportedClusters")) + '</h5><div style="display:flex;gap:6px;flex-wrap:wrap;">';
+      uc.forEach(function(c) {
+        sigHtml += '<span class="badge badge-warning">' + esc(c.language||"?") + ': ' + c.count + '</span>';
+      });
+      sigHtml += '</div>';
+    }
+    var dl = cp.duplicatedProjectLabels || [];
+    if (dl.length) {
+      sigHtml += '<h5>' + esc(t("workspace.duplicatedLabels")) + '</h5><div style="display:flex;gap:6px;flex-wrap:wrap;">';
+      dl.forEach(function(d) {
+        sigHtml += '<span class="badge">' + esc(d.name||"?") + ' ×' + d.count + '</span>';
+      });
+      sigHtml += '</div>';
+    }
+    if (sigHtml) {
+      html += '<h3 style="margin:12px 0 8px;">' + esc(t("workspace.crossSignals")) + '</h3>';
+      html += '<div class="ws-insight-signals">' + sigHtml + '</div>';
+    }
+
+    // Cautions
+    var cauts = ins.cautions || [];
+    if (cauts.length) {
+      html += '<div class="cleanup-caution caution-box" style="margin-top:12px;">';
+      html += '<strong>⚠️</strong> ' + cauts.map(esc).join(" · ");
+      html += '</div>';
+    }
+
+    host.innerHTML = html;
+  }
+
+  function wsInsightCard(label, value, color) {
+    return '<div class="ws-insight-card"><div class="ws-insight-card-val" style="color:' + (color||"#111827") + ';">' + esc(value) + '</div><div class="ws-insight-card-label">' + esc(label) + '</div></div>';
+  }
+  function scoreColor(s) { s = parseInt(s)||0; return s >= 85 ? "#059669" : s >= 65 ? "#d97706" : "#dc2626"; }
+  function riskColor(r) { if (r === "low") return "#059669"; if (r === "medium") return "#d97706"; if (r === "high") return "#dc2626"; return "#6b7280"; }
+  function riskLabel(r) {
+    var map = { low: "workspace.riskLevel.low", medium: "workspace.riskLevel.medium", high: "workspace.riskLevel.high", unknown: "workspace.riskLevel.unknown" };
+    return t(map[r] || "workspace.riskLevel.unknown");
+  }
+
   function showWorkspaceOverview(root) {
     if (!window.RUNNER || !RUNNER.connected) { alert(t("runner.notConnected")); return; }
     show("workspace");
@@ -1534,6 +1643,18 @@
         if (!e && runs) { WORKSPACE.state.runs = runs; renderWorkspaceRuns(runs); }
         var msg = document.getElementById("ws-no-runs-msg");
         if (msg && runs && runs.length) msg.style.display = "none";
+        // Try loading insights from the latest run
+        if (runs && runs.length > 0) {
+          var latest = runs[0];
+          if (latest.workspaceId) {
+            workspaceLoadInsights(latest.workspaceId, function(e2, ins) {
+              if (!e2 && ins) renderWorkspaceInsights(ins);
+              else renderWorkspaceInsights(null);
+            });
+          }
+        } else {
+          renderWorkspaceInsights(null);
+        }
       });
     });
   }

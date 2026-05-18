@@ -1396,3 +1396,141 @@ pre.code-block {
   .workspace-table { font-size: 0.8em; }
   .workspace-card-val { font-size: 1.4em; }
 }
+
+/* ── Workspace Insights (Phase F-polish) ───────────────────────── */
+
+.ws-insight-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.ws-insight-header h2 {
+  font-size: 1.3em;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ws-insight-static-hint {
+  font-size: 0.78em;
+  color: var(--clr-text-muted);
+}
+
+.ws-insight-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.ws-insight-card {
+  background: var(--clr-surface-solid);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 14px;
+  text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+
+.ws-insight-card-val {
+  font-size: 1.7em;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ws-insight-card-label {
+  font-size: 0.78em;
+  color: var(--clr-text-secondary);
+  margin-top: 4px;
+}
+
+.ws-insight-recs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.ws-insight-list {
+  background: var(--clr-surface-solid);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 12px;
+}
+
+.ws-insight-list h4 {
+  font-size: 0.95em;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.ws-insight-icon { margin-right: 4px; }
+
+.ws-insight-item {
+  padding: 6px 0;
+  border-top: 1px solid var(--clr-border);
+  font-size: 0.85em;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.ws-insight-item:first-of-type { border-top: 0; }
+
+.ws-insight-item.pri-p0 { border-left: 3px solid var(--clr-danger); padding-left: 8px; }
+.ws-insight-item.pri-p1 { border-left: 3px solid var(--clr-warning); padding-left: 8px; }
+.ws-insight-item.pri-p2 { border-left: 3px solid var(--clr-text-muted); padding-left: 8px; }
+
+.ws-pri-badge {
+  font-size: 0.7em;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--clr-bg);
+  color: var(--clr-text-secondary);
+  white-space: nowrap;
+}
+
+.ws-risk-badge {
+  font-size: 0.78em;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.ws-risk-low { background: var(--clr-success-bg); color: var(--clr-success); }
+.ws-risk-medium { background: var(--clr-warning-bg); color: var(--clr-warning); }
+.ws-risk-high { background: var(--clr-danger-bg); color: var(--clr-danger); }
+.ws-risk-unknown { background: #f3f4f6; color: #6b7280; }
+
+.ws-insight-signals {
+  background: var(--clr-surface-solid);
+  border: 1px solid var(--clr-border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+}
+
+.ws-insight-signals h5 {
+  font-size: 0.85em;
+  font-weight: 600;
+  margin: 8px 0 4px;
+}
+
+.ws-insight-empty {
+  background: var(--clr-panel);
+  border: 1px dashed var(--clr-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  text-align: center;
+  color: var(--clr-text-secondary);
+}
+
+@media (max-width: 860px) {
+  .ws-insight-cards { grid-template-columns: repeat(2, 1fr); }
+  .ws-insight-recs { grid-template-columns: 1fr; }
+}

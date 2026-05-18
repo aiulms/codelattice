@@ -719,6 +719,10 @@ function workspaceAnalyzeRecommended() {
     show("workspace");
     workspaceLoadRuns(function() {
       renderWorkspace(WORKSPACE.state.inventory);
+      // Auto-load insights
+      workspaceLoadInsights(ws.workspaceId, function(e, ins) {
+        if (!e && ins) renderWorkspaceInsights(ins);
+      });
       // Open first succeeded snapshot
       var succeeded = (ws.projects || []).filter(function(p) { return p.status === "succeeded"; });
       if (succeeded.length > 0) {
@@ -756,5 +760,18 @@ function workspaceLoadProjectSnapshot(projId, projPath) {
   }).catch(function(e) {
     var msg = e.message + (e.hint ? " — " + e.hint : "");
     if (hint) hint.textContent = msg;
+  });
+}
+
+// ── Workspace Insights ────────────────────────────────────────────
+
+function workspaceLoadInsights(runId, cb) {
+  if (!RUNNER.connected) return;
+  rapi("/api/workspace/insights?runId=" + encodeURIComponent(runId)).then(function(d) {
+    WORKSPACE.state.insights = d.data;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace insights error:", e);
+    if (cb) cb(e);
   });
 }

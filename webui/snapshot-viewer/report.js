@@ -186,13 +186,26 @@ CTL.collectReportContext = function() {
 
 CTL.generateMarkdownReport = function() {
   var ctx = CTL.collectReportContext();
-  if (!ctx) return "# CodeLattice Review Report\n\nNo snapshot loaded.\n";
 
+  // Check for workspace insights
+  var wsInsights = (window.WORKSPACE && WORKSPACE.state && WORKSPACE.state.insights) || null;
+
+  if (!ctx && !wsInsights) return "# CodeLattice Review Report\n\nNo snapshot or workspace data loaded.\n";
+
+  var isWorkspace = !!wsInsights;
+  var title = isWorkspace ? "# CodeLattice Workspace Review Report" : "# CodeLattice Snapshot Review Report";
   var lines = [];
-  lines.push("# CodeLattice Snapshot Review Report");
+  lines.push(title);
   lines.push("");
-  lines.push("**Generated:** " + ctx.meta.reportGeneratedAt + " | **Snapshot:** " + ctx.meta.generatedAt);
-  lines.push("**Tool:** " + ctx.meta.toolVersion + " | **Schema:** " + ctx.meta.schemaVersion);
+  // Generate timestamp and metadata
+  var genAt = new Date().toISOString().slice(0, 19).replace("T", " ");
+  lines.push("**Generated:** " + genAt);
+  if (ctx) {
+    lines.push("**Tool:** " + ctx.meta.toolVersion + " | **Schema:** " + ctx.meta.schemaVersion);
+  }
+  if (isWorkspace && wsInsights) {
+    lines.push("**Workspace Run:** " + (wsInsights.workspaceRunId || "N/A"));
+  }
   lines.push("");
 
   lines.push("## Caution");
@@ -205,6 +218,96 @@ CTL.generateMarkdownReport = function() {
   lines.push("");
   lines.push("**This is a static analysis report, not a release gate or safety proof.**");
   lines.push("");
+
+  // ── Workspace Insight Sections ───────────────────────────────
+  if (isWorkspace && wsInsights) {
+    var wss = wsInsights.summary || {};
+    lines.push("## Workspace Overview");
+    lines.push("");
+    lines.push("| Metric | Value |");
+    lines.push("|---|---|");
+    lines.push("| Overall Health Score | " + wss.overallHealthScore + "/100 |");
+    lines.push("| Overall Risk Level | **" + (wss.overallRiskLevel || "unknown") + "** |");
+    lines.push("| Projects | " + wss.succeededProjectCount + " succeeded / " + wss.failedProjectCount + " failed (of " + wss.projectCount + " total) |");
+    lines.push("| Unsupported Modules | " + wss.unsupportedModuleCount + " |");
+    lines.push("| Total Source Files | " + wss.totalSourceFiles + " |");
+    lines.push("| Total Symbols | " + wss.totalSymbols + " |");
+    lines.push("| Total Edges | " + wss.totalEdges + " |");
+    lines.push("");
+
+    // Read First / Review First / Cleanup First
+    var rf = wsInsights.readFirst || [];
+    var vf = wsInsights.reviewFirst || [];
+    var cf = wsInsights.cleanupFirst || [];
+    if (rf.length) {
+      lines.push("## Read First");
+      lines.push("");
+      rf.forEach(function(r) { lines.push("- **" + (r.priority||"") + "** " + (r.projectId||"") + " — " + (r.reason||"")); });
+      lines.push("");
+    }
+    if (vf.length) {
+      lines.push("## Review First");
+      lines.push("");
+      vf.forEach(function(r) { lines.push("- **" + (r.priority||"") + "** " + (r.projectId||"") + " — " + (r.reason||"")); });
+      lines.push("");
+    }
+    if (cf.length) {
+      lines.push("## Cleanup First");
+      lines.push("");
+      cf.forEach(function(r) { lines.push("- **" + (r.priority||"") + "** " + (r.projectId||"") + " — " + (r.reason||"")); });
+      lines.push("");
+    }
+
+    // Project Scores
+    var ps = wsInsights.projectScores || [];
+    if (ps.length) {
+      lines.push("## Project Scores");
+      lines.push("");
+      lines.push("| Project | Language | Health | Risk | Reasons |");
+      lines.push("|---|---|---|---|---|");
+      ps.forEach(function(s) {
+        lines.push("| " + (s.name||s.projectId||"") + " | " + (s.language||"") + " | " + s.healthScore + " | " + (s.riskLevel||"") + " | " + (s.scoreReasons||[]).join("; ") + " |");
+      });
+      lines.push("");
+    }
+
+    // Cross-project Signals
+    var cp = wsInsights.crossProjectSignals || {};
+    var uc = cp.unsupportedLanguageClusters || [];
+    if (uc.length) {
+      lines.push("## Unsupported Language Clusters");
+      lines.push("");
+      uc.forEach(function(c) { lines.push("- **" + (c.language||"") + "**: " + c.count + " project(s)"); });
+      lines.push("");
+    }
+    var dl = cp.duplicatedProjectLabels || [];
+    if (dl.length) {
+      lines.push("## Duplicated Project Labels");
+      lines.push("");
+      dl.forEach(function(d) { lines.push("- **" + (d.name||"") + "** ×" + d.count); });
+      lines.push("");
+    }
+
+    // Cautions
+    lines.push("## Workspace Cautions");
+    lines.push("");
+    var cauts = wsInsights.cautions || [];
+    cauts.forEach(function(c) { lines.push("- " + c); });
+    lines.push("");
+    lines.push("**healthScore is heuristic and derived from snapshot metadata only, not compiler-verified.**");
+    lines.push("");
+
+    lines.push("## Recommended Manual Verification");
+    lines.push("");
+    lines.push("- [ ] Run project tests/builds outside CodeLattice");
+    lines.push("- [ ] Verify public API consumers manually");
+    lines.push("- [ ] Check integration with external dependencies");
+    lines.push("- [ ] Confirm no runtime regressions via manual or CI testing");
+    lines.push("");
+    return lines.join("\n");
+  }
+
+  // ── Snapshot Sections (existing) ─────────────────────────────
 
   lines.push("## Dashboard Summary");
   lines.push("");

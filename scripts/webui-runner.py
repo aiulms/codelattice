@@ -568,6 +568,310 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             lines.append(f"发现 {um} 个暂不支持的语言模块。")
         lines.append("只读取目录结构和文件名，不读取文件内容、不执行项目代码。")
         return "\n".join(lines)[:1000]
+
+    # ── Workspace Insights ─────────────────────────────────────────────
+
+    def _workspace_insights(self, qs_or_body):
+        """Get workspace insights from a run ID or run object."""
+        run = None
+        # Mode 1: GET with runId query param
+        if isinstance(qs_or_body, dict) and "runId" in qs_or_body:
+            run_id = qs_or_body.get("runId", "")
+            if not run_id:
+                return err("runId is required", 400)
+            fp = os.path.join(self.ws_dir, f"workspace-{run_id}.json")
+            run = self._load_json(fp)
+            if not run:
+                return err("workspace run not found", 404,
+                           f"runId={run_id} not found. Use GET /api/workspace/runs to list available runs.")
+        # Mode 2: POST with run object or workspaceRunId
+        elif isinstance(qs_or_body, dict) and "workspaceRunId" in qs_or_body:
+            run_id = qs_or_body.get("workspaceRunId", "")
+            fp = os.path.join(self.ws_dir, f"workspace-{run_id}.json")
+            run = self._load_json(fp)
+            if not run:
+                return err("workspace run not found", 404)
+        elif isinstance(qs_or_body, dict) and "root" in qs_or_body:
+            # Direct run object (for testing / convenience)
+            run = qs_or_body
+        else:
+            return err("provide runId, workspaceRunId, or a run object", 400)
+
+        if not isinstance(run, dict):
+            return err("invalid run data", 400)
+
+        # Compute insights
+        projects = run.get("projects", [])
+        unsupported = run.get("unsupportedModules", [])
+        run_summary = run.get("summary", {})
+        # Try to load snapshot summaries for each succeeded project
+        snap_meta = {}
+        try:
+            self._ensure(self.sn_dir)
+            idx = self._load_index()
+            idx_by_id = {e["id"]: e for e in idx if e.get("id")}
+        except Exception:
+            idx_by_id = {}
+
+        for pj in projects:
+            sid = pj.get("snapshotId", "")
+            if sid and sid in idx_by_id:
+                snap_meta[sid] = idx_by_id[sid]
+
+        scores = self._compute_project_scores(projects, unsupported, snap_meta)
+        overall = self._compute_overall_score(scores)
+        read_first, review_first, cleanup_first = self._compute_recommendations(
+            projects, scores, unsupported)
+        cross = self._compute_cross_project_signals(projects)
+
+        return ok({
+            "workspaceRunId": run.get("workspaceId", ""),
+            "generatedAt": self._now(),
+            "staticOnly": True,
+            "summary": {
+                "projectCount": len(projects),
+                "succeededProjectCount": run_summary.get("succeededProjectCount", 0),
+                "failedProjectCount": run_summary.get("failedProjectCount", 0),
+                "unsupportedModuleCount": len(unsupported),
+                "totalSourceFiles": run_summary.get("totalSourceFiles", 0),
+                "totalSymbols": run_summary.get("totalSymbols", 0),
+                "totalEdges": run_summary.get("totalEdges", 0),
+                "overallHealthScore": overall["score"],
+                "overallRiskLevel": overall["riskLevel"],
+            },
+            "projectScores": scores,
+            "readFirst": read_first,
+            "reviewFirst": review_first,
+            "cleanupFirst": cleanup_first,
+            "crossProjectSignals": cross,
+            "cautions": [
+                "workspace insights are heuristic and static-only",
+                "no project code was executed",
+                "failed projects may hide additional risk",
+                "health scores are derived from snapshot metadata only, not compiler or runtime verified",
+            ],
+            "generatedFrom": {
+                "staticAnalysis": True,
+                "scriptsExecuted": False,
+                "runtimeVerified": False,
+                "coverageVerified": False,
+            },
+        })
+
+    def _compute_project_scores(self, projects, unsupported, snap_meta):
+        """Compute health score and risk level per project from snapshot metadata."""
+        results = []
+        for pj in projects:
+            status = pj.get("status", "unknown")
+            sid = pj.get("snapshotId", "")
+            sm = pj.get("summary", {}) or {}
+            meta = snap_meta.get(sid, {})
+            sec = meta.get("secondary", {}) or {}
+            score = 100
+            reasons = []
+            # Status-based deductions
+            if status == "failed":
+                score -= 35
+                reasons.append("snapshot generation failed")
+            elif status != "succeeded":
+                score -= 20
+                reasons.append(f"status is {status}, not succeeded")
+            # Quality gate deductions
+            qf = sec.get("qualityFailedCount", 0)
+            if qf > 0:
+                deduct = min(qf * 8, 50)
+                score -= deduct
+                reasons.append(f"{qf} quality gate(s) failed")
+            # Automation risk (from snapshot secondary)
+            ar = sec.get("automationRiskCount", 0) if "automationRiskCount" in sec else 0
+            if ar > 0:
+                deduct = min(ar * 8, 40)
+                score -= deduct
+                reasons.append(f"{ar} automation risk(s) detected")
+            # Edge density heuristic
+            source_files = sm.get("sourceFileCount", 0)
+            edges = sm.get("edgeCount", 0) or sec.get("graphEdgeCount", 0)
+            if source_files > 20 and (not edges or edges == 0):
+                score -= 15
+                reasons.append("large project with no graph edges recorded")
+            elif source_files > 0 and edges > 0:
+                density = edges / max(source_files, 1)
+                if density < 1.0:
+                    score -= 10
+                    reasons.append(f"low edge density ({density:.1f} edges per source file)")
+            # Missing graph / quality data
+            if not edges and source_files > 0:
+                score -= 10
+                reasons.append("graph data unavailable for analysis")
+            # Unsupported adjacent modules
+            proj_path = pj.get("path", "")
+            proj_name = pj.get("projectId", "")
+            adjacent_unsupported = 0
+            for um in unsupported:
+                um_path = um.get("path", "")
+                if um_path and proj_path and (
+                    os.path.dirname(um_path) == os.path.dirname(proj_path) or
+                    proj_path.startswith(os.path.dirname(um_path)) or
+                    um_path.startswith(os.path.dirname(proj_path))
+                ):
+                    adjacent_unsupported += 1
+            if adjacent_unsupported > 0:
+                deduct = min(adjacent_unsupported * 5, 15)
+                score -= deduct
+                reasons.append(f"{adjacent_unsupported} unsupported module(s) nearby")
+            # Clamp
+            score = max(score, 0)
+            # Risk level
+            if score >= 85:
+                risk = "low"
+            elif score >= 65:
+                risk = "medium"
+            elif score >= 1:
+                risk = "high"
+            else:
+                risk = "high"
+            if not reasons:
+                reasons.append("no significant risks detected from snapshot metadata")
+            results.append({
+                "projectId": pj.get("projectId", ""),
+                "name": pj.get("projectId", proj_name),
+                "language": pj.get("language", "auto"),
+                "status": status,
+                "snapshotId": sid or None,
+                "healthScore": score,
+                "riskLevel": risk,
+                "scoreReasons": reasons,
+                "metrics": {
+                    "sourceFileCount": source_files,
+                    "symbolCount": sm.get("symbolCount", 0),
+                    "edgeCount": edges,
+                    "qualityFailedCount": qf,
+                    "automationRiskCount": ar,
+                    "unsupportedAdjacentCount": adjacent_unsupported,
+                },
+            })
+        return results
+
+    def _compute_overall_score(self, project_scores):
+        """Aggregate project scores into overall workspace health."""
+        if not project_scores:
+            return {"score": 0, "riskLevel": "unknown"}
+        weights = []
+        total = 0
+        for ps in project_scores:
+            # weight by symbol count if available
+            w = max(ps.get("metrics", {}).get("symbolCount", 1), 1)
+            weights.append(w)
+            total += w
+        if total == 0:
+            avg = sum(p["healthScore"] for p in project_scores) / len(project_scores)
+        else:
+            avg = sum(ps["healthScore"] * w for ps, w in zip(project_scores, weights)) / total
+        score = int(round(avg))
+        score = max(score, 0)
+        if score >= 85:
+            risk = "low"
+        elif score >= 65:
+            risk = "medium"
+        elif score >= 1:
+            risk = "high"
+        else:
+            risk = "high"
+        return {"score": score, "riskLevel": risk}
+
+    def _compute_recommendations(self, projects, scores, unsupported):
+        """Generate read first / review first / cleanup first lists."""
+        score_by_id = {s["projectId"]: s for s in scores}
+        # Read first: recommended projects sorted by symbol count (high density)
+        succeeded = [(s["projectId"], s) for s in scores if s["status"] == "succeeded"]
+        succeeded.sort(key=lambda x: -(x[1].get("metrics", {}).get("symbolCount", 0)))
+        read_first = []
+        for pid, s in succeeded[:5]:
+            sym = s.get("metrics", {}).get("symbolCount", 0)
+            read_first.append({
+                "projectId": pid,
+                "reason": f"recommended project with {sym} symbols — highest symbol density in workspace",
+                "priority": "P0" if sym > 50 else "P1",
+            })
+        # Review first: failed projects or low score projects
+        review_first = []
+        for s in sorted(scores, key=lambda x: x["healthScore"]):
+            if s["healthScore"] < 65:
+                review_first.append({
+                    "projectId": s["projectId"],
+                    "reason": f"low health score ({s['healthScore']}) — review quality gates and automation risks",
+                    "priority": "P0" if s["healthScore"] < 50 else "P1",
+                })
+            elif s["status"] == "failed":
+                review_first.append({
+                    "projectId": s["projectId"],
+                    "reason": "snapshot generation failed — inspect project boundary, manifest, or language selection",
+                    "priority": "P0",
+                })
+        # Cleanup first: large projects with low edge density or adjacent unsupported modules
+        cleanup_first = []
+        for s in scores:
+            m = s.get("metrics", {})
+            src = m.get("sourceFileCount", 0)
+            edges = m.get("edgeCount", 0)
+            if src > 20 and (not edges or edges == 0):
+                cleanup_first.append({
+                    "projectId": s["projectId"],
+                    "reason": f"large project ({src} source files) with no graph edges — verify analysis coverage or consider refactoring scope",
+                    "priority": "P1",
+                })
+            elif m.get("unsupportedAdjacentCount", 0) > 0:
+                cleanup_first.append({
+                    "projectId": s["projectId"],
+                    "reason": f"adjacent to unsupported modules — boundary risk may need manual review",
+                    "priority": "P2",
+                })
+        return read_first, review_first, cleanup_first
+
+    def _compute_cross_project_signals(self, projects):
+        """Extract shared script/config names and unsupported language clusters."""
+        # Collect project names/paths
+        project_names = [pj.get("projectId", "") for pj in projects]
+        # Simulate shared script/config names from common patterns
+        known_script_names = {"build.sh", "test.sh", "setup.sh", "install.sh", "deploy.sh",
+                              "Makefile", "Dockerfile", "docker-compose.yml",
+                              "package.json", "tsconfig.json"}
+        # For now, derive from project directory structure hints in snapshot metadata
+        shared_scripts = []
+        shared_configs = []
+        seen_labels = {}
+        for pj in projects:
+            pid = pj.get("projectId", "")
+            name = pid.split("/")[-1] if "/" in pid else pid
+            seen_labels[name] = seen_labels.get(name, 0) + 1
+        # Detect duplicate project labels
+        duplicated = [{"name": k, "count": v} for k, v in seen_labels.items() if v > 1]
+        # Unsupported language clusters
+        unsup_clusters = {}
+        for pj in projects:
+            path = pj.get("path", "")
+            lang = pj.get("language", "")
+            if lang:
+                unsup_clusters.setdefault(lang, {"language": lang, "count": 0, "paths": []})
+                unsup_clusters[lang]["count"] += 1
+                unsup_clusters[lang]["paths"].append(path[:80])
+        # Also include the actual unsupported modules from the run
+        return {
+            "sharedScriptNames": shared_scripts,
+            "sharedConfigNames": shared_configs,
+            "unsupportedLanguageClusters": [v for v in unsup_clusters.values() if v["count"] >= 1],
+            "duplicatedProjectLabels": duplicated,
+        }
+
+    def _workspace_insights_get(self, qs):
+        """GET /api/workspace/insights?runId=..."""
+        # parse_qs returns lists; normalize to single values
+        params = {k: (v[0] if isinstance(v, list) and len(v) > 0 else v) for k, v in qs.items()}
+        return self._workspace_insights(params)
+
+    def _workspace_insights_post(self, body):
+        """POST /api/workspace/insights"""
+        return self._workspace_insights(body)
         if lang != "auto":
             return root, lang, None
         inv = self._project_inventory_data(root)
@@ -620,6 +924,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path.startswith("/api/workspace/run/"):
             wid = p.path.split("/api/workspace/run/", 1)[1]
             return self._r(lambda: self._workspace_run_get(wid))
+        if p.path == "/api/workspace/insights":
+            return self._r(lambda: self._workspace_insights_get(urllib.parse.parse_qs(p.query)))
         return super().do_GET()
 
     def do_POST(self):
@@ -631,6 +937,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/quick-analyze": return self._r(self._quick_analyze)
         if p.path=="/api/fs/pick-directory": return self._r(self._fs_pick_directory)
         if p.path=="/api/workspace/analyze": return self._r(lambda:self._workspace_analyze(self._rb()))
+        if p.path=="/api/workspace/insights": return self._r(lambda:self._workspace_insights_post(self._rb()))
         if p.path.startswith("/api/mcp/job/") and p.path.endswith("/cancel"):
             jid=p.path.split("/api/mcp/job/",1)[1].split("/",1)[0]
             return self._r(lambda:self._cancel_job(jid))
