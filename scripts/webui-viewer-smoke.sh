@@ -45,6 +45,16 @@ echo ""; echo "--- CSS ---"
 grep -q ':root' "$VD/styles.css" && chk "css vars" yes yes || chk "css vars" yes no
 grep -q '@media' "$VD/styles.css" && chk "responsive" yes yes || chk "responsive" yes no
 ! grep -q '@import' "$VD/styles.css" && chk "no @import" yes yes || chk "no @import" yes no
+echo ""; echo "--- Visual Identity Checks ---"
+grep -qF 'welcome-stage' "$VD/index.html" && chk "premium welcome shell" yes yes || chk "premium welcome shell" yes no
+grep -qF 'hero-proof-row' "$VD/index.html" && chk "hero proof metrics" yes yes || chk "hero proof metrics" yes no
+grep -qF 'workbench-hero' "$VD/index.html" && chk "loaded workbench hero" yes yes || chk "loaded workbench hero" yes no
+grep -qF 'btn-icon' "$VD/index.html" && chk "css button icons" yes yes || chk "css button icons" yes no
+grep -qF 'status-dot' "$VD/index.html" && chk "css status dots" yes yes || chk "css status dots" yes no
+grep -qF 'rel="icon"' "$VD/index.html" && chk "inline favicon" yes yes || chk "inline favicon" yes no
+grep -qF 'body::before' "$VD/styles.css" && chk "data field background" yes yes || chk "data field background" yes no
+grep -qF 'word-break: keep-all' "$VD/styles.css" && chk "hero chinese title fit" yes yes || chk "hero chinese title fit" yes no
+grep -qF 'PROJECT GRAPH ONLINE' "$VD/index.html" && chk "workbench hero copy" yes yes || chk "workbench hero copy" yes no
 echo ""; echo "--- Fixture Matrix ---"
 REQ=(rust typescript c cpp python)
 TD=$(mktemp -d)

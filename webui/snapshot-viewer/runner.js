@@ -275,7 +275,7 @@ function renderProjectRadar(inv, where){
     '</div>'+
     '<div class="text-muted text-sm">'+esc(tr("projectRadar.staticHint"))+'</div>';
   if(analyzeCurrent){
-    html+='<div class="project-radar-actions"><button class="btn btn-sm btn-primary" onclick="radarUseRoot(&quot;'+where+'&quot;,&quot;'+escAttr(inv.recommendedRoot)+'&quot;,&quot;'+escAttr(inv.recommendedLanguage||"auto")+'&quot;)">⚡ '+esc(tr("projectRadar.analyzeHere"))+'</button></div>';
+    html+='<div class="project-radar-actions"><button class="btn btn-sm btn-primary" onclick="radarUseRoot(&quot;'+where+'&quot;,&quot;'+escAttr(inv.recommendedRoot)+'&quot;,&quot;'+escAttr(inv.recommendedLanguage||"auto")+'&quot;)"><span class="btn-icon spark" aria-hidden="true"></span>'+esc(tr("projectRadar.analyzeHere"))+'</button></div>';
   }
   if(candidates.length){
     html+='<div class="project-radar-actions">'+candidates.map(function(c){
@@ -358,10 +358,10 @@ function runnerBrowse(path){
       return '<a href="#" onclick="runnerBrowse(&quot;'+escAttr(bp)+'&quot;);return false;" style="color:#2563eb;">'+esc(p)+'</a>';
     }).join(" / ");
     var dirs=dd.entries.filter(function(e){return e.isDir;});
-    listEl.innerHTML='<div style="padding:2px 0;color:#6b7280;">📂 / '+bc+'</div>'+
+    listEl.innerHTML='<div style="padding:2px 0;color:#6b7280;"><span class="btn-icon folder" aria-hidden="true"></span> / '+bc+'</div>'+
       '<div style="padding:4px 0;cursor:pointer;color:#059669;font-weight:600;" onclick="runnerSelectPath(&quot;'+escAttr(dd.path)+'&quot;)">✅ 选定此文件夹</div>'+
       dirs.map(function(e){
-        return '<div style="padding:3px 6px;cursor:pointer;color:#2563eb;" onclick="runnerBrowse(&quot;'+escAttr(e.path)+'&quot;)">📁 '+esc(e.name)+'</div>';
+        return '<div class="browse-row" onclick="runnerBrowse(&quot;'+escAttr(e.path)+'&quot;)"><span class="btn-icon folder" aria-hidden="true"></span>'+esc(e.name)+'</div>';
       }).join("");
   }).catch(function(){
     listEl.innerHTML='<div style="padding:8px;color:#dc2626;">'+esc(tr("picker.browseUnavailable"))+'</div>';
@@ -386,7 +386,7 @@ function runnerLoadQuickRoots(){
       return '<button class="btn btn-sm btn-secondary" onclick="runnerBrowse(&quot;'+escAttr(r.path)+'&quot;)">'+r.icon+' '+esc(r.label)+'</button>';
     }).join(" ");
     var el=document.getElementById("runner-quick-roots");
-    if(el)el.innerHTML=rootBtns+' <button class="btn btn-sm btn-secondary" onclick="runnerBrowse(&quot;/&quot;)">📂 /</button>';
+    if(el)el.innerHTML=rootBtns+' <button class="btn btn-sm btn-secondary" onclick="runnerBrowse(&quot;/&quot;)"><span class="btn-icon folder" aria-hidden="true"></span>/</button>';
   });
 }
 
@@ -584,14 +584,14 @@ function pickerBrowse(path){
     }).join(" / ");
     // 子目录列表
     var dirs=dd.entries.filter(function(e){return e.isDir;});
-    listEl.innerHTML='<div style="padding:2px 0;color:#6b7280;">📂 / '+bc+'</div>'+
+    listEl.innerHTML='<div style="padding:2px 0;color:#6b7280;"><span class="btn-icon folder" aria-hidden="true"></span> / '+bc+'</div>'+
       '<div style="padding:4px 0;cursor:pointer;color:#059669;font-weight:600;" onclick="pickerSelect(&quot;'+escAttr(dd.path)+'&quot;)">✅ 选定此文件夹</div>'+
       dirs.map(function(e){
-        return '<div style="padding:3px 6px;cursor:pointer;color:#2563eb;" onclick="pickerBrowse(&quot;'+escAttr(e.path)+'&quot;)">📁 '+esc(e.name)+'</div>';
+        return '<div class="browse-row" onclick="pickerBrowse(&quot;'+escAttr(e.path)+'&quot;)"><span class="btn-icon folder" aria-hidden="true"></span>'+esc(e.name)+'</div>';
       }).join("");
     // 更新快速入口
     document.getElementById("picker-quick-roots").innerHTML=
-      '<button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;/&quot;)">📂 /</button> ';
+      '<button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;/&quot;)"><span class="btn-icon folder" aria-hidden="true"></span>/</button> ';
   });
 }
 
@@ -609,7 +609,7 @@ function pickerLoadQuickRoots(){
     var rootBtns=roots.map(function(r){
       return '<button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;'+escAttr(r.path)+'&quot;)">'+r.icon+' '+esc(r.label)+'</button>';
     }).join(" ");
-    document.getElementById("picker-quick-roots").innerHTML=rootBtns+' <button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;/&quot;)">📂 /</button>';
+    document.getElementById("picker-quick-roots").innerHTML=rootBtns+' <button class="btn btn-sm btn-secondary" onclick="pickerBrowse(&quot;/&quot;)"><span class="btn-icon folder" aria-hidden="true"></span>/</button>';
   });
 }
 

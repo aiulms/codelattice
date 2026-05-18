@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-18（WebUI Graph Showcase Pack）
+最后更新：2026-05-18（WebUI Visual Identity Pack）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Visual Identity Pack（2026-05-18，已完成）：**
+- 📝 [2026-05-18-webui-visual-identity-preflight.md](2026-05-18-webui-visual-identity-preflight.md) — Jina-inspired but CodeLattice-native visual system：immersive welcome stage、loaded workbench hero、glass panels、CSS icons、visual smoke hardening。
+- ✅ [2026-05-18-webui-visual-identity-closure.md](2026-05-18-webui-visual-identity-closure.md) — closure：工作台整体协调性升级完成，中文标题排版、favicon、视觉 smoke、浏览器截图验证。
 
 **WebUI Graph Showcase Pack（2026-05-18，已完成）：**
 - 📝 [2026-05-18-webui-graph-showcase-preflight.md](2026-05-18-webui-graph-showcase-preflight.md) — graph presentation/exploration 增强：Module Heatmap、Spotlight、hover card、PNG export、smoke/browser 验证。
@@ -54,28 +58,6 @@
 **WebUI Phase B — Graph + Diff + Smoke Hardening（2026-05-17，已完成）：**
 - 📝 [`2026-05-17-webui-phase-b-preflight.md`](2026-05-17-webui-phase-b-preflight.md) — Phase B scope lock：graph visualization + snapshot diff + smoke hardening, stop-lines。
 - ✅ [`2026-05-17-webui-phase-b-closure.md`](2026-05-17-webui-phase-b-closure.md) — closure：graph section + viewer Graph/Diff tabs + smoke rewrite (26/26, 5/5 matrix), zero path leaks。
-
-**WebUI Phase A — Rich Snapshot Viewer + Export Pipeline（2026-05-17，已完成）：**
-
-## 用途
-
-本目录存放 CodeLattice 的计划文档（preflight / execution card / closure review）。
-
-日常 implementation closure 可在本地记录，也可记录到 GitNexus-RC `docs/language-support/plans/`。
-跨仓 handoff / milestone 必须记录到 GitNexus-RC。
-
-## 命名
-
-- `YYYY-MM-DD-<topic>-preflight.md`
-- `YYYY-MM-DD-<topic>-execution-card.md`
-- `YYYY-MM-DD-<topic>-closure-review.md`
-
-## 治理来源
-
-- [GitNexus-RC TASK_TRACKER](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/TASK_TRACKER.md`)
-- [GitNexus-RC RISK_LEDGER](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/RISK_LEDGER.md`)
-- [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
-
 
 **WebUI Phase A — Rich Snapshot Viewer + Export Pipeline（2026-05-17，已完成）：**
 - 📝 [`2026-05-16-webui-phase-a-preflight.md`](2026-05-16-webui-phase-a-preflight.md) — Phase A scope lock：snapshot enrichment pipeline、6 视图 viewer 升级、多语言 fixture matrix、stop-lines。

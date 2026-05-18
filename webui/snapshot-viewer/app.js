@@ -22,6 +22,7 @@
     $$(`.view-section`).forEach(function (el) { el.style.display = "none"; });
     var view = $("#view-" + id);
     if (view) view.style.display = "";
+    document.body.setAttribute("data-active-tab", id || "");
     $$(".tab-btn").forEach(function (btn) {
       var active = btn.getAttribute("data-tab") === id;
       btn.classList.toggle("active", active);
@@ -85,6 +86,8 @@
     $("#loaded-content").style.display = "";
     $("#welcome-view").style.display = "none";
     $("#error-view").style.display = "none";
+    document.body.classList.add("has-snapshot");
+    document.body.classList.remove("is-welcome", "has-error");
     updateCautionBanner();
   }
 
@@ -92,6 +95,8 @@
     $("#error-view").style.display = "";
     $("#welcome-view").style.display = "none";
     $("#loaded-content").style.display = "none";
+    document.body.classList.add("has-error");
+    document.body.classList.remove("is-welcome", "has-snapshot");
     $("#error-message").textContent = msg;
     if (detail) $("#error-detail").textContent = detail;
   }
@@ -100,6 +105,8 @@
     $("#welcome-view").style.display = "";
     $("#error-view").style.display = "none";
     $("#loaded-content").style.display = "none";
+    document.body.classList.add("is-welcome");
+    document.body.classList.remove("has-snapshot", "has-error");
   }
 
   // File input handler
@@ -173,6 +180,10 @@
     $("#hdr-language").textContent = s.language || gf.toolVersion || "-";
     $("#hdr-schema-version").textContent = currentSnapshot.schemaVersion || "";
     $("#hdr-generated-at").textContent = s.generatedAt || currentSnapshot.generatedAt || "";
+    setText("hero-project-language", s.language || "-");
+    setText("hero-project-files", s.sourceFileCount != null ? s.sourceFileCount : "-");
+    setText("hero-project-symbols", s.symbolCount != null ? s.symbolCount : "-");
+    setText("hero-project-edges", s.edgeCount != null ? s.edgeCount : "-");
   }
 
   // ── Dashboard ───────────────────────────────────────────────────────

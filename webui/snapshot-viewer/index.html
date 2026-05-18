@@ -4,9 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CodeLattice — Snapshot Viewer</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230f766e'/%3E%3Cpath d='M18 40h28M18 24h28M24 18v28M40 18v28' stroke='white' stroke-width='5' stroke-linecap='round'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="styles.css">
 </head>
-<body>
+<body class="is-welcome">
   <!-- Global Caution Banner -->
   <div id="caution-banner" class="caution-banner" role="alert" style="display:none;">
     <strong>&#9888; <span data-i18n="caution.staticOnly">仅静态分析</span></strong>
@@ -18,8 +19,8 @@
     <div class="header-left">
       <h1 class="app-title">CodeLattice</h1>
       <span class="app-subtitle" data-i18n="app.subtitle">项目分析工作台</span>
-      <span id="runner-mode-badge" class="badge badge-info" style="display:none;">&#128268; <span data-i18n="runner.badge">Runner</span></span>
-      <span id="static-mode-badge" class="badge" style="display:none;">&#128194; <span data-i18n="runner.disconnected">文件模式</span></span>
+      <span id="runner-mode-badge" class="badge badge-info" style="display:none;"><span class="status-dot"></span><span data-i18n="runner.badge">Runner</span></span>
+      <span id="static-mode-badge" class="badge" style="display:none;"><span class="status-dot muted"></span><span data-i18n="runner.disconnected">文件模式</span></span>
     </div>
     <div class="header-center" id="project-info" style="display:none;">
       <span class="badge badge-lang" id="hdr-language"></span>
@@ -29,7 +30,7 @@
     <div class="header-right">
       <button class="btn btn-sm btn-secondary" id="i18n-toggle" onclick="CTL_I18N.setLanguage(CTL_I18N.lang==='zh'?'en':'zh')" data-i18n="i18n.switchTo">中文</button>
       <label for="file-input" class="btn btn-sm btn-primary">
-        &#128194; <span data-i18n="picker.loadJson">Load JSON</span>
+        <span class="btn-icon" aria-hidden="true"></span><span data-i18n="picker.loadJson">Load JSON</span>
       </label>
       <input type="file" id="file-input" accept=".json,application/json" style="display:none;">
     </div>
@@ -38,7 +39,7 @@
   <!-- Drop Zone (overlay) -->
   <div id="drop-zone" class="drop-zone" style="display:none;">
     <div class="drop-zone-inner">
-      &#128179; <span data-i18n="picker.dropJson">把 snapshot JSON 拖到这里</span>
+      <span class="drop-orbit" aria-hidden="true"></span><span data-i18n="picker.dropJson">把 snapshot JSON 拖到这里</span>
     </div>
   </div>
 
@@ -47,14 +48,25 @@
 
     <!-- Empty / Project Picker (Phase I) -->
     <div id="welcome-view" class="welcome-view">
-      <div class="welcome-card" style="max-width:600px;">
+      <div class="welcome-stage">
+        <div class="welcome-copy">
+          <div class="hero-kicker" data-i18n="hero.kicker">LOCAL CODE INTELLIGENCE</div>
+          <h2 data-i18n="hero.title">把大型项目变成可探索的代码星图</h2>
+          <p data-i18n="hero.subtitle">CodeLattice 在本机生成静态代码图谱，帮助你看清模块、调用、风险和可清理区域。</p>
+          <div class="hero-proof-row">
+            <span><strong>7</strong><em data-i18n="hero.languages">门语言</em></span>
+            <span><strong>37</strong><em data-i18n="hero.tools">个 MCP 工具</em></span>
+            <span><strong>local</strong><em data-i18n="hero.localOnly">只在本机</em></span>
+          </div>
+        </div>
+        <div class="welcome-card product-picker-card">
         <h2 data-i18n="app.title">CodeLattice</h2>
         <p class="text-muted" id="picker-hint" data-i18n="picker.openProject">打开项目</p>
         <div class="welcome-actions">
           <div style="display:flex;gap:8px;align-items:center;width:100%;">
             <input type="text" id="picker-path-input" class="search-input" data-i18n-placeholder="picker.pathPlaceholder" placeholder="输入项目完整路径，或点击选择文件夹" onblur="projectInventory(this.value.trim(),'picker')" style="flex:1;font-size:0.95em;padding:10px 12px;">
-            <button class="btn btn-secondary" onclick="pickerPickDirectory()" style="padding:10px 14px;white-space:nowrap;">📁 <span data-i18n="picker.chooseFolder">选择文件夹</span></button>
-            <button class="btn btn-primary" onclick="pickerAnalyzePath()" style="padding:10px 18px;white-space:nowrap;">⚡ <span data-i18n="picker.analyze">分析项目</span></button>
+            <button class="btn btn-secondary" onclick="pickerPickDirectory()" style="padding:10px 14px;white-space:nowrap;"><span class="btn-icon folder" aria-hidden="true"></span><span data-i18n="picker.chooseFolder">选择文件夹</span></button>
+            <button class="btn btn-primary" onclick="pickerAnalyzePath()" style="padding:10px 18px;white-space:nowrap;"><span class="btn-icon spark" aria-hidden="true"></span><span data-i18n="picker.analyze">分析项目</span></button>
           </div>
           <select id="picker-lang-select" class="filter-select" style="margin-top:6px;">
             <option value="auto">auto（自动检测）</option><option value="rust">Rust</option><option value="typescript">TypeScript</option><option value="c">C</option><option value="cpp">C++</option><option value="python">Python</option></select>
@@ -63,7 +75,7 @@
           <div id="picker-browse-box" style="margin-top:10px;text-align:left;width:100%;">
             <div style="font-size:0.85em;color:#6b7280;margin-bottom:4px;" data-i18n="picker.quickBrowse">网页内浏览文件夹</div>
             <div id="picker-quick-roots" style="display:flex;gap:6px;flex-wrap:wrap;">
-              <button class="btn btn-sm btn-secondary" onclick="pickerBrowse('/')">📂 /</button>
+              <button class="btn btn-sm btn-secondary" onclick="pickerBrowse('/')"><span class="btn-icon folder" aria-hidden="true"></span>/</button>
             </div>
             <div id="picker-browse-list" style="max-height:180px;overflow-y:auto;margin-top:6px;font-size:0.85em;"></div>
             <div id="picker-project-radar" class="project-radar" style="display:none;"></div>
@@ -75,12 +87,13 @@
             <div id="picker-recent-list" class="text-muted text-sm" style="margin-top:4px;">暂无最近项目。首次分析后显示。</div>
           </div>
           <div style="margin-top:10px;">
-            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('file-input').click()">📄 <span data-i18n="picker.loadJson">加载 JSON</span></button>
+            <button class="btn btn-sm btn-secondary" onclick="document.getElementById('file-input').click()"><span class="btn-icon file" aria-hidden="true"></span><span data-i18n="picker.loadJson">加载 JSON</span></button>
           </div>
           <div id="picker-runner-hint" class="text-muted text-sm" style="display:none;">
             <p style="margin-bottom:4px;" data-i18n="picker.startRunner">启动 runner 开始本地分析</p>
             <pre class="code-block">bash scripts/webui-runner.sh --open</pre>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -108,20 +121,20 @@
         <!-- Generate -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input type="text" id="runner-root-input" class="search-input" data-i18n-placeholder="runner.rootPlaceholder" placeholder="项目根目录路径…" onblur="projectInventory(this.value.trim(),'runner')" style="flex:1;min-width:200px;">
-          <button class="btn btn-sm btn-secondary" onclick="runnerPickDirectory()">📁 <span data-i18n="picker.chooseFolder">选择文件夹</span></button>
+          <button class="btn btn-sm btn-secondary" onclick="runnerPickDirectory()"><span class="btn-icon folder" aria-hidden="true"></span><span data-i18n="picker.chooseFolder">选择文件夹</span></button>
           <select id="runner-lang-select" class="filter-select">
             <option value="auto">auto</option>
             <option value="rust">rust</option><option value="typescript">typescript</option>
             <option value="c">c</option><option value="cpp">cpp</option><option value="python">python</option>
             <option value="arkts">arkts</option><option value="cangjie">cangjie</option>
           </select>
-          <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()">&#9889; <span data-i18n="gen.generate">生成</span></button>
+          <button class="btn btn-sm btn-primary" id="runner-generate-btn" onclick="runnerGenerate()"><span class="btn-icon spark" aria-hidden="true"></span><span data-i18n="gen.generate">生成</span></button>
           <span class="text-muted text-sm" id="runner-status"></span>
         </div>
         <details style="margin-top:8px;">
           <summary style="cursor:pointer;font-weight:600;" data-i18n="picker.quickBrowse">网页内浏览文件夹</summary>
           <div id="runner-quick-roots" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">
-            <button class="btn btn-sm btn-secondary" onclick="runnerBrowse('/')">📂 /</button>
+            <button class="btn btn-sm btn-secondary" onclick="runnerBrowse('/')"><span class="btn-icon folder" aria-hidden="true"></span>/</button>
           </div>
           <div id="runner-browse-list" style="max-height:180px;overflow-y:auto;margin-top:6px;font-size:0.85em;"></div>
           <div id="runner-project-radar" class="project-radar" style="display:none;"></div>
@@ -150,12 +163,26 @@
             <option value="release_check" data-i18n="live.releaseCheck">发布检查</option>
           </select>
           <input type="text" id="live-symbol-query" class="search-input" data-i18n-placeholder="live.symbolPlaceholder" placeholder="符号/查询…" style="max-width:160px;">
-          <button class="btn btn-sm btn-primary" onclick="liveCreateJob()">&#9654; <span data-i18n="live.run">运行</span></button>
+          <button class="btn btn-sm btn-primary" onclick="liveCreateJob()"><span class="btn-icon play" aria-hidden="true"></span><span data-i18n="live.run">运行</span></button>
           <span class="text-muted text-sm" id="live-job-status"></span>
         </div>
         <div id="live-jobs-list" style="margin-top:8px;font-size:0.85em;"></div>
         <div id="live-job-result" style="margin-top:8px;"></div>
       </div>
+
+      <section class="workbench-hero" aria-label="Project analysis summary">
+        <div>
+          <div class="hero-kicker" data-i18n="workbench.kicker">PROJECT GRAPH ONLINE</div>
+          <h2 data-i18n="workbench.title">项目图谱已就绪</h2>
+          <p data-i18n="workbench.subtitle">从总览进入图谱，沿调用、文件和模块关系下探。</p>
+        </div>
+        <div class="hero-metrics">
+          <span><em data-i18n="dashboard.language">语言</em><strong id="hero-project-language">-</strong></span>
+          <span><em data-i18n="dashboard.sourceFiles">源文件</em><strong id="hero-project-files">-</strong></span>
+          <span><em data-i18n="dashboard.symbols">符号</em><strong id="hero-project-symbols">-</strong></span>
+          <span><em data-i18n="dashboard.edges">边</em><strong id="hero-project-edges">-</strong></span>
+        </div>
+      </section>
 
       <!-- Tab Bar -->
       <nav class="tab-bar" role="tablist">
