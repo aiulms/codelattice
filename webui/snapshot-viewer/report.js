@@ -193,7 +193,10 @@ CTL.generateMarkdownReport = function() {
   if (!ctx && !wsInsights) return "# CodeLattice Review Report\n\nNo snapshot or workspace data loaded.\n";
 
   var isWorkspace = !!wsInsights;
-  var title = isWorkspace ? "# CodeLattice Workspace Review Report" : "# CodeLattice Snapshot Review Report";
+  var zh = window.CTL_I18N && CTL_I18N.lang === "zh";
+  var title = isWorkspace
+    ? (zh ? "# CodeLattice 工作区审查报告" : "# CodeLattice Workspace Review Report")
+    : (zh ? "# CodeLattice 快照审查报告" : "# CodeLattice Snapshot Review Report");
   var lines = [];
   lines.push(title);
   lines.push("");
@@ -208,31 +211,33 @@ CTL.generateMarkdownReport = function() {
   }
   lines.push("");
 
-  lines.push("## Caution");
+  lines.push(zh ? "## 注意事项" : "## Caution");
   lines.push("");
-  lines.push("- staticAnalysis: true");
-  lines.push("- runtimeVerified: **false** — no project code was executed");
-  lines.push("- externalUsageVerified: **false**");
-  lines.push("- coverageVerified: **false**");
-  lines.push("- deletionSafetyVerified: **false**");
+  lines.push(zh ? "- staticAnalysis: true" : "- staticAnalysis: true");
+  lines.push(zh ? "- runtimeVerified: **false** — 未执行目标项目代码" : "- runtimeVerified: **false** — no project code was executed");
+  lines.push(zh ? "- externalUsageVerified: **false** — 未证明外部真实使用" : "- externalUsageVerified: **false**");
+  lines.push(zh ? "- coverageVerified: **false** — 未证明测试覆盖" : "- coverageVerified: **false**");
+  lines.push(zh ? "- deletionSafetyVerified: **false** — 不证明可安全删除" : "- deletionSafetyVerified: **false**");
   lines.push("");
-  lines.push("**This is a static analysis report, not a release gate or safety proof.**");
+  lines.push(zh ? "**这是静态分析报告，不是发布门、安全证明或删除证明。**" : "**This is a static analysis report, not a release gate or safety proof.**");
   lines.push("");
 
   // ── Workspace Insight Sections ───────────────────────────────
   if (isWorkspace && wsInsights) {
     var wss = wsInsights.summary || {};
-    lines.push("## Workspace Overview");
+    lines.push(zh ? "## 工作区总览" : "## Workspace Overview");
     lines.push("");
-    lines.push("| Metric | Value |");
+    lines.push(zh ? "| 指标 | 数值 |" : "| Metric | Value |");
     lines.push("|---|---|");
-    lines.push("| Overall Health Score | " + wss.overallHealthScore + "/100 |");
-    lines.push("| Overall Risk Level | **" + (wss.overallRiskLevel || "unknown") + "** |");
-    lines.push("| Projects | " + wss.succeededProjectCount + " succeeded / " + wss.failedProjectCount + " failed (of " + wss.projectCount + " total) |");
-    lines.push("| Unsupported Modules | " + wss.unsupportedModuleCount + " |");
-    lines.push("| Total Source Files | " + wss.totalSourceFiles + " |");
-    lines.push("| Total Symbols | " + wss.totalSymbols + " |");
-    lines.push("| Total Edges | " + wss.totalEdges + " |");
+    lines.push((zh ? "| 总健康分 | " : "| Overall Health Score | ") + wss.overallHealthScore + "/100 |");
+    lines.push((zh ? "| 总风险等级 | **" : "| Overall Risk Level | **") + (wss.overallRiskLevel || "unknown") + "** |");
+    lines.push(zh
+      ? "| 项目 | " + wss.succeededProjectCount + " 成功 / " + wss.failedProjectCount + " 失败 / " + wss.projectCount + " 总计 |"
+      : "| Projects | " + wss.succeededProjectCount + " succeeded / " + wss.failedProjectCount + " failed (of " + wss.projectCount + " total) |");
+    lines.push((zh ? "| 暂不支持模块 | " : "| Unsupported Modules | ") + wss.unsupportedModuleCount + " |");
+    lines.push((zh ? "| 源文件总数 | " : "| Total Source Files | ") + wss.totalSourceFiles + " |");
+    lines.push((zh ? "| 符号总数 | " : "| Total Symbols | ") + wss.totalSymbols + " |");
+    lines.push((zh ? "| 边总数 | " : "| Total Edges | ") + wss.totalEdges + " |");
     lines.push("");
 
     // Read First / Review First / Cleanup First
@@ -240,19 +245,19 @@ CTL.generateMarkdownReport = function() {
     var vf = wsInsights.reviewFirst || [];
     var cf = wsInsights.cleanupFirst || [];
     if (rf.length) {
-      lines.push("## Read First");
+      lines.push(zh ? "## 先读这些" : "## Read First");
       lines.push("");
       rf.forEach(function(r) { lines.push("- **" + (r.priority||"") + "** " + (r.projectId||"") + " — " + (r.reason||"")); });
       lines.push("");
     }
     if (vf.length) {
-      lines.push("## Review First");
+      lines.push(zh ? "## 优先审查" : "## Review First");
       lines.push("");
       vf.forEach(function(r) { lines.push("- **" + (r.priority||"") + "** " + (r.projectId||"") + " — " + (r.reason||"")); });
       lines.push("");
     }
     if (cf.length) {
-      lines.push("## Cleanup First");
+      lines.push(zh ? "## 优先清理" : "## Cleanup First");
       lines.push("");
       cf.forEach(function(r) { lines.push("- **" + (r.priority||"") + "** " + (r.projectId||"") + " — " + (r.reason||"")); });
       lines.push("");
@@ -261,9 +266,9 @@ CTL.generateMarkdownReport = function() {
     // Project Scores
     var ps = wsInsights.projectScores || [];
     if (ps.length) {
-      lines.push("## Project Scores");
+      lines.push(zh ? "## 项目评分" : "## Project Scores");
       lines.push("");
-      lines.push("| Project | Language | Health | Risk | Reasons |");
+      lines.push(zh ? "| 项目 | 语言 | 健康分 | 风险 | 原因 |" : "| Project | Language | Health | Risk | Reasons |");
       lines.push("|---|---|---|---|---|");
       ps.forEach(function(s) {
         lines.push("| " + (s.name||s.projectId||"") + " | " + (s.language||"") + " | " + s.healthScore + " | " + (s.riskLevel||"") + " | " + (s.scoreReasons||[]).join("; ") + " |");
@@ -275,34 +280,41 @@ CTL.generateMarkdownReport = function() {
     var cp = wsInsights.crossProjectSignals || {};
     var uc = cp.unsupportedLanguageClusters || [];
     if (uc.length) {
-      lines.push("## Unsupported Language Clusters");
+      lines.push(zh ? "## 暂不支持语言集群" : "## Unsupported Language Clusters");
       lines.push("");
       uc.forEach(function(c) { lines.push("- **" + (c.language||"") + "**: " + c.count + " project(s)"); });
       lines.push("");
     }
     var dl = cp.duplicatedProjectLabels || [];
     if (dl.length) {
-      lines.push("## Duplicated Project Labels");
+      lines.push(zh ? "## 重复项目标签" : "## Duplicated Project Labels");
       lines.push("");
       dl.forEach(function(d) { lines.push("- **" + (d.name||"") + "** ×" + d.count); });
       lines.push("");
     }
 
     // Cautions
-    lines.push("## Workspace Cautions");
+    lines.push(zh ? "## 工作区注意事项" : "## Workspace Cautions");
     lines.push("");
     var cauts = wsInsights.cautions || [];
     cauts.forEach(function(c) { lines.push("- " + c); });
     lines.push("");
-    lines.push("**healthScore is heuristic and derived from snapshot metadata only, not compiler-verified.**");
+    lines.push(zh ? "**healthScore 是基于 snapshot metadata 的启发式评分，不是编译器证明。**" : "**healthScore is heuristic and derived from snapshot metadata only, not compiler-verified.**");
     lines.push("");
 
-    lines.push("## Recommended Manual Verification");
+    lines.push(zh ? "## 建议人工验证" : "## Recommended Manual Verification");
     lines.push("");
-    lines.push("- [ ] Run project tests/builds outside CodeLattice");
-    lines.push("- [ ] Verify public API consumers manually");
-    lines.push("- [ ] Check integration with external dependencies");
-    lines.push("- [ ] Confirm no runtime regressions via manual or CI testing");
+    if (zh) {
+      lines.push("- [ ] 在 CodeLattice 外部运行项目测试/构建");
+      lines.push("- [ ] 人工确认公开 API 的下游使用者");
+      lines.push("- [ ] 检查外部依赖和集成路径");
+      lines.push("- [ ] 通过手动验证或 CI 确认没有运行时回归");
+    } else {
+      lines.push("- [ ] Run project tests/builds outside CodeLattice");
+      lines.push("- [ ] Verify public API consumers manually");
+      lines.push("- [ ] Check integration with external dependencies");
+      lines.push("- [ ] Confirm no runtime regressions via manual or CI testing");
+    }
     lines.push("");
     return lines.join("\n");
   }
@@ -466,8 +478,8 @@ CTL.renderReport = function() {
   var report = CTL.generateMarkdownReport();
   container.innerHTML = tmplHTML +
     '<div style="display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap;">' +
-    '<button class="btn btn-sm btn-primary" onclick="CTL.copyReport()">Copy Report</button>' +
-    '<button class="btn btn-sm btn-secondary" onclick="CTL.downloadReport()">Download .md</button>' +
+    '<button class="btn btn-sm btn-primary" onclick="CTL.copyReport()">' + esc(window.CTL_I18N ? CTL_I18N.t("report.copy") : "Copy Report") + '</button>' +
+    '<button class="btn btn-sm btn-secondary" onclick="CTL.downloadReport()">' + esc(window.CTL_I18N ? CTL_I18N.t("report.download") : "Download .md") + '</button>' +
     '</div>' +
     '<pre class="code-block" id="report-md" style="max-height:600px;overflow:auto;white-space:pre-wrap;font-size:.82em;line-height:1.45;">' + esc(report) + '</pre>';
 };

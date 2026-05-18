@@ -1390,6 +1390,7 @@
   window.esc = esc;
   window.renderAll = renderAll;
   window.renderWorkspace = renderWorkspace;
+  window.renderWorkspaceRuns = renderWorkspaceRuns;
   window.renderWorkspaceInsights = renderWorkspaceInsights;
   window.showWorkspaceOverview = showWorkspaceOverview;
   window.updateCautionBanner = updateCautionBanner;
@@ -1476,6 +1477,7 @@
           '<td class="text-muted" style="font-size:0.8em;">' + esc(u.reason || "") + '</td></tr>';
       });
       html += '</tbody></table>';
+      html += renderUnsupportedBacklog(um);
     }
 
     // 分析历史
@@ -1513,6 +1515,7 @@
             '<span class="badge ' + cls + '" style="font-size:0.75em;">' + esc(t("workspace.status."+pj.status)) + '</span> ' +
             esc(pj.projectId||"?") + ' ' +
             (pj.snapshotId ? '<a href="#" onclick="openWorkbenchSnapshot(null,\'' + esc(pj.snapshotId||"") + '\');return false;">' + esc(t("workspace.viewSnapshot")) + '</a>' : '') +
+            (pj.status === "failed" ? '<span class="ws-fix-hint">' + esc(workspaceFixHint(pj)) + '</span>' : '') +
             '</span>';
         }).join("") +
         '</div></div>';
@@ -1533,12 +1536,18 @@
     var vf = ins.reviewFirst || [];
     var cf = ins.cleanupFirst || [];
     var cp = ins.crossProjectSignals || {};
+    var scoreByProject = {};
+    ps.forEach(function(s) {
+      if (s.projectId) scoreByProject[s.projectId] = s;
+      if (s.name) scoreByProject[s.name] = s;
+    });
     var html = "";
 
     // Header
     html += '<div class="ws-insight-header">';
     html += '<h2>' + esc(t("workspace.insights")) + '</h2>';
     html += '<span class="ws-insight-static-hint">' + esc(t("workspace.insightStatic")) + '</span>';
+    html += '<span class="ws-ai-summary-actions"><button class="btn btn-sm btn-secondary" onclick="copyWorkspaceAiSummary()">' + esc(t("workspace.copyAiSummary")) + '</button><span id="workspace-ai-summary-status" class="text-muted text-sm"></span></span>';
     html += '</div>';
 
     // Summary cards
@@ -1554,19 +1563,19 @@
     if (rf.length) {
       recsHtml += '<div class="ws-insight-list">';
       recsHtml += '<h4><span class="ws-insight-icon">📖</span> ' + esc(t("workspace.readFirst")) + '</h4>';
-      rf.forEach(function(r) { recsHtml += '<div class="ws-insight-item pri-' + (r.priority||"P1").toLowerCase() + '"><span class="ws-pri-badge">' + esc(r.priority||"") + '</span> ' + esc(r.projectId||"?") + ' <span class="text-muted">— ' + esc(r.reason||"") + '</span></div>'; });
+      rf.forEach(function(r) { recsHtml += renderWorkspaceInsightItem(r, scoreByProject); });
       recsHtml += '</div>';
     }
     if (vf.length) {
       recsHtml += '<div class="ws-insight-list">';
       recsHtml += '<h4><span class="ws-insight-icon">🔍</span> ' + esc(t("workspace.reviewFirst")) + '</h4>';
-      vf.forEach(function(r) { recsHtml += '<div class="ws-insight-item pri-' + (r.priority||"P1").toLowerCase() + '"><span class="ws-pri-badge">' + esc(r.priority||"") + '</span> ' + esc(r.projectId||"?") + ' <span class="text-muted">— ' + esc(r.reason||"") + '</span></div>'; });
+      vf.forEach(function(r) { recsHtml += renderWorkspaceInsightItem(r, scoreByProject); });
       recsHtml += '</div>';
     }
     if (cf.length) {
       recsHtml += '<div class="ws-insight-list">';
       recsHtml += '<h4><span class="ws-insight-icon">🧹</span> ' + esc(t("workspace.cleanupFirst")) + '</h4>';
-      cf.forEach(function(r) { recsHtml += '<div class="ws-insight-item pri-' + (r.priority||"P2").toLowerCase() + '"><span class="ws-pri-badge">' + esc(r.priority||"") + '</span> ' + esc(r.projectId||"?") + ' <span class="text-muted">— ' + esc(r.reason||"") + '</span></div>'; });
+      cf.forEach(function(r) { recsHtml += renderWorkspaceInsightItem(r, scoreByProject); });
       recsHtml += '</div>';
     }
     if (recsHtml) html += '<div class="ws-insight-recs">' + recsHtml + '</div>';
@@ -1574,12 +1583,13 @@
     // Project scores table
     if (ps.length) {
       html += '<h3 style="margin:12px 0 8px;">' + esc(t("workspace.projectScores")) + '</h3>';
-      html += '<table class="workspace-table"><thead><tr><th>Project</th><th>Score</th><th>Risk</th><th>Reasons</th></tr></thead><tbody>';
+      html += '<table class="workspace-table"><thead><tr><th>Project</th><th>Score</th><th>Risk</th><th>Reasons</th><th>Actions</th></tr></thead><tbody>';
       ps.forEach(function(s) {
         html += '<tr><td>' + esc(s.name||s.projectId||"?") + '</td>' +
           '<td><span style="font-weight:700;color:' + scoreColor(s.healthScore) + ';">' + s.healthScore + '</span></td>' +
           '<td><span class="ws-risk-badge ws-risk-' + (s.riskLevel||"unknown") + '">' + esc(riskLabel(s.riskLevel)) + '</span></td>' +
-          '<td class="text-muted" style="font-size:0.8em;">' + (s.scoreReasons||[]).join("; ") + '</td></tr>';
+          '<td class="text-muted" style="font-size:0.8em;">' + (s.scoreReasons||[]).join("; ") + '</td>' +
+          '<td>' + (s.snapshotId ? '<button class="btn btn-sm btn-secondary ws-open-snapshot" onclick="workspaceOpenInsightSnapshot(\'' + esc(s.snapshotId) + '\')">' + esc(t("workspace.openSnapshot")) + '</button>' : '<span class="text-muted text-sm">' + esc(t("workspace.noSnapshot")) + '</span>') + '</td></tr>';
       });
       html += '</tbody></table>';
     }
@@ -1618,6 +1628,50 @@
     host.innerHTML = html;
   }
 
+  function renderWorkspaceInsightItem(item, scoreByProject) {
+    var score = scoreByProject[item.projectId] || scoreByProject[item.name] || {};
+    var snapshotId = item.snapshotId || score.snapshotId || "";
+    var action = snapshotId ? '<button class="btn btn-sm btn-secondary ws-open-snapshot" onclick="workspaceOpenInsightSnapshot(\'' + esc(snapshotId) + '\')">' + esc(t("workspace.openSnapshot")) + '</button>' : '';
+    return '<div class="ws-insight-item pri-' + (item.priority||"P1").toLowerCase() + '">' +
+      '<span class="ws-pri-badge">' + esc(item.priority||"") + '</span> ' +
+      '<span class="ws-project-name">' + esc(item.projectId||item.name||"?") + '</span> ' +
+      '<span class="text-muted">— ' + esc(item.reason||"") + '</span>' +
+      action +
+      '</div>';
+  }
+
+  function workspaceFixHint(project) {
+    var raw = ((project && (project.error || project.hint || project.reason)) || "").toLowerCase();
+    if (raw.indexOf("multiple") >= 0 || raw.indexOf("candidate") >= 0 || raw.indexOf("候选") >= 0 || raw.indexOf("language") >= 0 || raw.indexOf("语言") >= 0) {
+      return t("workspace.fix.selectSubproject");
+    }
+    if (raw.indexOf("manifest") >= 0 || raw.indexOf("cargo.toml") >= 0 || raw.indexOf("cjpm.toml") >= 0 || raw.indexOf("package.json") >= 0) {
+      return t("workspace.fix.checkManifest");
+    }
+    if (raw.indexOf("not found") >= 0 || raw.indexOf("missing") >= 0 || raw.indexOf("不存在") >= 0) {
+      return t("workspace.fix.checkPath");
+    }
+    return t("workspace.fix.chooseLanguage");
+  }
+
+  function renderUnsupportedBacklog(modules) {
+    var counts = {};
+    (modules || []).forEach(function(m) {
+      (m.languages || ["unknown"]).forEach(function(lang) {
+        counts[lang] = (counts[lang] || 0) + 1;
+      });
+    });
+    var langs = Object.keys(counts).sort(function(a,b){return counts[b]-counts[a];});
+    if (!langs.length) return "";
+    return '<div class="ws-backlog">' +
+      '<div class="ws-backlog-title">' + esc(t("workspace.languageBacklog")) + '</div>' +
+      '<p class="text-muted text-sm">' + esc(t("workspace.backlogHint")) + '</p>' +
+      '<div class="ws-backlog-grid">' + langs.map(function(lang) {
+        return '<div class="ws-backlog-item"><strong>' + esc(lang) + '</strong><span>' + counts[lang] + '</span><small>' + esc(t("workspace.futureSupport")) + '</small></div>';
+      }).join("") + '</div>' +
+      '</div>';
+  }
+
   function wsInsightCard(label, value, color) {
     return '<div class="ws-insight-card"><div class="ws-insight-card-val" style="color:' + (color||"#111827") + ';">' + esc(value) + '</div><div class="ws-insight-card-label">' + esc(label) + '</div></div>';
   }
@@ -1646,6 +1700,8 @@
         // Try loading insights from the latest run
         if (runs && runs.length > 0) {
           var latest = runs[0];
+          WORKSPACE.state.currentRun = latest;
+          WORKSPACE.state.currentRunId = latest.workspaceId || WORKSPACE.state.currentRunId;
           if (latest.workspaceId) {
             workspaceLoadInsights(latest.workspaceId, function(e2, ins) {
               if (!e2 && ins) renderWorkspaceInsights(ins);

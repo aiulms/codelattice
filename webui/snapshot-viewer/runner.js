@@ -653,7 +653,7 @@ function pickerAnalyzeProfile(pid){
 
 // ── Workspace API ──────────────────────────────────────────────────
 var WORKSPACE = window.WORKSPACE || {};
-WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null };
+WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null, currentRun: null, insights: null };
 
 function workspaceScanInventory(root, cb) {
   if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
@@ -679,6 +679,7 @@ function workspaceAnalyze(root, mode, projectIds, cb) {
   if (projectIds && projectIds.length) body.projectIds = projectIds;
   rapi("/api/workspace/analyze", { method: "POST", body: body }).then(function(d) {
     WORKSPACE.state.currentRunId = d.data.workspaceId;
+    WORKSPACE.state.currentRun = d.data;
     if (cb) cb(null, d.data);
   }).catch(function(e) {
     console.error("workspace analyze error:", e);
@@ -700,6 +701,8 @@ function workspaceLoadRuns(cb) {
 function workspaceGetRun(wid, cb) {
   if (!RUNNER.connected) return;
   rapi("/api/workspace/run/" + wid).then(function(d) {
+    WORKSPACE.state.currentRun = d.data;
+    WORKSPACE.state.currentRunId = d.data.workspaceId;
     if (cb) cb(null, d.data);
   }).catch(function(e) {
     console.error("workspace run get error:", e);
@@ -715,20 +718,7 @@ function workspaceAnalyzeRecommended() {
   var root = inv.root || "";
   workspaceAnalyze(root, "recommended", null, function(err, ws) {
     if (err) { alert("Workspace analysis failed: " + (err.message || err)); return; }
-    WORKSPACE.state.currentRunId = ws.workspaceId;
-    show("workspace");
-    workspaceLoadRuns(function() {
-      renderWorkspace(WORKSPACE.state.inventory);
-      // Auto-load insights
-      workspaceLoadInsights(ws.workspaceId, function(e, ins) {
-        if (!e && ins) renderWorkspaceInsights(ins);
-      });
-      // Open first succeeded snapshot
-      var succeeded = (ws.projects || []).filter(function(p) { return p.status === "succeeded"; });
-      if (succeeded.length > 0) {
-        openWorkbenchSnapshot(null, succeeded[0].snapshotId, { tab: "dashboard" });
-      }
-    });
+    workspaceFocusRun(ws, {scroll: true});
   });
 }
 
@@ -739,13 +729,34 @@ function workspaceAnalyzeSelected() {
   var cbs = document.querySelectorAll(".ws-checkbox:checked");
   var ids = [];
   cbs.forEach(function(cb) { ids.push(cb.getAttribute("data-path") || cb.value); });
-  if (ids.length === 0) { alert(t("workspace.selectProjects")); return; }
+  if (ids.length === 0) { alert(tr("workspace.selectProjects")); return; }
   workspaceAnalyze(root, "selected", ids, function(err, ws) {
     if (err) { alert("Workspace analysis failed: " + (err.message || err)); return; }
-    WORKSPACE.state.currentRunId = ws.workspaceId;
-    show("workspace");
-    workspaceLoadRuns(function() {
-      renderWorkspace(WORKSPACE.state.inventory);
+    workspaceFocusRun(ws, {scroll: true});
+  });
+}
+
+function workspaceFocusRun(ws, opts) {
+  opts = opts || {};
+  if (!ws) return;
+  WORKSPACE.state.currentRun = ws;
+  WORKSPACE.state.currentRunId = ws.workspaceId || WORKSPACE.state.currentRunId;
+  try { localStorage.setItem("codelattice.workspace.lastRunId", WORKSPACE.state.currentRunId || ""); } catch(e) {}
+  showEl("loaded-content", true);
+  showEl("welcome-view", false);
+  showEl("error-view", false);
+  show("workspace");
+  if (WORKSPACE.state.inventory && typeof renderWorkspace === "function") {
+    renderWorkspace(WORKSPACE.state.inventory);
+  }
+  workspaceLoadRuns(function(e, runs) {
+    if (!e && runs && typeof renderWorkspaceRuns === "function") renderWorkspaceRuns(runs);
+    workspaceLoadInsights(WORKSPACE.state.currentRunId, function(e2, ins) {
+      if (typeof renderWorkspaceInsights === "function") renderWorkspaceInsights(e2 ? null : ins);
+      if (opts.scroll !== false) {
+        var v = document.getElementById("view-workspace");
+        if (v && v.scrollIntoView) v.scrollIntoView({behavior: "smooth", block: "start"});
+      }
     });
   });
 }
@@ -774,4 +785,103 @@ function workspaceLoadInsights(runId, cb) {
     console.error("workspace insights error:", e);
     if (cb) cb(e);
   });
+}
+
+function workspaceOpenInsightSnapshot(snapshotId, tab) {
+  if (!snapshotId) {
+    alert(tr("workspace.noSnapshot"));
+    return;
+  }
+  openWorkbenchSnapshot(null, snapshotId, {tab: tab || "dashboard"});
+}
+
+function buildWorkspaceAiSummary() {
+  var ins = WORKSPACE.state.insights;
+  var run = WORKSPACE.state.currentRun || {};
+  var inv = WORKSPACE.state.inventory || {};
+  var zh = window.CTL_I18N && CTL_I18N.lang === "zh";
+  if (!ins) return zh ? "尚未生成工作区洞察。请先分析推荐项目。" : "No workspace insights generated yet. Analyze recommended projects first.";
+  var sm = ins.summary || {};
+  var cp = ins.crossProjectSignals || {};
+  var lines = [];
+  if (zh) {
+    lines.push("CodeLattice 工作区静态分析摘要（给 AI 使用）");
+    lines.push("注意：这是静态启发式结果，不是编译、运行时、测试覆盖或删除安全证明。");
+    lines.push("");
+    lines.push("工作区：" + (inv.root || run.root || "unknown"));
+    lines.push("健康分：" + (sm.overallHealthScore == null ? "unknown" : sm.overallHealthScore + "/100") + "，风险等级：" + (sm.overallRiskLevel || "unknown"));
+    lines.push("项目：" + (sm.succeededProjectCount || 0) + " 成功 / " + (sm.failedProjectCount || 0) + " 失败 / " + (sm.projectCount || 0) + " 总计；暂不支持模块：" + (sm.unsupportedModuleCount || 0));
+    lines.push("规模：源文件 " + (sm.totalSourceFiles || 0) + "，符号 " + (sm.totalSymbols || 0) + "，边 " + (sm.totalEdges || 0));
+    appendAiList(lines, "先读这些", ins.readFirst);
+    appendAiList(lines, "优先审查", ins.reviewFirst);
+    appendAiList(lines, "优先清理", ins.cleanupFirst);
+    appendUnsupported(lines, "暂不支持语言集群", cp.unsupportedLanguageClusters);
+    lines.push("");
+    lines.push("建议：请基于这些线索规划阅读/审查顺序；不要把候选项当作事实结论。");
+  } else {
+    lines.push("CodeLattice Workspace Static Analysis Summary (for AI)");
+    lines.push("Caution: static heuristic output only; not compile, runtime, coverage, or deletion-safety proof.");
+    lines.push("");
+    lines.push("Workspace: " + (inv.root || run.root || "unknown"));
+    lines.push("Health: " + (sm.overallHealthScore == null ? "unknown" : sm.overallHealthScore + "/100") + ", risk: " + (sm.overallRiskLevel || "unknown"));
+    lines.push("Projects: " + (sm.succeededProjectCount || 0) + " succeeded / " + (sm.failedProjectCount || 0) + " failed / " + (sm.projectCount || 0) + " total; unsupported modules: " + (sm.unsupportedModuleCount || 0));
+    lines.push("Scale: " + (sm.totalSourceFiles || 0) + " files, " + (sm.totalSymbols || 0) + " symbols, " + (sm.totalEdges || 0) + " edges");
+    appendAiList(lines, "Read first", ins.readFirst);
+    appendAiList(lines, "Review first", ins.reviewFirst);
+    appendAiList(lines, "Cleanup first", ins.cleanupFirst);
+    appendUnsupported(lines, "Unsupported language clusters", cp.unsupportedLanguageClusters);
+    lines.push("");
+    lines.push("Recommendation: use these as investigation leads and plan the next review steps manually.");
+  }
+  return lines.join("\n");
+}
+
+function appendAiList(lines, title, items) {
+  items = items || [];
+  if (!items.length) return;
+  lines.push("");
+  lines.push(title + ":");
+  items.slice(0, 8).forEach(function(item) {
+    lines.push("- [" + (item.priority || "P?") + "] " + (item.projectId || item.name || "?") + " — " + (item.reason || ""));
+  });
+}
+
+function appendUnsupported(lines, title, clusters) {
+  clusters = clusters || [];
+  if (!clusters.length) return;
+  lines.push("");
+  lines.push(title + ":");
+  clusters.slice(0, 8).forEach(function(c) {
+    lines.push("- " + (c.language || "?") + ": " + (c.count || 0));
+  });
+}
+
+function copyWorkspaceAiSummary() {
+  var text = buildWorkspaceAiSummary();
+  var status = document.getElementById("workspace-ai-summary-status");
+  function done(ok) {
+    if (status) status.textContent = ok ? tr("workspace.aiSummaryCopied") : tr("workspace.aiSummarySelect");
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ fallbackCopyWorkspaceSummary(text, done); });
+  } else {
+    fallbackCopyWorkspaceSummary(text, done);
+  }
+}
+
+function fallbackCopyWorkspaceSummary(text, done) {
+  try {
+    var ta = document.createElement("textarea");
+    ta.value = text;
+    ta.setAttribute("readonly", "readonly");
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.select();
+    var ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    done(!!ok);
+  } catch(e) {
+    done(false);
+  }
 }

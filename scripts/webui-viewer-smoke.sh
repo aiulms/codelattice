@@ -138,6 +138,19 @@ grep -qF "restoreWorkbenchSnapshot" "$VD/runner.js" && chk "refresh restores sna
 grep -qF "snapshot" "$VD/runner.js" && grep -qF "history.replaceState" "$VD/runner.js" && chk "snapshot url persistence" yes yes || chk "snapshot url persistence" yes no
 grep -qF "rememberWorkbenchTab" "$VD/index.html" && chk "tab url persistence" yes yes || chk "tab url persistence" yes no
 
+echo ""; echo "--- Workspace UX Closure Checks ---"
+grep -qF "workspaceFocusRun" "$VD/runner.js" && chk "workspace focus after run" yes yes || chk "workspace focus after run" yes no
+grep -qF "workspaceOpenInsightSnapshot" "$VD/runner.js" && chk "workspace insight open snapshot" yes yes || chk "workspace insight open snapshot" yes no
+grep -qF "buildWorkspaceAiSummary" "$VD/runner.js" && chk "workspace AI summary builder" yes yes || chk "workspace AI summary builder" yes no
+grep -qF "copyWorkspaceAiSummary" "$VD/runner.js" && chk "workspace AI summary copy" yes yes || chk "workspace AI summary copy" yes no
+grep -qF "workspaceFixHint" "$VD/app.js" && chk "workspace failed project fix hint" yes yes || chk "workspace failed project fix hint" yes no
+grep -qF "renderUnsupportedBacklog" "$VD/app.js" && chk "unsupported backlog renderer" yes yes || chk "unsupported backlog renderer" yes no
+grep -qF "workspace.copyAiSummary" "$VD/i18n.js" && chk "workspace AI summary i18n" yes yes || chk "workspace AI summary i18n" yes no
+grep -qF "workspace.languageBacklog" "$VD/i18n.js" && chk "unsupported backlog i18n" yes yes || chk "unsupported backlog i18n" yes no
+grep -qF ".ws-ai-summary-actions" "$VD/styles.css" && chk "workspace AI summary css" yes yes || chk "workspace AI summary css" yes no
+grep -qF ".ws-fix-hint" "$VD/styles.css" && chk "workspace fix hint css" yes yes || chk "workspace fix hint css" yes no
+grep -qF ".ws-backlog" "$VD/styles.css" && chk "workspace backlog css" yes yes || chk "workspace backlog css" yes no
+
 echo ""; echo "--- Graph Visual Checks ---"
 grep -qF "graph-visual" "$VD/index.html" && chk "graph visual html" yes yes || chk "graph visual html" yes no
 grep -qF "renderGraphVisual" "$VD/app.js" && chk "graph visual renderer" yes yes || chk "graph visual renderer" yes no

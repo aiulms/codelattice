@@ -1418,6 +1418,14 @@ pre.code-block {
   color: var(--clr-text-muted);
 }
 
+.ws-ai-summary-actions {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .ws-insight-cards {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1494,6 +1502,17 @@ pre.code-block {
   white-space: nowrap;
 }
 
+.ws-open-snapshot {
+  margin-left: auto;
+}
+
+.ws-fix-hint {
+  display: inline-block;
+  margin-left: 6px;
+  color: var(--clr-warning);
+  font-size: 0.82em;
+}
+
 .ws-risk-badge {
   font-size: 0.78em;
   font-weight: 600;
@@ -1528,6 +1547,41 @@ pre.code-block {
   padding: 24px;
   text-align: center;
   color: var(--clr-text-secondary);
+}
+
+.ws-backlog {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px dashed rgba(217, 119, 6, .45);
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, rgba(255, 251, 235, .9), rgba(255, 255, 255, .82));
+}
+
+.ws-backlog-title {
+  font-weight: 700;
+  margin-bottom: 4px;
+}
+
+.ws-backlog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ws-backlog-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding: 10px;
+  border: 1px solid rgba(217, 119, 6, .22);
+  border-radius: 7px;
+  background: rgba(255, 255, 255, .75);
+}
+
+.ws-backlog-item small {
+  grid-column: 1 / -1;
+  color: var(--clr-text-muted);
 }
 
 @media (max-width: 860px) {

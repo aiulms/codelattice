@@ -322,7 +322,7 @@ Runner 模式生成 snapshot 时会 best-effort 调用 `codelattice_automation_g
 > **Phase F — 2026-05-18**  
 > 详见 [webui-workspace-smoke.sh](../../scripts/webui-workspace-smoke.sh)
 
-Workspace Mode 允许用户选择一个包含多个项目的大目录（如 monorepo），WebUI Runner 自动发现可分析子项目和暂不支持模块。
+Workspace Mode 允许用户选择一个包含多个项目的大目录（如 monorepo），WebUI Runner 自动发现可分析子项目和暂不支持模块。批量分析完成后会停留在 Workspace 总览，用户可以从洞察推荐项或项目评分表显式打开某个子项目 snapshot。
 
 ### 7.1 Runner API
 
@@ -340,6 +340,14 @@ Workspace Mode 允许用户选择一个包含多个项目的大目录（如 mono
 ### 7.3 存储与合约
 
 Workspace run 存储在 `.codelattice-webui/workspaces/`（gitignored），不写入目标项目路径。workspaceRun 是 runner 内部状态，不改变单 snapshot schema。
+
+### 7.4 UX 收口
+
+- Workspace Insights 提供 Read First / Review First / Cleanup First 推荐项，并在可用时附带打开 snapshot 的操作。
+- 失败项目会显示下一步建议：选择更具体子项目、显式选择语言、检查 manifest 或检查路径。
+- 暂不支持模块会聚合成未来语言支持 backlog，用于后续规划，不会参与分析。
+- “复制给 AI 的摘要”会生成静态分析摘要，强调这些结果不是运行时证明、测试覆盖证明或删除安全证明。
+- 报告导出跟随当前 UI 语言；中文模式下输出中文 Workspace Review Report。
 
 ---
 

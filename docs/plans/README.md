@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-18（Automation Graph Pack）
+最后更新：2026-05-18（WebUI Workspace UX Closure Pack）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Workspace UX Closure Pack（2026-05-18，已完成）：**
+- 📝 [2026-05-18-webui-workspace-ux-closure-preflight.md](2026-05-18-webui-workspace-ux-closure-preflight.md) — workspace 分析后停留总览、洞察项打开快照、失败项目修复建议、unsupported backlog、AI 摘要复制、中文报告导出。
+- ✅ [2026-05-18-webui-workspace-ux-closure-closure.md](2026-05-18-webui-workspace-ux-closure-closure.md) — closure：Workspace UX 收口完成，viewer smoke 新增 11 项检查。
 
 **Automation Graph Pack（2026-05-18，已完成）：**
 - 📝 [2026-05-18-automation-graph-preflight.md](2026-05-18-automation-graph-preflight.md) — 静态自动化图谱：CI/package scripts/Makefile/Dockerfile/shell scripts 扫描、工作流/步骤/脚本引用图、风险命令提示，不执行脚本。
