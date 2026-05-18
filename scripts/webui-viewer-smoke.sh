@@ -115,6 +115,12 @@ grep -qF "runnerPickDirectory" "$VD/runner.js" && chk "workbench folder chooser"
 grep -qF "runnerBrowse" "$VD/runner.js" && chk "workbench in-page browse" yes yes || chk "workbench in-page browse" yes no
 grep -qF "extractProjectCandidates" "$VD/runner.js" && chk "candidate project parser" yes yes || chk "candidate project parser" yes no
 grep -qF "runnerUseCandidate" "$VD/runner.js" && chk "candidate project action" yes yes || chk "candidate project action" yes no
+grep -qF "projectInventory" "$VD/runner.js" && chk "project radar api client" yes yes || chk "project radar api client" yes no
+grep -qF "renderProjectRadar" "$VD/runner.js" && chk "project radar renderer" yes yes || chk "project radar renderer" yes no
+grep -qF "picker-project-radar" "$VD/index.html" && chk "project radar picker html" yes yes || chk "project radar picker html" yes no
+grep -qF "runner-project-radar" "$VD/index.html" && chk "project radar runner html" yes yes || chk "project radar runner html" yes no
+grep -qF ".project-radar" "$VD/styles.css" && chk "project radar css" yes yes || chk "project radar css" yes no
+grep -qF "projectRadar.multiProject" "$VD/i18n.js" && chk "project radar i18n" yes yes || chk "project radar i18n" yes no
 grep -qF "runner-browse-list" "$VD/index.html" && chk "workbench browse html" yes yes || chk "workbench browse html" yes no
 grep -qF "restoreWorkbenchSnapshot" "$VD/runner.js" && chk "refresh restores snapshot" yes yes || chk "refresh restores snapshot" yes no
 grep -qF "snapshot" "$VD/runner.js" && grep -qF "history.replaceState" "$VD/runner.js" && chk "snapshot url persistence" yes yes || chk "snapshot url persistence" yes no
@@ -127,6 +133,8 @@ grep -qF "<svg" "$VD/app.js" && chk "graph svg renderer" yes yes || chk "graph s
 grep -qF ".graph-visual" "$VD/styles.css" && chk "graph visual css" yes yes || chk "graph visual css" yes no
 grep -qF "focusGraphNode" "$VD/app.js" && chk "graph drill function" yes yes || chk "graph drill function" yes no
 grep -qF "graphNeighborIds" "$VD/app.js" && chk "graph neighbor function" yes yes || chk "graph neighbor function" yes no
+grep -qF "graph-relation-row" "$VD/app.js" && chk "graph relation rows" yes yes || chk "graph relation rows" yes no
+grep -qF ".graph-relation-grid" "$VD/styles.css" && chk "graph relation css" yes yes || chk "graph relation css" yes no
 grep -qF "setGraphEdgeMode" "$VD/app.js" && chk "graph edge mode" yes yes || chk "graph edge mode" yes no
 grep -qF "graph-depth-filter" "$VD/index.html" && chk "graph depth control" yes yes || chk "graph depth control" yes no
 grep -qF "graph-layout-mode" "$VD/index.html" && chk "graph layout mode" yes yes || chk "graph layout mode" yes no

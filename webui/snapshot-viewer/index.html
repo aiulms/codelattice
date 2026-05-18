@@ -52,7 +52,7 @@
         <p class="text-muted" id="picker-hint" data-i18n="picker.openProject">打开项目</p>
         <div class="welcome-actions">
           <div style="display:flex;gap:8px;align-items:center;width:100%;">
-            <input type="text" id="picker-path-input" class="search-input" data-i18n-placeholder="picker.pathPlaceholder" placeholder="输入项目完整路径，或点击选择文件夹" style="flex:1;font-size:0.95em;padding:10px 12px;">
+            <input type="text" id="picker-path-input" class="search-input" data-i18n-placeholder="picker.pathPlaceholder" placeholder="输入项目完整路径，或点击选择文件夹" onblur="projectInventory(this.value.trim(),'picker')" style="flex:1;font-size:0.95em;padding:10px 12px;">
             <button class="btn btn-secondary" onclick="pickerPickDirectory()" style="padding:10px 14px;white-space:nowrap;">📁 <span data-i18n="picker.chooseFolder">选择文件夹</span></button>
             <button class="btn btn-primary" onclick="pickerAnalyzePath()" style="padding:10px 18px;white-space:nowrap;">⚡ <span data-i18n="picker.analyze">分析项目</span></button>
           </div>
@@ -66,6 +66,7 @@
               <button class="btn btn-sm btn-secondary" onclick="pickerBrowse('/')">📂 /</button>
             </div>
             <div id="picker-browse-list" style="max-height:180px;overflow-y:auto;margin-top:6px;font-size:0.85em;"></div>
+            <div id="picker-project-radar" class="project-radar" style="display:none;"></div>
           </div>
 
           <!-- Recent Projects -->
@@ -106,7 +107,7 @@
         </details>
         <!-- Generate -->
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-          <input type="text" id="runner-root-input" class="search-input" data-i18n-placeholder="runner.rootPlaceholder" placeholder="项目根目录路径…" style="flex:1;min-width:200px;">
+          <input type="text" id="runner-root-input" class="search-input" data-i18n-placeholder="runner.rootPlaceholder" placeholder="项目根目录路径…" onblur="projectInventory(this.value.trim(),'runner')" style="flex:1;min-width:200px;">
           <button class="btn btn-sm btn-secondary" onclick="runnerPickDirectory()">📁 <span data-i18n="picker.chooseFolder">选择文件夹</span></button>
           <select id="runner-lang-select" class="filter-select">
             <option value="auto">auto</option>
@@ -123,6 +124,7 @@
             <button class="btn btn-sm btn-secondary" onclick="runnerBrowse('/')">📂 /</button>
           </div>
           <div id="runner-browse-list" style="max-height:180px;overflow-y:auto;margin-top:6px;font-size:0.85em;"></div>
+          <div id="runner-project-radar" class="project-radar" style="display:none;"></div>
         </details>
         <!-- Library -->
         <details style="margin-top:8px;"><summary style="cursor:pointer;font-weight:600;" data-i18n="library.title">分析快照库</summary>

@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-17（WebUI G6 Graph Engine Upgrade）
+最后更新：2026-05-18（WebUI Alpha Usability Pack）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**WebUI Alpha Usability Pack（2026-05-18，已完成）：**
+- 📝 [2026-05-18-webui-alpha-usability-preflight.md](2026-05-18-webui-alpha-usability-preflight.md) — real project first-run UX：Project Radar、mixed-root candidate selection、unsupported language visibility、graph drilldown。
+- ✅ [2026-05-18-webui-alpha-usability-closure.md](2026-05-18-webui-alpha-usability-closure.md) — closure：runner inventory API、Project Radar UI、Cangjie workspace candidate flow、incoming/outgoing graph relationships、smoke/trial 验证。
 
 **WebUI G6 Graph Engine Upgrade（2026-05-17，已完成）：**
 - 📝 [2026-05-17-webui-g6-graph-engine-preflight.md](2026-05-17-webui-g6-graph-engine-preflight.md) — G6 图谱引擎升级：AntV G6 vendored bundle、G6/SVG engine switch、交互图谱、海报级视觉、fallback stop-lines。

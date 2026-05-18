@@ -154,11 +154,14 @@ function runnerGenerate(){
   var lang=document.getElementById("runner-lang-select").value;
   var pid=RUNNER.selectedProfile||"";
   var st=document.getElementById("runner-status"); if(st)st.textContent=tr("gen.generating");
-  rapi("/api/generate-snapshot",{method:"POST",body:{root:root,language:lang,full:true,redactRoot:true,profileId:pid}}).then(function(d){
-    var sid=(d.data||{}).id;
-    if(st)st.textContent=tr("gen.done")+": "+sid; runnerLoadLibrary(); runnerLoadProfiles();
-    if(sid)runnerLoadSnap(sid,{tab:"dashboard"});
-  }).catch(function(e){showGenerationError(e, "runner");});
+  return analyzeAfterInventory(root,lang,"runner",function(targetRoot,targetLang){
+    if(st)st.textContent=tr("gen.generating");
+    return rapi("/api/generate-snapshot",{method:"POST",body:{root:targetRoot,language:targetLang,full:true,redactRoot:true,profileId:pid}}).then(function(d){
+      var sid=(d.data||{}).id;
+      if(st)st.textContent=tr("gen.done")+": "+sid; runnerLoadLibrary(); runnerLoadProfiles();
+      if(sid)runnerLoadSnap(sid,{tab:"dashboard"});
+    }).catch(function(e){showGenerationError(e, "runner");});
+  });
 }
 
 function showGenerationError(e, where){
@@ -222,6 +225,102 @@ function pickerUseCandidate(path, lang){
   pickerAnalyzePath();
 }
 
+// ── Project Radar ────────────────────────────────────────────────
+function radarEl(where){
+  return document.getElementById(where==="picker"?"picker-project-radar":"runner-project-radar");
+}
+function projectInventory(path, where){
+  if(!RUNNER.connected||!path)return Promise.resolve(null);
+  return rapi("/api/project/inventory?root="+encodeURIComponent(path)).then(function(d){
+    renderProjectRadar(d.data, where);
+    return d.data;
+  });
+}
+function radarStatusLabel(status){
+  var map={
+    root_project:"projectRadar.rootProject",
+    single_candidate:"projectRadar.singleCandidate",
+    multi_project:"projectRadar.multiProject",
+    unsupported_only:"projectRadar.unsupportedOnly",
+    empty:"projectRadar.empty",
+    not_directory:"projectRadar.notDirectory",
+    not_found:"projectRadar.notFound"
+  };
+  return tr(map[status]||"projectRadar.empty");
+}
+function radarStatusClass(status){
+  if(status==="root_project"||status==="single_candidate")return"";
+  if(status==="multi_project")return"warn";
+  return"error";
+}
+function renderLangChips(langs, unsupported){
+  return (langs||[]).map(function(l){
+    return '<span class="project-radar-chip '+(unsupported?'unsupported':'')+'">'+esc(l)+'</span>';
+  }).join("");
+}
+function renderProjectRadar(inv, where){
+  var el=radarEl(where); if(!el||!inv)return;
+  el.style.display="";
+  var supported=inv.supportedLanguages||[];
+  var unsupported=inv.unsupportedLanguages||[];
+  var candidates=inv.candidates||[];
+  var status=inv.status||"empty";
+  var analyzeCurrent=(status==="root_project"&&inv.recommendedRoot);
+  var html='<div class="project-radar-header"><span class="project-radar-title">⌁ '+esc(tr("projectRadar.title"))+'</span>'+
+    '<span class="project-radar-status '+radarStatusClass(status)+'">'+esc(radarStatusLabel(status))+'</span></div>'+
+    '<div class="project-radar-message">'+esc(inv.message||"")+'</div>'+
+    '<div class="project-radar-langs">'+
+      (supported.length?renderLangChips(supported,false):"")+
+      (unsupported.length?renderLangChips(unsupported,true):"")+
+    '</div>'+
+    '<div class="text-muted text-sm">'+esc(tr("projectRadar.staticHint"))+'</div>';
+  if(analyzeCurrent){
+    html+='<div class="project-radar-actions"><button class="btn btn-sm btn-primary" onclick="radarUseRoot(&quot;'+where+'&quot;,&quot;'+escAttr(inv.recommendedRoot)+'&quot;,&quot;'+escAttr(inv.recommendedLanguage||"auto")+'&quot;)">⚡ '+esc(tr("projectRadar.analyzeHere"))+'</button></div>';
+  }
+  if(candidates.length){
+    html+='<div class="project-radar-actions">'+candidates.map(function(c){
+      var lang=c.analysisLanguage||candidateLang(c)||"auto";
+      if(lang==="c/cpp")lang="cpp";
+      var unsupportedOnly=!(c.supportedLanguages||[]).length;
+      return '<button class="project-radar-candidate '+(unsupportedOnly?'unsupported':'')+'" '+(unsupportedOnly?'disabled':'onclick="radarUseRoot(&quot;'+where+'&quot;,&quot;'+escAttr(c.path)+'&quot;,&quot;'+escAttr(lang)+'&quot;)"')+'>'+
+        '<span class="project-radar-path">'+esc(c.path)+'</span>'+
+        '<span class="candidate-lang">'+esc((c.languages||[]).join(", "))+'</span>'+
+        '<strong>'+esc(unsupportedOnly?tr("projectRadar.unsupported"):tr("projectRadar.chooseCandidate"))+'</strong>'+
+      '</button>';
+    }).join("")+'</div>';
+  }
+  el.innerHTML=html;
+}
+function radarUseRoot(where,path,lang){
+  var input=document.getElementById(where==="picker"?"picker-path-input":"runner-root-input");
+  var sel=document.getElementById(where==="picker"?"picker-lang-select":"runner-lang-select");
+  if(input)input.value=path;
+  if(sel&&SUPPORTED_LANGS.indexOf(lang)>=0)sel.value=lang;
+  if(where==="picker")pickerAnalyzePath(); else runnerGenerate();
+}
+function analyzeAfterInventory(root, lang, where, run){
+  if(!RUNNER.connected)return run(root,lang);
+  return projectInventory(root,where).then(function(inv){
+    if(!inv)return run(root,lang);
+    if(lang==="auto"){
+      if(inv.status==="single_candidate"&&inv.recommendedRoot){
+        return run(inv.recommendedRoot,inv.recommendedLanguage||"auto");
+      }
+      if(["multi_project","unsupported_only","empty","not_found","not_directory"].indexOf(inv.status)>=0){
+        var hint=where==="picker"?document.getElementById("picker-hint"):document.getElementById("runner-status");
+        if(hint)hint.textContent=radarStatusLabel(inv.status)+": "+(inv.message||"");
+        return null;
+      }
+      if(inv.recommendedLanguage&&SUPPORTED_LANGS.indexOf(inv.recommendedLanguage)>=0){
+        lang=inv.recommendedLanguage;
+      }
+    }
+    return run(root,lang);
+  }).catch(function(){
+    return run(root,lang);
+  });
+}
+
 // ── Workbench Project Folder Picker ─────────────────────────────
 function runnerPickDirectory(){
   if(!RUNNER.connected){alert(tr("runner.startHint"));return;}
@@ -276,6 +375,7 @@ function runnerSelectPath(path){
   if(listEl)listEl.innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — '+esc(tr("picker.selectedFolder"))+'</div>';
   var st=document.getElementById("runner-status");
   if(st)st.textContent=tr("picker.selectedFolder");
+  projectInventory(path,"runner");
 }
 
 function runnerLoadQuickRoots(){
@@ -498,6 +598,7 @@ function pickerBrowse(path){
 function pickerSelect(path){
   document.getElementById("picker-path-input").value=path;
   document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — '+esc(CTL_I18N.t("picker.selectedFolder"))+'</div>';
+  projectInventory(path,"picker");
 }
 
 // Runner 连接时加载快速入口
@@ -517,13 +618,16 @@ function pickerAnalyzePath(){
   if(!root){alert(tr("error.missingRoot")); return;}
   var lang=document.getElementById("picker-lang-select").value;
   document.getElementById("picker-hint").textContent=tr("gen.generating");
-  rapi("/api/quick-analyze",{method:"POST",body:{root:root,language:lang}}).then(function(d){
-    openWorkbenchSnapshot(d.data.snapshot,d.data.snapshotId,{tab:"dashboard"});
-    pickerRefresh();
-  }).catch(function(e){
-    var msg=e.message+(e.hint?" — "+e.hint:"");
-    document.getElementById("picker-hint").textContent=msg;
-    showGenerationError(e, "picker");
+  return analyzeAfterInventory(root,lang,"picker",function(targetRoot,targetLang){
+    document.getElementById("picker-hint").textContent=tr("gen.generating");
+    return rapi("/api/quick-analyze",{method:"POST",body:{root:targetRoot,language:targetLang}}).then(function(d){
+      openWorkbenchSnapshot(d.data.snapshot,d.data.snapshotId,{tab:"dashboard"});
+      pickerRefresh();
+    }).catch(function(e){
+      var msg=e.message+(e.hint?" — "+e.hint:"");
+      document.getElementById("picker-hint").textContent=msg;
+      showGenerationError(e, "picker");
+    });
   });
 }
 function pickerAnalyzeProfile(pid){

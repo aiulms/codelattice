@@ -895,6 +895,26 @@
     html += '<tr><td class="detail-label">' + esc(t("graph.connectedEdges")) + '</td><td>' + edges.length + '</td></tr>';
     html += '<tr><td class="detail-label">' + esc(t("graph.neighborCount")) + '</td><td>' + Math.max(0, neighborIds.size - 1) + '</td></tr>';
     html += '</table><div class="graph-detail-actions"><button class="btn btn-sm btn-primary" onclick="focusGraphNode(&quot;' + escAttr(node.id) + '&quot;)">' + esc(t("graph.drill")) + '</button><button class="btn btn-sm btn-secondary" onclick="resetGraphFocus()">' + esc(t("graph.resetFocus")) + '</button></div>';
+    function relationRows(title, list, outgoing) {
+      var rows = list.slice(0, 8).map(function(e) {
+        var otherId = outgoing ? e.target : e.source;
+        var other = nodeById[otherId];
+        var label = other ? other.label : otherId;
+        var kind = e.kind || "related";
+        var conf = e.confidence ? " · " + Number(e.confidence).toFixed(2) : "";
+        return '<button class="graph-relation-row" onclick="selectGraphNode(&quot;' + escAttr(otherId) + '&quot;)">' +
+          '<span class="graph-relation-main">' + esc(label || otherId) + '</span>' +
+          '<span class="graph-relation-meta">' + esc(t("graph.edge." + kind) || kind) + conf + '</span>' +
+          '<strong>' + esc(t("graph.viewNeighbor")) + '</strong>' +
+        '</button>';
+      }).join("");
+      return '<div class="graph-relation-section"><h5>' + esc(title) + ' <span class="text-muted text-sm">(' + list.length + ')</span></h5>' +
+        (rows || '<div class="text-muted text-sm">' + esc(t("graph.noRelations")) + '</div>') + '</div>';
+    }
+    html += '<div class="graph-relation-grid">' +
+      relationRows(t("graph.incoming"), edges.filter(function(e) { return e.target === nodeId; }), false) +
+      relationRows(t("graph.outgoing"), edges.filter(function(e) { return e.source === nodeId; }), true) +
+    '</div>';
     var detail = $("#graph-selected-detail");
     detail.innerHTML = html;
     detail.style.display = "";

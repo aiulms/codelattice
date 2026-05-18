@@ -12,6 +12,19 @@ STATIC_D = REPO_ROOT / "webui" / "snapshot-viewer"
 SNAP_SCRIPT = REPO_ROOT / "scripts" / "webui-snapshot.sh"
 GEN_TIMEOUT = 120
 SUPPORTED = ["rust","typescript","c","cpp","python","arkts","cangjie","auto"]
+LANG_MARKERS = {
+    "cjpm.toml": "cangjie",
+    "oh-package.json5": "arkts",
+    "Cargo.toml": "rust",
+    "tsconfig.json": "typescript",
+    "pyproject.toml": "python",
+    "setup.py": "python",
+    "CMakeLists.txt": "c/cpp",
+    "compile_commands.json": "c/cpp",
+    ".sln": "unsupported:csharp",
+    ".csproj": "unsupported:csharp",
+}
+LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "unsupported:csharp": 9}
 
 
 def ok(data=None): return {"success": True, "data": data if data is not None else {}, "error": None, "hint": None}
@@ -64,19 +77,28 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
     def _save_json(self, p, d):
         self._ensure(os.path.dirname(p))
         with open(p,"w") as f: json.dump(d,f,ensure_ascii=False,indent=2)
+    def _languages_for_files(self, files):
+        langs = []
+        for m, lang in LANG_MARKERS.items():
+            if (m in files or any(name.endswith(m) for name in files)) and lang not in langs:
+                langs.append(lang)
+        if not langs:
+            ext_langs = []
+            for name in files[:120]:
+                if name.endswith(".cj"): ext_langs.append("cangjie")
+                elif name.endswith(".ets"): ext_langs.append("arkts")
+                elif name.endswith(".rs"): ext_langs.append("rust")
+                elif name.endswith((".ts",".tsx")): ext_langs.append("typescript")
+                elif name.endswith(".py"): ext_langs.append("python")
+                elif name.endswith((".c",".h")): ext_langs.append("c")
+                elif name.endswith((".cpp",".cc",".cxx",".hpp",".hh",".hxx")): ext_langs.append("cpp")
+                elif name.endswith(".cs"): ext_langs.append("unsupported:csharp")
+            for lang in ext_langs:
+                if lang not in langs:
+                    langs.append(lang)
+        return langs
+
     def _project_candidates(self, root, limit=8):
-        markers = {
-            "cjpm.toml": "cangjie",
-            "oh-package.json5": "arkts",
-            "Cargo.toml": "rust",
-            "tsconfig.json": "typescript",
-            "pyproject.toml": "python",
-            "setup.py": "python",
-            "CMakeLists.txt": "c/cpp",
-            "compile_commands.json": "c/cpp",
-            ".sln": "unsupported:csharp",
-            ".csproj": "unsupported:csharp",
-        }
         skip = {".git",".gitnexus",".claude",".opencode","target","node_modules","dist","build","__pycache__",".venv","venv"}
         out = []
         root = os.path.abspath(root)
@@ -87,27 +109,95 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             if depth > 4:
                 dirs[:] = []
                 continue
-            langs = []
-            for m, lang in markers.items():
-                if (m in files or any(name.endswith(m) for name in files)) and lang not in langs:
-                    langs.append(lang)
-            if not langs:
-                ext_langs = []
-                for name in files[:80]:
-                    if name.endswith(".cj"): ext_langs.append("cangjie")
-                    elif name.endswith(".ets"): ext_langs.append("arkts")
-                    elif name.endswith((".rs",)): ext_langs.append("rust")
-                    elif name.endswith((".ts",".tsx")): ext_langs.append("typescript")
-                    elif name.endswith(".py"): ext_langs.append("python")
-                    elif name.endswith(".cs"): ext_langs.append("unsupported:csharp")
-                for lang in ext_langs:
-                    if lang not in langs:
-                        langs.append(lang)
+            langs = self._languages_for_files(files)
             if langs and base != root:
-                out.append({"path": base, "label": os.path.basename(base) or base, "languages": langs[:3], "depth": depth})
-        priority = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "unsupported:csharp": 9}
-        out.sort(key=lambda c: (min(priority.get(l, 9) for l in c["languages"]), c.get("depth", 99), c["path"]))
+                supported = [l for l in langs if not l.startswith("unsupported:")]
+                unsupported = [l.split(":",1)[1] for l in langs if l.startswith("unsupported:")]
+                analysis_lang = next((l for l in supported if l != "c/cpp"), None) or ("cpp" if "c/cpp" in supported else "")
+                out.append({"path": base, "label": os.path.basename(base) or base, "languages": langs[:4], "supportedLanguages": supported, "unsupportedLanguages": unsupported, "analysisLanguage": analysis_lang, "depth": depth})
+        out.sort(key=lambda c: (min(LANG_PRIORITY.get(l, 9) for l in c["languages"]), c.get("depth", 99), c["path"]))
         return out[:limit]
+
+    def _project_inventory_data(self, root):
+        root = os.path.abspath(root)
+        if not os.path.exists(root):
+            return {"root": root, "exists": False, "isDir": False, "status": "not_found", "message": "路径不存在。", "candidates": [], "supportedLanguages": [], "unsupportedLanguages": []}
+        if not os.path.isdir(root):
+            return {"root": root, "exists": True, "isDir": False, "status": "not_directory", "message": "请选择项目目录，不是文件。", "candidates": [], "supportedLanguages": [], "unsupportedLanguages": []}
+        try:
+            root_files = [p.name for p in Path(root).iterdir() if p.is_file()]
+        except Exception:
+            root_files = []
+        root_langs = self._languages_for_files(root_files)
+        root_supported = [l for l in root_langs if not l.startswith("unsupported:")]
+        root_unsupported = [l.split(":",1)[1] for l in root_langs if l.startswith("unsupported:")]
+        candidates = self._project_candidates(root, limit=16)
+        supported_candidates = [c for c in candidates if c.get("supportedLanguages")]
+        unsupported_candidates = [c for c in candidates if c.get("unsupportedLanguages") and not c.get("supportedLanguages")]
+        if root_supported:
+            status = "root_project"
+            message = "当前目录看起来就是可分析项目。"
+        elif len(supported_candidates) == 1 and not unsupported_candidates:
+            status = "single_candidate"
+            message = "当前目录不是项目根，但发现 1 个可分析子项目。"
+        elif supported_candidates:
+            status = "multi_project"
+            message = "当前目录包含多个可分析子项目，请选择具体项目。"
+        elif root_unsupported or unsupported_candidates:
+            status = "unsupported_only"
+            message = "发现暂不支持的语言模块，当前不会生成图谱。"
+        else:
+            status = "empty"
+            message = "未发现 CodeLattice 当前支持的项目标记。"
+        primary = supported_candidates[0] if supported_candidates else None
+        analysis_lang = root_supported[0] if root_supported else (primary or {}).get("analysisLanguage", "")
+        if analysis_lang == "c/cpp": analysis_lang = "cpp"
+        return {
+            "root": root,
+            "rootLabel": os.path.basename(root) or root,
+            "exists": True,
+            "isDir": True,
+            "status": status,
+            "message": message,
+            "supportedLanguages": root_supported,
+            "unsupportedLanguages": root_unsupported,
+            "candidates": candidates,
+            "supportedCandidateCount": len(supported_candidates),
+            "unsupportedCandidateCount": len(unsupported_candidates),
+            "recommendedRoot": root if root_supported else ((primary or {}).get("path") or ""),
+            "recommendedLanguage": analysis_lang if analysis_lang in SUPPORTED else "auto",
+            "staticOnly": True
+        }
+
+    def _project_inventory(self, qs):
+        root = (qs.get("root", [""])[0] or "").strip()
+        if not root:
+            return err("root is required", 400)
+        return ok(self._project_inventory_data(root))
+
+    def _inventory_hint(self, inv):
+        lines = [inv.get("message") or "请选择可分析项目目录。"]
+        candidates = inv.get("candidates") or []
+        supported = [c for c in candidates if c.get("supportedLanguages")]
+        unsupported = [c for c in candidates if c.get("unsupportedLanguages") and not c.get("supportedLanguages")]
+        if supported:
+            lines.append("可分析的候选子项目：")
+            lines += [f"- {c['path']} ({', '.join(c.get('supportedLanguages') or c.get('languages') or [])})" for c in supported[:12]]
+        if unsupported:
+            lines.append("发现但暂不支持的模块：")
+            lines += [f"- {c['path']} (unsupported:{', '.join(c.get('unsupportedLanguages') or [])})" for c in unsupported[:8]]
+        return "\n".join(lines)[:1600]
+
+    def _prepare_analysis_target(self, root, lang):
+        if lang != "auto":
+            return root, lang, None
+        inv = self._project_inventory_data(root)
+        status = inv.get("status")
+        if status == "single_candidate" and inv.get("recommendedRoot"):
+            return inv["recommendedRoot"], inv.get("recommendedLanguage") or "auto", None
+        if status in {"multi_project", "unsupported_only", "empty"}:
+            return root, lang, err("project selection required", 400, self._inventory_hint(inv))
+        return root, lang, None
     def _generation_error_hint(self, root, detail):
         candidates = self._project_candidates(root)
         hint = (detail or "").strip()
@@ -136,6 +226,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             sid=p.path.split("/api/snapshot/",1)[1]
             return self._r(lambda:self._get_snap(sid))
         if p.path=="/api/rebuild-index": return self._r(self._rebuild_index)
+        if p.path=="/api/project/inventory": return self._r(lambda:self._project_inventory(urllib.parse.parse_qs(p.query)))
         if p.path=="/api/mcp/status": return self._r(self._mcp_status)
         if p.path=="/api/mcp/tools": return self._r(self._mcp_tools_api)
         if p.path=="/api/mcp/jobs": return self._r(lambda:self._list_jobs(urllib.parse.parse_qs(p.query)))
@@ -305,6 +396,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if not os.path.isdir(root): return err("root directory not found",400,f"path: {root}")
         lang=body.get("language","auto").strip()
         if lang not in SUPPORTED: return err(f"unsupported language: {lang}",400)
+        root, lang, blocker = self._prepare_analysis_target(root, lang)
+        if blocker: return blocker
         df=body.get("full",True); rd=body.get("redactRoot",True)
         sid=self._nid(); fn=f"snapshot-{sid}.json"; op=os.path.join(self.sn_dir,fn)
         self._ensure(self.sn_dir)
@@ -645,6 +738,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         lang=(body.get("language") or "auto").strip()
         if not root or not os.path.isdir(root): return err("invalid root",400)
         if lang not in SUPPORTED: return err(f"unsupported language: {lang}",400)
+        root, lang, blocker = self._prepare_analysis_target(root, lang)
+        if blocker: return blocker
         # Create/touch profile
         pl=self._load_profiles()
         pf=next((p for p in pl if p["root"]==root),None)

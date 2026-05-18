@@ -22,6 +22,24 @@ BASE="http://127.0.0.1:$PORT"
 # Health
 curl -s "$BASE/api/health"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'] and d['data']['status']=='ok'" 2>/dev/null && pass "health"||fail "health"
 
+# Project inventory: supported root
+QROOT=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$WS/fixtures/rust/portable-smoke")
+INV=$(curl -s "$BASE/api/project/inventory?root=$QROOT")
+echo "$INV"|python3 -c "import json,sys;d=json.load(sys.stdin)['data'];assert d['status']=='root_project' and 'rust' in d['supportedLanguages']" 2>/dev/null && pass "inventory supported root" || fail "inventory supported root"
+
+# Project inventory: multi-project root + unsupported module
+MR="$TD/multi-root"; mkdir -p "$MR/rustlib" "$MR/tsapp" "$MR/csharp"
+printf '[package]\nname=\"demo\"\nversion=\"0.1.0\"\nedition=\"2021\"\n' > "$MR/rustlib/Cargo.toml"
+printf '{"compilerOptions":{}}\n' > "$MR/tsapp/tsconfig.json"
+printf '<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n' > "$MR/csharp/demo.csproj"
+QMR=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$MR")
+MINV=$(curl -s "$BASE/api/project/inventory?root=$QMR")
+echo "$MINV"|python3 -c "import json,sys;d=json.load(sys.stdin)['data'];assert d['status']=='multi_project' and d['supportedCandidateCount']>=2 and d['unsupportedCandidateCount']>=1" 2>/dev/null && pass "inventory multi-project" || { fail "inventory multi-project"; echo "  resp: ${MINV:0:300}"; }
+
+# Auto analyze should stop before guessing a multi-project parent
+MERR=$(curl -s -X POST "$BASE/api/quick-analyze" -H "Content-Type: application/json" -d "{\"root\":\"$MR\",\"language\":\"auto\"}")
+echo "$MERR"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False and '可分析' in (d.get('hint') or '')" 2>/dev/null && pass "multi-project analyze asks candidate" || fail "multi-project analyze asks candidate"
+
 # Create profiles
 P1=$(curl -s -X POST "$BASE/api/profiles" -H "Content-Type: application/json" -d "{\"name\":\"Rust Fixture\",\"root\":\"$WS/fixtures/rust/portable-smoke\",\"language\":\"rust\"}")
 PF1_ID=$(echo "$P1"|python3 -c "import json,sys;print(json.load(sys.stdin)['data']['id'])" 2>/dev/null)

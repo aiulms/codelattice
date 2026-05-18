@@ -14,7 +14,7 @@ node -c "$VD/i18n.js" >/dev/null 2>&1 && pass "i18n.js syntax OK" || fail "i18n.
 grep -q '"zh"' "$VD/i18n.js" && pass "zh messages" || fail "zh messages"
 grep -q '"en"' "$VD/i18n.js" && pass "en messages" || fail "en messages"
 # Key translations exist
-for k in tab.dashboard tab.explore tab.graph tab.cleanup tab.release tab.workflows tab.diff tab.timeline tab.report picker.analyze picker.loadJson picker.chooseFolder picker.pathPlaceholder picker.quickBrowse caution.staticOnly report.generate live.run guided.scenarios; do
+for k in tab.dashboard tab.explore tab.graph tab.cleanup tab.release tab.workflows tab.diff tab.timeline tab.report picker.analyze picker.loadJson picker.chooseFolder picker.pathPlaceholder picker.quickBrowse caution.staticOnly report.generate live.run guided.scenarios projectRadar.title projectRadar.multiProject projectRadar.unsupported graph.incoming graph.outgoing; do
   grep -q "\"$k\"" "$VD/i18n.js" && pass "key: $k" || fail "key: $k"
 done
 # Language toggle in HTML
