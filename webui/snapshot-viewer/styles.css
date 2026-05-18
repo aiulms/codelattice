@@ -1588,3 +1588,31 @@ pre.code-block {
   .ws-insight-cards { grid-template-columns: repeat(2, 1fr); }
   .ws-insight-recs { grid-template-columns: 1fr; }
 }
+
+/* ── Workspace Cross-Project Graph ────────────────────────────── */
+.ws-graph-item {
+  display: inline-block;
+  padding: 2px 8px;
+  margin: 2px 4px;
+  background: var(--bg-elevated, #f5f5f5);
+  border-radius: 4px;
+  font-size: 0.85em;
+}
+.ws-graph-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85em;
+}
+.ws-graph-table th {
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 2px solid var(--border, #e0e0e0);
+  font-weight: 600;
+}
+.ws-graph-table td {
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--border, #f0f0f0);
+}
+.ws-graph-section h3 {
+  margin: 12px 0 6px;
+}

@@ -653,7 +653,7 @@ function pickerAnalyzeProfile(pid){
 
 // ── Workspace API ──────────────────────────────────────────────────
 var WORKSPACE = window.WORKSPACE || {};
-WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null, currentRun: null, insights: null };
+WORKSPACE.state = { inventory: null, selectedForAnalysis: [], runs: [], currentRunId: null, currentRun: null, insights: null, graph: null };
 
 function workspaceScanInventory(root, cb) {
   if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
@@ -787,12 +787,158 @@ function workspaceLoadInsights(runId, cb) {
   });
 }
 
+// ── Workspace Cross-Project Graph ─────────────────────────────────
+
+function workspaceLoadGraph(runId, cb) {
+  if (!RUNNER.connected) return;
+  rapi("/api/workspace/graph?runId=" + encodeURIComponent(runId)).then(function(d) {
+    WORKSPACE.state.graph = d.data;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace graph error:", e);
+    if (cb) cb(e);
+  });
+}
+
+function workspaceCopyGraphAiSummary() {
+  var graph = WORKSPACE.state.graph;
+  if (!graph) { alert(tr("workspace.graphNotLoaded")); return; }
+  var text = buildWorkspaceGraphAiSummary(graph);
+  var status = document.getElementById("workspace-graph-status");
+  function done(ok) {
+    if (status) status.textContent = ok ? tr("workspace.aiSummaryCopied") : tr("workspace.aiSummarySelect");
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(function(){ done(true); }, function(){ fallbackCopyWorkspaceSummary(text, done); });
+  } else {
+    fallbackCopyWorkspaceSummary(text, done);
+  }
+}
+
+function buildWorkspaceGraphAiSummary(graph) {
+  var zh = window.CTL_I18N && CTL_I18N.lang === "zh";
+  var sm = graph.summary || {};
+  var lines = [];
+  if (zh) {
+    lines.push("CodeLattice 工作区跨项目关系图摘要（给 AI 使用）");
+    lines.push("注意：这是静态启发式结果，不证明运行时依赖关系。");
+    lines.push("");
+    lines.push("节点：" + (sm.nodeCount || 0) + "，边：" + (sm.edgeCount || 0));
+    lines.push("跨项目边：" + (sm.crossProjectEdgeCount || 0) + "，不支持模块边界：" + (sm.unsupportedBoundaryCount || 0));
+    lines.push("项目：" + (sm.projectCount || 0) + "，不支持模块：" + (sm.unsupportedModuleCount || 0));
+  } else {
+    lines.push("CodeLattice Workspace Cross-Project Graph Summary (for AI)");
+    lines.push("Caution: static heuristic output only; does not prove runtime dependencies.");
+    lines.push("");
+    lines.push("Nodes: " + (sm.nodeCount || 0) + ", Edges: " + (sm.edgeCount || 0));
+    lines.push("Cross-project edges: " + (sm.crossProjectEdgeCount || 0) + ", Unsupported boundaries: " + (sm.unsupportedBoundaryCount || 0));
+    lines.push("Projects: " + (sm.projectCount || 0) + ", Unsupported modules: " + (sm.unsupportedModuleCount || 0));
+  }
+  // Top connected projects
+  var topProjects = graph.topConnectedProjects || [];
+  if (topProjects.length > 0) {
+    lines.push("");
+    lines.push(zh ? "高连接度项目：" : "Top connected projects:");
+    topProjects.forEach(function(p) {
+      lines.push("- " + (p.label || "?") + " (" + (p.connections || 0) + " " + (zh ? "连接" : "connections") + ")");
+    });
+  }
+  // Bridge scripts
+  var bridgeScripts = graph.bridgeScripts || [];
+  if (bridgeScripts.length > 0) {
+    lines.push("");
+    lines.push(zh ? "桥接脚本（被多处引用）：" : "Bridge scripts (referenced from multiple places):");
+    bridgeScripts.forEach(function(b) {
+      lines.push("- " + (b.label || "?") + " (" + (b.refCount || 0) + " " + (zh ? "引用" : "refs") + ")");
+    });
+  }
+  // Bridge configs
+  var bridgeConfigs = graph.bridgeConfigs || [];
+  if (bridgeConfigs.length > 0) {
+    lines.push("");
+    lines.push(zh ? "桥接配置（被多处引用）：" : "Bridge configs:");
+    bridgeConfigs.forEach(function(b) {
+      lines.push("- " + (b.label || "?") + " (" + (b.refCount || 0) + " " + (zh ? "引用" : "refs") + ")");
+    });
+  }
+  // Edge list (first 30)
+  var edges = (graph.edges || []).filter(function(e) { return e.kind !== "contains"; }).slice(0, 30);
+  if (edges.length > 0) {
+    lines.push("");
+    lines.push(zh ? "跨项目关系（前 30 条）：" : "Cross-project relationships (first 30):");
+    var nodesById = {};
+    (graph.nodes || []).forEach(function(n) { nodesById[n.id] = n; });
+    edges.forEach(function(e) {
+      var srcLabel = (nodesById[e.source] || {}).label || e.source;
+      var tgtLabel = (nodesById[e.target] || {}).label || e.target;
+      lines.push("- " + srcLabel + " → " + tgtLabel + " [" + e.kind + "] conf=" + (e.confidence || 0) + " " + (e.reason || ""));
+    });
+  }
+  lines.push("");
+  lines.push(zh ? "建议：基于这些线索规划跨项目审查；不要将边视为事实依赖。" : "Recommendation: use these as investigation leads; do not treat edges as proven dependencies.");
+  return lines.join("\n");
+}
+
 function workspaceOpenInsightSnapshot(snapshotId, tab) {
   if (!snapshotId) {
     alert(tr("workspace.noSnapshot"));
     return;
   }
   openWorkbenchSnapshot(null, snapshotId, {tab: tab || "dashboard"});
+}
+
+// ── Workspace Cross-Project Graph ─────────────────────────────────
+
+function workspaceLoadGraph(runId, cb) {
+  if (!RUNNER.connected) return;
+  rapi("/api/workspace/graph?runId=" + encodeURIComponent(runId)).then(function(d) {
+    WORKSPACE.state.graph = d.data;
+    if (cb) cb(null, d.data);
+  }).catch(function(e) {
+    console.error("workspace graph error:", e);
+    if (cb) cb(e);
+  });
+}
+
+function workspaceCopyGraphAiSummary() {
+  var graph = WORKSPACE.state.graph;
+  var ins = WORKSPACE.state.insights;
+  var zh = window.CTL_I18N && CTL_I18N.lang === "zh";
+  if (!graph) return;
+  var lines = [];
+  if (zh) {
+    lines.push("CodeLattice 工作区跨项目关系图摘要（给 AI 使用）");
+    lines.push("注意：这是静态启发式结果，不是编译或运行时依赖证明。");
+    lines.push("");
+    lines.push("节点数：" + (graph.summary.nodeCount || 0) + "，边数：" + (graph.summary.edgeCount || 0));
+    lines.push("跨项目关系边：" + (graph.summary.crossProjectEdgeCount || 0) + "，不支持模块边界：" + (graph.summary.unsupportedBoundaryCount || 0));
+  } else {
+    lines.push("CodeLattice Workspace Cross-Project Graph Summary (for AI)");
+    lines.push("Note: static heuristic only, not compile/runtime dependency proof.");
+    lines.push("");
+    lines.push("Nodes: " + (graph.summary.nodeCount || 0) + ", Edges: " + (graph.summary.edgeCount || 0));
+    lines.push("Cross-project edges: " + (graph.summary.crossProjectEdgeCount || 0) + ", Unsupported boundaries: " + (graph.summary.unsupportedBoundaryCount || 0));
+  }
+  if (graph.topConnectedProjects && graph.topConnectedProjects.length > 0) {
+    lines.push("");
+    lines.push(zh ? "高连接度项目：" : "Top connected projects:");
+    graph.topConnectedProjects.forEach(function(p) {
+      lines.push("  - " + p.label + " (" + p.connections + " " + (zh ? "连接" : "connections") + ")");
+    });
+  }
+  if (graph.bridgeScripts && graph.bridgeScripts.length > 0) {
+    lines.push("");
+    lines.push(zh ? "桥接脚本：" : "Bridge scripts:");
+    graph.bridgeScripts.forEach(function(s) { lines.push("  - " + (s.label || s.id)); });
+  }
+  if (graph.bridgeConfigs && graph.bridgeConfigs.length > 0) {
+    lines.push("");
+    lines.push(zh ? "桥接配置：" : "Bridge configs:");
+    graph.bridgeConfigs.forEach(function(c) { lines.push("  - " + (c.label || c.id)); });
+  }
+  var text = lines.join("\n");
+  try { navigator.clipboard.writeText(text); } catch(e) {}
+  return text;
 }
 
 function buildWorkspaceAiSummary() {
@@ -816,6 +962,15 @@ function buildWorkspaceAiSummary() {
     appendAiList(lines, "优先审查", ins.reviewFirst);
     appendAiList(lines, "优先清理", ins.cleanupFirst);
     appendUnsupported(lines, "暂不支持语言集群", cp.unsupportedLanguageClusters);
+    // Cross-project graph summary
+    var gps = ins.crossProjectGraphSummary || {};
+    if (gps.available) {
+      lines.push("");
+      lines.push("跨项目关系图：节点 " + (gps.nodeCount || 0) + "，边 " + (gps.edgeCount || 0) + "，跨项目边 " + (gps.crossProjectEdgeCount || 0) + "，不支持模块边界 " + (gps.unsupportedBoundaryCount || 0));
+      if (gps.topConnectedProjects && gps.topConnectedProjects.length > 0) {
+        lines.push("高连接度项目：" + gps.topConnectedProjects.map(function(p){ return p.label + "(" + p.connections + ")"; }).join(", "));
+      }
+    }
     lines.push("");
     lines.push("建议：请基于这些线索规划阅读/审查顺序；不要把候选项当作事实结论。");
   } else {
@@ -830,6 +985,14 @@ function buildWorkspaceAiSummary() {
     appendAiList(lines, "Review first", ins.reviewFirst);
     appendAiList(lines, "Cleanup first", ins.cleanupFirst);
     appendUnsupported(lines, "Unsupported language clusters", cp.unsupportedLanguageClusters);
+    var gps = ins.crossProjectGraphSummary || {};
+    if (gps.available) {
+      lines.push("");
+      lines.push("Cross-project graph: nodes " + (gps.nodeCount || 0) + ", edges " + (gps.edgeCount || 0) + ", cross-project " + (gps.crossProjectEdgeCount || 0) + ", unsupported boundaries " + (gps.unsupportedBoundaryCount || 0));
+      if (gps.topConnectedProjects && gps.topConnectedProjects.length > 0) {
+        lines.push("Top connected: " + gps.topConnectedProjects.map(function(p){ return p.label + "(" + p.connections + ")"; }).join(", "));
+      }
+    }
     lines.push("");
     lines.push("Recommendation: use these as investigation leads and plan the next review steps manually.");
   }

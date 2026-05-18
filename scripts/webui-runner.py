@@ -644,6 +644,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             "reviewFirst": review_first,
             "cleanupFirst": cleanup_first,
             "crossProjectSignals": cross,
+            "crossProjectGraphSummary": self._ws_insights_graph_summary(run),
             "cautions": [
                 "workspace insights are heuristic and static-only",
                 "no project code was executed",
@@ -657,6 +658,28 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
                 "coverageVerified": False,
             },
         })
+
+    def _ws_insights_graph_summary(self, run):
+        """Build lightweight graph summary for insights. Best-effort; 失败不影响 insights 返回。"""
+        try:
+            root = run.get("root", "")
+            if not root or not os.path.isdir(root):
+                return {"available": False, "reason": "root not accessible"}
+            graph, error = self._workspace_graph_build(run, opts={"limit": 500})
+            if error or not graph:
+                return {"available": False, "reason": error or "build returned empty"}
+            return {
+                "available": True,
+                "nodeCount": graph["summary"]["nodeCount"],
+                "edgeCount": graph["summary"]["edgeCount"],
+                "crossProjectEdgeCount": graph["summary"]["crossProjectEdgeCount"],
+                "unsupportedBoundaryCount": graph["summary"]["unsupportedBoundaryCount"],
+                "topConnectedProjects": graph.get("topConnectedProjects", []),
+                "bridgeScripts": graph.get("bridgeScripts", []),
+                "bridgeConfigs": graph.get("bridgeConfigs", []),
+            }
+        except Exception as e:
+            return {"available": False, "reason": str(e)}
 
     def _compute_project_scores(self, projects, unsupported, snap_meta):
         """Compute health score and risk level per project from snapshot metadata."""
@@ -863,6 +886,612 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             "duplicatedProjectLabels": duplicated,
         }
 
+    # ── Workspace Cross-Project Graph ────────────────────────────────
+
+    def _ws_node_id(self, kind, rel_path):
+        """Generate deterministic node ID from kind + relative path."""
+        h = hashlib.md5(rel_path.encode()).hexdigest()[:8]
+        return f"{kind}:{h}"
+
+    def _ws_edge_id(self, kind, src, tgt):
+        """Generate deterministic edge ID."""
+        h = hashlib.md5(f"{src}|{kind}|{tgt}".encode()).hexdigest()[:8]
+        return f"e:{h}"
+
+    def _ws_read_manifest(self, path, max_bytes=65536):
+        """Read a manifest/config file with size limit. Returns text or None."""
+        try:
+            if not os.path.isfile(path): return None
+            if os.path.getsize(path) > max_bytes: return None
+            with open(path, "r", errors="replace") as f:
+                return f.read()
+        except Exception:
+            return None
+
+    def _ws_parse_toml_deps(self, text):
+        """Lightweight TOML dependency path extraction.
+        只提取 [dependencies] / [dev-dependencies] / [workspace] 段中的 path = "..." 值。
+        不做完整 TOML 解析；不引入外部依赖。"""
+        if not text: return []
+        paths = []
+        in_dep_section = False
+        for line in text.splitlines():
+            stripped = line.strip()
+            # 检查是否进入依赖段
+            if stripped.startswith("["):
+                section = stripped.strip("[]").strip()
+                # [dependencies], [dev-dependencies], [workspace.dependencies], [build-dependencies]
+                in_dep_section = ("dependencies" in section or section == "workspace")
+                continue
+            if not in_dep_section: continue
+            # 提取 path = "..." 或 path='...'
+            for pat in [r'path\s*=\s*"([^"]+)"', r"path\s*=\s*'([^']+)'"]:
+                m = re.search(pat, stripped)
+                if m:
+                    paths.append(m.group(1))
+        return paths
+
+    def _ws_parse_json_deps(self, text):
+        """Extract local path references from package.json.
+        提取 dependencies/devDependencies/workspaces 中的本地路径（以 . 或 / 或 file: 开头）。"""
+        if not text: return {"paths": [], "workspaces": [], "scripts": {}}
+        try:
+            d = json.loads(text)
+        except Exception:
+            return {"paths": [], "workspaces": [], "scripts": {}}
+        result = {"paths": [], "workspaces": [], "scripts": {}}
+        # workspaces 字段
+        ws = d.get("workspaces")
+        if isinstance(ws, list):
+            result["workspaces"] = [w for w in ws if isinstance(w, str)]
+        elif isinstance(ws, dict):
+            result["workspaces"] = ws.get("packages", [])
+        # dependencies 中的本地路径
+        for dep_key in ["dependencies", "devDependencies", "peerDependencies"]:
+            dep_obj = d.get(dep_key, {})
+            if not isinstance(dep_obj, dict): continue
+            for name, ver in dep_obj.items():
+                ver_str = str(ver)
+                # file: 协议或以 . / / 开头
+                if ver_str.startswith("file:") or ver_str.startswith(".") or ver_str.startswith("/"):
+                    clean = ver_str.replace("file:", "").strip()
+                    result["paths"].append({"name": name, "path": clean, "section": dep_key})
+        # scripts 字段（用于 script_refs 边）
+        scripts = d.get("scripts", {})
+        if isinstance(scripts, dict):
+            result["scripts"] = scripts
+        return result
+
+    def _ws_parse_pyproject_deps(self, text):
+        """Extract local path references from pyproject.toml (Python)."""
+        if not text: return []
+        return self._ws_parse_toml_deps(text)
+
+    def _ws_parse_cmake_refs(self, text):
+        """Extract local directory references from CMakeLists.txt."""
+        if not text: return []
+        paths = []
+        for line in text.splitlines():
+            # add_subdirectory(dir) / include(dir...) 
+            for pat in [r'add_subdirectory\s*\(\s*"?([^"\s)]+)"?', r'include\s*\(\s*"?([^"\s)]+)"?']:
+                m = re.search(pat, line)
+                if m and not m.group(1).startswith("/"):
+                    paths.append(m.group(1))
+        return paths
+
+    def _ws_parse_makefile_refs(self, text):
+        """Extract local script/path references from Makefile."""
+        if not text: return []
+        refs = []
+        for line in text.splitlines():
+            # source / include / bash / sh 引用本地脚本
+            for pat in [r'(?:bash|sh|source|\.)\s+([^\s;&|]+\.sh)', r'include\s+([^\s]+)']:
+                m = re.search(pat, line)
+                if m and not m.group(1).startswith("/"):
+                    refs.append(m.group(1))
+        return refs
+
+    def _ws_parse_ci_refs(self, text):
+        """Extract local path references from CI YAML (GitHub Actions etc.)."""
+        if not text: return []
+        refs = []
+        # 简单文本搜索：找 ./ 开头的路径引用
+        for line in text.splitlines():
+            for m in re.finditer(r'(?:"|\')(\./[^\s"\'&,;)]+)', line):
+                refs.append(m.group(1))
+            for m in re.finditer(r'(?:run:.*?)(\./[^\s"\'&,;)]+)', line):
+                refs.append(m.group(1))
+        return refs
+
+    def _ws_parse_dockerfile_refs(self, text):
+        """Extract COPY references from Dockerfile."""
+        if not text: return []
+        refs = []
+        for line in text.splitlines():
+            m = re.search(r'COPY\s+([^\s]+)', line)
+            if m:
+                src = m.group(1)
+                if not src.startswith("/") and src != ".":
+                    refs.append(src)
+        return refs
+
+    def _ws_parse_shell_refs(self, text, max_lines=50):
+        """Extract source/. references from shell scripts. 只读前 max_lines 行。"""
+        if not text: return []
+        refs = []
+        for line in text.splitlines()[:max_lines]:
+            for pat in [r'(?:^|\s)(?:source|\.)\s+([^\s;&|]+)', r'(?:bash|sh)\s+([^\s;&|]+\.sh)']:
+                m = re.search(pat, line)
+                if m and not m.group(1).startswith("/"):
+                    refs.append(m.group(1))
+        return refs
+
+    def _ws_resolve_rel(self, base_dir, ref_path, root):
+        """Resolve a reference path relative to base_dir, return absolute or None."""
+        try:
+            resolved = os.path.normpath(os.path.join(base_dir, ref_path))
+            # 只接受 root 内的路径
+            if resolved.startswith(root):
+                return resolved
+        except Exception:
+            pass
+        return None
+
+    def _workspace_graph_build(self, run, inv=None, opts=None):
+        """Build CodeLatticeWorkspaceGraphV1 from a workspace run.
+        
+        静态提取 workspace 内子项目间关系图。
+        只读取 manifest/config/script 文件；原则上不读源码。
+        """
+        if opts is None: opts = {}
+        root = run.get("root", "")
+        if not root or not os.path.isdir(root):
+            return None, "workspace root not found or not a directory"
+        
+        include_config_refs = opts.get("includeConfigRefs", True)
+        include_script_refs = opts.get("includeScriptRefs", True)
+        include_unsupported = opts.get("includeUnsupported", True)
+        limit = opts.get("limit", 1000)
+        
+        projects = run.get("projects", [])
+        unsupported = run.get("unsupportedModules", [])
+        
+        nodes = []
+        edges = []
+        node_ids = set()
+        
+        def _add_node(kind, label, path, language="", supported=True, project_id="", metadata=None):
+            """添加节点，返回 node id。去重：同 kind+path 只添加一次。"""
+            rel = os.path.relpath(path, root) if path.startswith(root) else path
+            nid = self._ws_node_id(kind, rel)
+            if nid in node_ids: return nid
+            node_ids.add(nid)
+            nodes.append({
+                "id": nid, "kind": kind, "label": label,
+                "path": path, "relativePath": rel,
+                "language": language, "supported": supported,
+                "projectId": project_id,
+                "metadata": metadata or {},
+            })
+            return nid
+        
+        def _add_edge(kind, src_id, tgt_id, confidence, reason, evidence=None):
+            """添加边。source/target 必须已存在于 node_ids。"""
+            if src_id not in node_ids or tgt_id not in node_ids: return
+            eid = self._ws_edge_id(kind, src_id, tgt_id)
+            # 去重
+            if any(e["id"] == eid for e in edges): return
+            if len(edges) >= limit: return
+            edges.append({
+                "id": eid, "kind": kind,
+                "source": src_id, "target": tgt_id,
+                "confidence": round(confidence, 2),
+                "reason": reason,
+                "evidence": evidence or {},
+            })
+        
+        # 1. Workspace 根节点
+        ws_id = _add_node("workspace", os.path.basename(root) or root, root)
+        
+        # 2. 项目节点 + contains 边
+        proj_path_to_id = {}
+        for pj in projects:
+            pj_path = pj.get("path", "")
+            pj_rel = pj.get("projectId", pj.get("relativePath", os.path.basename(pj_path)))
+            pj_lang = pj.get("language", "")
+            pj_id = _add_node("project", os.path.basename(pj_path) or pj_rel, pj_path,
+                              language=pj_lang, supported=True,
+                              project_id=pj_rel,
+                              metadata={"status": pj.get("status"), "snapshotId": pj.get("snapshotId")})
+            proj_path_to_id[pj_path] = pj_id
+            _add_edge("contains", ws_id, pj_id, 1.0, "workspace-inventory",
+                      {"file": "workspace-run", "field": "projects", "value": pj_rel})
+        
+        # 3. Unsupported 模块节点 + contains + unsupported_boundary 边
+        unsup_path_to_id = {}
+        if include_unsupported:
+            for um in unsupported:
+                um_path = um.get("path", "")
+                um_langs = um.get("languages", [])
+                um_label = os.path.basename(um_path) or um_path
+                um_id = _add_node("unsupported", um_label, um_path,
+                                  language=", ".join(um_langs), supported=False,
+                                  metadata={"languages": um_langs, "markers": um.get("markers", [])})
+                unsup_path_to_id[um_path] = um_id
+                _add_edge("contains", ws_id, um_id, 1.0, "workspace-inventory-unsupported",
+                          {"file": "workspace-run", "field": "unsupportedModules"})
+        
+        # 4. Manifest-based depends_on 边
+        # 读取每个项目的 manifest，提取 path dependency / workspace member
+        for pj in projects:
+            pj_path = pj.get("path", "")
+            pj_lang = pj.get("language", "")
+            pj_id = proj_path_to_id.get(pj_path)
+            if not pj_id: continue
+            
+            # 根据语言决定要读的 manifest 文件
+            manifests_to_read = []
+            if pj_lang in ("rust",):
+                manifests_to_read.append(("Cargo.toml", "toml"))
+            elif pj_lang in ("typescript", "arkts"):
+                manifests_to_read.append(("package.json", "json"))
+                # tsconfig 可选
+                if os.path.isfile(os.path.join(pj_path, "tsconfig.json")):
+                    manifests_to_read.append(("tsconfig.json", "tsconfig"))
+            elif pj_lang in ("python",):
+                if os.path.isfile(os.path.join(pj_path, "pyproject.toml")):
+                    manifests_to_read.append(("pyproject.toml", "toml"))
+                if os.path.isfile(os.path.join(pj_path, "requirements.txt")):
+                    manifests_to_read.append(("requirements.txt", "requirements"))
+            elif pj_lang in ("c", "cpp"):
+                if os.path.isfile(os.path.join(pj_path, "CMakeLists.txt")):
+                    manifests_to_read.append(("CMakeLists.txt", "cmake"))
+                if os.path.isfile(os.path.join(pj_path, "Makefile")):
+                    manifests_to_read.append(("Makefile", "makefile"))
+            elif pj_lang in ("cangjie",):
+                if os.path.isfile(os.path.join(pj_path, "cjpm.toml")):
+                    manifests_to_read.append(("cjpm.toml", "toml"))
+            elif pj_lang in ("shell",):
+                pass  # shell 没有标准 manifest，依赖 source 引用
+            
+            for mfile, mtype in manifests_to_read:
+                mp = os.path.join(pj_path, mfile)
+                text = self._ws_read_manifest(mp)
+                if not text: continue
+                
+                # 添加 config/script/workflow 节点
+                if include_config_refs and mfile not in ("Cargo.toml", "package.json", "cjpm.toml", "pyproject.toml"):
+                    cfg_id = _add_node("config", mfile, mp, language=pj_lang,
+                                       project_id=pj.get("projectId", ""))
+                    _add_edge("contains", pj_id, cfg_id, 1.0, "project-owned-file",
+                              {"file": mfile, "field": "manifest", "value": "config"})
+                
+                dep_paths = []
+                scripts_refs = {}
+                if mtype == "toml":
+                    dep_paths = self._ws_parse_toml_deps(text)
+                elif mtype == "json":
+                    parsed = self._ws_parse_json_deps(text)
+                    for dp in parsed["paths"]:
+                        dep_paths.append(dp["path"])
+                    # workspaces 字段 → contains 边
+                    for ws_pattern in parsed.get("workspaces", []):
+                        # glob pattern 如 "packages/*" → 尝试匹配实际目录
+                        if "*" in ws_pattern or "?" in ws_pattern:
+                            import glob as globmod
+                            matches = globmod.glob(os.path.join(pj_path, ws_pattern))
+                            for match in matches:
+                                if os.path.isdir(match):
+                                    # 检查是否对应已知项目
+                                    for pp, ppid in proj_path_to_id.items():
+                                        if os.path.normpath(match) == os.path.normpath(pp):
+                                            _add_edge("contains", pj_id, ppid, 0.9,
+                                                      "workspace-pattern-match",
+                                                      {"file": mfile, "field": "workspaces", "value": ws_pattern})
+                        else:
+                            resolved = self._ws_resolve_rel(pj_path, ws_pattern, root)
+                            if resolved and resolved in proj_path_to_id:
+                                _add_edge("contains", pj_id, proj_path_to_id[resolved], 0.9,
+                                          "workspace-member",
+                                          {"file": mfile, "field": "workspaces", "value": ws_pattern})
+                    scripts_refs = parsed.get("scripts", {})
+                elif mtype == "cmake":
+                    dep_paths = self._ws_parse_cmake_refs(text)
+                elif mtype == "makefile":
+                    dep_paths = self._ws_parse_makefile_refs(text)
+                elif mtype == "tsconfig":
+                    # tsconfig paths 提取
+                    try:
+                        ts = json.loads(text)
+                        compiler_opts = ts.get("compilerOptions", {})
+                        paths_map = compiler_opts.get("paths", {})
+                        for alias, targets in paths_map.items():
+                            for t in (targets if isinstance(targets, list) else [targets]):
+                                if isinstance(t, str) and (t.startswith(".") or t.startswith("./")):
+                                    dep_paths.append(t.replace("/*", "").rstrip("*"))
+                    except Exception:
+                        pass
+                
+                # 解析 dep_paths → depends_on 边
+                for dp in dep_paths:
+                    resolved = self._ws_resolve_rel(pj_path, dp, root)
+                    if not resolved: continue
+                    # 匹配已知项目
+                    for pp, ppid in proj_path_to_id.items():
+                        if os.path.normpath(resolved).startswith(os.path.normpath(pp)) or \
+                           os.path.normpath(pp).startswith(os.path.normpath(resolved)):
+                            conf = 0.85 if dp.startswith(".") or dp.startswith("/") else 0.45
+                            _add_edge("depends_on", pj_id, ppid, conf,
+                                      "manifest-path-dependency",
+                                      {"file": mfile, "field": "path", "value": dp})
+                            break
+                
+                # scripts → script_refs 边
+                if include_script_refs and scripts_refs:
+                    for script_name, script_cmd in scripts_refs.items():
+                        if not isinstance(script_cmd, str): continue
+                        # 检查是否引用本地文件
+                        for local_ref in re.findall(r'(?:"|\')(\./[^\s"\'&,;)]+)', script_cmd):
+                            resolved = self._ws_resolve_rel(pj_path, local_ref, root)
+                            if resolved:
+                                scr_id = _add_node("script", os.path.basename(resolved), resolved,
+                                                   language="shell", project_id=pj.get("projectId", ""))
+                                _add_edge("contains", pj_id, scr_id, 1.0, "project-owned-script",
+                                          {"file": mfile, "field": f"scripts.{script_name}"})
+                                _add_edge("script_refs", pj_id, scr_id, 0.75,
+                                          "package-json-script",
+                                          {"file": mfile, "field": f"scripts.{script_name}", "value": local_ref})
+                        # bash/sh 引用
+                        for local_ref in re.findall(r'(?:bash|sh)\s+([^\s;&|]+\.[\w]+)', script_cmd):
+                            if local_ref.startswith("/"): continue
+                            resolved = self._ws_resolve_rel(pj_path, local_ref, root)
+                            if resolved:
+                                scr_id = _add_node("script", os.path.basename(resolved), resolved,
+                                                   language="shell", project_id=pj.get("projectId", ""))
+                                _add_edge("script_refs", pj_id, scr_id, 0.75,
+                                          "package-json-script-cmd",
+                                          {"file": mfile, "field": f"scripts.{script_name}", "value": local_ref})
+        
+        # 5. CI/自动化工作流节点 + config_refs 边
+        if include_config_refs:
+            ci_dirs = [os.path.join(root, ".github", "workflows")]
+            for ci_dir in ci_dirs:
+                if not os.path.isdir(ci_dir): continue
+                for fn in os.listdir(ci_dir)[:30]:
+                    fp = os.path.join(ci_dir, fn)
+                    if not os.path.isfile(fp): continue
+                    text = self._ws_read_manifest(fp)
+                    if not text: continue
+                    wf_id = _add_node("workflow", fn, fp, language="yaml")
+                    _add_edge("contains", ws_id, wf_id, 1.0, "workspace-ci-workflow",
+                              {"file": fn, "field": "path"})
+                    # 提取引用
+                    refs = self._ws_parse_ci_refs(text)
+                    for ref in refs:
+                        resolved = self._ws_resolve_rel(root, ref, root)
+                        if resolved:
+                            # 匹配已知项目
+                            for pp, ppid in proj_path_to_id.items():
+                                if resolved.startswith(pp) or pp.startswith(resolved):
+                                    _add_edge("config_refs", wf_id, ppid, 0.75,
+                                              "ci-path-reference",
+                                              {"file": fn, "field": "path", "value": ref})
+                                    break
+        
+        # 6. Dockerfile + config_refs
+        if include_config_refs:
+            for df_name in ["Dockerfile", "dockerfile", "Dockerfile.dev", "Dockerfile.prod"]:
+                df_path = os.path.join(root, df_name)
+                if not os.path.isfile(df_path): continue
+                text = self._ws_read_manifest(df_path)
+                if not text: continue
+                df_id = _add_node("config", df_name, df_path)
+                _add_edge("contains", ws_id, df_id, 1.0, "workspace-dockerfile")
+                refs = self._ws_parse_dockerfile_refs(text)
+                for ref in refs:
+                    resolved = self._ws_resolve_rel(root, ref, root)
+                    if resolved:
+                        for pp, ppid in proj_path_to_id.items():
+                            if resolved.startswith(pp):
+                                _add_edge("config_refs", df_id, ppid, 0.75,
+                                          "dockerfile-copy",
+                                          {"file": df_name, "field": "COPY", "value": ref})
+                                break
+        
+        # 7. Makefile (workspace root level) + script_refs
+        if include_script_refs:
+            for mf_name in ["Makefile", "makefile", "GNUmakefile"]:
+                mf_path = os.path.join(root, mf_name)
+                if not os.path.isfile(mf_path): continue
+                text = self._ws_read_manifest(mf_path)
+                if not text: continue
+                mf_id = _add_node("config", mf_name, mf_path)
+                _add_edge("contains", ws_id, mf_id, 1.0, "workspace-makefile")
+                refs = self._ws_parse_makefile_refs(text)
+                for ref in refs:
+                    resolved = self._ws_resolve_rel(root, ref, root)
+                    if resolved:
+                        scr_id = _add_node("script", os.path.basename(resolved), resolved, language="shell")
+                        _add_edge("script_refs", mf_id, scr_id, 0.75,
+                                  "makefile-script-ref",
+                                  {"file": mf_name, "field": "source", "value": ref})
+        
+        # 8. Shell 脚本节点 + script_refs 边（workspace root level scripts）
+        if include_script_refs:
+            for fn in os.listdir(root)[:100]:
+                fp = os.path.join(root, fn)
+                if not os.path.isfile(fp): continue
+                _, ext = os.path.splitext(fn)
+                if ext.lower() not in (".sh", ".bash", ".zsh", ".ksh"): continue
+                text = self._ws_read_manifest(fp)
+                if not text: continue
+                scr_id = _add_node("script", fn, fp, language="shell")
+                _add_edge("contains", ws_id, scr_id, 1.0, "workspace-script")
+                refs = self._ws_parse_shell_refs(text)
+                for ref in refs:
+                    resolved = self._ws_resolve_rel(root, ref, root)
+                    if resolved:
+                        ref_scr_id = _add_node("script", os.path.basename(resolved), resolved, language="shell")
+                        _add_edge("script_refs", scr_id, ref_scr_id, 0.75,
+                                  "shell-source",
+                                  {"file": fn, "field": "source", "value": ref})
+        
+        # 9. adjacent_to 边（同父目录下的兄弟模块）
+        if include_unsupported and unsupported:
+            for pj in projects:
+                pj_path = pj.get("path", "")
+                pj_id = proj_path_to_id.get(pj_path)
+                if not pj_id: continue
+                pj_parent = os.path.dirname(pj_path)
+                for um in unsupported:
+                    um_path = um.get("path", "")
+                    um_parent = os.path.dirname(um_path)
+                    if pj_parent == um_parent and pj_path != um_path:
+                        um_id = unsup_path_to_id.get(um_path)
+                        if um_id:
+                            _add_edge("adjacent_to", pj_id, um_id, 0.4,
+                                      "sibling-module-boundary",
+                                      {"field": "parent", "value": os.path.basename(pj_parent)})
+                            _add_edge("unsupported_boundary", pj_id, um_id, 0.5,
+                                      "unsupported-adjacent-module",
+                                      {"field": "unsupported-language", "value": ", ".join(um.get("languages", []))})
+        
+        # 10. supported 项目之间的 adjacent_to（同父目录）
+        proj_list = [(pj.get("path",""), proj_path_to_id.get(pj.get("path",""))) for pj in projects]
+        for i, (p1, id1) in enumerate(proj_list):
+            if not id1: continue
+            for j, (p2, id2) in enumerate(proj_list):
+                if j <= i or not id2: continue
+                if os.path.dirname(p1) == os.path.dirname(p2) and p1 != p2:
+                    _add_edge("adjacent_to", id1, id2, 0.35,
+                              "sibling-projects",
+                              {"field": "parent", "value": os.path.basename(os.path.dirname(p1))})
+        
+        # 构建 graph summary
+        cross_project_edges = [e for e in edges if e["kind"] in ("depends_on", "imports", "script_refs", "config_refs")]
+        auto_edges = [e for e in edges if e["kind"] in ("script_refs", "config_refs")]
+        unsup_boundary_edges = [e for e in edges if e["kind"] == "unsupported_boundary"]
+        langs = set()
+        for n in nodes:
+            if n.get("language") and n["kind"] == "project":
+                langs.add(n["language"])
+        
+        # Top connected projects（按连接度排序）
+        proj_connectivity = {}
+        for e in edges:
+            if e["kind"] == "contains": continue
+            for nid in (e["source"], e["target"]):
+                for n in nodes:
+                    if n["id"] == nid and n["kind"] == "project":
+                        proj_connectivity[n["id"]] = proj_connectivity.get(n["id"], 0) + 1
+        top_connected = sorted(proj_connectivity.items(), key=lambda x: -x[1])[:5]
+        
+        # Bridge scripts/configs（连接多个项目的脚本/配置）
+        bridge_items = {}
+        for e in edges:
+            if e["kind"] in ("script_refs", "config_refs"):
+                tgt_id = e["target"]
+                if tgt_id not in bridge_items:
+                    bridge_items[tgt_id] = {"id": tgt_id, "refCount": 0, "kind": ""}
+                bridge_items[tgt_id]["refCount"] += 1
+                for n in nodes:
+                    if n["id"] == tgt_id:
+                        bridge_items[tgt_id]["kind"] = n["kind"]
+                        bridge_items[tgt_id]["label"] = n.get("label", "")
+        bridge_scripts = [b for b in bridge_items.values() if b.get("kind") == "script" and b["refCount"] > 1]
+        bridge_configs = [b for b in bridge_items.values() if b.get("kind") in ("config", "workflow") and b["refCount"] > 1]
+        
+        graph = {
+            "schemaVersion": "workspace.graph.v1",
+            "workspaceId": run.get("workspaceId", ""),
+            "root": root,
+            "generatedAt": self._now(),
+            "summary": {
+                "projectCount": len([n for n in nodes if n["kind"] == "project"]),
+                "supportedProjectCount": len([n for n in nodes if n["kind"] == "project" and n["supported"]]),
+                "unsupportedModuleCount": len([n for n in nodes if n["kind"] == "unsupported"]),
+                "nodeCount": len(nodes),
+                "edgeCount": len(edges),
+                "crossProjectEdgeCount": len(cross_project_edges),
+                "automationEdgeCount": len(auto_edges),
+                "unsupportedBoundaryCount": len(unsup_boundary_edges),
+                "languageCount": len(langs),
+                "truncated": len(edges) >= limit,
+            },
+            "nodes": nodes,
+            "edges": edges,
+            "clusters": [],
+            "topConnectedProjects": [{"id": tid, "label": next((n["label"] for n in nodes if n["id"] == tid), ""), "connections": cnt} for tid, cnt in top_connected],
+            "bridgeScripts": bridge_scripts,
+            "bridgeConfigs": bridge_configs,
+            "readFirst": [],
+            "reviewFirst": [],
+            "cautions": [
+                "workspace graph is static-only and heuristic",
+                "no project code was executed to discover relationships",
+                "depends_on edges are based on manifest path references only",
+                "adjacent_to edges are proximity hints, not dependency proof",
+            ],
+            "generatedFrom": {
+                "staticAnalysis": True,
+                "scriptsExecuted": False,
+                "buildExecuted": False,
+                "runtimeVerified": False,
+                "coverageVerified": False,
+                "heuristic": True,
+            },
+        }
+        
+        # Read First / Review First from graph
+        for tid, cnt in top_connected:
+            for n in nodes:
+                if n["id"] == tid and n["kind"] == "project" and cnt >= 2:
+                    graph["readFirst"].append({"id": n["id"], "label": n["label"], "reason": f"high connectivity ({cnt} connections)"})
+        # failed projects with connections → reviewFirst
+        for pj in projects:
+            if pj.get("status") == "failed":
+                pj_id = proj_path_to_id.get(pj.get("path", ""))
+                if pj_id and proj_connectivity.get(pj_id, 0) > 0:
+                    graph["reviewFirst"].append({"id": pj_id, "label": os.path.basename(pj.get("path", "")), "reason": "failed with cross-project connections"})
+        # unsupported boundaries → reviewFirst
+        for e in unsup_boundary_edges[:3]:
+            src_label = next((n["label"] for n in nodes if n["id"] == e["source"]), "")
+            tgt_label = next((n["label"] for n in nodes if n["id"] == e["target"]), "")
+            graph["reviewFirst"].append({"id": e["source"], "label": src_label, "reason": f"adjacent to unsupported module: {tgt_label}"})
+        
+        return graph, None
+
+    def _workspace_graph_get(self, qs):
+        """GET /api/workspace/graph?runId=..."""
+        params = {k: (v[0] if isinstance(v, list) and len(v) > 0 else v) for k, v in qs.items()}
+        return self._workspace_graph_dispatch(params)
+
+    def _workspace_graph_post(self, body):
+        """POST /api/workspace/graph"""
+        return self._workspace_graph_dispatch(body)
+
+    def _workspace_graph_dispatch(self, params):
+        """Shared graph dispatch for GET/POST."""
+        run_id = params.get("runId") or params.get("workspaceRunId") or ""
+        if not run_id:
+            return err("runId is required", 400, "Provide runId from a workspace analyze run.")
+        fp = os.path.join(self.ws_dir, f"workspace-{run_id}.json")
+        run = self._load_json(fp)
+        if not run:
+            return err("workspace run not found", 404,
+                       f"runId={run_id} not found. Use GET /api/workspace/runs to list available runs.")
+        # Build graph
+        opts = {
+            "includeConfigRefs": params.get("includeConfigRefs", True),
+            "includeScriptRefs": params.get("includeScriptRefs", True),
+            "includeUnsupported": params.get("includeUnsupported", True),
+            "limit": int(params.get("limit", 1000)),
+        }
+        graph, error = self._workspace_graph_build(run, opts=opts)
+        if error:
+            return err("graph build failed", 500, error)
+        return ok(graph)
+
     def _workspace_insights_get(self, qs):
         """GET /api/workspace/insights?runId=..."""
         # parse_qs returns lists; normalize to single values
@@ -924,6 +1553,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path.startswith("/api/workspace/run/"):
             wid = p.path.split("/api/workspace/run/", 1)[1]
             return self._r(lambda: self._workspace_run_get(wid))
+        if p.path == "/api/workspace/graph":
+            return self._r(lambda: self._workspace_graph_get(urllib.parse.parse_qs(p.query)))
         if p.path == "/api/workspace/insights":
             return self._r(lambda: self._workspace_insights_get(urllib.parse.parse_qs(p.query)))
         return super().do_GET()
@@ -937,7 +1568,9 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if p.path=="/api/quick-analyze": return self._r(self._quick_analyze)
         if p.path=="/api/fs/pick-directory": return self._r(self._fs_pick_directory)
         if p.path=="/api/workspace/analyze": return self._r(lambda:self._workspace_analyze(self._rb()))
+        if p.path=="/api/workspace/graph": return self._r(lambda:self._workspace_graph_post(self._rb()))
         if p.path=="/api/workspace/insights": return self._r(lambda:self._workspace_insights_post(self._rb()))
+        if p.path=="/api/workspace/graph": return self._r(lambda:self._workspace_graph_post(self._rb()))
         if p.path.startswith("/api/mcp/job/") and p.path.endswith("/cancel"):
             jid=p.path.split("/api/mcp/job/",1)[1].split("/",1)[0]
             return self._r(lambda:self._cancel_job(jid))

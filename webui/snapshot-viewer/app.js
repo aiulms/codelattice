@@ -1617,6 +1617,90 @@
       html += '<div class="ws-insight-signals">' + sigHtml + '</div>';
     }
 
+    // Cross-Project Graph Summary
+    var gsm = ins.crossProjectGraphSummary || {};
+    if (gsm.available) {
+      html += '<div class="ws-graph-summary" style="margin-top:16px;">';
+      html += '<h3>' + esc(t("workspace.graphTitle")) + '</h3>';
+      html += '<span class="ws-insight-static-hint">' + esc(t("workspace.graphStaticHint")) + '</span>';
+      html += '<div class="ws-insight-cards">';
+      html += wsInsightCard(t("workspace.graphNodes"), String(gsm.nodeCount || 0), "");
+      html += wsInsightCard(t("workspace.graphEdges"), String(gsm.edgeCount || 0), "");
+      html += wsInsightCard(t("workspace.crossProjectEdges"), String(gsm.crossProjectEdgeCount || 0), "");
+      html += wsInsightCard(t("workspace.unsupportedBoundaries"), String(gsm.unsupportedBoundaryCount || 0), "");
+      html += '</div>';
+      // Top connected projects
+      var topP = gsm.topConnectedProjects || [];
+      if (topP.length > 0) {
+        html += '<div class="ws-graph-section" style="margin-top:8px;">';
+        html += '<strong>' + esc(t("workspace.graphTopConnected")) + '</strong>';
+        html += '<ul>' + topP.map(function(p) {
+          return '<li>' + esc(p.label || "?") + ' — ' + (p.connections || 0) + ' ' + esc(t("workspace.graphConnections")) + '</li>';
+        }).join("") + '</ul>';
+        html += '</div>';
+      }
+      // Bridge scripts/configs
+      var bScripts = gsm.bridgeScripts || [];
+      var bConfigs = gsm.bridgeConfigs || [];
+      if (bScripts.length > 0 || bConfigs.length > 0) {
+        html += '<div class="ws-graph-section" style="margin-top:8px;">';
+        if (bScripts.length > 0) {
+          html += '<strong>' + esc(t("workspace.bridgeScripts")) + '</strong> ';
+          html += bScripts.map(function(b) { return '<span class="badge">' + esc(b.label || "?") + '</span>'; }).join(" ");
+        }
+        if (bConfigs.length > 0) {
+          html += '<br><strong>' + esc(t("workspace.bridgeConfigs")) + '</strong> ';
+          html += bConfigs.map(function(b) { return '<span class="badge">' + esc(b.label || "?") + '</span>'; }).join(" ");
+        }
+        html += '</div>';
+      }
+      // Actions
+      html += '<div style="margin-top:8px;">';
+      html += '<button class="btn btn-sm btn-secondary" onclick="workspaceLoadGraph(WORKSPACE.state.currentRunId, function(e,g){ if(!e&&g&&typeof renderWorkspaceGraph===\'function\') renderWorkspaceGraph(g); })">' + esc(t("workspace.graphLoad")) + '</button> ';
+      html += '<button class="btn btn-sm btn-secondary" onclick="workspaceCopyGraphAiSummary()">' + esc(t("workspace.copyGraphAiSummary")) + '</button>';
+      html += '<span id="workspace-graph-status" class="text-muted text-sm"></span>';
+      html += '</div>';
+      html += '</div>';
+    }
+
+    // Cross-Project Graph Summary (minimal, no visual graph engine)
+    var gps = ins.crossProjectGraphSummary || {};
+    if (gps.available) {
+      html += '<div class="ws-graph-section" style="margin-top:16px;">';
+      html += '<h3>' + esc(t("workspace.graphTitle")) + '</h3>';
+      html += '<span class="ws-insight-static-hint">' + esc(t("workspace.graphStaticHint")) + '</span>';
+      html += '<div class="ws-insight-cards">';
+      html += wsInsightCard(t("workspace.graphNodes"), gps.nodeCount || 0, "");
+      html += wsInsightCard(t("workspace.graphEdges"), gps.edgeCount || 0, "");
+      html += wsInsightCard(t("workspace.crossProjectEdges"), gps.crossProjectEdgeCount || 0, gps.crossProjectEdgeCount > 0 ? "var(--warn)" : "var(--ok)");
+      html += wsInsightCard(t("workspace.unsupportedBoundaries"), gps.unsupportedBoundaryCount || 0, gps.unsupportedBoundaryCount > 0 ? "var(--warn)" : "var(--ok)");
+      html += '</div>';
+      var topP = gps.topConnectedProjects || [];
+      if (topP.length > 0) {
+        html += '<div style="margin-top:8px;"><strong>' + esc(t("workspace.graphTopConnected")) + '</strong> ';
+        topP.slice(0,5).forEach(function(p){ html += '<span class="ws-graph-item">' + esc(p.label) + ' <span class="text-muted">(' + (p.connections||0) + ')</span></span> '; });
+        html += '</div>';
+      }
+      var bScr = gps.bridgeScripts || [];
+      if (bScr.length > 0) {
+        html += '<div style="margin-top:6px;"><strong>' + esc(t("workspace.bridgeScripts")) + '</strong> ';
+        bScr.slice(0,5).forEach(function(b){ html += '<span class="ws-graph-item">' + esc(b.label||b.id) + ' <span class="text-muted">(' + (b.refCount||0) + ')</span></span> '; });
+        html += '</div>';
+      }
+      var bCfg = gps.bridgeConfigs || [];
+      if (bCfg.length > 0) {
+        html += '<div style="margin-top:6px;"><strong>' + esc(t("workspace.bridgeConfigs")) + '</strong> ';
+        bCfg.slice(0,5).forEach(function(b){ html += '<span class="ws-graph-item">' + esc(b.label||b.id) + ' <span class="text-muted">(' + (b.refCount||0) + ')</span></span> '; });
+        html += '</div>';
+      }
+      html += '<div style="margin-top:10px;">';
+      html += '<button class="btn btn-sm btn-secondary" onclick="workspaceLoadGraph(WORKSPACE.state.currentRunId,function(e,g){if(!e&&g&&typeof renderWorkspaceGraph===\'function\')renderWorkspaceGraph(g);})">' + esc(t("workspace.graphLoad")) + '</button> ';
+      html += '<button class="btn btn-sm btn-secondary" onclick="workspaceCopyGraphAiSummary()">' + esc(t("workspace.copyGraphAiSummary")) + '</button>';
+      html += '<span id="workspace-graph-status" class="text-muted text-sm"></span>';
+      html += '</div>';
+      html += '</div>';
+    }
+
     // Cautions
     var cauts = ins.cautions || [];
     if (cauts.length) {
@@ -1625,6 +1709,60 @@
       html += '</div>';
     }
 
+    host.innerHTML = html;
+  }
+
+  function renderWorkspaceGraph(graph) {
+    var host = document.getElementById("workspace-insights");
+    if (!host || !graph) return;
+    var sm = graph.summary || {};
+    var nodes = graph.nodes || [];
+    var edges = graph.edges || [];
+    var html = "";
+    html += '<div class="ws-graph-full">';
+    html += '<h2>' + esc(t("workspace.graphTitle")) + '</h2>';
+    html += '<span class="ws-insight-static-hint">' + esc(t("workspace.graphStaticHint")) + '</span>';
+    // Summary cards
+    html += '<div class="ws-insight-cards">';
+    html += wsInsightCard(t("workspace.graphNodes"), String(sm.nodeCount || 0), "");
+    html += wsInsightCard(t("workspace.graphEdges"), String(sm.edgeCount || 0), "");
+    html += wsInsightCard(t("workspace.crossProjectEdges"), String(sm.crossProjectEdgeCount || 0), "");
+    html += wsInsightCard(t("workspace.unsupportedBoundaries"), String(sm.unsupportedBoundaryCount || 0), "");
+    html += '</div>';
+    // Edge table
+    var nonContainsEdges = edges.filter(function(e) { return e.kind !== "contains"; });
+    if (nonContainsEdges.length > 0) {
+      var nodesById = {};
+      nodes.forEach(function(n) { nodesById[n.id] = n; });
+      html += '<div style="margin-top:12px;overflow-x:auto;">';
+      html += '<table class="ws-graph-table"><thead><tr><th>Source</th><th>→</th><th>Target</th><th>Kind</th><th>Conf</th><th>Reason</th></tr></thead><tbody>';
+      nonContainsEdges.slice(0, 50).forEach(function(e) {
+        var src = nodesById[e.source] || {};
+        var tgt = nodesById[e.target] || {};
+        html += '<tr>';
+        html += '<td>' + esc(src.label || e.source) + '</td>';
+        html += '<td>→</td>';
+        html += '<td>' + esc(tgt.label || e.target) + '</td>';
+        html += '<td><span class="badge">' + esc(e.kind) + '</span></td>';
+        html += '<td>' + (e.confidence || 0) + '</td>';
+        html += '<td class="text-muted">' + esc(e.reason || "") + '</td>';
+        html += '</tr>';
+      });
+      html += '</tbody></table></div>';
+    }
+    // Cautions
+    var cauts = graph.cautions || [];
+    if (cauts.length) {
+      html += '<div class="cleanup-caution caution-box" style="margin-top:12px;">';
+      html += '<strong>⚠️</strong> ' + cauts.map(esc).join(" · ");
+      html += '</div>';
+    }
+    // Back button
+    html += '<div style="margin-top:10px;">';
+    html += '<button class="btn btn-sm btn-secondary" onclick="workspaceLoadInsights(WORKSPACE.state.currentRunId, function(e,ins){ if(!e&&typeof renderWorkspaceInsights===\'function\') renderWorkspaceInsights(ins); })">' + esc(t("workspace.backToInsights")) + '</button>';
+    html += '<button class="btn btn-sm btn-secondary" onclick="workspaceCopyGraphAiSummary()">' + esc(t("workspace.copyGraphAiSummary")) + '</button>';
+    html += '</div>';
+    html += '</div>';
     host.innerHTML = html;
   }
 

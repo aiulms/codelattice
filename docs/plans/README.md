@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-18（WebUI Workspace UX Closure Pack）
+最后更新：2026-05-18（Workspace Cross-Project Graph Pack）
 
 ## 用途
 
@@ -18,6 +18,9 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Workspace Cross-Project Graph Pack（2026-05-18，已完成）：**
+- 📝 [2026-05-18-workspace-cross-project-graph-preflight.md](2026-05-18-workspace-cross-project-graph-preflight.md) — workspace 级跨项目关系图：节点/边 schema、静态关系提取策略、confidence/reason、WebUI 最小展示、smoke 计划。
 
 **WebUI Workspace UX Closure Pack（2026-05-18，已完成）：**
 - 📝 [2026-05-18-webui-workspace-ux-closure-preflight.md](2026-05-18-webui-workspace-ux-closure-preflight.md) — workspace 分析后停留总览、洞察项打开快照、失败项目修复建议、unsupported backlog、AI 摘要复制、中文报告导出。
