@@ -4,7 +4,7 @@
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
 //! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 37 tools total.
+//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 38 tools total.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -72,6 +72,13 @@ fn shell_portable_smoke_dir() -> std::path::PathBuf {
     workspace_root()
         .join("fixtures")
         .join("shell")
+        .join("portable-smoke")
+}
+
+fn automation_portable_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("automation")
         .join("portable-smoke")
 }
 
@@ -199,7 +206,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_thirty_seven_tools() {
+fn mcp_tools_list_returns_thirty_eight_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -216,7 +223,7 @@ fn mcp_tools_list_returns_thirty_seven_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 37, "expected 37 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 38, "expected 38 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -231,6 +238,10 @@ fn mcp_tools_list_returns_thirty_seven_tools() {
     assert!(
         names.contains(&"codelattice_summary"),
         "missing codelattice_summary"
+    );
+    assert!(
+        names.contains(&"codelattice_automation_graph"),
+        "missing codelattice_automation_graph"
     );
     assert!(
         names.contains(&"codelattice_smoke"),
@@ -11837,5 +11848,81 @@ fn mcp_workflow_presets_docs_tests_sync() {
     assert!(
         text.contains("consistency_review"),
         "docs_tests_sync should include consistency_review"
+    );
+}
+
+// ============================================================
+// v0.27: Automation Graph Tests
+// ============================================================
+
+#[test]
+fn mcp_automation_graph_portable_smoke() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = automation_portable_smoke_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":37001,"method":"tools/call",
+        "params":{"name":"codelattice_automation_graph","arguments":{"root":root.to_str().unwrap(),"language":"auto","compact":false,"limit":80}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(
+        d["summary"]["workflowCount"].as_u64().unwrap_or(0) >= 5,
+        "should discover CI/package/Makefile/Docker/shell workflows: {:?}",
+        d
+    );
+    assert!(
+        d["summary"]["stepCount"].as_u64().unwrap_or(0) > 0,
+        "should discover automation steps"
+    );
+    assert!(
+        d["summary"]["riskCount"].as_u64().unwrap_or(0) > 0,
+        "should flag risky automation patterns"
+    );
+    assert_eq!(d["generatedFrom"]["scriptsExecuted"].as_bool(), Some(false));
+    assert_eq!(d["generatedFrom"]["buildExecuted"].as_bool(), Some(false));
+    assert_eq!(d["generatedFrom"]["runtimeVerified"].as_bool(), Some(false));
+}
+
+#[test]
+fn mcp_automation_graph_detects_high_risk_patterns() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = automation_portable_smoke_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":37002,"method":"tools/call",
+        "params":{"name":"codelattice_automation_graph","arguments":{"root":root.to_str().unwrap(),"language":"auto","compact":false,"limit":80}}}));
+    let d = extract_tool_data(&s.recv());
+    let text = serde_json::to_string(&d).unwrap_or_default();
+    assert!(
+        text.contains("curl_pipe_shell") || text.contains("wget_pipe_shell"),
+        "should flag curl|sh style installer risks"
+    );
+    assert!(
+        text.contains("docker_privileged"),
+        "should flag privileged Docker runs"
+    );
+    assert!(
+        text.contains("pull_request_target"),
+        "should flag pull_request_target review risk"
+    );
+}
+
+#[test]
+fn mcp_automation_graph_compact_omits_step_edges() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = automation_portable_smoke_dir();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":37003,"method":"tools/call",
+        "params":{"name":"codelattice_automation_graph","arguments":{"root":root.to_str().unwrap(),"language":"auto","compact":true,"limit":20}}}));
+    let d = extract_tool_data(&s.recv());
+    assert!(d["summary"].is_object());
+    assert!(d["workflows"].is_array());
+    assert!(
+        !d.as_object().map_or(false, |o| o.contains_key("steps")),
+        "compact mode should omit full step list"
+    );
+    assert!(
+        !d.as_object().map_or(false, |o| o.contains_key("edges")),
+        "compact mode should omit full edge list"
     );
 }

@@ -8,7 +8,7 @@ CodeLattice 是一个 **本地代码智能引擎**：面向大型、遗留、复
 
 一句话概括：**先把代码地图画出来，再让 AI 下手。**
 
-CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 暴露 37 个 MCP 工具，已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置一致性审查和 AI 工作流预设。
+CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 暴露 38 个 MCP 工具，已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查和 AI 工作流预设。
 
 **当前状态：外部 Beta / daily-use candidate（当前 master 为 `v0.15.0-beta.1` candidate，最新已发布 GitCode Release 为 `v0.14.0-beta.1`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
@@ -369,6 +369,7 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 | `codelattice_external_api_surface` | 外部 API Surface / Public API 风险提示：识别可能被外部消费者使用的公开 API 符号，输出注意事项和推荐验证步骤 |
 | `codelattice_workflow_presets` | AI 工作流预设：返回 10 个常见场景的 MCP 工具调用顺序和每步关注字段，不执行分析 |
 | `codelattice_config_examples_review` | 配置与示例一致性审查：扫描 package.json/tsconfig/Cargo/CI/Docker/examples 中的 stale 引用，不执行脚本/构建 |
+| `codelattice_automation_graph` | 自动化图谱：静态扫描 CI workflow、package scripts、Makefile、Dockerfile 和 shell 脚本，串联工作流/步骤/脚本引用并标记高风险命令，不执行脚本 |
 | `codelattice_consistency_review` | 文档与测试一致性审查：将变更符号与文档/测试文件交叉对比，标记 stale docs、缺失 docs、related tests、missing tests 和 stale tests |
 | `codelattice_breaking_change_review` | 破坏性变更审查：将变更符号与 public API / framework entry / 文档交叉对比，评估兼容风险并生成审查清单和 release note 提示 |
 | `codelattice_framework_entry_hints` | 框架入口提示 / 回调入口警示：识别可能由框架路由/装饰器/回调注册/CLI 命令调用的符号，降低 dead-code/reachability 误判 |
@@ -546,7 +547,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - C++ CLI 分析（Phase A）
 - Python CLI 分析（Phase A）
 - Shell CLI 分析（Phase A）
-- MCP sidecar 37 个工具，覆盖图谱查询、诊断、审查和 AI 工作流预设
+- MCP sidecar 38 个工具，覆盖图谱查询、诊断、审查、自动化图谱和 AI 工作流预设
 - 两层持久化缓存
 - stable runtime promote
 - release tarball packaging + release smoke

@@ -230,7 +230,7 @@ for line in sys.stdin:
 if tool_count is None:
     raise SystemExit("tools/list response not found")
 if tool_count < 37:
-    raise SystemExit(f"expected at least 37 tools, got {tool_count}")
+    raise SystemExit(f"expected at least 38 tools, got {tool_count}")
 print(f"tools: {tool_count}")
 '
 

@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 28 tools:
+//! Provides 38 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -16,6 +16,7 @@
 //!   v0.9: codelattice_review_plan
 //!   v0.10: codelattice_dead_code_candidates
 //!   v0.11: codelattice_impact_analysis, codelattice_risk_hotspots, codelattice_architecture_drift
+//!   v0.27: codelattice_automation_graph
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -8309,6 +8310,24 @@ fn tools_list() -> Value {
                 }
             },
             {
+                "name": "codelattice_automation_graph",
+                "description": "Static automation graph for CI workflows, package scripts, Makefile targets, Dockerfile steps, and shell scripts. It never executes scripts/builds and returns workflow nodes, step edges, and risky automation candidates.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit full steps/edges and keep summary/workflows/risks" },
+                        "limit": { "type": "integer", "default": 80, "minimum": 1, "maximum": 300 },
+                        "includeShellScripts": { "type": "boolean", "default": true, "description": "Scan .sh/.bash/.zsh scripts" },
+                        "includeCi": { "type": "boolean", "default": true, "description": "Scan CI workflow files" },
+                        "includePackageScripts": { "type": "boolean", "default": true, "description": "Scan package.json scripts" },
+                        "includeDocker": { "type": "boolean", "default": true, "description": "Scan Dockerfile files" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
                 "name": "codelattice_workflow_presets",
                 "description": "Returns suggested MCP workflow steps for common scenarios. Does not execute analysis. Use to learn which CodeLattice tools to call for a given scenario.",
                 "inputSchema": {
@@ -12160,6 +12179,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_config_examples_review" => {
                     handle_config_examples_review(cache, &arguments)
                 }
+                "codelattice_automation_graph" => handle_automation_graph(cache, &arguments),
                 "codelattice_workflow_presets" => handle_workflow_presets(cache, &arguments),
                 _ => Err(mcp_error(
                     "unknown_tool",
@@ -14947,8 +14967,736 @@ fn handle_config_examples_review(cache: &mut McpCache, params: &Value) -> Result
 }
 
 // ============================================================
-// v0.26: AI Workflow Presets
+// v0.27: Automation Graph
 // ============================================================
+
+fn automation_rel_path(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .unwrap_or(path)
+        .to_string_lossy()
+        .replace('\\', "/")
+}
+
+fn automation_skip_dir(name: &str) -> bool {
+    matches!(
+        name,
+        ".git"
+            | ".gitnexus"
+            | ".claude"
+            | ".arts"
+            | "target"
+            | "node_modules"
+            | "dist"
+            | "vendor"
+            | ".venv"
+            | "venv"
+            | "__pycache__"
+    )
+}
+
+fn automation_is_shell_file(path: &Path) -> bool {
+    let name = path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    let ext = path
+        .extension()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    matches!(ext.as_str(), "sh" | "bash" | "zsh" | "ksh" | "bats")
+        || matches!(
+            name.as_str(),
+            "build" | "test" | "release" | "install" | "configure"
+        )
+}
+
+fn automation_kind_for_path(
+    rel: &str,
+    include_shell: bool,
+    include_ci: bool,
+    include_pkg: bool,
+    include_docker: bool,
+) -> Option<&'static str> {
+    let lower = rel.to_ascii_lowercase();
+    let file = Path::new(rel)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    if include_ci
+        && (lower.starts_with(".github/workflows/")
+            || lower.starts_with(".gitee/workflows/")
+            || file == ".gitlab-ci.yml"
+            || file == ".gitlab-ci.yaml"
+            || file == ".gitcode-ci.yml"
+            || file == ".gitcode-ci.yaml"
+            || file == "jenkinsfile")
+    {
+        return Some("ci");
+    }
+    if include_pkg && file == "package.json" {
+        return Some("package-script");
+    }
+    if file == "makefile" || file.ends_with(".mk") {
+        return Some("makefile");
+    }
+    if include_docker && (file == "dockerfile" || file.starts_with("dockerfile.")) {
+        return Some("docker");
+    }
+    if include_shell && automation_is_shell_file(Path::new(rel)) {
+        return Some("shell");
+    }
+    None
+}
+
+fn collect_automation_files(
+    root: &Path,
+    include_shell: bool,
+    include_ci: bool,
+    include_pkg: bool,
+    include_docker: bool,
+) -> Vec<(PathBuf, String, String)> {
+    fn walk(
+        root: &Path,
+        dir: &Path,
+        out: &mut Vec<(PathBuf, String, String)>,
+        include_shell: bool,
+        include_ci: bool,
+        include_pkg: bool,
+        include_docker: bool,
+    ) {
+        if out.len() >= 500 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                if !automation_skip_dir(&name) {
+                    walk(
+                        root,
+                        &path,
+                        out,
+                        include_shell,
+                        include_ci,
+                        include_pkg,
+                        include_docker,
+                    );
+                }
+                continue;
+            }
+            let rel = automation_rel_path(root, &path);
+            if let Some(kind) = automation_kind_for_path(
+                &rel,
+                include_shell,
+                include_ci,
+                include_pkg,
+                include_docker,
+            ) {
+                out.push((path, rel, kind.to_string()));
+            }
+        }
+    }
+
+    let mut out = Vec::new();
+    walk(
+        root,
+        root,
+        &mut out,
+        include_shell,
+        include_ci,
+        include_pkg,
+        include_docker,
+    );
+    out.sort_by(|a, b| a.1.cmp(&b.1));
+    out
+}
+
+fn automation_highest_risk(current: &str, next: &str) -> String {
+    let rank = |s: &str| match s {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    };
+    if rank(next) > rank(current) {
+        next.to_string()
+    } else {
+        current.to_string()
+    }
+}
+
+fn automation_risk_findings(rel: &str, line_no: usize, text: &str) -> Vec<Value> {
+    let lower = text.to_ascii_lowercase();
+    let mut out = Vec::new();
+    let mut push = |severity: &str, kind: &str, message: &str, action: &str| {
+        out.push(json!({
+            "severity": severity,
+            "kind": kind,
+            "file": rel,
+            "line": line_no,
+            "message": message,
+            "reviewAction": action
+        }));
+    };
+
+    if (lower.contains("curl ") || lower.contains("wget "))
+        && (lower.contains("| sh") || lower.contains("| bash"))
+    {
+        push(
+            "high",
+            "curl_pipe_shell",
+            "downloaded script is piped directly to a shell",
+            "pin source, verify checksum, and avoid pipe-to-shell installers",
+        );
+    }
+    if lower.contains("rm -rf") {
+        push(
+            "medium",
+            "rm_rf",
+            "destructive recursive delete command appears in automation",
+            "verify path guards and dry-run behavior before running",
+        );
+    }
+    if lower.contains("sudo ") {
+        push(
+            "medium",
+            "sudo",
+            "automation command requests elevated privileges",
+            "verify why privilege escalation is required",
+        );
+    }
+    if lower.contains("chmod 777") {
+        push(
+            "medium",
+            "chmod_777",
+            "world-writable permission change appears in automation",
+            "use narrower permissions and document ownership expectations",
+        );
+    }
+    if lower.contains("docker run") && lower.contains("--privileged") {
+        push(
+            "high",
+            "docker_privileged",
+            "privileged Docker run appears in automation",
+            "review container isolation and host access assumptions",
+        );
+    }
+    if lower.contains("pull_request_target") {
+        push(
+            "high",
+            "pull_request_target",
+            "pull_request_target workflow can run with privileged token context",
+            "review checkout/ref handling and token permissions",
+        );
+    }
+    if lower.starts_with("uses:")
+        && (lower.ends_with("@main") || lower.ends_with("@master") || lower.ends_with("@latest"))
+    {
+        push(
+            "medium",
+            "workflow_unpinned_action",
+            "workflow action is pinned to a mutable ref",
+            "pin actions to a version tag or commit SHA",
+        );
+    }
+    if lower.contains("echo $")
+        && (lower.contains("secret") || lower.contains("token") || lower.contains("password"))
+    {
+        push(
+            "high",
+            "secret_echo",
+            "automation may print secret-like environment variables",
+            "remove secret echoing and rely on masked CI logs",
+        );
+    }
+    out
+}
+
+fn automation_extract_script_refs(command: &str) -> Vec<String> {
+    command
+        .split(|c: char| c.is_whitespace() || matches!(c, '"' | '\'' | ';' | '&' | '|'))
+        .filter(|token| {
+            token.ends_with(".sh")
+                || token.ends_with(".bash")
+                || token.ends_with(".zsh")
+                || token.starts_with("scripts/")
+        })
+        .map(|s| s.trim_start_matches("./").to_string())
+        .collect()
+}
+
+fn automation_push_step(
+    steps: &mut Vec<Value>,
+    edges: &mut Vec<Value>,
+    risks: &mut Vec<Value>,
+    workflow_id: &str,
+    workflow_risk: &mut String,
+    rel: &str,
+    step_kind: &str,
+    name: &str,
+    command: &str,
+    line_no: usize,
+) {
+    let step_id = format!("{workflow_id}:step:{line_no}:{}", steps.len() + 1);
+    let findings = automation_risk_findings(rel, line_no, command);
+    for finding in &findings {
+        if let Some(sev) = finding["severity"].as_str() {
+            *workflow_risk = automation_highest_risk(workflow_risk, sev);
+        }
+    }
+    risks.extend(findings.clone());
+    steps.push(json!({
+        "id": step_id,
+        "workflowId": workflow_id,
+        "name": name,
+        "kind": step_kind,
+        "command": command,
+        "file": rel,
+        "line": line_no,
+        "riskLevel": workflow_risk,
+        "riskFindingCount": findings.len()
+    }));
+    edges.push(json!({
+        "source": workflow_id,
+        "target": step_id,
+        "type": "contains",
+        "reason": "workflow-contains-step"
+    }));
+}
+
+fn parse_ci_workflow(
+    rel: &str,
+    content: &str,
+    workflows: &mut Vec<Value>,
+    steps: &mut Vec<Value>,
+    edges: &mut Vec<Value>,
+    risks: &mut Vec<Value>,
+) {
+    let mut name = Path::new(rel)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("ci")
+        .to_string();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("name:") {
+            let candidate = rest.trim().trim_matches('"').trim_matches('\'');
+            if !candidate.is_empty() {
+                name = candidate.to_string();
+            }
+            break;
+        }
+    }
+    let workflow_id = format!("ci:{rel}");
+    let mut risk_level = "low".to_string();
+    let start_steps = steps.len();
+    for (idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("run:") {
+            let command = trimmed.trim_start_matches("run:").trim();
+            automation_push_step(
+                steps,
+                edges,
+                risks,
+                &workflow_id,
+                &mut risk_level,
+                rel,
+                "run",
+                "run",
+                command,
+                idx + 1,
+            );
+        } else if trimmed.starts_with("uses:") || trimmed.starts_with("- uses:") {
+            let command = trimmed.trim_start_matches("- ").trim();
+            automation_push_step(
+                steps,
+                edges,
+                risks,
+                &workflow_id,
+                &mut risk_level,
+                rel,
+                "uses",
+                "uses",
+                command,
+                idx + 1,
+            );
+        } else {
+            let findings = automation_risk_findings(rel, idx + 1, trimmed);
+            for finding in &findings {
+                if let Some(sev) = finding["severity"].as_str() {
+                    risk_level = automation_highest_risk(&risk_level, sev);
+                }
+            }
+            risks.extend(findings);
+        }
+    }
+    workflows.push(json!({
+        "id": workflow_id,
+        "name": name,
+        "kind": "ci",
+        "file": rel,
+        "line": 1,
+        "stepCount": steps.len().saturating_sub(start_steps),
+        "riskLevel": risk_level
+    }));
+}
+
+fn parse_package_scripts(
+    rel: &str,
+    content: &str,
+    workflows: &mut Vec<Value>,
+    steps: &mut Vec<Value>,
+    edges: &mut Vec<Value>,
+    risks: &mut Vec<Value>,
+) {
+    let Ok(value) = serde_json::from_str::<Value>(content) else {
+        return;
+    };
+    let Some(scripts) = value["scripts"].as_object() else {
+        return;
+    };
+    for (name, command_value) in scripts {
+        let Some(command) = command_value.as_str() else {
+            continue;
+        };
+        let workflow_id = format!("package:{name}");
+        let mut risk_level = "low".to_string();
+        let start_steps = steps.len();
+        automation_push_step(
+            steps,
+            edges,
+            risks,
+            &workflow_id,
+            &mut risk_level,
+            rel,
+            "package-script",
+            name,
+            command,
+            1,
+        );
+        workflows.push(json!({
+            "id": workflow_id,
+            "name": name,
+            "kind": "package-script",
+            "file": rel,
+            "line": 1,
+            "stepCount": steps.len().saturating_sub(start_steps),
+            "riskLevel": risk_level
+        }));
+    }
+}
+
+fn parse_makefile(
+    rel: &str,
+    content: &str,
+    workflows: &mut Vec<Value>,
+    steps: &mut Vec<Value>,
+    edges: &mut Vec<Value>,
+    risks: &mut Vec<Value>,
+) {
+    let mut current: Option<(String, String, usize, String, usize)> = None;
+    for (idx, line) in content.lines().enumerate() {
+        if !line.starts_with('\t') && line.contains(':') && !line.contains('=') {
+            if let Some((id, name, line_no, risk, start)) = current.take() {
+                workflows.push(json!({"id": id, "name": name, "kind": "makefile", "file": rel, "line": line_no, "stepCount": steps.len().saturating_sub(start), "riskLevel": risk}));
+            }
+            let target = line.split(':').next().unwrap_or("").trim();
+            if !target.is_empty() {
+                current = Some((
+                    format!("make:{rel}:{target}"),
+                    target.to_string(),
+                    idx + 1,
+                    "low".to_string(),
+                    steps.len(),
+                ));
+            }
+        } else if line.starts_with('\t') {
+            if let Some((id, _, _, risk, _)) = current.as_mut() {
+                let command = line.trim();
+                automation_push_step(
+                    steps,
+                    edges,
+                    risks,
+                    id,
+                    risk,
+                    rel,
+                    "make-command",
+                    "make-command",
+                    command,
+                    idx + 1,
+                );
+            }
+        }
+    }
+    if let Some((id, name, line_no, risk, start)) = current.take() {
+        workflows.push(json!({"id": id, "name": name, "kind": "makefile", "file": rel, "line": line_no, "stepCount": steps.len().saturating_sub(start), "riskLevel": risk}));
+    }
+}
+
+fn parse_dockerfile(
+    rel: &str,
+    content: &str,
+    workflows: &mut Vec<Value>,
+    steps: &mut Vec<Value>,
+    edges: &mut Vec<Value>,
+    risks: &mut Vec<Value>,
+) {
+    let workflow_id = format!("docker:{rel}");
+    let mut risk_level = "low".to_string();
+    let start_steps = steps.len();
+    for (idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        let upper = trimmed.to_ascii_uppercase();
+        if ["RUN ", "COPY ", "CMD ", "ENTRYPOINT "]
+            .iter()
+            .any(|prefix| upper.starts_with(prefix))
+        {
+            let kind = upper.split_whitespace().next().unwrap_or("DOCKER");
+            automation_push_step(
+                steps,
+                edges,
+                risks,
+                &workflow_id,
+                &mut risk_level,
+                rel,
+                &kind.to_ascii_lowercase(),
+                kind,
+                trimmed,
+                idx + 1,
+            );
+        }
+    }
+    workflows.push(json!({
+        "id": workflow_id,
+        "name": rel,
+        "kind": "docker",
+        "file": rel,
+        "line": 1,
+        "stepCount": steps.len().saturating_sub(start_steps),
+        "riskLevel": risk_level
+    }));
+}
+
+fn parse_shell_script(
+    rel: &str,
+    content: &str,
+    workflows: &mut Vec<Value>,
+    steps: &mut Vec<Value>,
+    edges: &mut Vec<Value>,
+    risks: &mut Vec<Value>,
+) {
+    let workflow_id = format!("shell:{rel}");
+    let mut risk_level = "low".to_string();
+    let start_steps = steps.len();
+    for (idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed == "set -euo pipefail" {
+            continue;
+        }
+        automation_push_step(
+            steps,
+            edges,
+            risks,
+            &workflow_id,
+            &mut risk_level,
+            rel,
+            "shell-command",
+            "shell-command",
+            trimmed,
+            idx + 1,
+        );
+    }
+    workflows.push(json!({
+        "id": workflow_id,
+        "name": rel,
+        "kind": "shell",
+        "file": rel,
+        "line": 1,
+        "stepCount": steps.len().saturating_sub(start_steps),
+        "riskLevel": risk_level
+    }));
+}
+
+fn compute_automation_graph(root: &Path, params: &Value) -> Value {
+    let include_shell = params["includeShellScripts"].as_bool().unwrap_or(true);
+    let include_ci = params["includeCi"].as_bool().unwrap_or(true);
+    let include_pkg = params["includePackageScripts"].as_bool().unwrap_or(true);
+    let include_docker = params["includeDocker"].as_bool().unwrap_or(true);
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let limit = params["limit"].as_u64().unwrap_or(80).clamp(1, 300) as usize;
+
+    let files =
+        collect_automation_files(root, include_shell, include_ci, include_pkg, include_docker);
+    let mut workflows: Vec<Value> = Vec::new();
+    let mut steps: Vec<Value> = Vec::new();
+    let mut edges: Vec<Value> = Vec::new();
+    let mut risks: Vec<Value> = Vec::new();
+
+    for (path, rel, kind) in files.iter().take(500) {
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        match kind.as_str() {
+            "ci" => parse_ci_workflow(
+                &rel,
+                &content,
+                &mut workflows,
+                &mut steps,
+                &mut edges,
+                &mut risks,
+            ),
+            "package-script" => parse_package_scripts(
+                &rel,
+                &content,
+                &mut workflows,
+                &mut steps,
+                &mut edges,
+                &mut risks,
+            ),
+            "makefile" => parse_makefile(
+                &rel,
+                &content,
+                &mut workflows,
+                &mut steps,
+                &mut edges,
+                &mut risks,
+            ),
+            "docker" => parse_dockerfile(
+                &rel,
+                &content,
+                &mut workflows,
+                &mut steps,
+                &mut edges,
+                &mut risks,
+            ),
+            "shell" => parse_shell_script(
+                &rel,
+                &content,
+                &mut workflows,
+                &mut steps,
+                &mut edges,
+                &mut risks,
+            ),
+            _ => {}
+        }
+    }
+
+    let mut workflow_by_file: HashMap<String, String> = HashMap::new();
+    for workflow in &workflows {
+        if workflow["kind"] == "shell" {
+            if let (Some(file), Some(id)) = (workflow["file"].as_str(), workflow["id"].as_str()) {
+                workflow_by_file.insert(file.to_string(), id.to_string());
+            }
+        }
+    }
+    for step in &steps {
+        let Some(source) = step["id"].as_str() else {
+            continue;
+        };
+        let command = step["command"].as_str().unwrap_or("");
+        for script in automation_extract_script_refs(command) {
+            if let Some(target) = workflow_by_file.get(&script) {
+                edges.push(json!({
+                    "source": source,
+                    "target": target,
+                    "type": "invokes",
+                    "reason": "automation-command-references-script"
+                }));
+            }
+        }
+    }
+
+    let high_count = risks
+        .iter()
+        .filter(|r| r["severity"] == "high" || r["severity"] == "critical")
+        .count();
+    let medium_count = risks.iter().filter(|r| r["severity"] == "medium").count();
+    let entry_files: Vec<Value> = workflows
+        .iter()
+        .filter_map(|w| w["file"].as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .take(limit)
+        .map(|f| json!(f))
+        .collect();
+
+    workflows.sort_by(|a, b| {
+        let ak = a["kind"].as_str().unwrap_or("");
+        let bk = b["kind"].as_str().unwrap_or("");
+        ak.cmp(bk).then_with(|| {
+            a["file"]
+                .as_str()
+                .unwrap_or("")
+                .cmp(b["file"].as_str().unwrap_or(""))
+        })
+    });
+
+    let summary = json!({
+        "workflowCount": workflows.len(),
+        "stepCount": steps.len(),
+        "edgeCount": edges.len(),
+        "riskCount": risks.len(),
+        "highRiskCount": high_count,
+        "mediumRiskCount": medium_count,
+        "entryCount": entry_files.len(),
+        "staticOnly": true
+    });
+
+    let workflow_out: Vec<Value> = workflows.into_iter().take(limit).collect();
+    let risk_out: Vec<Value> = risks.into_iter().take(limit).collect();
+    let mut out = json!({
+        "summary": summary,
+        "workflows": workflow_out,
+        "riskFindings": risk_out,
+        "entryFiles": entry_files,
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "buildExecuted": false,
+            "heuristic": true
+        },
+        "cautions": [
+            "static automation graph only",
+            "scripts and CI jobs were not executed",
+            "risk findings are review leads, not proof of exploitability"
+        ]
+    });
+    if !compact {
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "steps".to_string(),
+                json!(steps.into_iter().take(limit * 3).collect::<Vec<_>>()),
+            );
+            obj.insert(
+                "edges".to_string(),
+                json!(edges.into_iter().take(limit * 4).collect::<Vec<_>>()),
+            );
+        }
+    }
+    out
+}
+
+fn handle_automation_graph(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+    let result = compute_automation_graph(&validated, params);
+    let mut out = result.as_object().cloned().unwrap_or_default();
+    out.insert("language".to_string(), json!(language));
+    out.insert("root".to_string(), json!(validated));
+    Ok(tool_result(&json!(out)))
+}
 
 // ============================================================
 // v0.26: AI Workflow Presets

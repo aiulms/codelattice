@@ -1,0 +1,16 @@
+name: CI
+
+on:
+  push:
+  pull_request_target:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: example/unpinned-action@main
+      - name: Build
+        run: bash scripts/build.sh
+      - name: Release dry-run
+        run: npm run release

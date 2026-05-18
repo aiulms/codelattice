@@ -125,7 +125,7 @@ for line in sys.stdin:
         break
 ')
     if [[ "${count:-0}" -lt 37 ]]; then
-        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 37" >&2
+        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 38" >&2
         exit 1
     fi
     echo "PASS: tools/list returned $count tools"
@@ -208,7 +208,7 @@ else
     step "Run fresh clone MCP server smoke subset"
     echo "INFO: fresh copy excludes .git by design; skipping mcp_smoke_rust_only because alpha Tool import requires a git repo."
     run_in_fresh cargo test --test mcp_server mcp_initialize_returns_capabilities
-    run_in_fresh cargo test --test mcp_server mcp_tools_list_returns_thirty_seven_tools
+    run_in_fresh cargo test --test mcp_server mcp_tools_list_returns_thirty_eight_tools
     run_in_fresh cargo test --test mcp_server mcp_analyze_rust_portable_smoke
     run_in_fresh cargo test --test mcp_server mcp_project_overview_rust
 fi

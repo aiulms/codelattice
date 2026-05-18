@@ -301,7 +301,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
-assert int(s.get("toolCount", 0)) >= 37
+assert int(s.get("toolCount", 0)) >= 38
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True

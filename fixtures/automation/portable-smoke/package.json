@@ -1,0 +1,9 @@
+{
+  "name": "automation-smoke",
+  "version": "0.0.0",
+  "scripts": {
+    "build": "bash scripts/build.sh",
+    "test": "cargo test",
+    "release": "bash scripts/release.sh"
+  }
+}

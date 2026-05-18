@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-18（Shell Phase A）
+最后更新：2026-05-18（Automation Graph Pack）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Automation Graph Pack（2026-05-18，已完成）：**
+- 📝 [2026-05-18-automation-graph-preflight.md](2026-05-18-automation-graph-preflight.md) — 静态自动化图谱：CI/package scripts/Makefile/Dockerfile/shell scripts 扫描、工作流/步骤/脚本引用图、风险命令提示，不执行脚本。
+- ✅ [2026-05-18-automation-graph-closure.md](2026-05-18-automation-graph-closure.md) — closure：MCP tool #38、automation fixture、3 个 regression tests、dogfood/doctor/self-test 全部更新到 38 tools。
 
 **Shell Phase A（2026-05-18，已完成）：**
 - 📝 [2026-05-18-shell-phase-a-preflight.md](2026-05-18-shell-phase-a-preflight.md) — Shell 静态图谱支持：脚本发现、函数/source/命令/env 抽取、风险诊断、CLI/MCP/WebUI 集成、stop-lines。
