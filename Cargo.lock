@@ -310,11 +310,20 @@ dependencies = [
  "gitnexus-cpp",
  "gitnexus-project-model",
  "gitnexus-python",
+ "gitnexus-shell",
  "gitnexus-typescript",
  "predicates",
  "serde",
  "serde_json",
  "tempfile",
+]
+
+[[package]]
+name = "gitnexus-shell"
+version = "0.15.0-beta.1"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

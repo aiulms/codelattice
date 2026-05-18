@@ -121,6 +121,8 @@ pub enum DetectedLanguage {
     Cpp,
     /// Python project (pyproject.toml / setup.py / .py files)
     Python,
+    /// Shell project (.sh/.bash/.zsh/.ksh/.bats files or shell shebang scripts)
+    Shell,
     /// 多种清单存在，需要用户显式指定
     Ambiguous,
     /// 没有可识别的清单文件
@@ -138,6 +140,7 @@ impl DetectedLanguage {
             DetectedLanguage::C => "c",
             DetectedLanguage::Cpp => "cpp",
             DetectedLanguage::Python => "python",
+            DetectedLanguage::Shell => "shell",
             DetectedLanguage::Ambiguous => "ambiguous",
             DetectedLanguage::Unknown => "unknown",
         }

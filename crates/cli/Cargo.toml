@@ -33,6 +33,7 @@ gitnexus-typescript = { path = "../typescript", optional = true }
 gitnexus-c = { path = "../c", optional = true }
 gitnexus-cpp = { path = "../cpp", optional = true }
 gitnexus-python = { path = "../python", optional = true }
+gitnexus-shell = { path = "../shell" }
 
 [dev-dependencies]
 assert_cmd = "2"

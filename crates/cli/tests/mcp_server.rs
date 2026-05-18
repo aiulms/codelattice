@@ -67,6 +67,14 @@ fn cpp_portable_smoke_dir() -> std::path::PathBuf {
         .join("portable-smoke")
 }
 
+#[allow(dead_code)]
+fn shell_portable_smoke_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("shell")
+        .join("portable-smoke")
+}
+
 fn cli_binary() -> PathBuf {
     // Use CARGO_BIN_EXE environment variable set by cargo test
     std::env::var("CARGO_BIN_EXE_gitnexus-rust-core-cli")
@@ -330,6 +338,89 @@ fn mcp_tools_list_returns_thirty_seven_tools() {
             tool["name"]
         );
     }
+}
+
+#[test]
+fn mcp_tools_list_includes_shell_language() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 920,
+        "method": "tools/list"
+    }));
+    let resp = session.recv();
+    let tools = resp["result"]["tools"].as_array().expect("tools array");
+    let serialized = serde_json::to_string(tools).unwrap();
+    assert!(
+        serialized.contains("\"shell\""),
+        "tools/list language schemas should include shell"
+    );
+}
+
+#[test]
+fn mcp_analyze_shell_portable_smoke() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = shell_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 921,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "shell"
+            }
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    assert_eq!(data["language"], "shell");
+    assert!(data["summary"]["sourceFileCount"].as_u64().unwrap_or(0) >= 4);
+    assert!(data["summary"]["symbolCount"].as_u64().unwrap_or(0) >= 5);
+    assert!(data["summary"]["callEdgeCount"].as_u64().unwrap_or(0) >= 4);
+    assert!(
+        data["summary"]["diagnosticCount"].as_u64().unwrap_or(0) >= 2,
+        "shell summary should count risky-script diagnostics"
+    );
+}
+
+#[test]
+fn mcp_symbol_search_shell_finds_function() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = shell_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 922,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "shell",
+                "query": "build_project",
+                "compact": true
+            }
+        }
+    }));
+    let resp = session.recv();
+    let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
+    let matches = data["matches"].as_array().expect("matches array");
+    assert!(
+        matches.iter().any(|m| m["name"] == "build_project"),
+        "expected build_project function in symbol_search"
+    );
 }
 
 #[test]

@@ -56,7 +56,7 @@ grep -qF 'body::before' "$VD/styles.css" && chk "data field background" yes yes 
 grep -qF 'word-break: keep-all' "$VD/styles.css" && chk "hero chinese title fit" yes yes || chk "hero chinese title fit" yes no
 grep -qF 'PROJECT GRAPH ONLINE' "$VD/index.html" && chk "workbench hero copy" yes yes || chk "workbench hero copy" yes no
 echo ""; echo "--- Fixture Matrix ---"
-REQ=(rust typescript c cpp python)
+REQ=(rust typescript c cpp python shell)
 TD=$(mktemp -d)
 trap "rm -rf $TD" EXIT
 MP=0; MF=0

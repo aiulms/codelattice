@@ -60,6 +60,7 @@ for line in sys.stdin:
     _PROFILE_C=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_CPP=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cppSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_PYTHON=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('pythonSupport','unknown'))" 2>/dev/null || echo "unknown")
+    _PROFILE_SHELL=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('shellSupport','unknown'))" 2>/dev/null || echo "unknown")
     _PROFILE_TOOLS=$(echo "$init_resp" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
 }
 
@@ -191,6 +192,7 @@ if [[ "${1:-}" == "--version" ]]; then
         echo "  cSupport: $_PROFILE_C"
         echo "  cppSupport: $_PROFILE_CPP"
         echo "  pythonSupport: $_PROFILE_PYTHON"
+        echo "  shellSupport: $_PROFILE_SHELL"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback)"
@@ -227,6 +229,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
         echo "  cSupport: $_PROFILE_C"
         echo "  cppSupport: $_PROFILE_CPP"
         echo "  pythonSupport: $_PROFILE_PYTHON"
+        echo "  shellSupport: $_PROFILE_SHELL"
         echo "  toolCount: $_PROFILE_TOOLS"
     else
         echo "  bin:  (cargo run fallback — no pre-built binary found)"
@@ -295,11 +298,11 @@ for line in sys.stdin:
     fi
 
     # Optional language support check
-    if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" && "$_PROFILE_CPP" == "True" && "$_PROFILE_PYTHON" == "True" ]]; then
-        echo "  languageSupport: OK (Cangjie, ArkTS, TypeScript, C, C++, Python compiled)"
-    elif [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" || "$_PROFILE_C" == "False" || "$_PROFILE_CPP" == "False" || "$_PROFILE_PYTHON" == "False" ]]; then
+    if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" && "$_PROFILE_CPP" == "True" && "$_PROFILE_PYTHON" == "True" && "$_PROFILE_SHELL" == "True" ]]; then
+        echo "  languageSupport: OK (Cangjie, ArkTS, TypeScript, C, C++, Python, Shell compiled)"
+    elif [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" || "$_PROFILE_C" == "False" || "$_PROFILE_CPP" == "False" || "$_PROFILE_PYTHON" == "False" || "$_PROFILE_SHELL" == "False" ]]; then
         echo "  languageSupport: WARN — optional language tools may not work"
-        echo "    cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON"
+        echo "    cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON shell=$_PROFILE_SHELL"
         echo "    Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build"
     else
         echo "  languageSupport: unknown (could not detect)"

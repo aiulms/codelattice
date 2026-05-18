@@ -1,7 +1,7 @@
 // runner.js — CodeLattice WebUI Runner Client (Phase E: Workbench)
 var RUNNER=window.RUNNER||{}; window.RUNNER=RUNNER;
 RUNNER.base=""; RUNNER.connected=false; RUNNER.profiles=[]; RUNNER.snaps=[];
-var SUPPORTED_LANGS=["auto","rust","typescript","c","cpp","python","arkts","cangjie"];
+var SUPPORTED_LANGS=["auto","rust","typescript","c","cpp","python","shell","arkts","cangjie"];
 var LAST_SNAPSHOT_KEY="codelattice.webui.lastSnapshotId";
 var LAST_TAB_KEY="codelattice.webui.lastTab";
 function tr(k,p){return window.CTL_I18N?CTL_I18N.t(k,p):k;}

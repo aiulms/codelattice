@@ -11,7 +11,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STATIC_D = REPO_ROOT / "webui" / "snapshot-viewer"
 SNAP_SCRIPT = REPO_ROOT / "scripts" / "webui-snapshot.sh"
 GEN_TIMEOUT = 120
-SUPPORTED = ["rust","typescript","c","cpp","python","arkts","cangjie","auto"]
+SUPPORTED = ["rust","typescript","c","cpp","python","shell","arkts","cangjie","auto"]
 LANG_MARKERS = {
     "cjpm.toml": "cangjie",
     "oh-package.json5": "arkts",
@@ -19,12 +19,16 @@ LANG_MARKERS = {
     "tsconfig.json": "typescript",
     "pyproject.toml": "python",
     "setup.py": "python",
+    "build.sh": "shell",
+    "test.sh": "shell",
+    "release.sh": "shell",
+    "install.sh": "shell",
     "CMakeLists.txt": "c/cpp",
     "compile_commands.json": "c/cpp",
     ".sln": "unsupported:csharp",
     ".csproj": "unsupported:csharp",
 }
-LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "unsupported:csharp": 9}
+LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "c": 5, "cpp": 5, "shell": 6, "unsupported:csharp": 9}
 
 
 def ok(data=None): return {"success": True, "data": data if data is not None else {}, "error": None, "hint": None}
@@ -90,6 +94,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
                 elif name.endswith(".rs"): ext_langs.append("rust")
                 elif name.endswith((".ts",".tsx")): ext_langs.append("typescript")
                 elif name.endswith(".py"): ext_langs.append("python")
+                elif name.endswith((".sh",".bash",".zsh",".ksh",".bats")): ext_langs.append("shell")
                 elif name.endswith((".c",".h")): ext_langs.append("c")
                 elif name.endswith((".cpp",".cc",".cxx",".hpp",".hh",".hxx")): ext_langs.append("cpp")
                 elif name.endswith(".cs"): ext_langs.append("unsupported:csharp")

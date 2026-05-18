@@ -18,6 +18,7 @@ pub use crate::cangjie_bridge::convert_cangjie_graph;
 pub use crate::cpp_bridge::convert_cpp_graph;
 pub use crate::python_bridge::convert_python_graph;
 pub use crate::rust_bridge::convert_rust_graph;
+pub use crate::shell_bridge::convert_shell_graph;
 
 // ============================================================
 // Bridge 输出类型定义

@@ -19,6 +19,7 @@ mod language_detect;
 mod mcp_server;
 mod python_bridge;
 mod rust_bridge;
+mod shell_bridge;
 mod unified_types;
 
 use clap::{Parser, Subcommand};
@@ -143,8 +144,9 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
             DetectedLanguage::C => Ok("c".to_string()),
             DetectedLanguage::Cpp => Ok("cpp".to_string()),
             DetectedLanguage::Python => Ok("python".to_string()),
+            DetectedLanguage::Shell => Ok("shell".to_string()),
             DetectedLanguage::Ambiguous => Err(
-                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript|c|cpp|python 显式指定".to_string(),
+                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript|c|cpp|python|shell 显式指定".to_string(),
             ),
             DetectedLanguage::Unknown => Err(
                 "语言检测失败：未找到可识别的清单文件，无法自动检测语言".to_string(),
@@ -158,13 +160,14 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
         "c",
         "cpp",
         "python",
+        "shell",
     ]
     .contains(&lang_arg)
     {
         Ok(lang_arg.to_string())
     } else {
         Err(format!(
-            "不支持的语言: {lang_arg}，请使用 rust / cangjie / arkts / typescript / auto"
+            "不支持的语言: {lang_arg}，请使用 rust / cangjie / arkts / typescript / c / cpp / python / shell / auto"
         ))
     }
 }
@@ -1176,6 +1179,68 @@ fn compute_python_quality_gates(
     compute_arkts_quality_gates(nodes, edges)
 }
 
+// ============================================================
+// Shell 分析 + Graph 提取
+// ============================================================
+
+fn run_shell_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    use std::collections::BTreeMap;
+
+    let project = gitnexus_shell::find_shell_project_root(root).ok_or_else(|| {
+        "Shell project root not found (no .sh/.bash/.zsh/.ksh/.bats files or shell shebang scripts detected)".to_string()
+    })?;
+    let files = gitnexus_shell::list_shell_source_files(&project)
+        .map_err(|e| format!("Failed to list Shell source files: {e}"))?;
+
+    let mut analyses_by_file = BTreeMap::new();
+    for file in &files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+        let rel_path = file
+            .strip_prefix(&project.root)
+            .unwrap_or(file)
+            .to_string_lossy()
+            .replace('\\', "/");
+        analyses_by_file.insert(
+            file.clone(),
+            gitnexus_shell::extract_shell_file(&source, &rel_path),
+        );
+    }
+
+    let graph = gitnexus_shell::build_shell_graph(&project, &analyses_by_file);
+    let json_val = serde_json::to_value(&graph)
+        .map_err(|e| format!("Shell graph JSON serialization failed: {e}"))?;
+    let nodes: Vec<serde_json::Value> = json_val
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let edges: Vec<serde_json::Value> = json_val
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok((json_val, nodes, edges))
+}
+
+fn compute_shell_quality_gates(
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> Vec<QualityGateResult> {
+    compute_arkts_quality_gates(nodes, edges)
+}
+
 /// 计算 ArkTS 质量门
 fn compute_arkts_quality_gates(
     nodes: &[serde_json::Value],
@@ -1264,6 +1329,24 @@ fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value])
         diagnostic_count: 0,
         call_edge_count: call_edge_count as u32,
     }
+}
+
+/// 构建 Shell GraphSummary。
+///
+/// Shell 分析会把 `rm -rf`、`curl | sh` 等静态风险放进 graph.diagnostics；
+/// summary 必须从真实诊断源计数，避免 WebUI/CLI 把脚本风险误显示为 0。
+fn build_shell_summary(
+    graph: &serde_json::Value,
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> GraphSummary {
+    let mut summary = build_arkts_summary(nodes, edges);
+    summary.diagnostic_count = graph
+        .get("diagnostics")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len() as u32)
+        .unwrap_or(0);
+    summary
 }
 
 /// 计算 Cangjie 质量门
@@ -2032,6 +2115,69 @@ pub fn run() {
                         }
                     }
                 }
+                "shell" => {
+                    let (json_val, nodes, edges) = match run_shell_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let quality_gates = compute_shell_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("shell-v0.1")
+                        .to_string();
+
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = shell_bridge::convert_shell_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_shell_summary(&json_val, &nodes, &edges);
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates: quality_gates.clone(),
+                            graph: json_val,
+                        };
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
+
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 other => {
                     eprintln!("错误：不支持的语言: {other}");
                     std::process::exit(1);
@@ -2065,9 +2211,10 @@ pub fn run() {
                 && language != "c"
                 && language != "cpp"
                 && language != "python"
+                && language != "shell"
             {
                 eprintln!(
-                    "错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript|c|cpp|python"
+                    "错误：quality 命令需要显式指定 --language rust|cangjie|arkts|typescript|c|cpp|python|shell"
                 );
                 std::process::exit(1);
             }
@@ -2162,6 +2309,19 @@ pub fn run() {
                         }
                     };
                     let gates = compute_python_quality_gates(&nodes, &edges);
+                    let all_pass = gates.iter().all(|g| g.passed);
+                    let overall = if all_pass { "pass" } else { "fail" };
+                    (gates, overall)
+                }
+                "shell" => {
+                    let (_json_val, nodes, edges) = match run_shell_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gates = compute_shell_quality_gates(&nodes, &edges);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -2348,6 +2508,26 @@ pub fn run() {
                     };
                     let gs = build_arkts_summary(&nodes, &edges);
                     let gates = compute_python_quality_gates(&nodes, &edges);
+                    let total = gates.len() as u32;
+                    let passed = gates.iter().filter(|g| g.passed).count() as u32;
+                    let failed = total - passed;
+                    let qs = QualitySummary {
+                        total,
+                        passed,
+                        failed,
+                    };
+                    (gs, qs)
+                }
+                "shell" => {
+                    let (_json_val, nodes, edges) = match run_shell_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gates = compute_shell_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;

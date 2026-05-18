@@ -7,8 +7,9 @@
 //! 4. 有 tsconfig.json 或 package.json（非 ArkTS/非 Rust/非 Cangjie）→ typescript
 //! 5. 有 C 项目标记且无 C++ 文件 → c
 //! 6. 有 Python 项目标记 → python
-//! 7. 多种存在 → 报错要求显式指定
-//! 8. 都没有 → 报错"无法检测语言"
+//! 7. 只有 shell 脚本 / shebang → shell
+//! 8. 多种存在 → 报错要求显式指定
+//! 9. 都没有 → 报错"无法检测语言"
 
 use std::path::Path;
 
@@ -73,6 +74,58 @@ fn has_python_files(root: &Path) -> bool {
     walk_for_extension(root, &["py"])
 }
 
+fn has_shell_files(root: &Path) -> bool {
+    if walk_for_extension(root, &["sh", "bash", "zsh", "ksh", "bats"]) {
+        return true;
+    }
+    let mut stack = vec![root.to_path_buf()];
+    let skip = [
+        "target",
+        "build",
+        ".git",
+        "node_modules",
+        "dist",
+        ".gitnexus",
+        ".venv",
+        "venv",
+    ];
+    while let Some(dir) = stack.pop() {
+        let entries = match std::fs::read_dir(&dir) {
+            Ok(rd) => rd,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if !skip.contains(&name) && !name.starts_with(".tmp") {
+                        stack.push(path);
+                    }
+                }
+                continue;
+            }
+            if path.extension().is_none() {
+                if let Ok(text) = std::fs::read_to_string(&path) {
+                    if text
+                        .lines()
+                        .next()
+                        .map(|l| {
+                            l.starts_with("#!")
+                                && ["sh", "bash", "zsh", "ksh"]
+                                    .iter()
+                                    .any(|shell| l.contains(shell))
+                        })
+                        .unwrap_or(false)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 /// 从项目根目录检测语言
 ///
 /// 检查根目录下的清单文件存在性。
@@ -128,6 +181,11 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
         || has_python_files(root);
     if has_python_markers {
         detected.push(DetectedLanguage::Python);
+    }
+    // Shell 是低优先级 glue 语言：只有没有更强项目语言时才自动识别，
+    // 避免普通 Rust/TS/Python 仓库因 scripts/*.sh 变成 ambiguous。
+    if detected.is_empty() && has_shell_files(root) {
+        detected.push(DetectedLanguage::Shell);
     }
 
     match detected.len() {
@@ -212,6 +270,22 @@ mod tests {
     fn detect_neither_as_unknown() {
         let dir = setup_temp_dir(false, false, false, false, "none");
         assert_eq!(detect_language(&dir), DetectedLanguage::Unknown);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn detect_shell_only_project_as_shell() {
+        let dir = setup_temp_dir(false, false, false, false, "shell");
+        fs::write(dir.join("build.sh"), "#!/usr/bin/env bash\necho ok\n").unwrap();
+        assert_eq!(detect_language(&dir), DetectedLanguage::Shell);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn shell_scripts_do_not_make_rust_project_ambiguous() {
+        let dir = setup_temp_dir(true, false, false, false, "rust-shell");
+        fs::write(dir.join("build.sh"), "#!/usr/bin/env bash\necho ok\n").unwrap();
+        assert_eq!(detect_language(&dir), DetectedLanguage::Rust);
         cleanup(&dir);
     }
 }

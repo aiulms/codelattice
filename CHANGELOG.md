@@ -23,6 +23,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Shell Phase A — script graph support**: added default Shell static graph analysis for `.sh/.bash/.zsh/.ksh/.bats` and shebang scripts, including function symbols, `source` relationships, command-call edges, environment variable reads/writes, risky-script diagnostics (`rm -rf`, `curl | sh`), CLI/MCP/WebUI language integration, portable smoke fixture, and Shell snapshot matrix coverage. Shell support is static-only and never executes scripts.
+
 - **WebUI Visual Identity Pack**: refreshed the WebUI into a more coherent product workbench with an immersive first-run welcome stage, loaded-project hero metrics, glassy analysis panels, CSS status/icons instead of visible emoji controls, inline favicon, and smoke coverage for the new visual shell and bilingual hero labels.
 - **WebUI Graph Showcase Pack**: added a Module Heatmap layout, spotlight mode, graph hover cards, PNG export, and showcase metric overlay for the Graph tab. Smoke coverage now checks heatmap controls, spotlight/export affordances, hover-card wiring, and the new bilingual graph labels.
 - **WebUI G6 Graph Engine Upgrade**: vendored AntV G6 5.1.1 as the default advanced graph renderer while keeping the existing SVG graph as fallback. Graph view now has a `G6 advanced graph / SVG fallback graph` engine selector, canvas-based zoom/pan/drag interaction, click-to-select, double-click drill-down, richer presentation backgrounds, and smoke/browser checks for the G6 adapter and vendor bundle.

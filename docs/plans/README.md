@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-18（WebUI Visual Identity Pack）
+最后更新：2026-05-18（Shell Phase A）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Shell Phase A（2026-05-18，已完成）：**
+- 📝 [2026-05-18-shell-phase-a-preflight.md](2026-05-18-shell-phase-a-preflight.md) — Shell 静态图谱支持：脚本发现、函数/source/命令/env 抽取、风险诊断、CLI/MCP/WebUI 集成、stop-lines。
+- ✅ [2026-05-18-shell-phase-a-closure.md](2026-05-18-shell-phase-a-closure.md) — closure：Shell fixture、gitnexus-shell crate、MCP regression、WebUI snapshot matrix、验证与边界记录。
 
 **WebUI Visual Identity Pack（2026-05-18，已完成）：**
 - 📝 [2026-05-18-webui-visual-identity-preflight.md](2026-05-18-webui-visual-identity-preflight.md) — Jina-inspired but CodeLattice-native visual system：immersive welcome stage、loaded workbench hero、glass panels、CSS icons、visual smoke hardening。

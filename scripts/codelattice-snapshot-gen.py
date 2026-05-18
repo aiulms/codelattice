@@ -196,7 +196,7 @@ def _extract_path_from_id(node_id: str) -> str:
     parts = node_id.split(":")
     # Look for path-like segments (contain .py/.rs/.c/.cpp/.ts/ etc.)
     for p in parts:
-        if any(p.endswith(ext) for ext in (".py", ".rs", ".c", ".cpp", ".h", ".ts", ".tsx", ".ets")):
+        if any(p.endswith(ext) for ext in (".py", ".rs", ".c", ".cpp", ".h", ".ts", ".tsx", ".ets", ".sh", ".bash", ".zsh", ".ksh", ".bats")):
             return p
     # If no extension match, return the last segment if it looks like a path
     if len(parts) >= 3 and "/" in parts[-1]:
@@ -228,8 +228,8 @@ def _looks_like_absolute_path(s: str) -> bool:
     for ind in indicators:
         if ind in s:
             return True
-    for ext in ('.py"', '.rs"', '.ts"', '.c"', '.cpp"',
-                '.py,', '.rs,', '.ts,', '.c,', '.cpp,'):
+    for ext in ('.py"', '.rs"', '.ts"', '.c"', '.cpp"', '.sh"', '.bash"',
+                '.py,', '.rs,', '.ts,', '.c,', '.cpp,', '.sh,', '.bash,'):
         if ext in s:
             return True
     return False

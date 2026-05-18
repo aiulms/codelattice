@@ -9,6 +9,7 @@ members = [
     "crates/c",
     "crates/cpp",
     "crates/python",
+    "crates/shell",
 ]
 
 [workspace.package]

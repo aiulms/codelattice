@@ -38,7 +38,7 @@ Generate a CodeLatticeWebSnapshotV1 JSON (Phase A enriched) for WebUI consumptio
 
 Required:
   --root <path>        Project root directory
-  --language <lang>    rust|cangjie|arkts|typescript|c|cpp|python|auto
+  --language <lang>    rust|cangjie|arkts|typescript|c|cpp|python|shell|auto
   --output <path>      Output JSON file path, or '-' for stdout
 
 Options:
@@ -89,7 +89,7 @@ fi
 
 # ── Validate language ────────────────────────────────────────────────────────
 
-VALID_LANGUAGES=("rust" "cangjie" "arkts" "typescript" "c" "cpp" "python" "auto")
+VALID_LANGUAGES=("rust" "cangjie" "arkts" "typescript" "c" "cpp" "python" "shell" "auto")
 LANG_VALID=0; for vl in "${VALID_LANGUAGES[@]}"; do [[ "$LANGUAGE" == "$vl" ]] && LANG_VALID=1 && break; done
 if [[ $LANG_VALID -eq 0 ]]; then echo "Error: unsupported language: $LANGUAGE" >&2; exit 1; fi
 

@@ -24,7 +24,7 @@ for c in "$WS/target/release/codelattice" "$WS/target/debug/codelattice"; do [[ 
 [[ -z "$CB" ]] && echo "  [FAIL] no codelattice binary" && exit 1 || echo "  [OK] binary: $CB"
 command -v python3 >/dev/null 2>&1 || { echo "  [FAIL] no python3"; exit 1; }; echo "  [OK] python3"
 GP="$SD/codelattice-snapshot-gen.py"; [[ -f "$GP" ]] && echo "  [OK] gen.py" || { echo "  [FAIL] gen.py missing"; exit 1; }
-REQ=(rust typescript c cpp python)
+REQ=(rust typescript c cpp python shell)
 SL=""
 for L in "${REQ[@]}"; do
   [[ -n "$LF" && "$LF" != "$L" ]] && continue
@@ -52,7 +52,7 @@ echo ""; echo "=== Validate ==="
 PYV="$TD/validate.py"
 cat > "$PYV" << 'PYEOF'
 import sys, json, os
-REQ = ["rust","typescript","c","cpp","python","arkts_auto"]
+REQ = ["rust","typescript","c","cpp","python","shell","arkts_auto"]
 results = {"pass":0, "fail":0}
 for lang in REQ:
     fpath = os.environ.get(f"SNAP_{lang}","")
