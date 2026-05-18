@@ -139,6 +139,7 @@ grep -qF "setGraphEdgeMode" "$VD/app.js" && chk "graph edge mode" yes yes || chk
 grep -qF "graph-depth-filter" "$VD/index.html" && chk "graph depth control" yes yes || chk "graph depth control" yes no
 grep -qF "graph-layout-mode" "$VD/index.html" && chk "graph layout mode" yes yes || chk "graph layout mode" yes no
 grep -qF "graph-layout-buttons" "$VD/index.html" && chk "graph segmented layouts" yes yes || chk "graph segmented layouts" yes no
+grep -qF "graph.layoutHeatmap" "$VD/i18n.js" && grep -qF "data-layout=\"heatmap\"" "$VD/index.html" && chk "graph heatmap layout" yes yes || chk "graph heatmap layout" yes no
 grep -qF "setGraphLayout" "$VD/app.js" && chk "graph layout function" yes yes || chk "graph layout function" yes no
 grep -qF "graph-engine-mode" "$VD/index.html" && chk "graph engine mode" yes yes || chk "graph engine mode" yes no
 grep -qF "setGraphEngine" "$VD/app.js" && chk "graph engine function" yes yes || chk "graph engine function" yes no
@@ -158,6 +159,10 @@ grep -qF ".graph-g6-host" "$VD/styles.css" && chk "G6 css" yes yes || chk "G6 cs
 grep -qF "graph-layout-blueprint" "$VD/styles.css" && chk "graph blueprint style" yes yes || chk "graph blueprint style" yes no
 grep -qF "graph.layoutGalaxy" "$VD/i18n.js" && chk "graph layout i18n" yes yes || chk "graph layout i18n" yes no
 grep -qF "toggleGraphPosterMode" "$VD/app.js" && chk "graph poster mode" yes yes || chk "graph poster mode" yes no
+grep -qF "toggleGraphSpotlightMode" "$VD/app.js" && chk "graph spotlight mode" yes yes || chk "graph spotlight mode" yes no
+grep -qF "downloadGraphPoster" "$VD/app.js" && chk "graph image export" yes yes || chk "graph image export" yes no
+grep -qF "showGraphNodeHover" "$VD/app.js" && grep -qF "onHover" "$VD/graph-g6.js" && chk "graph hover card" yes yes || chk "graph hover card" yes no
+grep -qF ".graph-showcase-overlay" "$VD/styles.css" && chk "graph showcase overlay css" yes yes || chk "graph showcase overlay css" yes no
 
 echo ""; echo "--- Phase C JS Syntax (timeline.js + report.js) ---"
 for f in timeline.js report.js; do

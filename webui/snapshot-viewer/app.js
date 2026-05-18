@@ -11,7 +11,7 @@
   let allSymbols = [];
   let filteredSymbols = [];
   let selectedSymbolId = null;
-  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy", engine: "g6", zoomLocked: true };
+  let graphState = { selectedNodeId: null, focusNodeId: null, depth: 1, edgeMode: "all", layout: "galaxy", engine: "g6", zoomLocked: true, spotlight: false, nodeById: {}, allEdges: [] };
 
   // ── DOM Helpers ─────────────────────────────────────────────────────
 
@@ -567,6 +567,8 @@
     var nodes = g.nodes || [], allEdges = (g.edges || []).filter(graphEdgeVisible);
     var nodeById = {};
     nodes.forEach(function(n) { nodeById[n.id] = n; });
+    graphState.nodeById = nodeById;
+    graphState.allEdges = allEdges;
 
     $("#graph-summary-text").textContent = t("graph.summary", {nodes: g.summary.nodeCount, edges: g.summary.edgeCount, calls: g.summary.callEdgeCount});
 
@@ -650,9 +652,14 @@
         depth: graphState.depth,
         zoomLocked: graphState.zoomLocked,
         onSelect: window.selectGraphNode,
-        onFocus: window.focusGraphNode
+        onFocus: window.focusGraphNode,
+        onHover: window.showGraphNodeHover,
+        onHoverEnd: window.hideGraphNodeHover
       });
-      if (usedG6) return;
+      if (usedG6) {
+        renderGraphShowcaseChrome(host, filteredNodes, filteredEdges, layout);
+        return;
+      }
     } else if (window.CodeLatticeG6Graph) {
       CodeLatticeG6Graph.destroy();
     }
@@ -801,10 +808,36 @@
         p.y = clamp(p.y + ((i % 5) - 2) * 7, 24, h - 24);
       });
     }
+    function placeHeatmap() {
+      packages.forEach(function(n, i) { pos[n.id] = {x: cx + (i - packages.length / 2) * 42, y: 54}; });
+      var cols = Math.max(4, Math.ceil(Math.sqrt(Math.max(1, files.length))));
+      files.forEach(function(n, i) {
+        var col = i % cols, row = Math.floor(i / cols);
+        var rows = Math.ceil(files.length / cols);
+        var x = w * (0.10 + (col / Math.max(1, cols - 1)) * 0.80);
+        var y = h * (0.18 + (row / Math.max(1, rows - 1)) * 0.66);
+        pos[n.id] = {x: clamp(x, 56, w - 56), y: clamp(y, 66, h - 46)};
+      });
+      Object.keys(symbolsByFile).forEach(function(fid, groupIdx) {
+        var group = symbolsByFile[fid];
+        var anchor = pos[fid] || {x: cx, y: cy};
+        var cols2 = Math.max(3, Math.ceil(Math.sqrt(Math.max(1, group.length))));
+        group.forEach(function(n, i) {
+          var col = i % cols2, row = Math.floor(i / cols2);
+          var spread = 18 + Math.min(42, group.length);
+          pos[n.id] = {
+            x: clamp(anchor.x + (col - (cols2 - 1) / 2) * spread, 24, w - 24),
+            y: clamp(anchor.y + 36 + row * Math.min(24, spread), 24, h - 24)
+          };
+        });
+      });
+      placeRing(others, w * 0.42, h * 0.36, Math.PI / 4);
+    }
     if (layout === "orbit") placeOrbit();
     else if (layout === "communities") placeCommunities();
     else if (layout === "flow") placeFlow();
     else if (layout === "blueprint") placeBlueprint();
+    else if (layout === "heatmap") placeHeatmap();
     else placeGalaxy();
 
     var palettes = {
@@ -812,6 +845,7 @@
       communities: {symbol:"#86efac", file:"#60a5fa", package:"#facc15", entry:"#c084fc", risk:"#fb7185", bgText:"#111827", edge:"#22c55e"},
       flow: {symbol:"#bfdbfe", file:"#fde68a", package:"#a7f3d0", entry:"#ddd6fe", risk:"#fecaca", bgText:"#1f2937", edge:"#2563eb"},
       blueprint: {symbol:"#fde047", file:"#93c5fd", package:"#fb7185", entry:"#4ade80", risk:"#f97316", bgText:"#e0f2fe", edge:"#facc15"},
+      heatmap: {symbol:"#e0f2fe", file:"#22d3ee", package:"#f59e0b", entry:"#a78bfa", risk:"#fb7185", bgText:"#e0f2fe", edge:"#67e8f9"},
       orbit: {symbol:"#bfdbfe", file:"#bbf7d0", package:"#fed7aa", entry:"#ddd6fe", risk:"#fecaca", bgText:"#1f2937", edge:"#3b82f6"}
     };
     var color = palettes[layout] || palettes.galaxy;
@@ -826,7 +860,7 @@
     }
     function labelText(n) { var s = n.label || n.id || ""; return s.length > 24 ? s.slice(0, 22) + "…" : s; }
     var grid = "";
-    if (layout === "orbit" || layout === "flow" || layout === "blueprint") {
+    if (layout === "orbit" || layout === "flow" || layout === "blueprint" || layout === "heatmap") {
       for (var gx = 80; gx < w; gx += 120) grid += '<line class="graph-grid-line" x1="' + gx + '" y1="0" x2="' + gx + '" y2="' + h + '"></line>';
       for (var gy = 80; gy < h; gy += 120) grid += '<line class="graph-grid-line" x1="0" y1="' + gy + '" x2="' + w + '" y2="' + gy + '"></line>';
     }
@@ -854,7 +888,7 @@
       } else {
         d = 'M ' + a.x.toFixed(1) + ' ' + a.y.toFixed(1) + ' L ' + b.x.toFixed(1) + ' ' + b.y.toFixed(1);
       }
-      return '<path class="graph-edge-line ' + escAttr(e.kind || "related") + (highlight ? ' highlight' : '') + (dim ? ' dimmed' : '') + '" d="' + d + '"><title>' + esc(e.kind || "related") + '</title></path>';
+      return '<path class="graph-edge-line ' + escAttr(e.kind || "related") + (highlight ? ' highlight' : '') + (dim ? ' dimmed' : '') + '" data-source="' + escAttr(e.source) + '" data-target="' + escAttr(e.target) + '" d="' + d + '"><title>' + esc(e.kind || "related") + '</title></path>';
     }).join("");
     var nodeHtml = nodes.map(function(n) {
       var p = pos[n.id] || {x: cx, y: cy};
@@ -864,11 +898,11 @@
       var neighbor = !selected && selectedNeighbors.has(n.id);
       var dim = graphState.selectedNodeId && !selected && !neighbor;
       var big = r >= 14 || (degree[n.id] || 0) >= 4;
-      var showFileLabel = layout === "orbit" || layout === "flow";
+      var showFileLabel = layout === "orbit" || layout === "flow" || layout === "heatmap";
       var posterLabel = (layout === "galaxy" || layout === "communities") && big;
       var blueprintLabel = layout === "blueprint" && n.kind !== "file" && ((degree[n.id] || 0) >= 2 || big);
       var showLabel = selected || neighbor || n.kind === "package" || graphState.focusNodeId || (showFileLabel && n.kind === "file") || posterLabel || blueprintLabel;
-      return '<g class="graph-node-g ' + (selected ? 'selected ' : '') + (neighbor ? 'neighbor ' : '') + (dim ? 'dimmed' : '') + '" onclick="selectGraphNode(&quot;' + escAttr(n.id) + '&quot;)" ondblclick="focusGraphNode(&quot;' + escAttr(n.id) + '&quot;)">' +
+      return '<g class="graph-node-g ' + (selected ? 'selected ' : '') + (neighbor ? 'neighbor ' : '') + (dim ? 'dimmed' : '') + '" onclick="selectGraphNode(&quot;' + escAttr(n.id) + '&quot;)" ondblclick="focusGraphNode(&quot;' + escAttr(n.id) + '&quot;)" onmouseenter="showGraphNodeHover(&quot;' + escAttr(n.id) + '&quot;, event)" onmouseleave="hideGraphNodeHover()">' +
         '<circle class="graph-node-circle" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + r.toFixed(1) + '" fill="' + (color[n.kind] || "#e5e7eb") + '" stroke="' + (strokeColor[n.kind] || "#64748b") + '"><title>' + esc(n.label || n.id) + '</title></circle>' +
         '<circle class="graph-node-core" cx="' + p.x.toFixed(1) + '" cy="' + p.y.toFixed(1) + '" r="' + Math.max(2.1, Math.min(4.2, r * 0.22)).toFixed(1) + '"></circle>' +
         '<text class="graph-node-label ' + escAttr(n.kind || "") + (big ? ' big' : '') + (showLabel ? '' : ' hidden') + '" x="' + p.x.toFixed(1) + '" y="' + (p.y + dy).toFixed(1) + '" text-anchor="middle">' + esc(labelText(n)) + '</text>' +
@@ -876,7 +910,67 @@
     }).join("");
     var legend = '<div class="graph-legend"><span><i style="background:' + color.file + '"></i>' + esc(t("graph.file")) + '</span><span><i style="background:' + color.symbol + '"></i>' + esc(t("graph.symbol")) + '</span><span><i style="background:' + color.package + '"></i>' + esc(t("graph.package")) + '</span><span style="color:' + color.edge + ';">─ ' + esc(t("graph.edge.calls")) + '</span></div>';
     host.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '" role="img" aria-label="' + escAttr(t("graph.visual")) + '">' + backdrop + grid + edgeHtml + nodeHtml + '</svg>' + legend;
+    renderGraphShowcaseChrome(host, nodes, edges, layout);
   }
+
+  function renderGraphShowcaseChrome(host, nodes, edges, layout) {
+    if (!host) return;
+    var oldOverlay = host.querySelector(".graph-showcase-overlay");
+    var oldHover = host.querySelector(".graph-hover-card");
+    if (oldOverlay) oldOverlay.remove();
+    if (oldHover) oldHover.remove();
+    var callCount = (edges || []).filter(function(e) { return e.kind === "calls"; }).length;
+    var fileCount = (nodes || []).filter(function(n) { return n.kind === "file"; }).length;
+    var symbolCount = (nodes || []).filter(function(n) { return n.kind === "symbol"; }).length;
+    var overlay = document.createElement("div");
+    overlay.className = "graph-showcase-overlay";
+    overlay.innerHTML =
+      '<div><strong>CodeLattice</strong><span>' + esc(t("graph.layout" + layout.charAt(0).toUpperCase() + layout.slice(1)) || layout) + '</span></div>' +
+      '<div class="graph-showcase-metrics">' +
+        '<span>' + nodes.length + ' nodes</span>' +
+        '<span>' + edges.length + ' edges</span>' +
+        '<span>' + callCount + ' calls</span>' +
+        '<span>' + fileCount + ' files</span>' +
+        '<span>' + symbolCount + ' symbols</span>' +
+      '</div>';
+    host.appendChild(overlay);
+    var hover = document.createElement("div");
+    hover.className = "graph-hover-card";
+    hover.id = "graph-hover-card";
+    hover.style.display = "none";
+    host.appendChild(hover);
+  }
+
+  window.showGraphNodeHover = function(nodeId, event) {
+    var node = graphState.nodeById && graphState.nodeById[nodeId];
+    var host = $("#graph-visual");
+    if (!node || !host) return;
+    var card = $("#graph-hover-card");
+    if (!card) {
+      renderGraphShowcaseChrome(host, Object.values(graphState.nodeById || {}), graphState.allEdges || [], graphState.layout || "galaxy");
+      card = $("#graph-hover-card");
+    }
+    if (!card) return;
+    var edges = (graphState.allEdges || []).filter(function(e) { return e.source === nodeId || e.target === nodeId; });
+    var calls = edges.filter(function(e) { return e.kind === "calls"; }).length;
+    card.innerHTML =
+      '<strong>' + esc(node.label || node.id) + '</strong>' +
+      '<div class="graph-hover-meta">' + esc(t("graph." + node.kind) || node.kind) +
+        (node.file ? ' · ' + esc(node.file.split('/').pop()) : '') + '</div>' +
+      '<div class="graph-hover-stats"><span>' + esc(t("graph.hoverDegree")) + ': ' + edges.length + '</span><span>' + esc(t("graph.edge.calls")) + ': ' + calls + '</span></div>' +
+      '<div class="graph-hover-hint">' + esc(t("graph.hoverHint")) + '</div>';
+    var rect = host.getBoundingClientRect();
+    var x = event && event.clientX ? event.clientX - rect.left + 18 : rect.width - 280;
+    var y = event && event.clientY ? event.clientY - rect.top + 18 : 72;
+    card.style.left = Math.max(12, Math.min(rect.width - 290, x)) + "px";
+    card.style.top = Math.max(12, Math.min(rect.height - 140, y)) + "px";
+    card.style.display = "";
+  };
+
+  window.hideGraphNodeHover = function() {
+    var card = $("#graph-hover-card");
+    if (card) card.style.display = "none";
+  };
 
   function renderGraphNodeDetail(nodeId, nodeById, allEdges) {
     var node = nodeById[nodeId];
@@ -988,6 +1082,63 @@
     if (btn) btn.textContent = enabled ? t("graph.exitPosterMode") : t("graph.posterMode");
     if (currentSnapshot) renderGraph(currentSnapshot);
   };
+  window.toggleGraphSpotlightMode = function() {
+    var view = $("#view-graph");
+    var btn = $("#graph-spotlight-btn");
+    if (!view) return;
+    graphState.spotlight = !view.classList.contains("graph-spotlight-mode");
+    view.classList.toggle("graph-spotlight-mode", graphState.spotlight);
+    if (btn) btn.textContent = graphState.spotlight ? t("graph.exitSpotlightMode") : t("graph.spotlightMode");
+    if (currentSnapshot) renderGraph(currentSnapshot);
+  };
+  window.downloadGraphPoster = function() {
+    var host = $("#graph-visual");
+    if (!host) return;
+    var fileName = "codelattice-graph-" + (graphState.layout || "graph") + ".png";
+    var canvas = host.querySelector("canvas");
+    if (canvas && canvas.toBlob) {
+      try {
+        canvas.toBlob(function(blob) {
+          if (!blob) return alert(t("graph.exportFailed"));
+          downloadBlob(blob, fileName);
+        }, "image/png");
+        return;
+      } catch (_) {}
+    }
+    var svg = host.querySelector("svg");
+    if (!svg) return alert(t("graph.exportFailed"));
+    var xml = new XMLSerializer().serializeToString(svg);
+    var img = new Image();
+    var svgBlob = new Blob([xml], {type: "image/svg+xml;charset=utf-8"});
+    var url = URL.createObjectURL(svgBlob);
+    img.onload = function() {
+      var canvas2 = document.createElement("canvas");
+      var viewBox = svg.viewBox && svg.viewBox.baseVal;
+      canvas2.width = Math.max(960, viewBox && viewBox.width || svg.clientWidth || 1200);
+      canvas2.height = Math.max(620, viewBox && viewBox.height || svg.clientHeight || 760);
+      var ctx = canvas2.getContext("2d");
+      ctx.fillStyle = graphState.layout === "orbit" ? "#f8fbff" : "#071225";
+      ctx.fillRect(0, 0, canvas2.width, canvas2.height);
+      ctx.drawImage(img, 0, 0, canvas2.width, canvas2.height);
+      URL.revokeObjectURL(url);
+      canvas2.toBlob(function(blob) {
+        if (!blob) return alert(t("graph.exportFailed"));
+        downloadBlob(blob, fileName);
+      }, "image/png");
+    };
+    img.onerror = function() { URL.revokeObjectURL(url); alert(t("graph.exportFailed")); };
+    img.src = url;
+  };
+  function downloadBlob(blob, fileName) {
+    var a = document.createElement("a");
+    var url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(function() { URL.revokeObjectURL(url); }, 1000);
+  }
 
   function renderDiff() {
     // This will be updated when a second snapshot is loaded

@@ -271,6 +271,7 @@
             <option value="communities" data-i18n="graph.layoutCommunities">模块星团</option>
             <option value="flow" data-i18n="graph.layoutFlow">调用流向</option>
             <option value="blueprint" data-i18n="graph.layoutBlueprint">蓝图架构</option>
+            <option value="heatmap" data-i18n="graph.layoutHeatmap">模块热力图</option>
             <option value="orbit" data-i18n="graph.layoutOrbit">工程探索</option>
           </select>
           <div id="graph-layout-buttons" class="segmented-control graph-layout-buttons" role="group" aria-label="Graph layout buttons">
@@ -278,6 +279,7 @@
             <button type="button" class="segment" data-layout="communities" onclick="setGraphLayout('communities')" data-i18n="graph.layoutCommunities">模块星团</button>
             <button type="button" class="segment" data-layout="flow" onclick="setGraphLayout('flow')" data-i18n="graph.layoutFlow">调用流向</button>
             <button type="button" class="segment" data-layout="blueprint" onclick="setGraphLayout('blueprint')" data-i18n="graph.layoutBlueprint">蓝图架构</button>
+            <button type="button" class="segment" data-layout="heatmap" onclick="setGraphLayout('heatmap')" data-i18n="graph.layoutHeatmap">模块热力图</button>
             <button type="button" class="segment" data-layout="orbit" onclick="setGraphLayout('orbit')" data-i18n="graph.layoutOrbit">工程探索</button>
           </div>
           <select id="graph-engine-mode" class="filter-select" onchange="setGraphEngine(this.value)">
@@ -297,6 +299,8 @@
           <button class="btn btn-sm btn-secondary" onclick="resetGraphFocus()" data-i18n="graph.resetFocus">回到全图</button>
           <button class="btn btn-sm btn-secondary graph-zoom-lock is-locked" id="graph-zoom-lock-btn" onclick="toggleGraphZoomLock()" data-i18n="graph.zoomLocked">滚轮锁定</button>
           <button class="btn btn-sm btn-secondary" id="graph-poster-btn" onclick="toggleGraphPosterMode()" data-i18n="graph.posterMode">海报模式</button>
+          <button class="btn btn-sm btn-secondary" id="graph-spotlight-btn" onclick="toggleGraphSpotlightMode()" data-i18n="graph.spotlightMode">聚光模式</button>
+          <button class="btn btn-sm btn-primary" id="graph-export-btn" onclick="downloadGraphPoster()" data-i18n="graph.exportPng">导出图片</button>
           <span class="text-muted text-sm" id="graph-focus-status"></span>
           <span class="text-muted text-sm graph-summary" id="graph-summary-text"></span>
         </div>

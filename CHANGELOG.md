@@ -23,6 +23,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Graph Showcase Pack**: added a Module Heatmap layout, spotlight mode, graph hover cards, PNG export, and showcase metric overlay for the Graph tab. Smoke coverage now checks heatmap controls, spotlight/export affordances, hover-card wiring, and the new bilingual graph labels.
 - **WebUI G6 Graph Engine Upgrade**: vendored AntV G6 5.1.1 as the default advanced graph renderer while keeping the existing SVG graph as fallback. Graph view now has a `G6 advanced graph / SVG fallback graph` engine selector, canvas-based zoom/pan/drag interaction, click-to-select, double-click drill-down, richer presentation backgrounds, and smoke/browser checks for the G6 adapter and vendor bundle.
 - **WebUI graph presentation templates**: added multiple visual graph templates for product demos and social sharing: Code Galaxy, Module Clusters, Call Flow, Blueprint, and Engineering mode. Graph view also gains Poster Mode, larger SVG canvas styling, curved relation paths, weighted bubble sizing, and bilingual layout labels while preserving click, double-click drill-down, 1/2-hop focus, and edge filtering.
 - **WebUI Phase I — Project Picker + One-Click Analyze + i18n (Chinese/English)**: Safe directory browser, one-click project analysis, full bilingual UI.

@@ -35,6 +35,7 @@
       communities: {bg:"#081c16", text:"#dcfce7", symbol:"#86efac", file:"#38bdf8", package:"#fde047", entry:"#c084fc", risk:"#fb7185", edge:"#22c55e"},
       flow: {bg:"#08111f", text:"#dbeafe", symbol:"#93c5fd", file:"#facc15", package:"#5eead4", entry:"#c4b5fd", risk:"#fda4af", edge:"#60a5fa"},
       blueprint: {bg:"#06142f", text:"#dbeafe", symbol:"#fde047", file:"#93c5fd", package:"#fb7185", entry:"#4ade80", risk:"#f97316", edge:"#facc15"},
+      heatmap: {bg:"#061620", text:"#e0f2fe", symbol:"#e0f2fe", file:"#22d3ee", package:"#f59e0b", entry:"#a78bfa", risk:"#fb7185", edge:"#67e8f9"},
       orbit: {bg:"#f8fbff", text:"#172033", symbol:"#60a5fa", file:"#34d399", package:"#f59e0b", entry:"#8b5cf6", risk:"#ef4444", edge:"#3b82f6"}
     };
     return sets[layout] || sets.galaxy;
@@ -138,6 +139,27 @@
         ring(group, 42 + Math.min(110, group.length * 2.2), 36 + Math.min(90, group.length * 1.8), idx * 0.31, anchor);
       });
       ring(packages.concat(others), width * 0.40, height * 0.35, 0);
+    } else if (layout === "heatmap") {
+      packages.forEach(function (n, i) { pos[n.id] = {x: cx + (i - packages.length / 2) * 42, y: 58}; });
+      var heatCols = Math.max(4, Math.ceil(Math.sqrt(Math.max(1, files.length))));
+      files.forEach(function (n, i) {
+        var col = i % heatCols, row = Math.floor(i / heatCols);
+        var rows = Math.ceil(files.length / heatCols);
+        pos[n.id] = {
+          x: clamp(width * (0.10 + (col / Math.max(1, heatCols - 1)) * 0.80), 54, width - 54),
+          y: clamp(height * (0.18 + (row / Math.max(1, rows - 1)) * 0.66), 70, height - 48)
+        };
+      });
+      Object.keys(symbolsByFile).forEach(function (fid) {
+        var group = symbolsByFile[fid], anchor = pos[fid] || {x: cx, y: cy};
+        var cols = Math.max(3, Math.ceil(Math.sqrt(Math.max(1, group.length))));
+        group.forEach(function (n, i) {
+          var col = i % cols, row = Math.floor(i / cols);
+          var spread = 18 + Math.min(42, group.length);
+          pos[n.id] = {x: clamp(anchor.x + (col - (cols - 1) / 2) * spread, 24, width - 24), y: clamp(anchor.y + 36 + row * Math.min(24, spread), 24, height - 24)};
+        });
+      });
+      ring(others, width * 0.42, height * 0.36, Math.PI / 4);
     } else if (layout === "orbit") {
       ring(packages, 46, 38, -Math.PI / 2);
       ring(files, width * 0.32, height * 0.30, -Math.PI / 2);
@@ -300,9 +322,13 @@
       });
       graph.on("node:pointerenter", function (evt) {
         var id = eventNodeId(evt);
+        if (id && options.onHover) options.onHover(id, evt && (evt.originalEvent || evt.event || evt));
         if (id && graph.setElementState) {
           try { graph.setElementState(id, ["active"]); } catch (_) {}
         }
+      });
+      graph.on("node:pointerleave", function () {
+        if (options.onHoverEnd) options.onHoverEnd();
       });
       graph.on("canvas:click", function () {
         if (graph.setElementState) {
