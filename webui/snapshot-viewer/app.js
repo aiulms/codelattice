@@ -32,7 +32,7 @@
 
   function esc(text) {
     var d = document.createElement("div");
-    d.textContent = text || "";
+    d.textContent = text == null ? "" : String(text);
     return d.innerHTML;
   }
 
@@ -163,6 +163,7 @@
     renderGraph(currentSnapshot);
     renderCleanup();
     renderReleaseReview();
+    renderAutomationGraph();
     renderWorkflowPresets();
     renderDiffTab();
     if (CTL.renderTimeline) CTL.renderTimeline();
@@ -463,6 +464,7 @@
 
   function renderReleaseReview() {
     var rr = currentSnapshot.releaseReview || {};
+    var ag = getAutomationGraph();
 
     var riskHtml = rr.breakingChangeRisk ?
       '<span class="badge ' +
@@ -485,6 +487,13 @@
         "<strong>" + rr.configExampleIssueCount + "</strong> " + esc(t("release.issuesFound")) :
         '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>');
 
+    var agSummary = ag.summary || {};
+    setInfoCard("release-automation",
+      ag.status === "not_collected" ?
+        '<span class="text-muted">' + esc(t("common.notCollected")) + '</span>' :
+        "<strong>" + (agSummary.workflowCount || 0) + "</strong> " + esc(t("automation.workflows")) +
+        " · <strong>" + (agSummary.riskCount || 0) + "</strong> " + esc(t("automation.risks")));
+
     // Release cautions
     var cautionList = $("#release-caution-list");
     var cautions = rr.cautions || [
@@ -495,6 +504,84 @@
     cautionList.innerHTML = cautions.map(function (c) {
       return "<li>" + esc(c) + "</li>";
     }).join("");
+  }
+
+  // ── Automation Graph Review ────────────────────────────────────────
+
+  function getAutomationGraph() {
+    if (!currentSnapshot) return { status: "not_collected" };
+    return currentSnapshot.automationGraph ||
+      (currentSnapshot.releaseReview && currentSnapshot.releaseReview.automationGraph) ||
+      { status: "not_collected" };
+  }
+
+  function automationRiskClass(level) {
+    level = String(level || "").toLowerCase();
+    if (level === "high" || level === "critical") return "badge-danger";
+    if (level === "medium") return "badge-warning";
+    return "badge-info";
+  }
+
+  function renderAutomationGraph() {
+    var panel = $("#automation-panel");
+    if (!panel) return;
+    var ag = getAutomationGraph();
+    var summary = ag.summary || {};
+    var risks = ag.riskFindings || ag.risks || [];
+    var workflows = ag.workflows || [];
+
+    if (ag.status === "not_collected") {
+      panel.innerHTML =
+        '<div class="automation-header">' +
+          '<div><h3>' + esc(t("automation.title")) + '</h3>' +
+          '<p class="text-muted">' + esc(t("automation.empty")) + '</p></div>' +
+          '<span class="badge badge-info">' + esc(t("common.notCollected")) + '</span>' +
+        '</div>';
+      return;
+    }
+
+    var cards = [
+      [t("automation.workflows"), summary.workflowCount || workflows.length || 0],
+      [t("automation.steps"), summary.stepCount || 0],
+      [t("automation.risks"), summary.riskCount || risks.length || 0],
+      [t("automation.highRisk"), summary.highRiskCount || 0]
+    ].map(function(card) {
+      return '<div class="automation-stat"><span>' + esc(card[0]) + '</span><strong>' + esc(card[1]) + '</strong></div>';
+    }).join("");
+
+    var riskHtml = risks.length ?
+      risks.slice(0, 8).map(function(r) {
+        return '<div class="automation-risk-row">' +
+          '<span class="badge ' + automationRiskClass(r.level || r.severity || r.risk) + '">' + esc(r.level || r.severity || r.risk || t("common.unknown")) + '</span>' +
+          '<span><strong>' + esc(r.workflow || r.file || r.name || t("automation.riskItem")) + '</strong><br>' +
+          '<small class="text-muted">' + esc(r.reason || r.message || r.hint || "") + '</small></span>' +
+        '</div>';
+      }).join("") :
+      '<p class="text-muted">' + esc(t("automation.noRisks")) + '</p>';
+
+    var workflowHtml = workflows.length ?
+      workflows.slice(0, 6).map(function(w) {
+        var steps = w.steps || w.stepCount || [];
+        var stepCount = Array.isArray(steps) ? steps.length : steps;
+        return '<div class="automation-workflow-row">' +
+          '<span><strong>' + esc(w.name || w.id || t("automation.workflow")) + '</strong><br>' +
+          '<small class="text-muted">' + esc(w.file || w.kind || w.trigger || "") + '</small></span>' +
+          '<span class="badge badge-info">' + esc(stepCount || 0) + ' ' + esc(t("automation.steps")) + '</span>' +
+        '</div>';
+      }).join("") :
+      '<p class="text-muted">' + esc(t("automation.noWorkflows")) + '</p>';
+
+    panel.innerHTML =
+      '<div class="automation-header">' +
+        '<div><h3>' + esc(t("automation.title")) + '</h3>' +
+        '<p class="text-muted">' + esc(t("automation.subtitle")) + '</p></div>' +
+        '<span class="badge badge-info">' + esc(t("automation.staticOnly")) + '</span>' +
+      '</div>' +
+      '<div class="automation-stats">' + cards + '</div>' +
+      '<div class="automation-columns">' +
+        '<div><h4>' + esc(t("automation.riskFindings")) + '</h4>' + riskHtml + '</div>' +
+        '<div><h4>' + esc(t("automation.workflows")) + '</h4>' + workflowHtml + '</div>' +
+      '</div>';
   }
 
   // ── Workflow Presets ────────────────────────────────────────────────

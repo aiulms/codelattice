@@ -23,6 +23,10 @@
 - 📝 [2026-05-18-automation-graph-preflight.md](2026-05-18-automation-graph-preflight.md) — 静态自动化图谱：CI/package scripts/Makefile/Dockerfile/shell scripts 扫描、工作流/步骤/脚本引用图、风险命令提示，不执行脚本。
 - ✅ [2026-05-18-automation-graph-closure.md](2026-05-18-automation-graph-closure.md) — closure：MCP tool #38、automation fixture、3 个 regression tests、dogfood/doctor/self-test 全部更新到 38 tools。
 
+**WebUI Automation Graph Integration（2026-05-18，已完成）：**
+- 📝 [2026-05-18-webui-automation-graph-integration-preflight.md](2026-05-18-webui-automation-graph-integration-preflight.md) — 将 automation_graph 接入 Runner snapshot、Live MCP、Workflow/Release 视图和报告导出。
+- ✅ [2026-05-18-webui-automation-graph-integration-closure.md](2026-05-18-webui-automation-graph-integration-closure.md) — closure：viewer smoke、runner smoke、live MCP contract 覆盖自动化图谱 WebUI 路径。
+
 **Shell Phase A（2026-05-18，已完成）：**
 - 📝 [2026-05-18-shell-phase-a-preflight.md](2026-05-18-shell-phase-a-preflight.md) — Shell 静态图谱支持：脚本发现、函数/source/命令/env 抽取、风险诊断、CLI/MCP/WebUI 集成、stop-lines。
 - ✅ [2026-05-18-shell-phase-a-closure.md](2026-05-18-shell-phase-a-closure.md) — closure：Shell fixture、gitnexus-shell crate、MCP regression、WebUI snapshot matrix、验证与边界记录。

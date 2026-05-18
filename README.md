@@ -701,9 +701,10 @@ bash scripts/webui-viewer-smoke.sh              # viewer 结构验证 (35+ check
 |------|------|----------|
 | **Dashboard** | 项目统计、Quality Gates (passed/failed)、Limitations | summary + quality + limitations |
 | **Explore** | Source Files 列表、Symbols 搜索/过滤/排序、详情面板 | explore.symbols[] + sourceFiles[] |
+| **Graph** | AntV G6/SVG 图谱、布局模板、下探、海报模式 | graph.* |
 | **Cleanup** | Dead Code / Reachability / External API / Framework Hints + cautions | cleanup.* (heuristic) |
-| **Release Review** | Breaking Change Risk / Doc Stale / Config Issues + release cautions | releaseReview.* (guidance mode) |
-| **Workflows** | 10 个场景预设（工具推荐 + stop-lines） | workflowPresets (static embedded) |
+| **Release Review** | Breaking Change Risk / Doc Stale / Config Issues / Automation Graph + release cautions | releaseReview.* + automationGraph |
+| **Workflows** | 10 个场景预设（工具推荐 + stop-lines）和自动化图谱审查 | workflowPresets + automationGraph |
 
 ### Multi-Language Fixture Snapshot Matrix
 

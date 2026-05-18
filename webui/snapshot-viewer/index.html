@@ -160,6 +160,7 @@
             <option value="impact_preview" data-i18n="live.impactPreview">影响预览</option>
             <option value="project_insights" data-i18n="live.projectInsights">项目洞察</option>
             <option value="dead_code_candidates" data-i18n="live.deadCodeCandidates">死代码候选</option>
+            <option value="automation_graph" data-i18n="live.automationGraph">自动化图谱</option>
             <option value="release_check" data-i18n="live.releaseCheck">发布检查</option>
           </select>
           <input type="text" id="live-symbol-query" class="search-input" data-i18n-placeholder="live.symbolPlaceholder" placeholder="符号/查询…" style="max-width:160px;">
@@ -391,7 +392,7 @@
           <strong>&#9888; <span data-i18n="caution.staticReview">仅静态审查 — 不是发布门。</span></strong>
           <span data-i18n="release.cautionFull">仅静态审查，不是发布门。发布前仍需运行项目测试、CI 和人工 QA。</span>
         </div>
-        <div class="card-grid card-grid-3">
+        <div class="card-grid card-grid-4">
           <div class="info-card">
             <h4 class="info-card-title" data-i18n="release.breaking">破坏性变更风险</h4>
             <div id="release-breaking" class="info-card-body"></div>
@@ -404,6 +405,10 @@
             <h4 class="info-card-title" data-i18n="release.config">配置/示例问题</h4>
             <div id="release-config-examples" class="info-card-body"></div>
           </div>
+          <div class="info-card">
+            <h4 class="info-card-title" data-i18n="automation.releaseCard">自动化图谱</h4>
+            <div id="release-automation" class="info-card-body"></div>
+          </div>
         </div>
         <div class="cleanup-caution caution-box" id="release-cautions-box">
           <ul id="release-caution-list" class="caution-list"></ul>
@@ -412,6 +417,7 @@
 
       <!-- Workflow Presets View (Phase C: checklist-enabled) -->
       <section id="view-workflows" class="view-section" role="tabpanel" style="display:none;">
+        <div id="automation-panel" class="automation-panel"></div>
         <div id="workflow-presets-list" class="workflow-grid"></div>
         <div class="cleanup-caution caution-box" style="margin-top: 16px;">
           <strong data-i18n="workflow.caution">清单是人工审查辅助，不等同于通过验证。</strong>

@@ -25,7 +25,7 @@ CTL.workflowPresets = [
   { id:"before_edit", name:"Before Edit", tools:["changed_symbols","impact_preview","impact_analysis","breaking_change_review"], items: ["Identified changed symbols","Reviewed impact preview","Checked risk reasons","Verified no breaking changes to public API","Recorded pre-edit observations"] },
   { id:"after_edit", name:"After Edit", tools:["changed_symbols","impact_preview","consistency_review","quality"], items: ["Re-identified all changed symbols","Reviewed post-edit impact","Checked consistency (docs/tests)","Verified quality gates still pass","Recorded post-edit observations"] },
   { id:"delete_code", name:"Delete Code Assessment", tools:["reachability_map","dead_code_candidates","external_api_surface","calls_to"], items: ["Checked reachability (unreachable candidates)","Reviewed dead code candidates with cautions","Verified no external API consumers","Checked framework entry hints","Confirmed NOT deletion-proof manually"] },
-  { id:"release_check", name:"Release Check", tools:["quality","production_assist","breaking_change_review","consistency_review","config_examples_review"], items: ["Verified all quality gates pass","Reviewed production assist summary","Checked breaking change review","Reviewed consistency (docs/tests sync)","Checked config/example references","Recorded release readiness notes"] },
+  { id:"release_check", name:"Release Check", tools:["quality","production_assist","automation_graph","breaking_change_review","consistency_review","config_examples_review"], items: ["Verified all quality gates pass","Reviewed production assist summary","Checked automation graph workflows","Checked breaking change review","Reviewed consistency (docs/tests sync)","Checked config/example references","Recorded release readiness notes"] },
   { id:"legacy_cleanup", name:"Legacy Cleanup", tools:["project_insights","dead_code_candidates","reachability_map","risk_hotspots","architecture_drift"], items: ["Reviewed project insights (legacy mode)","Checked dead code candidates","Reviewed unreachable symbols with cautions","Checked risk hotspots","Reviewed architecture drift","Recorded cleanup plan"] },
   { id:"public_api_change", name:"Public API Change", tools:["external_api_surface","impact_preview","breaking_change_review","consistency_review"], items: ["Reviewed full external API surface","Checked impact of API changes","Reviewed breaking change risks","Updated documentation references","Noted downstream consumers manually"] },
   { id:"framework_route_change", name:"Framework Route Change", tools:["framework_entry_hints","external_api_surface","impact_preview","reachability_map"], items: ["Reviewed all framework entry hints","Checked route/callback impacts","Verified no dangling routes","Updated framework config references","Tested route changes manually"] },
@@ -153,6 +153,19 @@ CTL.collectReportContext = function() {
     staleDocs: ((rr.consistency||{}).staleDocCandidates||[]).length || null,
   };
 
+  var ag = snap.automationGraph || (rr && rr.automationGraph) || {};
+  var ags = ag.summary || {};
+  ctx.automationGraph = {
+    status: ag.status || "collected",
+    workflowCount: ags.workflowCount || (ag.workflows || []).length || 0,
+    stepCount: ags.stepCount || 0,
+    riskCount: ags.riskCount || (ag.riskFindings || []).length || 0,
+    highRiskCount: ags.highRiskCount || 0,
+    riskFindings: ag.riskFindings || [],
+    workflows: ag.workflows || [],
+    staticOnly: true
+  };
+
   // Workflow checklist
   ctx.checklist = CTL.buildWorkflowChecklist ? CTL.buildWorkflowChecklist() : [];
 
@@ -274,6 +287,28 @@ CTL.generateMarkdownReport = function() {
   lines.push("| Breaking Change Risk | " + ctx.release.breakingRisk + " |");
   lines.push("| Breaking Change Surface | " + (ctx.release.breakingSurface||"N/A") + " |");
   lines.push("| Stale Doc Candidates | " + (ctx.release.staleDocs||"N/A") + " |");
+  lines.push("");
+
+  lines.push("## Automation Graph Review");
+  lines.push("");
+  if (ctx.automationGraph.status === "not_collected") {
+    lines.push("Automation graph was not collected in this snapshot.");
+  } else {
+    lines.push("| Metric | Value |");
+    lines.push("|---|---|");
+    lines.push("| Workflows | " + ctx.automationGraph.workflowCount + " |");
+    lines.push("| Steps | " + ctx.automationGraph.stepCount + " |");
+    lines.push("| Risk Findings | " + ctx.automationGraph.riskCount + " |");
+    lines.push("| High Risk Findings | " + ctx.automationGraph.highRiskCount + " |");
+    if (ctx.automationGraph.riskFindings.length > 0) {
+      lines.push("");
+      lines.push("| Risk | Item | Reason |");
+      lines.push("|---|---|---|");
+      ctx.automationGraph.riskFindings.slice(0, 10).forEach(function(r) {
+        lines.push("| " + (r.level||r.severity||r.risk||"unknown") + " | " + (r.workflow||r.file||r.name||"") + " | " + (r.reason||r.message||r.hint||"") + " |");
+      });
+    }
+  }
   lines.push("");
 
   lines.push("## Workflow Review Checklist");

@@ -23,6 +23,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **WebUI Automation Graph Integration**: connected `codelattice_automation_graph` into the human workbench. Runner-generated snapshots now best-effort embed `automationGraph`, Workflow and Release views render workflow/risk summaries, Live MCP exposes an `automation_graph` workflow with structured result cards, reports include an Automation Graph Review section, and smoke/contract tests verify the end-to-end WebUI path.
+
 - **Automation Graph Pack**: added MCP tool `codelattice_automation_graph` to statically scan CI workflows, package scripts, Makefile targets, Dockerfile steps, and shell scripts. It builds a workflow/step/script-reference graph, flags review leads such as `curl | sh`, `pull_request_target`, mutable GitHub Action refs, `rm -rf`, and privileged Docker runs, and explicitly reports `scriptsExecuted=false` / `buildExecuted=false`.
 
 - **Shell Phase A — script graph support**: added default Shell static graph analysis for `.sh/.bash/.zsh/.ksh/.bats` and shebang scripts, including function symbols, `source` relationships, command-call edges, environment variable reads/writes, risky-script diagnostics (`rm -rf`, `curl | sh`), CLI/MCP/WebUI language integration, portable smoke fixture, and Shell snapshot matrix coverage. Shell support is static-only and never executes scripts.

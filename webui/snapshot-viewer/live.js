@@ -84,6 +84,7 @@ function liveViewResult(jid){
         else if(job.workflow==="symbol_search") html+=renderSymbolSearch(d);
         else if(job.workflow==="impact_preview") html+=renderImpactResult(d);
         else if(job.workflow==="dead_code_candidates") html+=renderDeadCodeCandidates(d);
+        else if(job.workflow==="automation_graph") html+=renderAutomationGraphResult(d);
         else html+='<pre class="code-block" style="max-height:400px;overflow:auto;font-size:.78em;">'+esc(JSON.stringify(d,null,2).slice(0,6000))+'</pre>';
       }else{html+='<pre class="code-block" style="max-height:300px;overflow:auto;">'+esc(String(r).slice(0,3000))+'</pre>';}
     }catch(e){html+='<pre class="code-block" style="max-height:300px;overflow:auto;">'+esc(String(r).slice(0,3000))+'</pre>';}
@@ -109,6 +110,32 @@ function renderDeadCodeCandidates(d){
   var c=d.candidateSymbols||d.candidates||[]; return '<div class="caution-box">'+esc(lt("live.notDeletionProof"))+'</div>'+
     '<div style="max-height:300px;overflow:auto;font-size:.85em;">'+c.slice(0,20).map(function(s){
       return '<div class="gate-item"><span>'+esc(s.name||s.id)+'</span><span class="badge '+(s.confidence==='high'?'badge-danger':'badge-warning')+'">'+esc(s.confidence||s.score)+'</span></div>';}).join("")+'</div>';}
+function renderAutomationGraphResult(d){
+  var s=d.summary||{};
+  var risks=d.riskFindings||d.risks||[];
+  var workflows=d.workflows||[];
+  var riskRows=risks.length?risks.slice(0,12).map(function(r){
+    var level=String(r.level||r.severity||r.risk||"").toLowerCase();
+    var cls=(level==="high"||level==="critical")?"badge-danger":(level==="medium"?"badge-warning":"badge-info");
+    return '<div class="automation-risk-row"><span class="badge '+cls+'">'+esc(r.level||r.severity||r.risk||lt("common.unknown"))+'</span>'+
+      '<span><strong>'+esc(r.workflow||r.file||r.name||lt("automation.riskItem"))+'</strong><br><small class="text-muted">'+esc(r.reason||r.message||r.hint||"")+'</small></span></div>';
+  }).join(""):'<p class="text-muted">'+esc(lt("automation.noRisks"))+'</p>';
+  var workflowRows=workflows.length?workflows.slice(0,8).map(function(w){
+    var steps=Array.isArray(w.steps)?w.steps.length:(w.stepCount||0);
+    return '<div class="automation-workflow-row"><span><strong>'+esc(w.name||w.id||lt("automation.workflow"))+'</strong><br><small class="text-muted">'+esc(w.file||w.kind||w.trigger||"")+'</small></span>'+
+      '<span class="badge badge-info">'+esc(steps)+' '+esc(lt("automation.steps"))+'</span></div>';
+  }).join(""):'<p class="text-muted">'+esc(lt("automation.noWorkflows"))+'</p>';
+  return '<div class="automation-panel live-automation-result">'+
+    '<div class="automation-stats">'+
+      '<div class="automation-stat"><span>'+esc(lt("automation.workflows"))+'</span><strong>'+esc(s.workflowCount||workflows.length||0)+'</strong></div>'+
+      '<div class="automation-stat"><span>'+esc(lt("automation.steps"))+'</span><strong>'+esc(s.stepCount||0)+'</strong></div>'+
+      '<div class="automation-stat"><span>'+esc(lt("automation.risks"))+'</span><strong>'+esc(s.riskCount||risks.length||0)+'</strong></div>'+
+      '<div class="automation-stat"><span>'+esc(lt("automation.highRisk"))+'</span><strong>'+esc(s.highRiskCount||0)+'</strong></div>'+
+    '</div>'+
+    '<div class="automation-columns"><div><h4>'+esc(lt("automation.riskFindings"))+'</h4>'+riskRows+'</div><div><h4>'+esc(lt("automation.workflows"))+'</h4>'+workflowRows+'</div></div>'+
+    '<div class="caution-box" style="margin-top:10px;">'+esc(lt("automation.staticOnly"))+'</div>'+
+  '</div>';
+}
 function liveIncludeInReport(jid){
   LIVE.lastJobResultId=jid; if(typeof CTL!=="undefined"){CTL.selectedTemplate="general_snapshot_review"; show("report"); CTL.renderReport();}
 }

@@ -36,6 +36,18 @@ done
 # Detail has result
 curl -s "$B/api/mcp/job/$JID"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'];r=d['data'].get('result');assert r is not None" 2>/dev/null && pass "has result"||fail "no result"
 
+# Automation graph workflow is first-class, not just a custom raw tool.
+AUTO=$(curl -s -X POST "$B/api/mcp/jobs" -H "Content-Type: application/json" -d '{"root":"'"$FIX"'","language":"rust","workflow":"automation_graph"}')
+AJID=$(echo "$AUTO"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'];print(d['data']['id'])" 2>/dev/null)
+[[ -n "$AJID" ]] && pass "automation create: $AJID" || { fail "automation create"; echo "  ${AUTO:0:200}"; }
+AST=""
+for i in $(seq 1 30); do
+  AST=$(curl -s "$B/api/mcp/job/$AJID"|python3 -c "import json,sys;print(json.load(sys.stdin)['data']['status'])" 2>/dev/null)
+  if [[ "$AST" == "succeeded" || "$AST" == "failed" ]]; then break; fi; sleep 1
+done
+[[ "$AST" == "succeeded" ]] && pass "automation succeeded" || fail "automation status=$AST"
+curl -s "$B/api/mcp/job/$AJID"|python3 -c "import json,sys;d=json.load(sys.stdin);r=d['data'].get('result') or {};assert 'summary' in r;assert r.get('generatedFrom',{}).get('staticAnalysis')==True" 2>/dev/null && pass "automation result schema"||fail "automation result schema"
+
 # Error paths
 curl -s -X POST "$B/api/mcp/jobs" -H "Content-Type: application/json" -d '{"language":"rust","workflow":"project_overview"}'|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False" 2>/dev/null && pass "missing root"||fail "missing root"
 curl -s -X POST "$B/api/mcp/jobs" -H "Content-Type: application/json" -d '{"root":"'"$FIX"'","language":"rust","workflow":"julia_mode"}'|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False" 2>/dev/null && pass "bad workflow"||fail "bad workflow"
@@ -48,6 +60,7 @@ CAN=$(curl -s -X POST "$B/api/mcp/job/$JID/cancel"|python3 -c "import json,sys;p
 [[ "$CAN" == "True" || "$CAN" == "False" ]] && pass "cancel"||fail "cancel"
 
 # Delete
+curl -s -X DELETE "$B/api/mcp/job/$AJID" >/dev/null 2>&1 || true
 DEL=$(curl -s -X DELETE "$B/api/mcp/job/$JID"|python3 -c "import json,sys;print(json.load(sys.stdin).get('success'))" 2>/dev/null)
 [[ "$DEL" == "True" ]] && pass "delete"||fail "delete"
 

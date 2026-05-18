@@ -395,6 +395,26 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if not d: return err("snapshot file corrupt",500)
         return ok(d)
 
+    def _attach_automation_graph(self, snapshot, root, lang, redact_root=True):
+        """Best-effort enrichment: snapshot generation must not fail if Live MCP is unavailable."""
+        try:
+            if lang == "auto":
+                lang = snapshot.get("summary",{}).get("language","auto") or "auto"
+            if not self._probe_mcp():
+                snapshot["automationGraph"] = {"status":"not_collected","reason":"mcp_unavailable","staticOnly":True}
+                return snapshot
+            ag = self._call_mcp_tool("codelattice_automation_graph",
+                {"root":root,"language":lang,"compact":False,"limit":80}, timeout=60)
+            if redact_root and isinstance(ag, dict):
+                raw = json.dumps(ag, ensure_ascii=False)
+                raw = raw.replace(root, "<project-root>")
+                raw = raw.replace(os.path.dirname(root), "<parent-dir>")
+                ag = json.loads(raw)
+            snapshot["automationGraph"] = ag if isinstance(ag, dict) else {"status":"not_collected","text":str(ag),"staticOnly":True}
+        except Exception as exc:
+            snapshot["automationGraph"] = {"status":"not_collected","reason":"automation_graph_failed","hint":str(exc),"staticOnly":True}
+        return snapshot
+
     def _generate(self, body):
         root=(body.get("root") or "").strip()
         if not root: return err("root is required",400)
@@ -421,6 +441,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             return err("generated snapshot empty",500)
         d=self._load_json(op)
         if not d: return err("invalid snapshot JSON",500)
+        self._attach_automation_graph(d, root, lang, rd)
+        self._save_json(op, d)
         pid=body.get("profileId",""); pn=""
         if pid:
             pl=self._load_profiles(); pi=next((p for p in pl if p["id"]==pid),None)
@@ -642,6 +664,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             "impact_preview":("codelattice_impact_preview",{"root":root,"language":lang,"symbol":params.get("symbol",""),"compact":False}),
             "project_insights":("codelattice_project_insights",{"root":root,"language":lang}),
             "dead_code_candidates":("codelattice_dead_code_candidates",{"root":root,"language":lang,"compact":False}),
+            "automation_graph":("codelattice_automation_graph",{"root":root,"language":lang,"compact":False,"limit":80}),
             "release_check":("codelattice_production_assist",{"root":root,"language":lang}),
         }
         if wf in WF_MAP:
@@ -763,6 +786,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             return err("generation failed",500,self._generation_error_hint(root, detail or f"exit code {r.returncode}"))
         d=self._load_json(op)
         if not d: return err("invalid snapshot json",500)
+        self._attach_automation_graph(d, root, lang, True)
+        self._save_json(op, d)
         # Update profile + index
         pf["lastSnapshotId"]=sid; pf["snapshotCount"]=pf.get("snapshotCount",0)+1; pf["updatedAt"]=self._now(); self._save_profiles(pl)
         entry={"id":sid,"filename":fn,"createdAt":self._now(),"rootLabel":os.path.basename(root),"language":lang,

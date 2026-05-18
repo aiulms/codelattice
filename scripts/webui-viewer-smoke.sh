@@ -92,6 +92,8 @@ echo ""; echo "--- Phase G Live MCP Checks ---"
 [[ -f "$VD/live.js" ]] && chk "live.js exists" yes yes || chk "live.js exists" yes no
 for f in live.js; do node -c "$VD/$f" >/dev/null 2>&1 && chk "$f syntax" ok ok || chk "$f syntax" ok fail; done
 grep -qF "live-mcp-panel" "$VD/index.html" && chk "live panel html" yes yes || chk "live panel html" yes no
+grep -qF "automation_graph" "$VD/index.html" && chk "live automation graph option" yes yes || chk "live automation graph option" yes no
+grep -qF "renderAutomationGraphResult" "$VD/live.js" && chk "live automation graph renderer" yes yes || chk "live automation graph renderer" yes no
 LG_FC=$(grep -cE '(liveCheckMcp|liveLoadTools|liveCreateJob|livePollJobs|renderLiveJobs|renderLiveStatus|liveCancelJob|liveDeleteJob|liveViewResult)' "$VD/live.js" 2>/dev/null||echo 0)
 [[ $LG_FC -ge 6 ]] && chk "live functions (>=6)" pass pass || chk "live functions (>=6)" pass "fail($LG_FC)"
 
@@ -187,6 +189,11 @@ for v in timeline report; do grep -qF "view-$v" "$VD/index.html" && chk "view:$v
 # Workflow checklist upgrade
 grep -qF "toggleChecklistItem" "$VD/report.js" && chk "checklist toggle" yes yes || chk "checklist toggle" yes no
 grep -qF "resetWorkflowChecklist" "$VD/report.js" && chk "checklist reset" yes yes || chk "checklist reset" yes no
+grep -qF "automation-panel" "$VD/index.html" && chk "automation graph workflow html" yes yes || chk "automation graph workflow html" yes no
+grep -qF "renderAutomationGraph" "$VD/app.js" && chk "automation graph snapshot renderer" yes yes || chk "automation graph snapshot renderer" yes no
+grep -qF "automationGraph" "$VD/report.js" && chk "automation graph report integration" yes yes || chk "automation graph report integration" yes no
+grep -qF "automation.title" "$VD/i18n.js" && chk "automation graph i18n" yes yes || chk "automation graph i18n" yes no
+grep -qF ".automation-panel" "$VD/styles.css" && chk "automation graph css" yes yes || chk "automation graph css" yes no
 # Report export
 grep -qF "generateMarkdownReport" "$VD/report.js" && chk "markdown report" yes yes || chk "markdown report" yes no
 PSZ=$(wc -c < "$VD/index.html" 2>/dev/null || echo 0); [[ $PSZ -gt 3000 ]] && chk "index.html >3KB" pass pass || chk "index.html >3KB" pass "fail($PSZ)"

@@ -517,7 +517,7 @@ bash scripts/webui-snapshot.sh --root . --language rust --output -
 
 ### 3.7 releaseReview — 发布审查数据
 
-**来源 MCP 工具:** `codelattice_breaking_change_review`, `codelattice_consistency_review`, `codelattice_config_examples_review`
+**来源 MCP 工具:** `codelattice_breaking_change_review`, `codelattice_consistency_review`, `codelattice_config_examples_review`, `codelattice_automation_graph`
 
 **稳定性:** heuristic（review checklist 结构稳定，具体条目是启发式的）
 
@@ -553,7 +553,43 @@ bash scripts/webui-snapshot.sh --root . --language rust --output -
 
 ---
 
-### 3.8 docsTestsConfig — 文档/测试/配置索引
+### 3.8 automationGraph — 自动化图谱审查
+
+**来源 MCP 工具:** `codelattice_automation_graph`
+
+**稳定性:** heuristic（风险候选是静态审查线索，不执行脚本）
+
+```json
+{
+  "automationGraph": {
+    "summary": {
+      "workflowCount": 4,
+      "stepCount": 18,
+      "riskCount": 2,
+      "highRiskCount": 1,
+      "staticOnly": true
+    },
+    "workflows": [],
+    "riskFindings": [],
+    "generatedFrom": {
+      "staticAnalysis": true,
+      "scriptsExecuted": false,
+      "buildExecuted": false,
+      "runtimeVerified": false
+    }
+  }
+}
+```
+
+Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
+
+```json
+{ "automationGraph": { "status": "not_collected", "reason": "mcp_unavailable", "staticOnly": true } }
+```
+
+---
+
+### 3.9 docsTestsConfig — 文档/测试/配置索引
 
 **来源 MCP 工具:** `codelattice_project_overview`(docs field), 静态文件扫描
 
@@ -583,7 +619,7 @@ bash scripts/webui-snapshot.sh --root . --language rust --output -
 
 ---
 
-### 3.9 workflowPresets — 工作流预设
+### 3.10 workflowPresets — 工作流预设
 
 **来源 MCP 工具:** `codelattice_workflow_presets`
 

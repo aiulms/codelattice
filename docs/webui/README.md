@@ -44,7 +44,7 @@ WebUI MVP 包含 5 个核心视图：
 | 2 | Explore | 这个符号/文件长什么样？谁调用它？ | `symbol_context`, `symbol_search`, `calls_from/to`, `query_graph` |
 | 3 | Graph | 项目关系图长什么样？能否点击下探？ | snapshot `graph` section + AntV G6 |
 | 4 | Cleanup | 哪些代码可能是死代码？哪些不可达？ | `dead_code_candidates`, `reachability_map`, `external_api_surface`, `framework_entry_hints` |
-| 5 | Release Review | 发布前有什么风险？ | `breaking_change_review`, `consistency_review`, `config_examples_review` |
+| 5 | Release Review | 发布前有什么风险？ | `breaking_change_review`, `consistency_review`, `config_examples_review`, `automation_graph` |
 
 ### Graph Engine
 
@@ -56,6 +56,17 @@ Graph 视图默认使用 **AntV G6 5.1.1**：
 - 海报模式：隐藏辅助面板，放大图谱画布，适合截图传播
 
 CodeLattice 自己负责代码语义和布局策略；G6 只作为渲染与交互引擎。
+
+### Automation Graph Integration
+
+Runner 模式生成 snapshot 时会 best-effort 调用 `codelattice_automation_graph`，将 `automationGraph` 写入 snapshot。MCP 不可用时不会阻断普通分析，而是标记 `status=not_collected`。
+
+- Release Review 会展示自动化工作流数量和风险候选。
+- Workflow 页会显示自动化图谱审查面板，辅助检查 CI、package scripts、Makefile、Dockerfile 和 shell 脚本。
+- Live MCP 面板提供 `automation_graph` 工作流，可对当前项目即时运行自动化图谱审查。
+- Report Export 会生成 `Automation Graph Review` 小节。
+
+该能力仍是 **static-only**：不执行 CI、脚本、构建或 Docker 命令。
 
 ---
 

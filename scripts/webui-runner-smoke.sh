@@ -40,6 +40,8 @@ assert d['generatedFrom']['staticAnalysis'] is True,'no static'
 e=d.get('explore',{})
 ok=len(e.get('symbols',[]))>0 or len(e.get('sourceFiles',[]))>0 or d.get('summary',{}).get('sourceFileCount',0)>0
 assert ok,'no data'
+ag=d.get('automationGraph',{})
+assert ag and (ag.get('summary') or ag.get('status')=='not_collected'),'no automation graph section'
 raw=json.dumps(d)
 assert '/Users/' not in raw,'path leak'
 " 2>/dev/null && pass "detail valid"||fail "detail invalid"
