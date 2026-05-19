@@ -316,7 +316,7 @@ target/release/codelattice analyze \
 
 ### 提交前变化审查
 
-`detect-changes` 是 CodeLattice 自己的提交前变化审查入口，用来替代日常依赖外部 GitNexus-Tool 的 `detect-changes` 流程。它会基于 git diff 自动识别变更文件、变更符号、unknown hunks，并复用本地 `changed_symbols` / `production_assist` 能力生成风险摘要和 review checklist。
+`detect-changes` 是 CodeLattice 自己的提交前变化审查入口，用来替代日常依赖外部 GitNexus-Tool 的 `detect-changes` 流程。它会基于 git diff 自动识别变更文件、变更符号、unknown hunks，并复用本地 `changed_symbols` / `production_assist` 能力生成风险摘要和 review checklist。同时自动检测 workspace 结构，提供文件归属映射、跨项目影响分析和不支持语言边界检测。
 
 ```bash
 target/release/codelattice detect-changes \
@@ -332,7 +332,7 @@ target/release/codelattice detect-changes \
 - `--scope unstaged`：只看未暂存变化
 - `--base-ref <ref>`：与指定 git ref 对比
 
-输出为 `codelattice.detectChanges.v1` JSON，包含 `changedFiles`、`changedSymbols`、`unknownHunks`、`risk`、`reviewChecklist` 和 `generatedFrom`。它仍是静态分析：不执行项目代码，不证明运行时破坏，也不提供 legacy GitNexus 的 process model，因此 `affectedProcessCount` 会显式为 `null`。
+输出为 `codelattice.detectChanges.v1` JSON，包含 `changedFiles`、`changedSymbols`、`unknownHunks`、`risk`、`reviewChecklist`、`generatedFrom`，以及 workspace 相关字段：`workspaceContext`（workspace 检测结果）、`fileOwners`（每个变更文件的子项目归属）、`affectedProjects`（受影响的跨项目节点）、`affectedWorkspaceEdges`（受影响的 workspace 边）、`unsupportedBoundaryHits`（不支持语言边界命中）、`crossProjectRisk`（跨项目风险等级）、`recommendedFollowups`（推荐跟进项）。风险等级使用三层叠加：max(production_assist_risk, changed_symbol_risk, workspace_risk)。
 
 为避免提交前漏掉新文件，`--scope all` 还会额外读取 `git ls-files --others --exclude-standard`，在 `untrackedFiles` 和 `summary.untrackedFileCount` 中报告未跟踪文件。
 

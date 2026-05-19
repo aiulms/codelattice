@@ -122,6 +122,39 @@ tools = d.get('underlyingTools', [])
 assert 'codelattice_changed_symbols' in tools
 assert 'codelattice_production_assist' in tools
 PY"
+check "workspace fields present" "python3 - '$REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert 'workspaceContext' in d, 'missing workspaceContext'
+assert 'fileOwners' in d, 'missing fileOwners'
+assert 'affectedProjects' in d, 'missing affectedProjects'
+assert 'affectedWorkspaceEdges' in d, 'missing affectedWorkspaceEdges'
+assert 'unsupportedBoundaryHits' in d, 'missing unsupportedBoundaryHits'
+assert 'crossProjectRisk' in d, 'missing crossProjectRisk'
+assert 'recommendedFollowups' in d, 'missing recommendedFollowups'
+PY"
+check "workspaceContext has required fields" "python3 - '$REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+ws = d.get('workspaceContext')
+if ws:
+    assert 'isWorkspace' in ws, 'missing isWorkspace'
+    assert 'workspaceGraphAvailable' in ws, 'missing workspaceGraphAvailable'
+    assert 'projectCount' in ws, 'missing projectCount'
+PY"
+check "generatedFrom has workspaceGraphEnabled" "python3 - '$REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+g = d['generatedFrom']
+assert 'workspaceGraphEnabled' in g, 'missing workspaceGraphEnabled'
+PY"
+check "underlying tools include workspace" "python3 - '$REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+tools = d.get('underlyingTools', [])
+assert 'codelattice_workspace_graph' in tools, 'missing workspace_graph'
+assert 'codelattice_cross_project_impact' in tools, 'missing cross_project_impact'
+PY"
 
 echo "2. Non-git repo graceful failure"
 NONGIT="$TMP/nongit"

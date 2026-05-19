@@ -35,6 +35,10 @@ use unified_types::{
     QualityGateResult, QualitySummary, SummaryCommandOutput,
 };
 
+// workspace-model 直接库调用（不需要 MCP subprocess）
+use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
+use gitnexus_workspace_model::scan_workspace_inventory;
+
 #[derive(Parser)]
 #[command(
     name = "codelattice",
@@ -438,6 +442,469 @@ fn collect_untracked_files(root: &Path) -> Vec<String> {
     }
 }
 
+// ============================================================
+// Workspace change intelligence
+// ============================================================
+
+/// 文件路径到项目归属映射
+/// 基于 scan_workspace_inventory 的前缀匹配
+fn map_files_to_owners(changed_files: &[Value], root: &Path) -> Vec<Value> {
+    // 尝试扫描 workspace inventory
+    let inventory = match scan_workspace_inventory(root, false) {
+        Ok(projects) => projects,
+        Err(_) => return Vec::new(),
+    };
+
+    if inventory.is_empty() {
+        return Vec::new();
+    }
+
+    // 构建前缀映射：relative_path → (label, language, supported)
+    // 排序最长前缀优先，确保贪婪匹配
+    let mut prefixes: Vec<(String, String, String, bool)> = inventory
+        .iter()
+        .map(|p| {
+            let rel = p.relative_path.trim_end_matches('/');
+            (
+                rel.to_string(),
+                p.name.clone(),
+                p.language.clone(),
+                p.supported,
+            )
+        })
+        .collect();
+    prefixes.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    // 检测 config/script 文件的模式
+    let config_patterns = ["Dockerfile", "Makefile", ".env", "docker-compose"];
+    let ci_patterns = [".github/workflows", ".gitlab-ci", "Jenkinsfile"];
+    let script_extensions = [".sh", ".bash", ".zsh", ".ksh"];
+
+    changed_files
+        .iter()
+        .filter_map(|f| {
+            let file_path = f["path"].as_str().or_else(|| f["file"].as_str())?;
+            let rel_path = file_path
+                .strip_prefix(root.to_str().unwrap_or(""))
+                .unwrap_or(file_path)
+                .trim_start_matches('/');
+
+            // 跳过空路径
+            if rel_path.is_empty() {
+                return None;
+            }
+
+            // 检查 config 文件
+            let basename = rel_path.split('/').last().unwrap_or("");
+            let is_config = config_patterns.iter().any(|p| basename.starts_with(p))
+                || ci_patterns.iter().any(|p| rel_path.contains(p))
+                || basename.ends_with(".yml") && rel_path.contains(".github")
+                || basename.ends_with(".yaml") && rel_path.contains(".github");
+            if is_config {
+                return Some(json!({
+                    "file": file_path,
+                    "relativePath": rel_path,
+                    "projectId": "workspace:config",
+                    "projectLabel": basename,
+                    "language": "",
+                    "ownerKind": "config",
+                    "confidence": 0.9,
+                    "reason": "file matches config/CI pattern"
+                }));
+            }
+
+            // 检查 script 文件
+            let is_script = script_extensions.iter().any(|ext| basename.ends_with(ext));
+            if is_script {
+                return Some(json!({
+                    "file": file_path,
+                    "relativePath": rel_path,
+                    "projectId": "workspace:script",
+                    "projectLabel": basename,
+                    "language": "shell",
+                    "ownerKind": "script",
+                    "confidence": 0.9,
+                    "reason": "file matches script extension"
+                }));
+            }
+
+            // 前缀匹配 project（最长优先）
+            for (prefix, label, lang, supported) in &prefixes {
+                if prefix == "."
+                    || rel_path.starts_with(&format!("{}/", prefix))
+                    || rel_path == *prefix
+                {
+                    let owner_kind = if *supported { "project" } else { "unsupported" };
+                    return Some(json!({
+                        "file": file_path,
+                        "relativePath": rel_path,
+                        "projectId": format!("project:{}", prefix.replace('/', ":")),
+                        "projectLabel": label,
+                        "language": lang,
+                        "ownerKind": owner_kind,
+                        "confidence": if prefix == "." { 0.5 } else { 1.0 },
+                        "reason": if prefix == "." {
+                            "file under workspace root project"
+                        } else if *supported {
+                            "file under project relative_path"
+                        } else {
+                            "file under unsupported language project"
+                        }
+                    }));
+                }
+            }
+
+            // 无法确定归属
+            Some(json!({
+                "file": file_path,
+                "relativePath": rel_path,
+                "projectId": "unknown",
+                "projectLabel": "unknown",
+                "language": "",
+                "ownerKind": "unknown",
+                "confidence": 0.0,
+                "reason": "file does not match any project or config/script pattern"
+            }))
+        })
+        .collect()
+}
+
+/// 计算工作区级别的变更影响
+/// 包括：affectedProjects, affectedWorkspaceEdges, unsupportedBoundaryHits, crossProjectRisk
+fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
+    // 如果没有 file owners，尝试构建 workspace graph
+    if file_owners.is_empty() {
+        return json!({
+            "workspaceContext": {
+                "isWorkspace": false,
+                "workspaceRoot": null,
+                "projectCount": 0,
+                "supportedProjectCount": 0,
+                "unsupportedProjectCount": 0,
+                "workspaceGraphAvailable": false,
+                "workspaceGraphBuildError": "no changed files to analyze"
+            },
+            "affectedProjects": [],
+            "affectedWorkspaceEdges": [],
+            "unsupportedBoundaryHits": [],
+            "crossProjectRisk": null,
+            "riskReasons": [],
+            "recommendedFollowups": []
+        });
+    }
+
+    // 尝试构建 workspace graph
+    let graph = match gitnexus_workspace_model::build_workspace_graph(root, false) {
+        Ok(g) => g,
+        Err(e) => {
+            return json!({
+                "workspaceContext": {
+                    "isWorkspace": false,
+                    "workspaceRoot": root.to_string_lossy(),
+                    "projectCount": 0,
+                    "supportedProjectCount": 0,
+                    "unsupportedProjectCount": 0,
+                    "workspaceGraphAvailable": false,
+                    "workspaceGraphBuildError": e
+                },
+                "affectedProjects": [],
+                "affectedWorkspaceEdges": [],
+                "unsupportedBoundaryHits": [],
+                "crossProjectRisk": null,
+                "riskReasons": [],
+                "recommendedFollowups": []
+            });
+        }
+    };
+
+    let project_count = graph.nodes.iter().filter(|n| n.kind == "project").count();
+    let supported_count = graph
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "project" && n.supported)
+        .count();
+    let unsupported_count = graph
+        .nodes
+        .iter()
+        .filter(|n| n.kind == "project" && !n.supported)
+        .count();
+
+    // 收集变更的 project node_id（去重）
+    let changed_project_ids: HashSet<String> = file_owners
+        .iter()
+        .filter_map(|o| {
+            let kind = o["ownerKind"].as_str().unwrap_or("");
+            if kind == "project" || kind == "unsupported" {
+                o["projectId"].as_str().map(|s| s.to_string())
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    // 检查是否有 config/script 变更
+    let has_config_changes = file_owners
+        .iter()
+        .any(|o| o["ownerKind"].as_str().unwrap_or("") == "config");
+    let has_script_changes = file_owners
+        .iter()
+        .any(|o| o["ownerKind"].as_str().unwrap_or("") == "script");
+    let has_unknown_owners = file_owners
+        .iter()
+        .any(|o| o["ownerKind"].as_str().unwrap_or("") == "unknown");
+
+    // 对每个变更的 project 做跨项目影响 BFS（downstream 方向）
+    let mut affected_projects = Vec::new();
+    let mut affected_edges = Vec::new();
+    let mut unsupported_hits = Vec::new();
+    let mut risk_reasons: Vec<String> = Vec::new();
+    let mut followups: Vec<String> = Vec::new();
+    let mut seen_node_ids = HashSet::new();
+
+    for project_id in &changed_project_ids {
+        let target = ImpactTarget {
+            node_id: Some(project_id.clone()),
+            project_id: Some(project_id.clone()),
+            path: None,
+            snapshot_id: None,
+            query: None,
+        };
+
+        let impact = cross_project_impact(&graph, &target, ImpactDirection::Downstream, 2);
+        for proj in &impact.affected_projects {
+            if seen_node_ids.insert(proj.node_id.clone()) {
+                affected_projects.push(json!({
+                    "nodeId": proj.node_id,
+                    "kind": proj.kind,
+                    "label": proj.label,
+                    "path": proj.path,
+                    "distance": proj.distance,
+                    "confidence": proj.confidence,
+                    "changeType": if proj.distance == 0 { "direct" } else { "indirect" }
+                }));
+            }
+        }
+
+        for boundary in &impact.unsupported_boundaries {
+            if seen_node_ids.insert(boundary.node_id.clone()) {
+                unsupported_hits.push(json!({
+                    "nodeId": boundary.node_id,
+                    "kind": boundary.kind,
+                    "label": boundary.label,
+                    "path": boundary.path,
+                    "language": graph.nodes.iter()
+                        .find(|n| n.id == boundary.node_id)
+                        .map(|n| n.language.clone())
+                        .unwrap_or_default(),
+                    "supported": false,
+                    "distance": boundary.distance,
+                    "reason": "adjacent to changed project or downstream dependent"
+                }));
+            }
+        }
+
+        for reason in &impact.risk_reasons {
+            if !risk_reasons.contains(reason) {
+                risk_reasons.push(reason.clone());
+            }
+        }
+        for item in &impact.review_checklist {
+            if !followups.contains(item) {
+                followups.push(item.clone());
+            }
+        }
+    }
+
+    // 从 graph edges 中收集与变更 project 相关的边
+    for edge in &graph.edges {
+        let touches_changed = changed_project_ids.contains(&edge.source)
+            || changed_project_ids.contains(&edge.target);
+        if touches_changed && edge.kind != "contains" {
+            affected_edges.push(json!({
+                "edgeId": edge.id,
+                "kind": edge.kind,
+                "source": edge.source,
+                "target": edge.target,
+                "confidence": edge.confidence,
+                "reason": edge.reason
+            }));
+        }
+    }
+
+    // 增加非跨项目的风险原因
+    if has_config_changes {
+        risk_reasons.push("changed config file may affect multiple projects".to_string());
+        followups.push("Verify config change does not break other projects".to_string());
+    }
+    if has_script_changes {
+        risk_reasons.push("changed script file may affect build/deploy pipeline".to_string());
+        followups.push("Review script change for side effects".to_string());
+    }
+    if has_unknown_owners {
+        risk_reasons.push("changed file has unknown project owner".to_string());
+    }
+    if !unsupported_hits.is_empty() {
+        risk_reasons.push(format!(
+            "{} unsupported language boundary hit(s) near changed files",
+            unsupported_hits.len()
+        ));
+    }
+
+    // 计算 crossProjectRisk
+    let downstream_count = affected_projects
+        .iter()
+        .filter(|p| p["changeType"].as_str().unwrap_or("") == "indirect")
+        .count();
+    let cross_project_risk = if unsupported_hits.len() > 0 && downstream_count > 0 {
+        "critical"
+    } else if downstream_count > 0 && has_config_changes {
+        "high"
+    } else if downstream_count > 0 || (has_config_changes && project_count > 1) {
+        "medium"
+    } else if has_unknown_owners || unsupported_hits.len() > 0 {
+        "medium"
+    } else {
+        "low"
+    };
+
+    // 推荐跟进项
+    if !affected_projects.is_empty() {
+        let labels: Vec<String> = affected_projects
+            .iter()
+            .filter(|p| p["changeType"].as_str() == Some("indirect"))
+            .filter_map(|p| p["label"].as_str().map(|s| s.to_string()))
+            .collect();
+        if !labels.is_empty() {
+            followups.insert(
+                0,
+                format!("Review downstream projects: {}", labels.join(", ")),
+            );
+        }
+    }
+
+    json!({
+        "workspaceContext": {
+            "isWorkspace": project_count > 1 || has_config_changes || has_script_changes,
+            "workspaceRoot": root.to_string_lossy(),
+            "projectCount": project_count,
+            "supportedProjectCount": supported_count,
+            "unsupportedProjectCount": unsupported_count,
+            "workspaceGraphAvailable": true,
+            "workspaceGraphBuildError": null
+        },
+        "affectedProjects": affected_projects,
+        "affectedWorkspaceEdges": affected_edges,
+        "unsupportedBoundaryHits": unsupported_hits,
+        "crossProjectRisk": cross_project_risk,
+        "riskReasons": risk_reasons,
+        "recommendedFollowups": followups
+    })
+}
+
+/// 计算增强版风险原因（结合 workspace 和 changed_symbols 信息）
+fn compute_enhanced_risk_reasons(
+    changed: &Value,
+    assist: &Value,
+    workspace_impact: &Value,
+) -> Vec<String> {
+    let mut reasons = Vec::new();
+
+    // 从 production_assist 继承已有风险原因
+    if let Some(existing) = assist["overallRiskReasons"].as_array() {
+        for r in existing {
+            if let Some(s) = r.as_str() {
+                reasons.push(s.to_string());
+            }
+        }
+    }
+
+    // 从 workspace impact 继承风险原因
+    if let Some(ws_reasons) = workspace_impact["riskReasons"].as_array() {
+        for r in ws_reasons {
+            if let Some(s) = r.as_str() {
+                if !reasons.iter().any(|existing| existing == s) {
+                    reasons.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    // many unknown hunks
+    let unknown_hunks = changed["summary"]["unknownHunkCount"]
+        .as_u64()
+        .or_else(|| changed["unknownHunks"].as_array().map(|a| a.len() as u64))
+        .unwrap_or(0);
+    let symbol_count = changed["summary"]["changedSymbolCount"]
+        .as_u64()
+        .or_else(|| changed["changedSymbols"].as_array().map(|a| a.len() as u64))
+        .unwrap_or(0);
+    let file_count = changed["summary"]["changedFileCount"]
+        .as_u64()
+        .or_else(|| changed["changedFiles"].as_array().map(|a| a.len() as u64))
+        .unwrap_or(0);
+
+    if unknown_hunks > symbol_count && unknown_hunks > 0 {
+        reasons.push("many unknown hunks relative to detected symbols".to_string());
+    }
+
+    // files changed but no symbols detected
+    if file_count > 0 && symbol_count == 0 {
+        reasons.push("tracked files changed but no symbols detected".to_string());
+    }
+
+    reasons
+}
+
+/// 计算增强版风险等级（三层叠加）
+fn pick_enhanced_risk(changed: &Value, assist: &Value, workspace_impact: &Value) -> String {
+    // 第一层：现有 risk（production_assist + changed_symbols）
+    let base_risk = pick_detect_changes_risk(changed, assist);
+
+    // 第二层：workspace risk
+    let ws_risk = workspace_impact["crossProjectRisk"]
+        .as_str()
+        .unwrap_or("low")
+        .to_string();
+
+    // 取最高风险等级
+    let base_rank = severity_rank(&base_risk);
+    let ws_rank = severity_rank(&ws_risk);
+
+    if ws_rank > base_rank {
+        ws_risk
+    } else {
+        base_risk
+    }
+}
+
+/// 计算推荐跟进项
+fn compute_recommended_followups(assist: &Value, workspace_impact: &Value) -> Vec<String> {
+    let mut followups = Vec::new();
+
+    // 从 workspace impact 继承
+    if let Some(ws_followups) = workspace_impact["recommendedFollowups"].as_array() {
+        for f in ws_followups {
+            if let Some(s) = f.as_str() {
+                followups.push(s.to_string());
+            }
+        }
+    }
+
+    // 从 reviewChecklist 继承
+    if let Some(checklist) = assist["reviewChecklist"].as_array() {
+        for item in checklist.iter().take(3) {
+            if let Some(s) = item.as_str() {
+                if !followups.iter().any(|f| f == s) {
+                    followups.push(s.to_string());
+                }
+            }
+        }
+    }
+
+    followups.truncate(10);
+    followups
+}
+
 fn build_detect_changes_report(
     root: &Path,
     language: &str,
@@ -447,6 +914,7 @@ fn build_detect_changes_report(
     changed: Value,
     assist: Value,
     untracked_files: Vec<String>,
+    workspace_impact: Value,
 ) -> Value {
     let changed_file_count = changed
         .get("summary")
@@ -503,9 +971,21 @@ fn build_detect_changes_report(
                 .map(|a| a.len() as u64)
         })
         .unwrap_or(0);
-    let overall_risk = pick_detect_changes_risk(&changed, &assist);
+    let overall_risk = pick_enhanced_risk(&changed, &assist, &workspace_impact);
     let untracked_file_count = untracked_files.len() as u64;
     let total_file_change_count = changed_file_count + untracked_file_count;
+    let enhanced_risk_reasons = compute_enhanced_risk_reasons(&changed, &assist, &workspace_impact);
+    let recommended_followups = compute_recommended_followups(&assist, &workspace_impact);
+
+    // workspace 相关字段：从 workspace_impact 提取
+    let file_owners = map_files_to_owners(
+        changed
+            .get("changedFiles")
+            .and_then(|v| v.as_array())
+            .map(|a| a.as_slice())
+            .unwrap_or(&[]),
+        root,
+    );
 
     let mut report = json!({
         "schemaVersion": "codelattice.detectChanges.v1",
@@ -533,10 +1013,17 @@ fn build_detect_changes_report(
         "untrackedFiles": untracked_files,
         "risk": {
             "overallRisk": assist.get("overallRisk").cloned().unwrap_or_else(|| json!(null)),
-            "overallRiskReasons": assist.get("overallRiskReasons").cloned().unwrap_or_else(|| json!([])),
+            "overallRiskReasons": enhanced_risk_reasons,
             "highestRiskSymbols": assist.get("highestRiskSymbols").cloned().unwrap_or_else(|| json!([]))
         },
         "reviewChecklist": assist.get("reviewChecklist").cloned().unwrap_or_else(|| json!([])),
+        "workspaceContext": workspace_impact.get("workspaceContext").cloned().unwrap_or_else(|| json!(null)),
+        "fileOwners": file_owners,
+        "affectedProjects": workspace_impact.get("affectedProjects").cloned().unwrap_or_else(|| json!([])),
+        "affectedWorkspaceEdges": workspace_impact.get("affectedWorkspaceEdges").cloned().unwrap_or_else(|| json!([])),
+        "unsupportedBoundaryHits": workspace_impact.get("unsupportedBoundaryHits").cloned().unwrap_or_else(|| json!([])),
+        "crossProjectRisk": workspace_impact.get("crossProjectRisk").cloned().unwrap_or_else(|| json!(null)),
+        "recommendedFollowups": recommended_followups,
         "quality": {
             "qualityGatesPassed": assist.get("qualityGatesPassed").cloned().unwrap_or_else(|| json!(null)),
             "qualityMetrics": assist.get("qualityMetrics").cloned().unwrap_or_else(|| json!(null))
@@ -553,16 +1040,20 @@ fn build_detect_changes_report(
             "heuristic": true,
             "previewOnly": true,
             "noWrites": true,
-            "nativeCodeLattice": true
+            "nativeCodeLattice": true,
+            "workspaceGraphEnabled": workspace_impact["workspaceContext"]["workspaceGraphAvailable"].as_bool().unwrap_or(false)
         },
         "cautions": [
             "Static analysis only: this does not prove runtime breakage or safety.",
             "affectedProcessCount is null because CodeLattice does not use the legacy GitNexus process model.",
-            "Use changedSymbols, unknownHunks, risk reasons, and reviewChecklist as investigation leads."
+            "Use changedSymbols, unknownHunks, risk reasons, and reviewChecklist as investigation leads.",
+            "Workspace fields (workspaceContext, fileOwners, affectedProjects, etc.) are heuristic-only and depend on filesystem project detection."
         ],
         "underlyingTools": [
             "codelattice_changed_symbols",
-            "codelattice_production_assist"
+            "codelattice_production_assist",
+            "codelattice_workspace_graph",
+            "codelattice_cross_project_impact"
         ]
     });
 
@@ -2997,6 +3488,22 @@ pub fn run() {
                 Vec::new()
             };
 
+            // workspace change intelligence：file ownership + cross-project impact
+            let changed_files_for_owners = changed
+                .get("changedFiles")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let untracked_file_values: Vec<Value> =
+                untracked_files.iter().map(|f| json!({"path": f})).collect();
+            let all_changed_for_owners: Vec<Value> = changed_files_for_owners
+                .iter()
+                .chain(untracked_file_values.iter())
+                .cloned()
+                .collect();
+            let file_owners = map_files_to_owners(&all_changed_for_owners, root_path);
+            let workspace_impact = compute_workspace_impact(root_path, &file_owners);
+
             let output = build_detect_changes_report(
                 root_path,
                 &output_language,
@@ -3006,6 +3513,7 @@ pub fn run() {
                 changed,
                 assist,
                 untracked_files,
+                workspace_impact,
             );
 
             let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {

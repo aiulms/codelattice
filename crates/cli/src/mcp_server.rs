@@ -8457,12 +8457,12 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_change_review",
-                "description": "Change review: changed symbols, impact preview, production readiness, breaking changes, consistency. Use before/after editing.",
+                "description": "Change review: changed symbols, impact preview, production readiness, breaking changes, consistency, native workspace-aware review. Use before/after editing.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root" },
-                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review"], "default": "impact", "description": "Review mode" },
+                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review"], "default": "impact", "description": "Review mode. native_review orchestrates changed_symbols + production_assist; for full workspace intelligence (fileOwners, crossProjectRisk, affectedProjects), use CLI detect-changes." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "symbol": { "type": "string", "description": "Target symbol (for impact mode)" },
@@ -16552,6 +16552,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "breaking_change",
             "consistency",
             "full_review",
+            "native_review",
         ],
         "codelattice_change_review",
     )?;
@@ -16638,6 +16639,52 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                     "codelattice_impact_preview",
                     "codelattice_breaking_change_review",
                     "codelattice_consistency_review",
+                ],
+                compact,
+            )));
+        }
+        "native_review" => {
+            // native_review: MCP facade 入口，编排 changed_symbols + production_assist
+            // 完整 workspace-aware change intelligence 请使用 CLI detect-changes
+            let mut merged = json!({});
+            let mut errors = Vec::new();
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "changedSymbols",
+                "changed_symbols",
+                || Ok(unwrap_tool_result(&handle_changed_symbols(cache, params)?)),
+            );
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "productionAssist",
+                "production_assist",
+                || {
+                    Ok(unwrap_tool_result(&handle_production_assist(
+                        cache, params,
+                    )?))
+                },
+            );
+            if let Some(obj) = merged.as_object_mut() {
+                if !errors.is_empty() {
+                    obj.insert("errors".into(), json!(errors));
+                }
+                obj.insert("nativeReviewNote".into(), json!(
+                    "For full workspace-aware change intelligence (fileOwners, affectedProjects, crossProjectRisk, unsupportedBoundaryHits), use CLI: codelattice detect-changes --root <root> --language <lang>"
+                ));
+            }
+            return Ok(tool_result(&wrap_facade_output(
+                merged,
+                "codelattice_change_review",
+                mode,
+                language,
+                root,
+                json!({"riskLevel":"see-changedSymbols-and-productionAssist"}),
+                vec!["Use CLI detect-changes for full workspace change intelligence including fileOwners, crossProjectRisk, and unsupportedBoundaryHits"],
+                vec![
+                    "codelattice_changed_symbols",
+                    "codelattice_production_assist",
                 ],
                 compact,
             )));
