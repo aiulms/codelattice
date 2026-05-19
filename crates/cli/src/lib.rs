@@ -23,8 +23,11 @@ mod shell_bridge;
 mod unified_types;
 
 use clap::{Parser, Subcommand};
+use serde_json::{json, Value};
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use language_detect::detect_language;
 use unified_types::{
@@ -93,6 +96,39 @@ enum Commands {
         /// 输出格式（MVP 仅支持 json）
         #[arg(long, default_value = "json")]
         format: String,
+    },
+    /// 提交前变化审查：基于 git diff 自动识别变更符号与风险提示
+    DetectChanges {
+        /// 项目根目录路径（必须是 git 仓库或其工作树目录）
+        #[arg(long, default_value = ".")]
+        root: String,
+        /// 语言：rust / cangjie / arkts / typescript / c / cpp / python / shell / auto
+        #[arg(long, default_value = "auto")]
+        language: String,
+        /// 变化范围：all(head) / staged / unstaged / working-tree / head
+        #[arg(long, default_value = "all")]
+        scope: String,
+        /// 兼容 MCP changed_symbols 的 diffMode；设置后优先于 --scope
+        #[arg(long)]
+        diff_mode: Option<String>,
+        /// 与指定 git ref 对比（传给 git diff <base-ref>）
+        #[arg(long)]
+        base_ref: Option<String>,
+        /// 输出格式（当前仅支持 json）
+        #[arg(long, default_value = "json")]
+        format: String,
+        /// 最多返回的变更符号数量
+        #[arg(long, default_value_t = 100)]
+        limit: usize,
+        /// 紧凑输出：保留摘要和身份字段，省略底层工具原始结果
+        #[arg(long, default_value_t = false)]
+        compact: bool,
+        /// changed symbols 是否包含代码片段
+        #[arg(long, default_value_t = false)]
+        include_snippet: bool,
+        /// 代码片段上下文行数
+        #[arg(long, default_value_t = 2)]
+        snippet_context: usize,
     },
     /// Start MCP stdio server (JSON-RPC over stdin/stdout)
     Mcp,
@@ -234,6 +270,312 @@ fn now_iso8601() -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, month, day, hours, minutes, seconds
     )
+}
+
+fn scope_to_diff_mode(scope: &str, explicit: Option<&str>) -> Result<String, String> {
+    let selected = explicit.unwrap_or(scope);
+    match selected {
+        // all/head 对应 `git diff HEAD`，覆盖 staged + unstaged。
+        "all" | "head" => Ok("head".to_string()),
+        "staged" => Ok("staged".to_string()),
+        "unstaged" => Ok("unstaged".to_string()),
+        "working" | "working-tree" => Ok("working-tree".to_string()),
+        other => Err(format!(
+            "不支持的变化范围: {other}，请使用 all / staged / unstaged / working-tree / head"
+        )),
+    }
+}
+
+fn call_mcp_tool_via_current_binary(tool_name: &str, arguments: Value) -> Result<Value, String> {
+    let exe =
+        std::env::current_exe().map_err(|e| format!("无法定位当前 CodeLattice binary: {e}"))?;
+    let request = json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": {
+            "name": tool_name,
+            "arguments": arguments
+        }
+    });
+
+    let mut child = Command::new(exe)
+        .arg("mcp")
+        .env("CODELATTICE_MCP_TOOLSET", "full")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("无法启动 CodeLattice MCP 子进程: {e}"))?;
+
+    {
+        let stdin = child
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "无法写入 MCP 子进程 stdin".to_string())?;
+        writeln!(stdin, "{request}").map_err(|e| format!("写入 MCP 请求失败: {e}"))?;
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|e| format!("等待 MCP 子进程失败: {e}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "MCP 子进程退出失败: status={} stderr={}",
+            output.status,
+            stderr.trim()
+        ));
+    }
+
+    let stdout =
+        String::from_utf8(output.stdout).map_err(|e| format!("MCP stdout 不是有效 UTF-8: {e}"))?;
+    let response_line = stdout
+        .lines()
+        .find(|line| !line.trim().is_empty())
+        .ok_or_else(|| "MCP 子进程没有返回 JSON-RPC 响应".to_string())?;
+    let response: Value = serde_json::from_str(response_line)
+        .map_err(|e| format!("MCP JSON-RPC 响应解析失败: {e}: {response_line}"))?;
+
+    if let Some(error) = response.get("error") {
+        return Err(format!("MCP 工具调用失败: {error}"));
+    }
+
+    let result = response
+        .get("result")
+        .ok_or_else(|| format!("MCP 响应缺少 result: {response}"))?;
+
+    let content_text = result
+        .get("content")
+        .and_then(|v| v.as_array())
+        .and_then(|items| items.first())
+        .and_then(|item| item.get("text"))
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| format!("MCP 响应缺少 content[0].text: {response}"))?;
+    let data: Value = serde_json::from_str(content_text)
+        .map_err(|e| format!("MCP 工具 JSON 内容解析失败: {e}: {content_text}"))?;
+
+    if result
+        .get("isError")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        let message = data
+            .get("message")
+            .and_then(|v| v.as_str())
+            .or_else(|| data.get("error").and_then(|v| v.as_str()))
+            .unwrap_or("unknown MCP tool error");
+        return Err(format!("{tool_name} 返回错误: {message}"));
+    }
+
+    Ok(data)
+}
+
+fn severity_rank(level: &str) -> u8 {
+    match level.to_ascii_lowercase().as_str() {
+        "critical" => 4,
+        "high" => 3,
+        "medium" => 2,
+        "low" => 1,
+        _ => 0,
+    }
+}
+
+fn normalize_risk(level: &str) -> String {
+    match level.to_ascii_lowercase().as_str() {
+        "critical" => "critical".to_string(),
+        "high" => "high".to_string(),
+        "medium" => "medium".to_string(),
+        "low" => "low".to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn pick_detect_changes_risk(changed: &Value, assist: &Value) -> String {
+    let assist_risk = assist
+        .get("overallRisk")
+        .and_then(|v| v.as_str())
+        .map(normalize_risk);
+    let changed_risk = changed
+        .get("changedSymbols")
+        .and_then(|v| v.as_array())
+        .and_then(|symbols| {
+            symbols
+                .iter()
+                .filter_map(|sym| sym.get("risk").and_then(|v| v.as_str()))
+                .max_by_key(|risk| severity_rank(risk))
+        })
+        .map(normalize_risk);
+
+    match (assist_risk, changed_risk) {
+        (Some(a), Some(b)) => {
+            if severity_rank(&a) >= severity_rank(&b) {
+                a
+            } else {
+                b
+            }
+        }
+        (Some(a), None) => a,
+        (None, Some(b)) => b,
+        (None, None) => "unknown".to_string(),
+    }
+}
+
+fn collect_untracked_files(root: &Path) -> Vec<String> {
+    let output = Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard"])
+        .current_dir(root)
+        .output();
+    match output {
+        Ok(out) if out.status.success() => String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty())
+            .map(ToString::to_string)
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn build_detect_changes_report(
+    root: &Path,
+    language: &str,
+    scope: &str,
+    diff_mode: &str,
+    compact: bool,
+    changed: Value,
+    assist: Value,
+    untracked_files: Vec<String>,
+) -> Value {
+    let changed_file_count = changed
+        .get("summary")
+        .and_then(|s| s.get("changedFileCount"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            changed
+                .get("changedFiles")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len() as u64)
+        })
+        .unwrap_or(0);
+    let changed_symbol_count = changed
+        .get("summary")
+        .and_then(|s| s.get("changedSymbolCount"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            changed
+                .get("changedSymbols")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len() as u64)
+        })
+        .unwrap_or(0);
+    let unknown_hunk_count = changed
+        .get("summary")
+        .and_then(|s| s.get("unknownHunkCount"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            changed
+                .get("unknownHunks")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len() as u64)
+        })
+        .unwrap_or(0);
+    let deleted_file_count = changed
+        .get("summary")
+        .and_then(|s| s.get("deletedFileCount"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            changed
+                .get("deletedFiles")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len() as u64)
+        })
+        .unwrap_or(0);
+    let renamed_file_count = changed
+        .get("summary")
+        .and_then(|s| s.get("renamedFileCount"))
+        .and_then(|v| v.as_u64())
+        .or_else(|| {
+            changed
+                .get("renamedFiles")
+                .and_then(|v| v.as_array())
+                .map(|a| a.len() as u64)
+        })
+        .unwrap_or(0);
+    let overall_risk = pick_detect_changes_risk(&changed, &assist);
+    let untracked_file_count = untracked_files.len() as u64;
+    let total_file_change_count = changed_file_count + untracked_file_count;
+
+    let mut report = json!({
+        "schemaVersion": "codelattice.detectChanges.v1",
+        "root": root.to_string_lossy(),
+        "language": language,
+        "scope": scope,
+        "diffMode": diff_mode,
+        "summary": {
+            "changedFileCount": changed_file_count,
+            "changedSymbolCount": changed_symbol_count,
+            "unknownHunkCount": unknown_hunk_count,
+            "deletedFileCount": deleted_file_count,
+            "renamedFileCount": renamed_file_count,
+            "untrackedFileCount": untracked_file_count,
+            "totalFileChangeCount": total_file_change_count,
+            "riskLevel": overall_risk,
+            "affectedProcessCount": null,
+            "affectedProcessModel": "notAvailable"
+        },
+        "changedFiles": changed.get("changedFiles").cloned().unwrap_or_else(|| json!([])),
+        "changedSymbols": changed.get("changedSymbols").cloned().unwrap_or_else(|| json!([])),
+        "unknownHunks": changed.get("unknownHunks").cloned().unwrap_or_else(|| json!([])),
+        "deletedFiles": changed.get("deletedFiles").cloned().unwrap_or_else(|| json!([])),
+        "renamedFiles": changed.get("renamedFiles").cloned().unwrap_or_else(|| json!([])),
+        "untrackedFiles": untracked_files,
+        "risk": {
+            "overallRisk": assist.get("overallRisk").cloned().unwrap_or_else(|| json!(null)),
+            "overallRiskReasons": assist.get("overallRiskReasons").cloned().unwrap_or_else(|| json!([])),
+            "highestRiskSymbols": assist.get("highestRiskSymbols").cloned().unwrap_or_else(|| json!([]))
+        },
+        "reviewChecklist": assist.get("reviewChecklist").cloned().unwrap_or_else(|| json!([])),
+        "quality": {
+            "qualityGatesPassed": assist.get("qualityGatesPassed").cloned().unwrap_or_else(|| json!(null)),
+            "qualityMetrics": assist.get("qualityMetrics").cloned().unwrap_or_else(|| json!(null))
+        },
+        "docs": {
+            "docsLikelyNeedUpdate": assist.get("docsLikelyNeedUpdate").cloned().unwrap_or_else(|| json!([])),
+            "docAssociationSummary": assist.get("docAssociationSummary").cloned().unwrap_or_else(|| json!(null))
+        },
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "coverageVerified": false,
+            "heuristic": true,
+            "previewOnly": true,
+            "noWrites": true,
+            "nativeCodeLattice": true
+        },
+        "cautions": [
+            "Static analysis only: this does not prove runtime breakage or safety.",
+            "affectedProcessCount is null because CodeLattice does not use the legacy GitNexus process model.",
+            "Use changedSymbols, unknownHunks, risk reasons, and reviewChecklist as investigation leads."
+        ],
+        "underlyingTools": [
+            "codelattice_changed_symbols",
+            "codelattice_production_assist"
+        ]
+    });
+
+    if compact {
+        if let Some(obj) = report.as_object_mut() {
+            obj.remove("quality");
+            obj.remove("docs");
+            obj.remove("deletedFiles");
+            obj.remove("renamedFiles");
+        }
+    }
+
+    report
 }
 
 // ============================================================
@@ -2554,6 +2896,120 @@ pub fn run() {
 
             let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
                 eprintln!("错误：JSON 序列化失败: {e}");
+                std::process::exit(1);
+            });
+            println!("{json}");
+        }
+
+        // ===== CodeLattice-native detect-changes =====
+        Commands::DetectChanges {
+            root,
+            language,
+            scope,
+            diff_mode,
+            base_ref,
+            format,
+            limit,
+            compact,
+            include_snippet,
+            snippet_context,
+        } => {
+            if format != "json" {
+                eprintln!("错误：detect-changes 当前仅支持 --format json");
+                std::process::exit(1);
+            }
+
+            let root_path = match check_root(&root) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            let lang = match resolve_language(&language, root_path) {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            let selected_diff_mode = match scope_to_diff_mode(&scope, diff_mode.as_deref()) {
+                Ok(mode) => mode,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let mut changed_args = json!({
+                "root": root_path.to_string_lossy(),
+                "language": lang,
+                "diffMode": selected_diff_mode,
+                "compact": compact,
+                "includeSnippet": include_snippet,
+                "snippetContext": snippet_context,
+                "limit": limit
+            });
+            if let Some(base) = &base_ref {
+                changed_args["baseRef"] = json!(base);
+            }
+
+            let changed = match call_mcp_tool_via_current_binary(
+                "codelattice_changed_symbols",
+                changed_args.clone(),
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    eprintln!("错误：CodeLattice changed_symbols 调用失败: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let mut assist_args = json!({
+                "root": root_path.to_string_lossy(),
+                "language": lang,
+                "compact": compact
+            });
+            assist_args["diffMode"] = changed_args["diffMode"].clone();
+            if let Some(base) = &base_ref {
+                assist_args["baseRef"] = json!(base);
+            }
+
+            let assist = match call_mcp_tool_via_current_binary(
+                "codelattice_production_assist",
+                assist_args,
+            ) {
+                Ok(data) => data,
+                Err(e) => {
+                    eprintln!("错误：CodeLattice production_assist 调用失败: {e}");
+                    std::process::exit(1);
+                }
+            };
+
+            let output_language = changed
+                .get("language")
+                .and_then(|v| v.as_str())
+                .unwrap_or(&language)
+                .to_string();
+            let untracked_files = if selected_diff_mode == "head" || scope == "all" {
+                collect_untracked_files(root_path)
+            } else {
+                Vec::new()
+            };
+
+            let output = build_detect_changes_report(
+                root_path,
+                &output_language,
+                &scope,
+                &selected_diff_mode,
+                compact,
+                changed,
+                assist,
+                untracked_files,
+            );
+
+            let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
+                eprintln!("错误：detect-changes JSON 序列化失败: {e}");
                 std::process::exit(1);
             });
             println!("{json}");

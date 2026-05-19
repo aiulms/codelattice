@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-18（Workspace Cross-Project Graph Pack）
+最后更新：2026-05-19（CodeLattice Native Detect-Changes）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**CodeLattice Native Detect-Changes（2026-05-19，已完成）：**
+- 📝 [2026-05-19-codelattice-detect-changes-preflight.md](2026-05-19-codelattice-detect-changes-preflight.md) — 首个 CodeLattice 原生提交前变化审查入口：CLI `detect-changes`、MCP 复用策略、scope 映射、JSON envelope、smoke/test 计划。
+- ✅ [2026-05-19-codelattice-detect-changes-closure.md](2026-05-19-codelattice-detect-changes-closure.md) — closure：`codelattice detect-changes` CLI、untracked 文件报告、productization regression、native smoke、验证与边界记录。
 
 **Workspace Cross-Project Graph Pack（2026-05-18，已完成）：**
 - 📝 [2026-05-18-workspace-cross-project-graph-preflight.md](2026-05-18-workspace-cross-project-graph-preflight.md) — workspace 级跨项目关系图：节点/边 schema、静态关系提取策略、confidence/reason、WebUI 最小展示、smoke 计划。

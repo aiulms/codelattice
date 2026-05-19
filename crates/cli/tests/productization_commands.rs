@@ -27,6 +27,56 @@ fn cangjie_portable_smoke_path() -> String {
     format!("{manifest_dir}/../../fixtures/cangjie/portable-smoke")
 }
 
+fn create_detect_changes_git_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let root = dir.path();
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("lib.rs"),
+        r#"pub fn helper() -> i32 {
+    41
+}
+
+pub fn entry() -> i32 {
+    helper()
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        r#"[package]
+name = "detect-changes-fixture"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+
+    for args in [
+        vec!["init"],
+        vec!["config", "user.email", "test@test.com"],
+        vec!["config", "user.name", "Test"],
+        vec!["add", "."],
+        vec!["commit", "-m", "baseline"],
+    ] {
+        let output = std::process::Command::new("git")
+            .args(args)
+            .current_dir(root)
+            .output()
+            .expect("git command failed");
+        assert!(
+            output.status.success(),
+            "git command failed: stdout={} stderr={}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    dir
+}
+
 #[test]
 fn codelattice_binary_alias_runs_analyze() {
     let mut cmd = Command::cargo_bin("codelattice").unwrap();
@@ -61,6 +111,103 @@ fn codelattice_version_uses_public_name() {
         .assert()
         .success()
         .stdout(predicate::str::contains("codelattice"));
+}
+
+#[test]
+fn detect_changes_reports_changed_symbols() {
+    let dir = create_detect_changes_git_repo();
+    std::fs::write(
+        dir.path().join("src/lib.rs"),
+        r#"pub fn helper() -> i32 {
+    99
+}
+
+pub fn entry() -> i32 {
+    helper()
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("src/new_module.rs"),
+        "pub fn new_helper() {}\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("codelattice").unwrap();
+    let assert = cmd
+        .arg("detect-changes")
+        .arg("--root")
+        .arg(dir.path())
+        .arg("--language")
+        .arg("rust")
+        .arg("--scope")
+        .arg("all")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(v["schemaVersion"], "codelattice.detectChanges.v1");
+    assert_eq!(v["language"], "rust");
+    assert_eq!(v["diffMode"], "head");
+    assert!(
+        v["summary"]["changedFileCount"].as_u64().unwrap_or(0) > 0,
+        "应报告变更文件"
+    );
+    assert_eq!(
+        v["summary"]["untrackedFileCount"].as_u64().unwrap_or(0),
+        1,
+        "scope=all 应报告未跟踪新文件"
+    );
+    assert!(v["untrackedFiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|file| file.as_str() == Some("src/new_module.rs")));
+    assert!(
+        v["summary"]["changedSymbolCount"].as_u64().unwrap_or(0) > 0,
+        "应报告变更符号: {v:?}"
+    );
+    assert!(
+        v["changedSymbols"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|sym| sym["name"].as_str() == Some("helper")),
+        "应识别 helper 变更: {v:?}"
+    );
+    assert_eq!(v["generatedFrom"]["nativeCodeLattice"], true);
+    assert_eq!(v["generatedFrom"]["runtimeVerified"], false);
+    assert!(v["underlyingTools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|tool| tool.as_str() == Some("codelattice_changed_symbols")));
+}
+
+#[test]
+fn detect_changes_non_git_repo_exits_nonzero() {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let src = dir.path().join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("lib.rs"), "pub fn helper() {}\n").unwrap();
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname = \"not-git\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+
+    let mut cmd = Command::cargo_bin("codelattice").unwrap();
+    cmd.arg("detect-changes")
+        .arg("--root")
+        .arg(dir.path())
+        .arg("--language")
+        .arg("rust")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("changed_symbols"));
 }
 
 // ============================================================
