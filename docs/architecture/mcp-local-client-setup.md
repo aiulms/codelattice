@@ -8,21 +8,22 @@
 
 ## 一、定位
 
-CodeLattice MCP server 是一个 **sidecar server**，为 AI 编程工具提供本地单仓库图谱智能：
+CodeLattice MCP server 是一个 **sidecar server**，为 AI 编程工具提供本地代码图谱智能：
 
-- **与 GitNexus MCP 并存**，不替代
+- **CodeLattice-native daily workflow** — 日常 analyze / impact / detect-changes 优先使用 CodeLattice
 - **Read-only** — 只读分析，不写源码
-- **Rust / Cangjie only** — 仅支持这两种语言
-- **单仓库** — 每次 tool call 针对一个 root
-- **无持久化** — 不做 graph 存储、repo 注册
+- **多语言** — Rust / Cangjie / ArkTS / TypeScript / C / C++ / Python / Shell
+- **单仓库 + workspace** — 单项目分析与 workspace 图谱/跨项目影响均支持
+- **静态分析** — 不执行目标项目代码，不证明运行时或覆盖率
 
 ### 何时用 CodeLattice MCP vs GitNexus MCP
 
 | 场景 | 推荐 |
 |------|------|
-| Rust/Cangjie 项目结构、symbol、calls、quality | CodeLattice MCP |
-| production detect-changes / impact | GitNexus MCP / Tool |
-| legacy graph / multi-repo / cross-repo | GitNexus MCP / Tool |
+| 支持语言的项目结构、symbol、calls、quality | CodeLattice MCP |
+| CodeLattice 日常 detect-changes / impact | CodeLattice CLI / MCP |
+| workspace graph / cross-project impact | CodeLattice MCP |
+| 历史 GitNexus process-flow 对照 | GitNexus MCP / Tool（fallback） |
 | 快速本地质量检查 | CodeLattice MCP |
 | 真实重命名 / refactoring apply | IDE / language server（非 MCP） |
 
@@ -122,7 +123,7 @@ args = ["/path/to/codelattice/scripts/codelattice-mcp.sh"]
 
 Claude Code (CLI) 配置路径：`~/.claude/claude_desktop_config.json` 或项目级 `.claude/config.json`。
 
-如需与 GitNexus MCP 并存：
+如需与 legacy GitNexus MCP 并存（仅作 fallback / 历史 process-flow 对照）：
 
 ```json
 {
@@ -172,7 +173,7 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 
 ### 配置要点
 
-1. CodeLattice 作为 sidecar 接入，不替代 GitNexus
+1. CodeLattice 是日常本地 sidecar；GitNexus 仅作 legacy fallback / 对照
 2. 使用 wrapper 脚本而非直接 `cargo run`
 3. 配置后需重启 opencode session 才能发现新 tools
 4. wrapper 使用已 promote 的稳定 release binary；开发区变更不会自动影响 AI IDE

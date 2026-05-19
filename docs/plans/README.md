@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-19（CodeLattice Native Detect-Changes）
+最后更新：2026-05-20（CodeLattice Native Governance Migration）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**CodeLattice Native Governance Migration（2026-05-20，已完成）：**
+- 📝 [2026-05-20-native-governance-migration-preflight.md](2026-05-20-native-governance-migration-preflight.md) — 将 CodeLattice 日常自审从 legacy GitNexus-Tool 迁到原生命令：precommit bundle、AGENTS/README/MCP setup 文档更新、fallback 边界。
+- ✅ [2026-05-20-native-governance-migration-closure.md](2026-05-20-native-governance-migration-closure.md) — closure：`scripts/codelattice-precommit-check.sh`、native detect-changes 默认化、legacy Tool fallback 化、验证与边界记录。
 
 **CodeLattice Native Detect-Changes（2026-05-19，已完成）：**
 - 📝 [2026-05-19-codelattice-detect-changes-preflight.md](2026-05-19-codelattice-detect-changes-preflight.md) — 首个 CodeLattice 原生提交前变化审查入口：CLI `detect-changes`、MCP 复用策略、scope 映射、JSON envelope、smoke/test 计划。

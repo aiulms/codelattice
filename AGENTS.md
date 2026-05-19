@@ -1,27 +1,27 @@
-<!-- version: 1.1.0 -->
-<!-- Last updated: 2026-05-09 -->
+<!-- version: 1.3.0 -->
+<!-- Last updated: 2026-05-20 -->
 
-Last reviewed: 2026-05-09
+Last reviewed: 2026-05-20
 
-**Project:** CodeLattice · **Environment:** dev · **Governance source:** [GitNexus-RC](https://gitcode.com/aiulms/gitnexus-rc)
+**Project:** CodeLattice · **Environment:** dev · **Daily governance:** CodeLattice-native
 
 ## Purpose
 
-CodeLattice 是本地代码图谱分析核心，目前面向 Rust 与 Cangjie 项目提供符号提取、调用解析、结构图生成和质量检查能力。它的旧工作名是 `gitnexus-rust-core`；旧名只作为历史事实、兼容 flag/package 名或迁移文档保留。
+CodeLattice 是本地代码图谱分析核心，目前面向 Rust、Cangjie、ArkTS、TypeScript、C、C++、Python、Shell 项目提供符号提取、调用解析、结构图生成、质量检查、MCP sidecar、WebUI workbench 和提交前变化审查能力。它的旧工作名是 `gitnexus-rust-core`；旧名只作为历史事实、兼容 flag/package 名或迁移文档保留。
 
 **治理关系：**
-- GitNexus-RC 是治理来源、架构决策记录和 TypeScript adapter 主仓库
-- CodeLattice 是 Rust-native / Cangjie-native 实现主体
-- 所有语言支持决策、fixture 设计、confidence/reason 策略源自 GitNexus-RC `docs/language-support/`
-- CodeLattice 日常 implementation closure 可在本地记录；跨仓 handoff / milestone 记录到 GitNexus-RC
+- CodeLattice 日常开发治理优先使用本仓原生命令与脚本。
+- GitNexus-RC 是历史治理来源、早期架构决策记录和跨仓 milestone 参考，不再是 CodeLattice 日常 detect-changes 的默认入口。
+- 早期语言支持决策、fixture 设计、confidence/reason 策略来源于 GitNexus-RC `docs/language-support/`；新决策优先沉淀在 CodeLattice `docs/` / `docs/plans/`。
+- 跨仓 handoff / milestone 如确实涉及 GitNexus-RC，再同步记录到 GitNexus-RC。
 
 ## Scope
 
 | Boundary | Rule |
 |----------|------|
-| **Reads** | `crates/`, `fixtures/`, `docs/`, `Cargo.toml` |
-| **Writes** | `crates/`, `fixtures/`, `docs/` |
-| **Executes** | `cargo fmt`, `cargo test`, `cargo run`, `rustc` (fixture validation) |
+| **Reads** | `crates/`, `fixtures/`, `docs/`, `scripts/`, `webui/`, `Cargo.toml`, `AGENTS.md` |
+| **Writes** | `crates/`, `fixtures/`, `docs/`, `scripts/`, `webui/`, `AGENTS.md` |
+| **Executes** | `cargo fmt`, `cargo test`, `cargo run`, `rustc` (fixture validation), CodeLattice smoke scripts |
 | **Off-limits** | GitNexus-RC runtime/adapter/schema, live repos (open-nwe/cangjie), production analyze |
 
 ## Execution Sequence (complex tasks)
@@ -34,7 +34,7 @@ For multi-step work：
 5. 如涉及跨仓变更，同步记录到 GitNexus-RC
 
 **跨仓操作规则：**
-- 修改 CodeLattice 后必须 `cargo fmt --check` + `cargo test` + `git diff --check`
+- 修改 CodeLattice 后必须至少运行 `cargo fmt --check` + `git diff --check` + 相关测试；提交前优先运行 `scripts/codelattice-precommit-check.sh`
 - Commit 后 push gitcode master
 - Push 失败时记录错误，继续后续低风险工作
 - 不做 destructive git 操作
@@ -52,7 +52,7 @@ For multi-step work：
 - **No full cfg evaluator** — cfg-gated `mod` 只标记 `unknown`
 - **No `cargo metadata` execution** — 只用 manifest-derived project model
 - **No proc-macro / build.rs** — 不执行
-- **No UI / MCP server / commercial distribution**
+- **No commercial distribution without release gate** — 发布包、安装器、市场投放需单独 release gate
 - **No live repo modification** — 不改 open-nwe / cangjie / warp / openfang 源码
 - **No GitNexus-RC runtime/schema modification** — 不改 GitNexus-RC adapter / graph schema / package
 
@@ -111,6 +111,7 @@ For multi-step work：
 ```bash
 cargo fmt --check    # Formatting check
 cargo test           # All tests
+scripts/codelattice-precommit-check.sh
 ```
 
 ## Comment Policy
@@ -131,49 +132,62 @@ cargo test           # All tests
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-05-20 | 1.3.0 | Switched daily CodeLattice governance to native `codelattice detect-changes` / `scripts/codelattice-precommit-check.sh`; legacy GitNexus Tool is fallback/comparison only. |
 | 2026-05-09 | 1.2.0 | Renamed public project identity from GitNexus Rust-core to CodeLattice; indexed repo as codelattice. |
 | 2026-05-04 | 1.1.0 | Added active bug gate for graph schema v0.2 dangling CALLS edges; refreshed CALLS/method/external stop-lines to match landed reality. |
 | 2026-05-04 | 1.0.0 | Initial AGENTS.md for Rust-core minimum governance. |
 
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+<!-- codelattice-native:start -->
+# CodeLattice — Native Governance
 
-This project is indexed by GitNexus as **codelattice**. Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
-
-> If any GitNexus tool warns the index is stale, run `node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js analyze` in terminal first.
+This project now uses CodeLattice-native tools for daily self-review. Legacy GitNexus-Tool commands are fallback/comparison only.
 
 ## Always Do
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+- **MUST assess impact before editing important symbols.** Prefer CodeLattice MCP tools such as `codelattice_impact_preview`, `codelattice_change_review`, `codelattice_symbol`, or `codelattice_workspace` depending on the scope. Report risk level and likely blast radius before high-risk edits.
+- **MUST run native precommit governance before committing** unless the user explicitly asks for a narrower check:
+
+```bash
+scripts/codelattice-precommit-check.sh
+```
+
+- **MUST run native detect-changes before committing** when the full precommit script is too expensive:
+
+```bash
+target/debug/codelattice detect-changes --root . --language rust --scope all --compact
+```
+
+- **MUST warn the user** if native detect-changes or impact analysis reports `high` or `critical` risk before proceeding with commit/push.
+- When exploring unfamiliar code, prefer CodeLattice MCP facade tools first (`codelattice_project`, `codelattice_symbol`, `codelattice_workspace`) and use `rg` / source reads for local confirmation.
 
 ## Never Do
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- NEVER treat static analysis as compiler/runtime/coverage proof.
+- NEVER delete code solely because a static tool labels it unreachable/dead; use framework entry hints, external API surface, and human review.
+- NEVER rename symbols with find-and-replace when a graph-aware path is available.
+- NEVER commit without either `scripts/codelattice-precommit-check.sh` or `codelattice detect-changes` output.
+- NEVER use `npx gitnexus` for CodeLattice governance.
 
-## Resources
-
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/codelattice/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/codelattice/clusters` | All functional areas |
-| `gitnexus://repo/codelattice/processes` | All execution flows |
-| `gitnexus://repo/codelattice/process/{name}` | Step-by-step execution trace |
-
-## CLI
-
-Use MCP tools first. If MCP is unavailable, use the Tool CLI absolute path:
+## Native CLI
 
 ```bash
-node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js <command>
+# Native change review
+target/debug/codelattice detect-changes --root . --language rust --scope all --compact
+
+# Native precommit bundle
+scripts/codelattice-precommit-check.sh
+
+# Optional fuller gate
+scripts/codelattice-precommit-check.sh --full
 ```
 
-Never use `npx gitnexus` for production analyze/status/context/impact/detect-changes.
+## Legacy Fallback
 
-<!-- gitnexus:end -->
+Use the legacy GitNexus-Tool CLI only when native CodeLattice checks are unavailable or when a task explicitly needs historical GitNexus process-flow comparison:
+
+```bash
+node /Users/jiangxuanyang/Desktop/GitNexus-RC-Tool/gitnexus/dist/cli/index.js detect-changes --repo codelattice --scope all
+```
+
+If native and legacy outputs disagree, trust native CodeLattice for CodeLattice-owned fields and document the discrepancy in closure notes.
+<!-- codelattice-native:end -->

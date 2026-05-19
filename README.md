@@ -336,6 +336,14 @@ target/release/codelattice detect-changes \
 
 为避免提交前漏掉新文件，`--scope all` 还会额外读取 `git ls-files --others --exclude-standard`，在 `untrackedFiles` 和 `summary.untrackedFileCount` 中报告未跟踪文件。
 
+如果你在 CodeLattice 本仓开发，推荐直接运行原生 precommit bundle：
+
+```bash
+scripts/codelattice-precommit-check.sh
+```
+
+它会按顺序运行格式检查、diff whitespace 检查、productization/MCP regression、`codelattice-detect-changes` smoke，并最后输出本仓 `detect-changes` 摘要。默认不调用 GitNexus-Tool；旧 Tool 只作为过渡期 fallback 或对照检查。
+
 ### 质量检查
 
 ```bash
