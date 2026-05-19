@@ -312,6 +312,7 @@ dependencies = [
  "gitnexus-python",
  "gitnexus-shell",
  "gitnexus-typescript",
+ "gitnexus-workspace-model",
  "predicates",
  "serde",
  "serde_json",
@@ -335,6 +336,15 @@ dependencies = [
  "thiserror",
  "tree-sitter",
  "tree-sitter-typescript",
+]
+
+[[package]]
+name = "gitnexus-workspace-model"
+version = "0.15.0-beta.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

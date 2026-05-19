@@ -2,7 +2,7 @@
 # MCP Local Client Integration Smoke — simulates an MCP client using the wrapper.
 #
 # Tests that the wrapper script can start the server, accept JSON-RPC calls,
-# and return valid responses for the full beta MCP toolset (38 tools).
+# and return valid responses for the full beta MCP toolset (42 tools).
 #
 # Usage: bash scripts/mcp-local-client-smoke.sh
 #

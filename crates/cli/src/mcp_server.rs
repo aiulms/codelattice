@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 38 tools:
+//! Provides 42 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -17,6 +17,7 @@
 //!   v0.10: codelattice_dead_code_candidates
 //!   v0.11: codelattice_impact_analysis, codelattice_risk_hotspots, codelattice_architecture_drift
 //!   v0.27: codelattice_automation_graph
+//!   v0.28: codelattice_workspace_graph, codelattice_cross_project_impact
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -29,6 +30,8 @@
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         All tools are read-only.
 
+use gitnexus_workspace_model::build_workspace_graph;
+use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
@@ -8340,8 +8343,84 @@ fn tools_list() -> Value {
                     },
                     "required": ["scenario"]
                 }
+            },
+            {
+                "name": "codelattice_workspace_graph",
+                "description": "Build a workspace-level dependency graph from a multi-project workspace root. Scans project manifests (Cargo.toml, package.json, cjpm.toml, *.csproj), scripts, CI configs, Dockerfiles, and Makefiles. Returns nodes, edges, summary, and cautions. Static-only heuristic — no build execution, no runtime proof.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to the workspace root directory" },
+                        "redactRoot": { "type": "boolean", "default": true, "description": "Redact absolute path prefix in output, use relative paths" },
+                        "compact": { "type": "boolean", "default": false, "description": "Omit node/edge arrays, return summary only" },
+                        "includeScriptRefs": { "type": "boolean", "default": true, "description": "Include script reference edges (script_refs)" },
+                        "includeConfigRefs": { "type": "boolean", "default": true, "description": "Include config reference edges (config_refs)" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_cross_project_impact",
+                "description": "Analyze cross-project impact by BFS-traversing the workspace graph from a target node. Returns affected projects, assets, unsupported boundaries, impact paths, risk reasons, and a review checklist. Static-only heuristic — no build execution, no runtime proof.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to the workspace root directory" },
+                        "target": {
+                            "type": "object",
+                            "description": "Target to analyze: nodeId, projectId, path, or query",
+                            "properties": {
+                                "nodeId": { "type": "string", "description": "Exact node ID (e.g. 'project:rust-core')" },
+                                "projectId": { "type": "string", "description": "Project name or relative path" },
+                                "path": { "type": "string", "description": "File path (e.g. 'Dockerfile', 'Makefile')" },
+                                "query": { "type": "string", "description": "Fuzzy search by label or path substring" }
+                            }
+                        },
+                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both", "description": "BFS traversal direction" },
+                        "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5, "description": "Maximum BFS depth" },
+                        "compact": { "type": "boolean", "default": false, "description": "Omit paths and affectedAssets arrays" },
+                        "redactRoot": { "type": "boolean", "default": true, "description": "Redact absolute path prefix in output" }
+                    },
+                    "required": ["root", "target"]
+                }
+            },
+            {
+                "name": "codelattice_workspace_graph",
+                "description": "Build a workspace-level dependency graph across multiple projects. Scans filesystem for projects (Cargo.toml, package.json, cjpm.toml), scripts, CI configs, Dockerfiles, Makefiles, and infers cross-project dependencies. No analysis cache required — works directly on filesystem. Returns nodes (projects, scripts, configs, workflows) and edges (depends_on, script_refs, config_refs, adjacent_to). Supported languages: Rust, Cangjie, TypeScript. Unsupported languages shown as boundary/risk only.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to workspace root directory" },
+                        "redactRoot": { "type": "boolean", "default": true, "description": "Redact absolute paths to relative paths in output" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit nodes/edges, return summary only" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_cross_project_impact",
+                "description": "Analyze cross-project impact from a target (project, config, or script) in a workspace. Performs BFS traversal of the workspace graph to find affected projects, assets, and unsupported boundaries. Returns risk assessment, impact paths, and review checklist. Target can be specified by nodeId, projectId, path, or query. No analysis cache required.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to workspace root directory" },
+                        "target": {
+                            "type": "object",
+                            "description": "Target specification (at least one field required)",
+                            "properties": {
+                                "nodeId": { "type": "string", "description": "Exact node ID (e.g., 'project:rust-core')" },
+                                "projectId": { "type": "string", "description": "Project name or relative path" },
+                                "path": { "type": "string", "description": "File path (absolute or relative to root)" },
+                                "query": { "type": "string", "description": "Fuzzy search term" }
+                            }
+                        },
+                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both", "description": "Impact traversal direction" },
+                        "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5, "description": "Maximum BFS traversal depth" },
+                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit paths and affected items, return summary only" }
+                    },
+                    "required": ["root", "target"]
+                }
             }
-
 
 
 
@@ -12181,6 +12260,10 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 }
                 "codelattice_automation_graph" => handle_automation_graph(cache, &arguments),
                 "codelattice_workflow_presets" => handle_workflow_presets(cache, &arguments),
+                "codelattice_workspace_graph" => handle_workspace_graph(cache, &arguments),
+                "codelattice_cross_project_impact" => {
+                    handle_cross_project_impact(cache, &arguments)
+                }
                 _ => Err(mcp_error(
                     "unknown_tool",
                     &format!("Unknown tool: {tool_name}"),
@@ -15942,6 +16025,107 @@ fn compute_workflow_presets(params: &Value) -> Result<Value, Value> {
 
 fn handle_workflow_presets(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     compute_workflow_presets(params)
+}
+
+// ============================================================
+// v0.28: Workspace Graph & Cross-Project Impact
+// ============================================================
+
+/// codelattice_workspace_graph handler — filesystem-only, no analysis cache needed.
+fn handle_workspace_graph(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let redact_root = params["redactRoot"].as_bool().unwrap_or(true);
+    let compact = params["compact"].as_bool().unwrap_or(false);
+
+    let graph = build_workspace_graph(&validated, redact_root)
+        .map_err(|e| mcp_error("workspace_scan_error", &e))?;
+
+    let mut out = serde_json::to_value(&graph).map_err(|e| {
+        mcp_error(
+            "serialization_error",
+            &format!("Failed to serialize graph: {e}"),
+        )
+    })?;
+
+    if compact {
+        // compact 模式：只返回 summary + cautions + generatedFrom，去掉 nodes/edges
+        if let Some(obj) = out.as_object_mut() {
+            obj.remove("nodes");
+            obj.remove("edges");
+        }
+    }
+
+    Ok(tool_result(&out))
+}
+
+/// codelattice_cross_project_impact handler — filesystem-only, no analysis cache needed.
+fn handle_cross_project_impact(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let redact_root = params["redactRoot"].as_bool().unwrap_or(true);
+
+    // 解析 target 参数
+    let target_val = params
+        .get("target")
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: target"))?;
+
+    let target = ImpactTarget {
+        node_id: target_val["nodeId"].as_str().map(|s| s.to_string()),
+        project_id: target_val["projectId"].as_str().map(|s| s.to_string()),
+        path: target_val["path"].as_str().map(|s| s.to_string()),
+        snapshot_id: None,
+        query: target_val["query"].as_str().map(|s| s.to_string()),
+    };
+
+    // 至少需要一个 target 字段
+    if target.node_id.is_none()
+        && target.project_id.is_none()
+        && target.path.is_none()
+        && target.query.is_none()
+    {
+        return Err(mcp_error(
+            "invalid_parameter",
+            "target must have at least one of: nodeId, projectId, path, query",
+        ));
+    }
+
+    // 解析 direction
+    let direction = match params["direction"].as_str().unwrap_or("both") {
+        "upstream" => ImpactDirection::Upstream,
+        "downstream" => ImpactDirection::Downstream,
+        _ => ImpactDirection::Both,
+    };
+
+    let max_depth = params["maxDepth"].as_u64().unwrap_or(3).min(5) as usize;
+
+    // 先构建 workspace graph（impact 依赖 graph）
+    let graph = build_workspace_graph(&validated, redact_root)
+        .map_err(|e| mcp_error("workspace_scan_error", &e))?;
+
+    // 执行 BFS 影响 analysis
+    let result = cross_project_impact(&graph, &target, direction, max_depth);
+
+    let mut out = serde_json::to_value(&result).map_err(|e| {
+        mcp_error(
+            "serialization_error",
+            &format!("Failed to serialize impact: {e}"),
+        )
+    })?;
+
+    if compact {
+        if let Some(obj) = out.as_object_mut() {
+            obj.remove("affected_assets");
+            obj.remove("paths");
+        }
+    }
+
+    Ok(tool_result(&out))
 }
 
 pub fn run_mcp_server() -> Result<(), String> {

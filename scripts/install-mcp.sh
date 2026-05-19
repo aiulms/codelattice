@@ -213,7 +213,7 @@ JSON
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - This script never writes client config; it only prints snippets"
     echo "  - Supports Rust, Cangjie, ArkTS, TypeScript, C, C++, and Python when built with --build"
-    echo "  - 38 tools including graph diagnostics, review gates, workflow presets, automation graph, and process-local cache"
+    echo "  - 42 tools including graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, and process-local cache"
     echo "  - Read-only — never modifies source code"
     echo "  - After config change, restart your AI client session to reload MCP tools"
 fi

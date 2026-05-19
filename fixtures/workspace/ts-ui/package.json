@@ -1,0 +1,8 @@
+{
+  "name": "ts-ui",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "bash scripts/build-core.sh",
+    "deploy": "bash scripts/deploy.sh"
+  }
+}
