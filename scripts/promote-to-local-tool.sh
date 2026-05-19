@@ -103,6 +103,28 @@ run() {
     fi
 }
 
+install_executable() {
+    local src="$1"
+    local dst="$2"
+    local tmp="${dst}.new.$$"
+    local backup="${dst}.replaced-$(date -u +%Y%m%d%H%M%S)"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "DRY-RUN: install executable $src -> $dst"
+        return
+    fi
+
+    cp "$src" "$tmp"
+    chmod +x "$tmp"
+    if [[ -e "$dst" ]]; then
+        # Keep the old inode available for already-running MCP clients. Replacing
+        # the executable in place can leave macOS launching the path with SIGKILL
+        # while stale clients still map the previous binary.
+        mv "$dst" "$backup"
+    fi
+    mv "$tmp" "$dst"
+}
+
 json_escape() {
     python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n"))[1:-1])'
 }
@@ -133,10 +155,9 @@ fi
 echo ""
 echo "--- Installing stable runtime ---"
 run mkdir -p "$INSTALL_BIN_DIR"
-run cp "$RELEASE_BIN" "$INSTALL_BIN"
-run cp "$RELEASE_BIN" "$INSTALL_LEGACY_ALIAS_BIN"
-run cp "$RELEASE_COMPAT_BIN" "$INSTALL_COMPAT_BIN"
-run chmod +x "$INSTALL_BIN" "$INSTALL_LEGACY_ALIAS_BIN" "$INSTALL_COMPAT_BIN"
+install_executable "$RELEASE_BIN" "$INSTALL_BIN"
+install_executable "$RELEASE_BIN" "$INSTALL_LEGACY_ALIAS_BIN"
+install_executable "$RELEASE_COMPAT_BIN" "$INSTALL_COMPAT_BIN"
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "DRY-RUN: write $INSTALL_WRAPPER"
@@ -214,6 +235,7 @@ print("  typescriptSupport: {}".format(s.get("typescriptSupport", "unknown")))
 print("  cSupport: {}".format(s.get("cSupport", "unknown")))
 print("  cppSupport: {}".format(s.get("cppSupport", "unknown")))
 print("  pythonSupport: {}".format(s.get("pythonSupport", "unknown")))
+print("  shellSupport: {}".format(s.get("shellSupport", "unknown")))
 print("  toolCount: {}".format(s.get("toolCount", "unknown")))'
     exit 0
 fi
@@ -234,6 +256,7 @@ assert s.get("typescriptSupport") is True
 assert s.get("cSupport") is True
 assert s.get("cppSupport") is True
 assert s.get("pythonSupport") is True
+assert s.get("shellSupport") is True
 print("  serverVersion: {}".format(s.get("version")))
 print("  toolCount: {}".format(s.get("toolCount")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
@@ -241,7 +264,8 @@ print("  arktsSupport: {}".format(s.get("arktsSupport")))
 print("  typescriptSupport: {}".format(s.get("typescriptSupport")))
 print("  cSupport: {}".format(s.get("cSupport")))
 print("  cppSupport: {}".format(s.get("cppSupport")))
-print("  pythonSupport: {}".format(s.get("pythonSupport")))'
+print("  pythonSupport: {}".format(s.get("pythonSupport")))
+print("  shellSupport: {}".format(s.get("shellSupport")))'
 
     MULTI_RESP="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-tool-self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$BIN" mcp 2>/dev/null)"
     TOOL_COUNT="$(echo "$MULTI_RESP" | python3 -c 'import json,sys
@@ -288,6 +312,7 @@ for line in sys.stdin:
     C_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cSupport", False)).lower())' 2>/dev/null || echo false)"
     CPP_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cppSupport", False)).lower())' 2>/dev/null || echo false)"
     PYTHON_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("pythonSupport", False)).lower())' 2>/dev/null || echo false)"
+    SHELL_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("shellSupport", False)).lower())' 2>/dev/null || echo false)"
     TOOL_COUNT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))' 2>/dev/null || echo 0)"
     cat > "$INSTALL_MANIFEST" <<JSON
 {
@@ -317,6 +342,7 @@ for line in sys.stdin:
     "cSupport": $C_SUPPORT,
     "cppSupport": $CPP_SUPPORT,
     "pythonSupport": $PYTHON_SUPPORT,
+    "shellSupport": $SHELL_SUPPORT,
     "toolCount": $TOOL_COUNT
   }
 }
