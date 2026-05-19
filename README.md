@@ -8,7 +8,7 @@ CodeLattice 是一个 **本地代码智能引擎**：面向大型、遗留、复
 
 一句话概括：**先把代码地图画出来，再让 AI 下手。**
 
-CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 暴露 42 个 MCP 工具，已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查、AI 工作流预设、工作区图谱和跨项目影响分析。
+CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 暴露 50 个 MCP 工具，已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查、AI 工作流预设、工作区图谱和跨项目影响分析。
 
 **当前状态：外部 Beta / daily-use candidate（当前 master 为 `v0.15.0-beta.1` candidate，最新已发布 GitCode Release 为 `v0.14.0-beta.1`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
@@ -547,7 +547,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - C++ CLI 分析（Phase A）
 - Python CLI 分析（Phase A）
 - Shell CLI 分析（Phase A）
-- MCP sidecar 42 个工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱和跨项目影响分析
+- MCP sidecar 50 个工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱和跨项目影响分析
 - 两层持久化缓存
 - stable runtime promote
 - release tarball packaging + release smoke

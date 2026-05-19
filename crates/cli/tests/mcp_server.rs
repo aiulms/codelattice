@@ -206,7 +206,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_forty_two_tools() {
+fn mcp_tools_list_returns_fifty_tools() {
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -223,7 +223,7 @@ fn mcp_tools_list_returns_forty_two_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 42, "expected 42 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 50, "expected 50 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools

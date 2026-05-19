@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 42 tools:
+//! Provides 50 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -18,6 +18,7 @@
 //!   v0.11: codelattice_impact_analysis, codelattice_risk_hotspots, codelattice_architecture_drift
 //!   v0.27: codelattice_automation_graph
 //!   v0.28: codelattice_workspace_graph, codelattice_cross_project_impact
+//!   v0.29: 8 facade tools (project, symbol, change_review, cleanup, workspace, release_check, cache, workflow)
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -8420,6 +8421,133 @@ fn tools_list() -> Value {
                     },
                     "required": ["root", "target"]
                 }
+            },
+            {
+                "name": "codelattice_project",
+                "description": "Project-level understanding: overview, quality gates, insights. Use this as the default entry point for single-project analysis.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to project root" },
+                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "full"], "default": "overview", "description": "Analysis mode" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": false }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_symbol",
+                "description": "Symbol-level query: search, context, callers, callees, graph query.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to project root" },
+                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "graph"], "default": "search", "description": "Query mode" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": false },
+                        "name": { "type": "string", "description": "Symbol name (required for context, callers, callees modes)" },
+                        "query": { "type": "string", "description": "Search query (for search mode)" },
+                        "kind": { "type": "string", "description": "Filter by symbol kind" },
+                        "limit": { "type": "integer", "default": 20, "description": "Max results" },
+                        "depth": { "type": "integer", "default": 1, "description": "Call depth for callers/callees" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_change_review",
+                "description": "Change review: changed symbols, impact preview, production readiness, breaking changes, consistency. Use before/after editing.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to project root" },
+                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review"], "default": "impact", "description": "Review mode" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": false },
+                        "symbol": { "type": "string", "description": "Target symbol (for impact mode)" },
+                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Changed symbol names" },
+                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_cleanup",
+                "description": "Code cleanup analysis: dead code candidates, reachability, external API surface, framework entry hints. Use before deleting code.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to project root" },
+                        "mode": { "type": "string", "enum": ["dead_code", "reachability", "external_api", "framework_entries", "safe_cleanup_review"], "default": "dead_code", "description": "Analysis mode" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": false },
+                        "limit": { "type": "integer", "default": 50, "description": "Max results" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_workspace",
+                "description": "Workspace-level multi-project analysis: dependency graph, cross-project impact, overview. Use for mono-repo or multi-project workspaces.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to workspace root" },
+                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "full"], "default": "graph", "description": "Analysis mode" },
+                        "compact": { "type": "boolean", "default": false },
+                        "target": {
+                            "type": "object",
+                            "description": "Target for impact mode",
+                            "properties": {
+                                "nodeId": { "type": "string" },
+                                "projectId": { "type": "string" },
+                                "path": { "type": "string" },
+                                "query": { "type": "string" }
+                            }
+                        },
+                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
+                        "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5 }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_release_check",
+                "description": "Pre-release quality and consistency review: quality gates, config drift, breaking changes, docs/tests sync.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Absolute path to project root" },
+                        "mode": { "type": "string", "enum": ["quick", "full", "config", "docs_tests", "breaking_changes"], "default": "quick", "description": "Release check mode" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": false }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
+                "name": "codelattice_cache",
+                "description": "Cache management: status, clear, explain the two-layer analysis cache.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": { "type": "string", "enum": ["status", "clear", "explain"], "default": "status", "description": "Cache operation" },
+                        "compact": { "type": "boolean", "default": false }
+                    }
+                }
+            },
+            {
+                "name": "codelattice_workflow",
+                "description": "AI workflow guidance: onboarding, before_edit, after_edit, delete_code, release_check, legacy_cleanup. Returns suggested tool sequences.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup"], "default": "onboarding", "description": "Workflow scenario" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "compact": { "type": "boolean", "default": true }
+                    }
+                }
             }
 
 
@@ -8427,6 +8555,42 @@ fn tools_list() -> Value {
 
         ]
     })
+}
+
+/// CODELATTICE_MCP_TOOLSET=core → only facade + essential standalone tools
+fn is_core_toolset() -> bool {
+    std::env::var("CODELATTICE_MCP_TOOLSET")
+        .unwrap_or_else(|_| "full".to_string())
+        .to_lowercase()
+        == "core"
+}
+
+fn is_core_tool(name: &str) -> bool {
+    // Facade tools
+    if name.starts_with("codelattice_project")
+        || name.starts_with("codelattice_symbol")
+        || name.starts_with("codelattice_change_review")
+        || name.starts_with("codelattice_cleanup")
+        || name.starts_with("codelattice_workspace")  // covers workspace_graph and cross_project_impact too
+        || name.starts_with("codelattice_release_check")
+        || name.starts_with("codelattice_cache")        // covers cache_status/clear/prewarm too
+        || name.starts_with("codelattice_workflow")
+    // covers workflow_presets too
+    {
+        return true;
+    }
+    // Essential standalone tools
+    matches!(
+        name,
+        "codelattice_analyze"
+            | "codelattice_smoke"
+            | "codelattice_repo_registry"
+            | "codelattice_export_bridge"
+            | "codelattice_automation_graph"
+            | "codelattice_ai_context_pack"
+            | "codelattice_compare_runs"
+            | "codelattice_rename_preview"
+    )
 }
 
 // ============================================================
@@ -12204,7 +12368,15 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
             ))
         }
 
-        "tools/list" => Some(make_response(&id, tools_list())),
+        "tools/list" => {
+            let mut tools_val = tools_list();
+            if is_core_toolset() {
+                if let Some(tools) = tools_val.get_mut("tools").and_then(|t| t.as_array_mut()) {
+                    tools.retain(|t| is_core_tool(t["name"].as_str().unwrap_or("")));
+                }
+            }
+            Some(make_response(&id, tools_val))
+        }
 
         "tools/call" => {
             let tool_name = params["name"].as_str().unwrap_or("");
@@ -12264,10 +12436,27 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_cross_project_impact" => {
                     handle_cross_project_impact(cache, &arguments)
                 }
-                _ => Err(mcp_error(
-                    "unknown_tool",
-                    &format!("Unknown tool: {tool_name}"),
-                )),
+                "codelattice_project" => handle_project(cache, &arguments),
+                "codelattice_symbol" => handle_symbol(cache, &arguments),
+                "codelattice_change_review" => handle_change_review(cache, &arguments),
+                "codelattice_cleanup" => handle_cleanup(cache, &arguments),
+                "codelattice_workspace" => handle_workspace(cache, &arguments),
+                "codelattice_release_check" => handle_release_check(cache, &arguments),
+                "codelattice_cache" => handle_cache(cache, &arguments),
+                "codelattice_workflow" => handle_workflow(cache, &arguments),
+                _ => {
+                    if is_core_toolset() {
+                        Err(mcp_error(
+                            "tool_not_in_core_toolset",
+                            &format!("Tool '{tool_name}' is not available in core toolset. Use CODELATTICE_MCP_TOOLSET=full to access all tools."),
+                        ))
+                    } else {
+                        Err(mcp_error(
+                            "unknown_tool",
+                            &format!("Unknown tool: {tool_name}"),
+                        ))
+                    }
+                }
             };
 
             match result {
@@ -16126,6 +16315,721 @@ fn handle_cross_project_impact(_cache: &mut McpCache, params: &Value) -> Result<
     }
 
     Ok(tool_result(&out))
+}
+
+// ============================================================
+// v0.29: Facade Tools — Consolidated MCP Tool Surface
+// ============================================================
+
+/// 从 tool_result 格式中提取内层 JSON
+fn unwrap_tool_result(result: &Value) -> Value {
+    result["content"]
+        .get(0)
+        .and_then(|c| c["text"].as_str())
+        .and_then(|s| serde_json::from_str::<Value>(s).ok())
+        .unwrap_or(json!({}))
+}
+
+/// 将子工具结果包装为统一 facade 输出
+fn wrap_facade_output(
+    inner: Value,
+    tool: &str,
+    mode: &str,
+    language: &str,
+    root: &str,
+    summary: Value,
+    next_actions: Vec<&str>,
+    underlying: Vec<&str>,
+    compact: bool,
+) -> Value {
+    let mut out = json!({
+        "schemaVersion": "facade.v1",
+        "tool": tool,
+        "mode": mode,
+        "language": language,
+        "root": root,
+        "summary": summary,
+        "result": inner,
+        "nextActions": next_actions,
+        "cautions": [
+            "static analysis only — no runtime proof",
+            "scripts executed: false",
+            "coverage verified: false",
+            "do not treat as production readiness signal"
+        ],
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "coverageVerified": false
+        },
+        "compact": compact,
+        "underlyingTools": underlying
+    });
+    if compact {
+        if let Some(obj) = out.as_object_mut() {
+            obj.remove("result");
+            if let Some(s) = obj.get("summary").and_then(|s| s.get("riskLevel")) {
+                obj.insert("summary".to_string(), json!({"riskLevel": s}));
+            }
+        }
+    }
+    out
+}
+
+/// 验证 facade mode 参数
+fn validate_facade_mode(mode: &str, valid: &[&str], tool: &str) -> Result<(), Value> {
+    if valid.contains(&mode) {
+        Ok(())
+    } else {
+        Err(mcp_error(
+            "invalid_mode",
+            &format!(
+                "Unknown mode '{mode}' for {tool}. Valid: {}",
+                valid.join(", ")
+            ),
+        ))
+    }
+}
+
+/// multi-tool mode 安全调用：失败收错，不中止
+fn safe_call_tool<F>(results: &mut Vec<Value>, errors: &mut Vec<String>, name: &str, f: F)
+where
+    F: FnOnce() -> Result<Value, Value>,
+{
+    match f() {
+        Ok(v) => results.push(v),
+        Err(e) => errors.push(format!("{name}: {e}")),
+    }
+}
+
+// ── codelattice_project ──────────────────────────────────────────────
+
+fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let mode = params["mode"].as_str().unwrap_or("overview");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = params["language"].as_str().unwrap_or("auto");
+    validate_facade_mode(
+        mode,
+        &["overview", "quality", "insights", "full"],
+        "codelattice_project",
+    )?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "overview" => {
+            let r = handle_project_overview(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_project_overview"])
+        }
+        "quality" => {
+            let r = handle_quality(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_quality"])
+        }
+        "insights" => {
+            let r = handle_project_insights(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_project_insights"])
+        }
+        "full" => {
+            let mut results = Vec::new();
+            let mut errors = Vec::new();
+            safe_call_tool(&mut results, &mut errors, "overview", || {
+                Ok(unwrap_tool_result(&handle_project_overview(cache, params)?))
+            });
+            safe_call_tool(&mut results, &mut errors, "quality", || {
+                Ok(unwrap_tool_result(&handle_quality(cache, params)?))
+            });
+            safe_call_tool(&mut results, &mut errors, "insights", || {
+                Ok(unwrap_tool_result(&handle_project_insights(cache, params)?))
+            });
+            let mut merged = json!({});
+            if let Some(obj) = merged.as_object_mut() {
+                if results.len() >= 1 {
+                    obj.insert("overview".into(), results[0].clone());
+                }
+                if results.len() >= 2 {
+                    obj.insert("quality".into(), results[1].clone());
+                }
+                if results.len() >= 3 {
+                    obj.insert("insights".into(), results[2].clone());
+                }
+                if !errors.is_empty() {
+                    obj.insert("errors".into(), json!(errors));
+                }
+            }
+            return Ok(tool_result(&wrap_facade_output(
+                merged,
+                "codelattice_project",
+                mode,
+                language,
+                root,
+                json!({"riskLevel":"check sections"}),
+                vec![],
+                vec![
+                    "codelattice_project_overview",
+                    "codelattice_quality",
+                    "codelattice_project_insights",
+                ],
+                compact,
+            )));
+        }
+        _ => unreachable!(),
+    };
+    let summary = json!({"riskLevel":"low","mode":mode});
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_project",
+        mode,
+        language,
+        root,
+        summary,
+        vec!["Use codelattice_symbol search to explore symbols"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_symbol ───────────────────────────────────────────────
+
+fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let mode = params["mode"].as_str().unwrap_or("search");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = params["language"].as_str().unwrap_or("auto");
+    validate_facade_mode(
+        mode,
+        &["search", "context", "callers", "callees", "graph"],
+        "codelattice_symbol",
+    )?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "search" => {
+            let r = handle_symbol_search(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_symbol_search"])
+        }
+        "context" => {
+            let r = handle_symbol_context(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_symbol_context"])
+        }
+        "callers" => {
+            let r = handle_calls_to(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_calls_to"])
+        }
+        "callees" => {
+            let r = handle_calls_from(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_calls_from"])
+        }
+        "graph" => {
+            let r = handle_query_graph(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_query_graph"])
+        }
+        _ => unreachable!(),
+    };
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_symbol",
+        mode,
+        language,
+        root,
+        json!({"riskLevel":"low","mode":mode}),
+        vec!["Use context mode for full symbol details"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_change_review ────────────────────────────────────────
+
+fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let mode = params["mode"].as_str().unwrap_or("impact");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = params["language"].as_str().unwrap_or("auto");
+    validate_facade_mode(
+        mode,
+        &[
+            "changed_symbols",
+            "impact",
+            "production_assist",
+            "breaking_change",
+            "consistency",
+            "full_review",
+        ],
+        "codelattice_change_review",
+    )?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "changed_symbols" => {
+            let r = handle_changed_symbols(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_changed_symbols"])
+        }
+        "impact" => {
+            let r = handle_impact_preview(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_impact_preview"])
+        }
+        "production_assist" => {
+            let r = handle_production_assist(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_production_assist"],
+            )
+        }
+        "breaking_change" => {
+            let r = handle_breaking_change_review(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_breaking_change_review"],
+            )
+        }
+        "consistency" => {
+            let r = handle_consistency_review(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_consistency_review"],
+            )
+        }
+        "full_review" => {
+            let mut results = Vec::new();
+            let mut errors = Vec::new();
+            safe_call_tool(&mut results, &mut errors, "changed_symbols", || {
+                Ok(unwrap_tool_result(&handle_changed_symbols(cache, params)?))
+            });
+            safe_call_tool(&mut results, &mut errors, "impact", || {
+                Ok(unwrap_tool_result(&handle_impact_preview(cache, params)?))
+            });
+            safe_call_tool(&mut results, &mut errors, "breaking_change", || {
+                Ok(unwrap_tool_result(&handle_breaking_change_review(
+                    cache, params,
+                )?))
+            });
+            safe_call_tool(&mut results, &mut errors, "consistency", || {
+                Ok(unwrap_tool_result(&handle_consistency_review(
+                    cache, params,
+                )?))
+            });
+            let mut merged = json!({});
+            if let Some(obj) = merged.as_object_mut() {
+                if results.len() >= 1 {
+                    obj.insert("changedSymbols".into(), results[0].clone());
+                }
+                if results.len() >= 2 {
+                    obj.insert("impact".into(), results[1].clone());
+                }
+                if results.len() >= 3 {
+                    obj.insert("breakingChange".into(), results[2].clone());
+                }
+                if results.len() >= 4 {
+                    obj.insert("consistency".into(), results[3].clone());
+                }
+                if !errors.is_empty() {
+                    obj.insert("errors".into(), json!(errors));
+                }
+            }
+            return Ok(tool_result(&wrap_facade_output(
+                merged,
+                "codelattice_change_review",
+                mode,
+                language,
+                root,
+                json!({"riskLevel":"varies"}),
+                vec!["Review changedSymbols first"],
+                vec![
+                    "codelattice_changed_symbols",
+                    "codelattice_impact_preview",
+                    "codelattice_breaking_change_review",
+                    "codelattice_consistency_review",
+                ],
+                compact,
+            )));
+        }
+        _ => unreachable!(),
+    };
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_change_review",
+        mode,
+        language,
+        root,
+        json!({"riskLevel":"medium","mode":mode}),
+        vec!["Use full_review mode for comprehensive analysis"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_cleanup ──────────────────────────────────────────────
+
+fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let mode = params["mode"].as_str().unwrap_or("dead_code");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = params["language"].as_str().unwrap_or("auto");
+    validate_facade_mode(
+        mode,
+        &[
+            "dead_code",
+            "reachability",
+            "external_api",
+            "framework_entries",
+            "safe_cleanup_review",
+        ],
+        "codelattice_cleanup",
+    )?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "dead_code" => {
+            let r = handle_dead_code_candidates(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_dead_code_candidates"],
+            )
+        }
+        "reachability" => {
+            let r = handle_reachability_map(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_reachability_map"])
+        }
+        "external_api" => {
+            let r = handle_external_api_surface(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_external_api_surface"],
+            )
+        }
+        "framework_entries" => {
+            let r = handle_framework_entry_hints(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_framework_entry_hints"],
+            )
+        }
+        "safe_cleanup_review" => {
+            let mut results = Vec::new();
+            let mut errors = Vec::new();
+            safe_call_tool(&mut results, &mut errors, "dead_code", || {
+                Ok(unwrap_tool_result(&handle_dead_code_candidates(
+                    cache, params,
+                )?))
+            });
+            safe_call_tool(&mut results, &mut errors, "reachability", || {
+                Ok(unwrap_tool_result(&handle_reachability_map(cache, params)?))
+            });
+            safe_call_tool(&mut results, &mut errors, "external_api", || {
+                Ok(unwrap_tool_result(&handle_external_api_surface(
+                    cache, params,
+                )?))
+            });
+            safe_call_tool(&mut results, &mut errors, "framework_entries", || {
+                Ok(unwrap_tool_result(&handle_framework_entry_hints(
+                    cache, params,
+                )?))
+            });
+            let mut merged = json!({});
+            if let Some(obj) = merged.as_object_mut() {
+                if results.len() >= 1 {
+                    obj.insert("deadCode".into(), results[0].clone());
+                }
+                if results.len() >= 2 {
+                    obj.insert("reachability".into(), results[1].clone());
+                }
+                if results.len() >= 3 {
+                    obj.insert("externalApi".into(), results[2].clone());
+                }
+                if results.len() >= 4 {
+                    obj.insert("frameworkEntries".into(), results[3].clone());
+                }
+                if !errors.is_empty() {
+                    obj.insert("errors".into(), json!(errors));
+                }
+            }
+            return Ok(tool_result(&wrap_facade_output(
+                merged,
+                "codelattice_cleanup",
+                mode,
+                language,
+                root,
+                json!({"riskLevel":"high — do not delete without review"}),
+                vec!["Cross-reference deadCode with reachability"],
+                vec![
+                    "codelattice_dead_code_candidates",
+                    "codelattice_reachability_map",
+                    "codelattice_external_api_surface",
+                    "codelattice_framework_entry_hints",
+                ],
+                compact,
+            )));
+        }
+        _ => unreachable!(),
+    };
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_cleanup",
+        mode,
+        language,
+        root,
+        json!({"riskLevel":"medium","mode":mode}),
+        vec!["Use safe_cleanup_review for comprehensive review"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_workspace ────────────────────────────────────────────
+
+fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let mode = params["mode"].as_str().unwrap_or("graph");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = "auto";
+    validate_facade_mode(
+        mode,
+        &["graph", "impact", "overview", "full"],
+        "codelattice_workspace",
+    )?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "graph" => {
+            let r = handle_workspace_graph(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_workspace_graph"])
+        }
+        "impact" => {
+            let r = handle_cross_project_impact(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_cross_project_impact"],
+            )
+        }
+        "overview" => {
+            let r = handle_workspace_graph(cache, params)?;
+            let g = unwrap_tool_result(&r);
+            (
+                g.get("summary").cloned().unwrap_or(json!({})),
+                vec!["codelattice_workspace_graph"],
+            )
+        }
+        "full" => {
+            let mut results = Vec::new();
+            let mut errors = Vec::new();
+            safe_call_tool(&mut results, &mut errors, "graph", || {
+                Ok(unwrap_tool_result(&handle_workspace_graph(cache, params)?))
+            });
+            let mut merged = json!({});
+            if let Some(obj) = merged.as_object_mut() {
+                if results.len() >= 1 {
+                    obj.insert("graph".into(), results[0].clone());
+                }
+                if !errors.is_empty() {
+                    obj.insert("errors".into(), json!(errors));
+                }
+            }
+            return Ok(tool_result(&wrap_facade_output(
+                merged,
+                "codelattice_workspace",
+                mode,
+                language,
+                root,
+                json!({"riskLevel":"low"}),
+                vec!["Use impact mode with a target"],
+                vec![
+                    "codelattice_workspace_graph",
+                    "codelattice_cross_project_impact",
+                ],
+                compact,
+            )));
+        }
+        _ => unreachable!(),
+    };
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_workspace",
+        mode,
+        language,
+        root,
+        json!({"riskLevel":"low","mode":mode}),
+        vec!["Use impact mode to analyze specific targets"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_release_check ────────────────────────────────────────
+
+fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let mode = params["mode"].as_str().unwrap_or("quick");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = params["language"].as_str().unwrap_or("auto");
+    validate_facade_mode(
+        mode,
+        &["quick", "full", "config", "docs_tests", "breaking_changes"],
+        "codelattice_release_check",
+    )?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "quick" => {
+            let r = handle_quality(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_quality"])
+        }
+        "config" => {
+            let r = handle_config_examples_review(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_config_examples_review"],
+            )
+        }
+        "docs_tests" => {
+            let r = handle_consistency_review(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_consistency_review"],
+            )
+        }
+        "breaking_changes" => {
+            let r = handle_breaking_change_review(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_breaking_change_review"],
+            )
+        }
+        "full" => {
+            let mut results = Vec::new();
+            let mut errors = Vec::new();
+            safe_call_tool(&mut results, &mut errors, "quality", || {
+                Ok(unwrap_tool_result(&handle_quality(cache, params)?))
+            });
+            safe_call_tool(&mut results, &mut errors, "config", || {
+                Ok(unwrap_tool_result(&handle_config_examples_review(
+                    cache, params,
+                )?))
+            });
+            safe_call_tool(&mut results, &mut errors, "breaking_changes", || {
+                Ok(unwrap_tool_result(&handle_breaking_change_review(
+                    cache, params,
+                )?))
+            });
+            safe_call_tool(&mut results, &mut errors, "consistency", || {
+                Ok(unwrap_tool_result(&handle_consistency_review(
+                    cache, params,
+                )?))
+            });
+            let mut merged = json!({});
+            if let Some(obj) = merged.as_object_mut() {
+                if results.len() >= 1 {
+                    obj.insert("quality".into(), results[0].clone());
+                }
+                if results.len() >= 2 {
+                    obj.insert("config".into(), results[1].clone());
+                }
+                if results.len() >= 3 {
+                    obj.insert("breakingChanges".into(), results[2].clone());
+                }
+                if results.len() >= 4 {
+                    obj.insert("consistency".into(), results[3].clone());
+                }
+                if !errors.is_empty() {
+                    obj.insert("errors".into(), json!(errors));
+                }
+            }
+            return Ok(tool_result(&wrap_facade_output(
+                merged,
+                "codelattice_release_check",
+                mode,
+                language,
+                root,
+                json!({"riskLevel":"varies"}),
+                vec!["Check quality section for gate failures"],
+                vec![
+                    "codelattice_quality",
+                    "codelattice_config_examples_review",
+                    "codelattice_breaking_change_review",
+                    "codelattice_consistency_review",
+                ],
+                compact,
+            )));
+        }
+        _ => unreachable!(),
+    };
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_release_check",
+        mode,
+        language,
+        root,
+        json!({"riskLevel":"medium","mode":mode}),
+        vec!["Use full mode for comprehensive review"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_cache ────────────────────────────────────────────────
+
+fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let mode = params["mode"].as_str().unwrap_or("status");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    validate_facade_mode(mode, &["status", "clear", "explain"], "codelattice_cache")?;
+    let (inner, underlying): (Value, Vec<&str>) = match mode {
+        "status" => {
+            let r = handle_cache_status(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_cache_status"])
+        }
+        "clear" => {
+            let r = handle_cache_clear(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_cache_clear"])
+        }
+        "explain" => (
+            json!({"layers":["memory","persistent"],"disable":"CODELATTICE_CACHE=off","clear":"Use mode=clear","prewarm":"Use codelattice_cache_prewarm"}),
+            vec!["codelattice_cache_status"],
+        ),
+        _ => unreachable!(),
+    };
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_cache",
+        mode,
+        "n/a",
+        "n/a",
+        json!({"riskLevel":"low","mode":mode}),
+        vec!["Use clear to reset cache"],
+        underlying,
+        compact,
+    )))
+}
+
+// ── codelattice_workflow ─────────────────────────────────────────────
+
+fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let mode = params["mode"].as_str().unwrap_or("onboarding");
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let language = params["language"].as_str().unwrap_or("auto");
+    validate_facade_mode(
+        mode,
+        &[
+            "onboarding",
+            "before_edit",
+            "after_edit",
+            "delete_code",
+            "release_check",
+            "legacy_cleanup",
+        ],
+        "codelattice_workflow",
+    )?;
+    let inner = unwrap_tool_result(&handle_workflow_presets(cache, params)?);
+    Ok(tool_result(&wrap_facade_output(
+        inner,
+        "codelattice_workflow",
+        mode,
+        language,
+        "n/a",
+        json!({"riskLevel":"low","mode":mode}),
+        vec!["Follow the workflow steps"],
+        vec!["codelattice_workflow_presets"],
+        compact,
+    )))
 }
 
 pub fn run_mcp_server() -> Result<(), String> {
