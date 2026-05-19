@@ -8,7 +8,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
-- **MCP Tool Surface Consolidation**: adds 8 facade tools that orchestrate existing tools via a `mode` parameter, reducing the cognitive surface for AI agents. New facade tools: `codelattice_project` (overview/quality/insights/full), `codelattice_symbol` (search/context/callers/callees/graph), `codelattice_change_review` (changed_symbols/impact/production_assist/breaking_change/consistency/full_review), `codelattice_cleanup` (dead_code/reachability/external_api/framework_entries/safe_cleanup_review), `codelattice_workspace` (graph/impact/overview/full), `codelattice_release_check` (quick/full/config/docs_tests/breaking_changes), `codelattice_cache` (status/clear/explain), `codelattice_workflow` (onboarding/before_edit/after_edit/delete_code/release_check/legacy_cleanup). All 42 existing tools remain fully available. Supports `CODELATTICE_MCP_TOOLSET=core` (26 tools: facades + essentials) and `CODELATTICE_MCP_TOOLSET=full` (default, 50 tools). All facade outputs include unified envelope with schemaVersion, tool, mode, summary, result, nextActions, cautions, generatedFrom (static-only/heuristic), and underlyingTools. Invalid mode returns structured error with validModes. compact=true strips result and keeps riskLevel summary. New facade handler functions with unwrap_tool_result, wrap_facade_output, validate_facade_mode, and safe_call_tool helpers. Preflight doc: docs/plans/2026-05-19-mcp-tool-surface-consolidation.md. MCP server now 50 tools total.
+- **MCP Tool Surface Consolidation**: adds 8 facade tools that orchestrate existing tools via a `mode` parameter, reducing the cognitive surface for AI agents. New facade tools: `codelattice_project` (overview/quality/insights/full), `codelattice_symbol` (search/context/callers/callees/graph), `codelattice_change_review` (changed_symbols/impact/production_assist/breaking_change/consistency/full_review), `codelattice_cleanup` (dead_code/reachability/external_api/framework_entries/safe_cleanup_review), `codelattice_workspace` (graph/impact/overview/full), `codelattice_release_check` (quick/full/config/docs_tests/breaking_changes), `codelattice_cache` (status/clear/explain), `codelattice_workflow` (onboarding/before_edit/after_edit/delete_code/release_check/legacy_cleanup). All 42 existing tools remain fully available. Supports `CODELATTICE_MCP_TOOLSET=core` (26 tools: facades + essentials) and `CODELATTICE_MCP_TOOLSET=full` (default, 50 tools). All facade outputs include unified envelope with schemaVersion, tool, mode, summary, result, nextActions, cautions, generatedFrom (static-only/heuristic), and underlyingTools. Invalid mode returns structured error with validModes. compact=true strips result and keeps riskLevel summary. New facade handler functions with unwrap_tool_result, wrap_facade_output, validate_facade_mode, and safe_insert_tool helpers. Preflight doc: docs/plans/2026-05-19-mcp-tool-surface-consolidation.md. MCP server now 50 tools total.
 
 - **Workspace Graph & Cross-Project Impact MCP Tools**: exposes `codelattice_workspace_graph` and `codelattice_cross_project_impact` as native Rust MCP tools (42 tools total). `codelattice_workspace_graph` scans a workspace root directory for projects (Cargo.toml, package.json, cjpm.toml), scripts, CI configs, Dockerfiles, Makefiles, and builds a dependency graph with nodes (workspace, project, config, script, workflow, unsupported) and edges (contains, depends_on, imports, script_refs, config_refs, adjacent_to, unsupported_boundary). `codelattice_cross_project_impact` performs BFS traversal from a target (nodeId, projectId, path, or query) to find affected projects, assets, and unsupported boundaries, with risk assessment and review checklist. Both tools work directly on filesystem — no WebUI Runner dependency, no analysis cache needed. New `crates/workspace-model/` crate with `scan_workspace_inventory`, `build_workspace_graph`, and `cross_project_impact` functions. Fixture at `fixtures/workspace/` with Makefile + Dockerfile + multi-project structure. MCP workspace smoke test: 14/14 pass. All output is static-only heuristic.
 
@@ -23,6 +23,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - **WebUI Workspace Cross-Project Graph Pack**: adds workspace-level cross-project relationship graph to understand dependencies and boundaries between sub-projects. New `CodeLatticeWorkspaceGraphV1` schema with 7 node kinds (workspace, project, package, config, script, workflow, unsupported) and 8 edge kinds (contains, depends_on, imports, script_refs, config_refs, adjacent_to, unsupported_boundary). New `/api/workspace/graph` API (GET+POST) builds the graph from a workspace run by reading manifest/config files (Cargo.toml, package.json, tsconfig.json, pyproject.toml, cjpm.toml, CMakeLists.txt, Makefile, CI configs, Dockerfiles, shell scripts) without executing any project code. Insights API enhanced with `crossProjectGraphSummary` including top connected projects, bridge scripts/configs, and unsupported boundary counts. Frontend adds a Cross-Project Graph Summary section with metric cards, top connected projects, bridge items, edge table, "Load Graph" and "Copy Graph AI Summary" buttons. AI summary and report include cross-project graph data. Smoke test validates 13 checks (schema, nodes, edges, no dangling, generatedFrom, POST, insights integration, error handling). All output is static-only heuristic.
 
 ### Fixed
+
+- **MCP facade/workspace self-check hardening**: development wrapper and installer doctor now prefer the freshest 50-tool binary instead of accepting a stale release binary; workspace graph/impact MCP outputs now include `schemaVersion` and static-only `generatedFrom` flags; dogfood now covers workspace tools and all 8 facade tools; local/source smoke thresholds were updated to the 50-tool profile.
 
 - **WebUI Workspace UX closure**: workspace bulk analysis now stays on the Workspace tab instead of auto-opening the first child snapshot. Workspace Insights recommendation rows and project-score rows can explicitly open related snapshots, failed project rows show next-step fix hints, unsupported modules are grouped into a future language-support backlog, workspace reports follow the current Chinese/English UI language, and users can copy a compact static-only workspace summary for AI-assisted planning.
 - **WebUI Alpha usability for real project roots**: added a Project Radar inventory flow so selecting a broad workspace such as `/Users/.../cangjie` no longer fails immediately; the UI now shows supported child projects, recommends concrete analysis targets, and marks unsupported language modules such as C# as unsupported. Graph node details now include clickable incoming/outgoing relationship sections so a selected node can be investigated instead of behaving like a static picture.
@@ -268,6 +270,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+
 - Local promotion, install, and release packaging scripts build and validate the full optional language set: Cangjie, ArkTS, TypeScript, C, C++, and Python.
 - Default `cargo test` no longer compiles C/C++ graph integration tests that require `tree-sitter-c` / `tree-sitter-cpp` unless those features are enabled. The same graph tests still run under `cargo test --all-features`.
 
@@ -293,6 +296,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - MCP `initialize.serverInfo` now reports `arktsSupport` and `typescriptSupport` alongside `cangjieSupport`, making packaged language capability drift visible.
 
 ### Fixed
+
 
 - Fixed `v0.13.0-beta.1` packaging drift where README/CHANGELOG advertised ArkTS production-trial support but the published binary was built without `tree-sitter-arkts`.
 
@@ -345,6 +349,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - MCP setup docs and generated config snippets now prefer stable promoted runtime paths over developer checkout wrappers.
 
 ### Fixed
+
 
 - Cangjie `project_overview` compact output now reports nonzero top-level symbol, source file, and edge counts for populated projects.
 - Install and promote scripts no longer assume the original author's machine path.

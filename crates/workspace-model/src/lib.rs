@@ -65,6 +65,7 @@ pub struct WorkspaceGraphSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceGraph {
+    pub schema_version: String,
     pub root: String,
     pub nodes: Vec<WorkspaceNode>,
     pub edges: Vec<WorkspaceEdge>,
@@ -600,6 +601,7 @@ pub fn build_workspace_graph(root: &Path, redact_root: bool) -> Result<Workspace
     ];
 
     Ok(WorkspaceGraph {
+        schema_version: "workspace.graph.v1".to_string(),
         root: root_path,
         nodes,
         edges,
@@ -608,6 +610,11 @@ pub fn build_workspace_graph(root: &Path, redact_root: bool) -> Result<Workspace
         generated_from: serde_json::json!({
             "generator": "gitnexus-workspace-model",
             "version": env!("CARGO_PKG_VERSION"),
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "coverageVerified": false,
+            "heuristic": true,
         }),
     })
 }

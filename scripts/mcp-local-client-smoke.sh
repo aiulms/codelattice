@@ -2,7 +2,7 @@
 # MCP Local Client Integration Smoke — simulates an MCP client using the wrapper.
 #
 # Tests that the wrapper script can start the server, accept JSON-RPC calls,
-# and return valid responses for the full beta MCP toolset (42 tools).
+# and return valid responses for the full beta MCP toolset (50 tools).
 #
 # Usage: bash scripts/mcp-local-client-smoke.sh
 #
@@ -14,6 +14,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 WRAPPER="$SCRIPT_DIR/codelattice-mcp.sh"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FIXTURE="$REPO_ROOT/fixtures/call-resolution/c1-same-module"
+export CODELATTICE_MCP_TOOLSET=full
 
 PASS=0
 FAIL=0
@@ -28,6 +29,14 @@ echo ""
 # Verify wrapper exists
 if [[ ! -f "$WRAPPER" ]]; then
     echo "FAIL: wrapper not found at $WRAPPER"
+    exit 1
+fi
+
+echo "0. build full MCP profile"
+if cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet >/dev/null 2>&1; then
+    echo "   → full-profile debug binary ready"
+else
+    echo "   → build failed"
     exit 1
 fi
 
@@ -116,14 +125,14 @@ fi
 echo "2. tools/list"
 TL_RESP=$(echo '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | bash "$WRAPPER" 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 38 ]; then
+if [ "$TOOL_COUNT" -ge 50 ]; then
     PASS=$((PASS + 1))
-    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools >= 38)")
+    RESULTS+=("PASS: tools/list ($TOOL_COUNT tools >= 50)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 38, got $TOOL_COUNT)")
-    echo "   → expected >= 38 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 50, got $TOOL_COUNT)")
+    echo "   → expected >= 50 tools, got $TOOL_COUNT"
 fi
 
 # ============================================================
@@ -182,7 +191,7 @@ RESULTS+=("SKIP: project_overview (self) — too slow for smoke, fixture test co
 echo "9. codelattice_cache_status"
 RESP=$(call_tool "codelattice_cache_status" "{}")
 check_response "cache_status (empty)" "$RESP" \
-    "data.get('entryCount') is not None and data.get('totalHits') == 0"
+    "data.get('memory',{}).get('entryCount') is not None and data.get('memory',{}).get('totalHits') == 0"
 
 echo "10. codelattice_cache_clear"
 RESP=$(call_tool "codelattice_cache_clear" "{}")
@@ -204,13 +213,19 @@ echo "  PASS: $PASS"
 echo "  FAIL: $FAIL"
 echo ""
 
-# Cleanup check — no residual files created by smoke
-# Note: .claude/ is injected by GitNexus Tool, not by MCP smoke — skip it
+# Cleanup check — no residual files created by smoke. Private agent state
+# directories are allowed in a developer checkout and are not created by this
+# smoke, so they are reported as notes rather than hard failures.
 RESIDUAL=0
-for f in CLAUDE.md .sisyphus; do
+for f in CLAUDE.md; do
     if [[ -e "$REPO_ROOT/$f" ]]; then
         echo "WARN: residual file found: $f"
         RESIDUAL=$((RESIDUAL + 1))
+    fi
+done
+for f in .claude .sisyphus .arts; do
+    if [[ -e "$REPO_ROOT/$f" ]]; then
+        echo "NOTE: private agent state present: $f (ignored)"
     fi
 done
 # Check for temp JSON in /tmp (from export_bridge if tested)

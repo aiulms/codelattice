@@ -35,13 +35,14 @@ CODELATTICE_ROOT="${CODELATTICE_ROOT:-$DEFAULT_ROOT}"
 CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
 ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+MIN_EXPECTED_TOOLS=50
 
 # --- Helper: get profile info from binary via MCP initialize ---
 # Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_C, _PROFILE_CPP, _PROFILE_PYTHON, _PROFILE_TOOLS
 _get_profile() {
     local bin="$1"
     local init_resp
-    init_resp=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"profile","version":"1.0"}}}' | "$bin" mcp 2>/dev/null | python3 -c 'import json, sys
+    init_resp=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"profile","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$bin" mcp 2>/dev/null | python3 -c 'import json, sys
 for line in sys.stdin:
     text = line.strip()
     if not text:
@@ -97,17 +98,32 @@ _select_binary() {
         candidates+=("$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli:debug-compat")
     fi
 
-    # Try candidates: prefer all-language binaries.
+    # Try candidates: prefer the freshest all-language binary. This prevents a
+    # stale release binary from hiding newer tools already present in debug.
+    local best_bin=""
+    local best_profile=""
+    local best_tools="-1"
     for entry in "${candidates[@]}"; do
         local bin="${entry%%:*}"
         local profile="${entry##*:}"
         _get_profile "$bin"
-        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" && "$_PROFILE_CPP" == "True" && "$_PROFILE_PYTHON" == "True" ]]; then
-            SELECTED_BIN="$bin"
-            SELECTED_SOURCE="$profile (all-languages=true)"
-            return
+        if [[ "$_PROFILE_CANGJIE" == "True" && "$_PROFILE_ARKTS" == "True" && "$_PROFILE_TYPESCRIPT" == "True" && "$_PROFILE_C" == "True" && "$_PROFILE_CPP" == "True" && "$_PROFILE_PYTHON" == "True" && "$_PROFILE_SHELL" == "True" ]]; then
+            local tools="0"
+            if [[ "$_PROFILE_TOOLS" =~ ^[0-9]+$ ]]; then
+                tools="$_PROFILE_TOOLS"
+            fi
+            if (( tools > best_tools )); then
+                best_bin="$bin"
+                best_profile="$profile"
+                best_tools="$tools"
+            fi
         fi
     done
+    if [[ -n "$best_bin" ]]; then
+        SELECTED_BIN="$best_bin"
+        SELECTED_SOURCE="$best_profile (all-languages=true tools=$best_tools)"
+        return
+    fi
 
     # Fall back to first candidate even without all optional adapters.
     if [[ ${#candidates[@]} -gt 0 ]]; then
@@ -243,7 +259,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     # MCP handshake test
     echo ""
     echo "  MCP handshake test..."
-    RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}' | "$SELECTED_BIN" mcp 2>/dev/null | head -1)
+    RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$SELECTED_BIN" mcp 2>/dev/null | head -1)
     if echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='codelattice'" 2>/dev/null; then
         VER=$(echo "$RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
         echo "  MCP:  OK (server v$VER)"
@@ -255,7 +271,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     # Extended checks
     echo ""
     echo "  Extended checks..."
-    MULTI_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$SELECTED_BIN" mcp 2>/dev/null)
+    MULTI_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | env CODELATTICE_MCP_TOOLSET=full "$SELECTED_BIN" mcp 2>/dev/null)
 
     TOOL_COUNT=$(echo "$MULTI_RESP" | python3 -c "
 import json, sys
@@ -269,10 +285,11 @@ for line in sys.stdin:
             break
     except: pass
 " 2>/dev/null || echo "0")
-    if [[ "$TOOL_COUNT" -ge 38 ]]; then
+    if [[ "$TOOL_COUNT" -ge "$MIN_EXPECTED_TOOLS" ]]; then
         echo "  tools/list: OK ($TOOL_COUNT tools)"
     else
-        echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= 38)"
+        echo "  tools/list: FAIL ($TOOL_COUNT tools, expected >= $MIN_EXPECTED_TOOLS)"
+        echo "  hint: selected binary may be stale. Run: bash $CODELATTICE_ROOT/scripts/install-mcp.sh --build"
         exit 1
     fi
 
@@ -328,9 +345,9 @@ fi
 _select_binary
 if [[ -n "$SELECTED_BIN" ]]; then
     _get_profile "$SELECTED_BIN"
-    if [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" || "$_PROFILE_C" == "False" || "$_PROFILE_CPP" == "False" || "$_PROFILE_PYTHON" == "False" ]]; then
+    if [[ "$_PROFILE_CANGJIE" == "False" || "$_PROFILE_ARKTS" == "False" || "$_PROFILE_TYPESCRIPT" == "False" || "$_PROFILE_C" == "False" || "$_PROFILE_CPP" == "False" || "$_PROFILE_PYTHON" == "False" || "$_PROFILE_SHELL" == "False" ]]; then
         echo "[codelattice] WARNING: optional language support missing in selected binary." >&2
-        echo "[codelattice] cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON" >&2
+        echo "[codelattice] cangjie=$_PROFILE_CANGJIE arkts=$_PROFILE_ARKTS typescript=$_PROFILE_TYPESCRIPT c=$_PROFILE_C cpp=$_PROFILE_CPP python=$_PROFILE_PYTHON shell=$_PROFILE_SHELL" >&2
         echo "[codelattice] Fix: bash $(cd "$SCRIPT_DIR/.." && pwd)/scripts/install-mcp.sh --build" >&2
     fi
     exec "$SELECTED_BIN" mcp

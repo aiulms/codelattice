@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# MCP v0.8 Dogfood — real stdio JSON-RPC against the MCP server.
-# Exercises all 38 tools + source snippet + cache behavior + doc association.
+# MCP dogfood — real stdio JSON-RPC against the MCP server.
+# Exercises the low-level tool surface, facade tools, source snippets, cache
+# behavior, doc association, workspace graph, and cross-project impact.
 #
 # Usage: bash scripts/mcp-dogfood.sh [path-to-fixture]
 # Default fixture: fixtures/call-resolution/c1-same-module
@@ -9,11 +10,13 @@ set -euo pipefail
 
 FIXTURE="${1:-fixtures/call-resolution/c1-same-module}"
 FIXTURE_ABS="$(cd "$(dirname "$0")/.." && pwd)/$FIXTURE"
+WORKSPACE_FIXTURE_ABS="$(cd "$(dirname "$0")/.." && pwd)/fixtures/workspace"
 
 # Build the binary first with all optional language adapters for full profile coverage.
 echo "--- Building ---"
 cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/codelattice"
+export CODELATTICE_MCP_TOOLSET=full
 
 echo "--- MCP v0.12 Dogfood ---"
 echo "Binary: $BIN"
@@ -122,14 +125,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 38 ]; then
+if [ "$TOOL_COUNT" -ge 50 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 38, got $TOOL_COUNT)")
-    echo "   → expected >= 38 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 50, got $TOOL_COUNT)")
+    echo "   → expected >= 50 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -381,6 +384,59 @@ check_tool "codelattice_consistency_review" \
 check_tool "codelattice_breaking_change_review" \
     "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"compact\":true,\"changedSymbols\":[\"main\"],\"limit\":5}" \
     "isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('heuristic') == True"
+
+# ============================================================
+# v0.28-v0.29: Workspace + facade surface
+# ============================================================
+echo "39. codelattice_workspace_graph"
+check_tool "codelattice_workspace_graph" \
+    "{\"root\":\"$WORKSPACE_FIXTURE_ABS\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'workspace.graph.v1' and isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('staticAnalysis') == True"
+
+echo "40. codelattice_cross_project_impact"
+check_tool "codelattice_cross_project_impact" \
+    "{\"root\":\"$WORKSPACE_FIXTURE_ABS\",\"target\":{\"path\":\"Dockerfile\"},\"compact\":true}" \
+    "data.get('schemaVersion') == 'workspace.impact.v1' and isinstance(data.get('summary'), dict) and data.get('generatedFrom', {}).get('staticAnalysis') == True"
+
+echo "41. codelattice_project facade"
+check_tool "codelattice_project" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"overview\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_project' and 'codelattice_project_overview' in data.get('underlyingTools', [])"
+
+echo "42. codelattice_symbol facade"
+check_tool "codelattice_symbol" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"search\",\"query\":\"helper\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_symbol' and 'codelattice_symbol_search' in data.get('underlyingTools', [])"
+
+echo "43. codelattice_change_review facade"
+check_tool "codelattice_change_review" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"impact\",\"symbol\":\"helper\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_change_review' and 'codelattice_impact_preview' in data.get('underlyingTools', [])"
+
+echo "44. codelattice_cleanup facade"
+check_tool "codelattice_cleanup" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"dead_code\",\"compact\":true,\"limit\":5}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_cleanup' and 'codelattice_dead_code_candidates' in data.get('underlyingTools', [])"
+
+echo "45. codelattice_workspace facade"
+check_tool "codelattice_workspace" \
+    "{\"root\":\"$WORKSPACE_FIXTURE_ABS\",\"mode\":\"graph\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_workspace' and 'codelattice_workspace_graph' in data.get('underlyingTools', [])"
+
+echo "46. codelattice_release_check facade"
+check_tool "codelattice_release_check" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"mode\":\"quick\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_release_check' and 'codelattice_quality' in data.get('underlyingTools', [])"
+
+echo "47. codelattice_cache facade"
+check_tool "codelattice_cache" \
+    "{\"mode\":\"status\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_cache' and 'codelattice_cache_status' in data.get('underlyingTools', [])"
+
+echo "48. codelattice_workflow facade"
+check_tool "codelattice_workflow" \
+    "{\"mode\":\"onboarding\",\"compact\":true}" \
+    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_workflow' and 'codelattice_workflow_presets' in data.get('underlyingTools', [])"
 
 
 echo ""

@@ -16392,13 +16392,18 @@ fn validate_facade_mode(mode: &str, valid: &[&str], tool: &str) -> Result<(), Va
     }
 }
 
-/// multi-tool mode 安全调用：失败收错，不中止
-fn safe_call_tool<F>(results: &mut Vec<Value>, errors: &mut Vec<String>, name: &str, f: F)
+/// multi-tool mode 安全调用：失败收错，不中止。
+/// 结果按 key 写入，避免部分子工具失败时 Vec 顺序错位导致字段误标。
+fn safe_insert_tool<F>(merged: &mut Value, errors: &mut Vec<String>, key: &str, name: &str, f: F)
 where
     F: FnOnce() -> Result<Value, Value>,
 {
     match f() {
-        Ok(v) => results.push(v),
+        Ok(v) => {
+            if let Some(obj) = merged.as_object_mut() {
+                obj.insert(key.to_string(), v);
+            }
+        }
         Err(e) => errors.push(format!("{name}: {e}")),
     }
 }
@@ -16431,28 +16436,18 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             (unwrap_tool_result(&r), vec!["codelattice_project_insights"])
         }
         "full" => {
-            let mut results = Vec::new();
+            let mut merged = json!({});
             let mut errors = Vec::new();
-            safe_call_tool(&mut results, &mut errors, "overview", || {
+            safe_insert_tool(&mut merged, &mut errors, "overview", "overview", || {
                 Ok(unwrap_tool_result(&handle_project_overview(cache, params)?))
             });
-            safe_call_tool(&mut results, &mut errors, "quality", || {
+            safe_insert_tool(&mut merged, &mut errors, "quality", "quality", || {
                 Ok(unwrap_tool_result(&handle_quality(cache, params)?))
             });
-            safe_call_tool(&mut results, &mut errors, "insights", || {
+            safe_insert_tool(&mut merged, &mut errors, "insights", "insights", || {
                 Ok(unwrap_tool_result(&handle_project_insights(cache, params)?))
             });
-            let mut merged = json!({});
             if let Some(obj) = merged.as_object_mut() {
-                if results.len() >= 1 {
-                    obj.insert("overview".into(), results[0].clone());
-                }
-                if results.len() >= 2 {
-                    obj.insert("quality".into(), results[1].clone());
-                }
-                if results.len() >= 3 {
-                    obj.insert("insights".into(), results[2].clone());
-                }
                 if !errors.is_empty() {
                     obj.insert("errors".into(), json!(errors));
                 }
@@ -16591,38 +16586,41 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             )
         }
         "full_review" => {
-            let mut results = Vec::new();
+            let mut merged = json!({});
             let mut errors = Vec::new();
-            safe_call_tool(&mut results, &mut errors, "changed_symbols", || {
-                Ok(unwrap_tool_result(&handle_changed_symbols(cache, params)?))
-            });
-            safe_call_tool(&mut results, &mut errors, "impact", || {
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "changedSymbols",
+                "changed_symbols",
+                || Ok(unwrap_tool_result(&handle_changed_symbols(cache, params)?)),
+            );
+            safe_insert_tool(&mut merged, &mut errors, "impact", "impact", || {
                 Ok(unwrap_tool_result(&handle_impact_preview(cache, params)?))
             });
-            safe_call_tool(&mut results, &mut errors, "breaking_change", || {
-                Ok(unwrap_tool_result(&handle_breaking_change_review(
-                    cache, params,
-                )?))
-            });
-            safe_call_tool(&mut results, &mut errors, "consistency", || {
-                Ok(unwrap_tool_result(&handle_consistency_review(
-                    cache, params,
-                )?))
-            });
-            let mut merged = json!({});
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "breakingChange",
+                "breaking_change",
+                || {
+                    Ok(unwrap_tool_result(&handle_breaking_change_review(
+                        cache, params,
+                    )?))
+                },
+            );
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "consistency",
+                "consistency",
+                || {
+                    Ok(unwrap_tool_result(&handle_consistency_review(
+                        cache, params,
+                    )?))
+                },
+            );
             if let Some(obj) = merged.as_object_mut() {
-                if results.len() >= 1 {
-                    obj.insert("changedSymbols".into(), results[0].clone());
-                }
-                if results.len() >= 2 {
-                    obj.insert("impact".into(), results[1].clone());
-                }
-                if results.len() >= 3 {
-                    obj.insert("breakingChange".into(), results[2].clone());
-                }
-                if results.len() >= 4 {
-                    obj.insert("consistency".into(), results[3].clone());
-                }
                 if !errors.is_empty() {
                     obj.insert("errors".into(), json!(errors));
                 }
@@ -16706,40 +16704,43 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             )
         }
         "safe_cleanup_review" => {
-            let mut results = Vec::new();
+            let mut merged = json!({});
             let mut errors = Vec::new();
-            safe_call_tool(&mut results, &mut errors, "dead_code", || {
+            safe_insert_tool(&mut merged, &mut errors, "deadCode", "dead_code", || {
                 Ok(unwrap_tool_result(&handle_dead_code_candidates(
                     cache, params,
                 )?))
             });
-            safe_call_tool(&mut results, &mut errors, "reachability", || {
-                Ok(unwrap_tool_result(&handle_reachability_map(cache, params)?))
-            });
-            safe_call_tool(&mut results, &mut errors, "external_api", || {
-                Ok(unwrap_tool_result(&handle_external_api_surface(
-                    cache, params,
-                )?))
-            });
-            safe_call_tool(&mut results, &mut errors, "framework_entries", || {
-                Ok(unwrap_tool_result(&handle_framework_entry_hints(
-                    cache, params,
-                )?))
-            });
-            let mut merged = json!({});
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "reachability",
+                "reachability",
+                || Ok(unwrap_tool_result(&handle_reachability_map(cache, params)?)),
+            );
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "externalApi",
+                "external_api",
+                || {
+                    Ok(unwrap_tool_result(&handle_external_api_surface(
+                        cache, params,
+                    )?))
+                },
+            );
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "frameworkEntries",
+                "framework_entries",
+                || {
+                    Ok(unwrap_tool_result(&handle_framework_entry_hints(
+                        cache, params,
+                    )?))
+                },
+            );
             if let Some(obj) = merged.as_object_mut() {
-                if results.len() >= 1 {
-                    obj.insert("deadCode".into(), results[0].clone());
-                }
-                if results.len() >= 2 {
-                    obj.insert("reachability".into(), results[1].clone());
-                }
-                if results.len() >= 3 {
-                    obj.insert("externalApi".into(), results[2].clone());
-                }
-                if results.len() >= 4 {
-                    obj.insert("frameworkEntries".into(), results[3].clone());
-                }
                 if !errors.is_empty() {
                     obj.insert("errors".into(), json!(errors));
                 }
@@ -16811,16 +16812,12 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
             )
         }
         "full" => {
-            let mut results = Vec::new();
+            let mut merged = json!({});
             let mut errors = Vec::new();
-            safe_call_tool(&mut results, &mut errors, "graph", || {
+            safe_insert_tool(&mut merged, &mut errors, "graph", "graph", || {
                 Ok(unwrap_tool_result(&handle_workspace_graph(cache, params)?))
             });
-            let mut merged = json!({});
             if let Some(obj) = merged.as_object_mut() {
-                if results.len() >= 1 {
-                    obj.insert("graph".into(), results[0].clone());
-                }
                 if !errors.is_empty() {
                     obj.insert("errors".into(), json!(errors));
                 }
@@ -16896,40 +16893,39 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
             )
         }
         "full" => {
-            let mut results = Vec::new();
+            let mut merged = json!({});
             let mut errors = Vec::new();
-            safe_call_tool(&mut results, &mut errors, "quality", || {
+            safe_insert_tool(&mut merged, &mut errors, "quality", "quality", || {
                 Ok(unwrap_tool_result(&handle_quality(cache, params)?))
             });
-            safe_call_tool(&mut results, &mut errors, "config", || {
+            safe_insert_tool(&mut merged, &mut errors, "config", "config", || {
                 Ok(unwrap_tool_result(&handle_config_examples_review(
                     cache, params,
                 )?))
             });
-            safe_call_tool(&mut results, &mut errors, "breaking_changes", || {
-                Ok(unwrap_tool_result(&handle_breaking_change_review(
-                    cache, params,
-                )?))
-            });
-            safe_call_tool(&mut results, &mut errors, "consistency", || {
-                Ok(unwrap_tool_result(&handle_consistency_review(
-                    cache, params,
-                )?))
-            });
-            let mut merged = json!({});
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "breakingChanges",
+                "breaking_changes",
+                || {
+                    Ok(unwrap_tool_result(&handle_breaking_change_review(
+                        cache, params,
+                    )?))
+                },
+            );
+            safe_insert_tool(
+                &mut merged,
+                &mut errors,
+                "consistency",
+                "consistency",
+                || {
+                    Ok(unwrap_tool_result(&handle_consistency_review(
+                        cache, params,
+                    )?))
+                },
+            );
             if let Some(obj) = merged.as_object_mut() {
-                if results.len() >= 1 {
-                    obj.insert("quality".into(), results[0].clone());
-                }
-                if results.len() >= 2 {
-                    obj.insert("config".into(), results[1].clone());
-                }
-                if results.len() >= 3 {
-                    obj.insert("breakingChanges".into(), results[2].clone());
-                }
-                if results.len() >= 4 {
-                    obj.insert("consistency".into(), results[3].clone());
-                }
                 if !errors.is_empty() {
                     obj.insert("errors".into(), json!(errors));
                 }

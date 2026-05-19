@@ -56,6 +56,10 @@ echo "$WG" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 r=json.loads(d['result']['content'][0]['text'])
+assert r.get('schemaVersion') == 'workspace.graph.v1', 'wrong graph schemaVersion'
+assert r.get('generatedFrom',{}).get('staticAnalysis') == True, 'missing staticAnalysis flag'
+assert r.get('generatedFrom',{}).get('runtimeVerified') == False, 'runtimeVerified should be false'
+assert r.get('generatedFrom',{}).get('scriptsExecuted') == False, 'scriptsExecuted should be false'
 assert r.get('nodes'), 'no nodes returned'
 assert r.get('edges'), 'no edges returned'
 kinds=set(n['kind'] for n in r['nodes'])
@@ -155,6 +159,9 @@ echo "$IMP1" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 r=json.loads(d['result']['content'][0]['text'])
+assert r.get('schemaVersion') == 'workspace.impact.v1', 'wrong impact schemaVersion'
+assert r.get('generatedFrom',{}).get('staticAnalysis') == True, 'missing staticAnalysis flag'
+assert r.get('generatedFrom',{}).get('runtimeVerified') == False, 'runtimeVerified should be false'
 assert r.get('target',{}).get('resolvedNodeId'), 'target not resolved'
 assert r.get('summary',{}).get('riskLevel'), 'no risk level'
 print(f'impact: resolved={r[\"target\"][\"resolvedNodeId\"][:30]} risk={r[\"summary\"][\"riskLevel\"]}')

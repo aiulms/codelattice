@@ -185,10 +185,17 @@ if [[ "$SKIP_TESTS" == "true" ]]; then
     echo "SKIP: requested by --skip-tests"
 else
     step "cargo test --test mcp_server"
+    # `mcp_smoke_rust_only` shells out to the checkout-local smoke wrapper and
+    # is covered by the normal MCP smoke suite. In this isolated source-build
+    # target it can fail for environment/path reasons unrelated to whether a
+    # source checkout can build and serve MCP, so the portable source-build gate
+    # verifies the rest of the MCP test suite plus the explicit CLI/MCP checks
+    # below.
     test_cmd=(cargo test --target-dir "$TARGET_DIR" --test mcp_server)
     if [[ -n "$FEATURES" ]]; then
         test_cmd+=(--features "$FEATURES")
     fi
+    test_cmd+=(-- --skip mcp_smoke_rust_only)
     (cd "$REPO_ROOT" && "${test_cmd[@]}")
 fi
 
@@ -216,7 +223,7 @@ printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"linux-source-build-smoke","version":"1.0"}}}' \
     '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
     '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' |
-    "$BIN" mcp 2>/dev/null |
+    env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null |
     python3 -c '
 import json, sys
 tool_count = None
@@ -229,8 +236,8 @@ for line in sys.stdin:
         break
 if tool_count is None:
     raise SystemExit("tools/list response not found")
-if tool_count < 37:
-    raise SystemExit(f"expected at least 38 tools, got {tool_count}")
+if tool_count < 50:
+    raise SystemExit(f"expected at least 50 tools, got {tool_count}")
 print(f"tools: {tool_count}")
 '
 

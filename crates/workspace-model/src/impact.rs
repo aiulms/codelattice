@@ -26,6 +26,7 @@ pub struct ImpactTarget {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ImpactResult {
+    pub schema_version: String,
     pub target: ResolvedTarget,
     pub summary: ImpactSummary,
     pub affected_projects: Vec<AffectedItem>,
@@ -392,6 +393,7 @@ pub fn cross_project_impact(
     // 如果目标未解析，返回空结果
     let Some(start_id) = &resolved_id else {
         return ImpactResult {
+            schema_version: "workspace.impact.v1".to_string(),
             target: resolved_target,
             summary: ImpactSummary {
                 risk_level: "unknown".to_string(),
@@ -414,6 +416,11 @@ pub fn cross_project_impact(
             generated_from: serde_json::json!({
                 "generator": "gitnexus-workspace-model",
                 "version": env!("CARGO_PKG_VERSION"),
+                "staticAnalysis": true,
+                "runtimeVerified": false,
+                "scriptsExecuted": false,
+                "coverageVerified": false,
+                "heuristic": true,
             }),
         };
     };
@@ -512,6 +519,7 @@ pub fn cross_project_impact(
     let total_paths = all_paths.len();
 
     ImpactResult {
+        schema_version: "workspace.impact.v1".to_string(),
         target: resolved_target,
         summary: ImpactSummary {
             risk_level,
@@ -534,6 +542,11 @@ pub fn cross_project_impact(
         generated_from: serde_json::json!({
             "generator": "gitnexus-workspace-model",
             "version": env!("CARGO_PKG_VERSION"),
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "coverageVerified": false,
+            "heuristic": true,
         }),
     }
 }
@@ -656,6 +669,7 @@ mod tests {
         ];
 
         WorkspaceGraph {
+            schema_version: "workspace.graph.v1".to_string(),
             root: ".".to_string(),
             nodes,
             edges,

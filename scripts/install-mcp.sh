@@ -213,7 +213,7 @@ JSON
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - This script never writes client config; it only prints snippets"
     echo "  - Supports Rust, Cangjie, ArkTS, TypeScript, C, C++, and Python when built with --build"
-    echo "  - 42 tools including graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, and process-local cache"
+    echo "  - 50 tools including facade tools, graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, and process-local cache"
     echo "  - Read-only — never modifies source code"
     echo "  - After config change, restart your AI client session to reload MCP tools"
 fi
@@ -225,22 +225,31 @@ if [[ "$ACTION" == "doctor" ]]; then
     PASS=0
     FAIL=0
 
-    # 1. Check binary exists (prefer release)
+    # 1. Check binary exists. Prefer the freshest profile by tool count so a
+    # stale release binary does not mask a newer debug build during doctor.
     BIN_PATH=""
     BIN_PROFILE="unknown"
+    BEST_TOOL_COUNT="-1"
     for candidate in \
         "$REPO_ROOT/target/release/$BIN_NAME" \
         "$REPO_ROOT/target/debug/$BIN_NAME" \
         "$REPO_ROOT/target/release/$COMPAT_BIN_NAME" \
         "$REPO_ROOT/target/debug/$COMPAT_BIN_NAME"; do
         if [[ -x "$candidate" ]]; then
-            BIN_PATH="$candidate"
-            if [[ "$candidate" == *"/release/"* ]]; then
-                BIN_PROFILE="release"
-            else
-                BIN_PROFILE="debug"
+            CANDIDATE_INIT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor-profile","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$candidate" mcp 2>/dev/null | head -1)
+            CANDIDATE_TOOLS=$(echo "$CANDIDATE_INIT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount',0))" 2>/dev/null || echo "0")
+            if ! [[ "$CANDIDATE_TOOLS" =~ ^[0-9]+$ ]]; then
+                CANDIDATE_TOOLS="0"
             fi
-            break
+            if (( CANDIDATE_TOOLS > BEST_TOOL_COUNT )); then
+                BEST_TOOL_COUNT="$CANDIDATE_TOOLS"
+                BIN_PATH="$candidate"
+                if [[ "$candidate" == *"/release/"* ]]; then
+                    BIN_PROFILE="release"
+                else
+                    BIN_PROFILE="debug"
+                fi
+            fi
         fi
     done
 
@@ -273,7 +282,7 @@ if [[ "$ACTION" == "doctor" ]]; then
     # 3-6: MCP checks (only if binary exists)
     if [[ -n "$BIN_PATH" ]]; then
         # 3. MCP handshake + profile detection
-        INIT_RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}' | "$BIN_PATH" mcp 2>/dev/null | head -1)
+        INIT_RESP=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$BIN_PATH" mcp 2>/dev/null | head -1)
         if echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); assert d['result']['serverInfo']['name']=='codelattice'" 2>/dev/null; then
             SERVER_VER=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo']['version'])" 2>/dev/null || echo "unknown")
             CANGJIE_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
@@ -297,18 +306,19 @@ if [[ "$ACTION" == "doctor" ]]; then
         fi
 
         # 4. tools/list count
-        TOOLS_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | "$BIN_PATH" mcp 2>/dev/null | tail -1)
+        TOOLS_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | env CODELATTICE_MCP_TOOLSET=full "$BIN_PATH" mcp 2>/dev/null | tail -1)
         TOOL_COUNT=$(echo "$TOOLS_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-        if [[ "$TOOL_COUNT" -ge 38 ]]; then
+        if [[ "$TOOL_COUNT" -ge 50 ]]; then
             echo "PASS: tools/list returns $TOOL_COUNT tools"
             PASS=$((PASS + 1))
         else
-            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 38)"
+            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 50)"
+            echo "      Fix: bash $0 --build"
             FAIL=$((FAIL + 1))
         fi
 
         # 5. cache_status
-        CACHE_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$BIN_PATH" mcp 2>/dev/null | tail -1)
+        CACHE_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | env CODELATTICE_MCP_TOOLSET=full "$BIN_PATH" mcp 2>/dev/null | tail -1)
         HAS_MAX=$(echo "$CACHE_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); t=d['result']['content'][0]['text']; j=json.loads(t); m=j.get('memory',{}); print('yes' if 'maxEntries' in m else 'no')" 2>/dev/null || echo "no")
         if [[ "$HAS_MAX" == "yes" ]]; then
             echo "PASS: cache_status has maxEntries"
