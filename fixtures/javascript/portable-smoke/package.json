@@ -3,14 +3,34 @@
   "version": "1.0.0",
   "description": "JavaScript portable smoke fixture for CodeLattice",
   "main": "src/index.js",
+  "module": "src/index.js",
+  "browser": "src/index.js",
+  "types": "src/index.d.ts",
   "type": "module",
+  "exports": {
+    ".": "./src/index.js",
+    "./math": "./src/math.js",
+    "./utils": "./src/utils.js",
+    "./logger": "./src/logger.cjs"
+  },
+  "bin": {
+    "smoke-cli": "./bin/cli.js"
+  },
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "build": "echo 'build placeholder'"
+    "build": "echo 'build placeholder'",
+    "dev": "vite",
+    "start": "node src/index.js"
   },
   "keywords": ["codelattice", "test"],
   "author": "",
   "license": "MIT",
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "express": "^4.18.0"
+  },
+  "devDependencies": {
+    "vite": "^5.0.0",
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  }
 }

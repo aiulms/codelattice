@@ -14,13 +14,13 @@
 //! - 只分析 `.js/.jsx/.mjs/.cjs` 文件，不碰 `.ts/.tsx`
 //! - 支持 CommonJS `require()`/`module.exports`/`exports.foo`
 //! - 支持 dynamic `import()` 检测（作为 diagnostic）
-//! - 支持 `package.json` 的 `main`/`module`/`exports`/`bin` 入口识别
+//! - 支持 `package.json` 的 `main`/`module`/`exports`/`bin`/`browser` 入口识别
 //!
 //! ## Layout
 //!
 //! - `extractors/` — 基于 tree-sitter 的符号、import、reference 提取
 //! - `graph.rs` — 图谱输出（nodes + edges + diagnostics）
-//! - `manifest.rs` — package.json 解析
+//! - `manifest.rs` — package.json 解析、framework hint 检测
 //! - `module_resolution.rs` — 相对路径和 package.json 解析
 //! - `project.rs` — 项目根检测和源文件发现
 
@@ -34,7 +34,10 @@ pub use extractors::{
     is_js_parser_available, JsImport, JsImportKind, JsParseError, JsReference, JsReferenceKind,
     JsSymbol, JsSymbolKind,
 };
-pub use manifest::{parse_package_json, JsManifest, JsManifestError};
+pub use manifest::{
+    detect_framework_hints, parse_package_json, JsEntryPoint, JsEntryPointKind, JsFrameworkHint,
+    JsManifest, JsManifestError,
+};
 pub use module_resolution::{JsModuleResolver, JsResolutionKind, ResolvedJsImport};
 pub use project::{
     detect_project_kind, find_javascript_project_root, is_js_source_file, list_source_files,
