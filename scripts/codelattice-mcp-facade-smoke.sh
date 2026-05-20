@@ -25,18 +25,23 @@ if [ ! -f "$BIN" ]; then
     cargo build --bin codelattice 2>&1 | tail -3
 fi
 
-# ── Test 1: full toolset has 50 tools ────────────────────────────────
-echo "── Test 1: full toolset (50 tools) ──"
+# ── Test 1: default AI toolset is small ──────────────────────────────
+echo "── Test 1: default AI toolset (small) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
+[ "$T" -le 12 ] && pass "default-ai-toolset-small ($T tools)" || fail "default-ai-toolset-small (got $T)"
+
+# ── Test 2: full toolset has 50 tools ────────────────────────────────
+echo "── Test 2: full toolset (50 tools) ──"
+T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
 [ "$T" = "50" ] && pass "full-toolset-50" || fail "full-toolset-50 (got $T)"
 
-# ── Test 2: core toolset has fewer tools ─────────────────────────────
-echo "── Test 2: core toolset (~26 tools) ──"
+# ── Test 3: core toolset sits between AI and full ────────────────────
+echo "── Test 3: core toolset (middle) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | env CODELATTICE_MCP_TOOLSET=core "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
-[ "$T" -lt 50 ] && pass "core-toolset-fewer" || fail "core-toolset-fewer (got $T)"
+[ "$T" -gt 12 ] && [ "$T" -lt 50 ] && pass "core-toolset-middle ($T tools)" || fail "core-toolset-middle (got $T)"
 
-# ── Test 3: codelattice_cache explain ────────────────────────────────
-echo "── Test 3: codelattice_cache explain ──"
+# ── Test 4: codelattice_cache explain ────────────────────────────────
+echo "── Test 4: codelattice_cache explain ──"
 R=$(call '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_cache","arguments":{"mode":"explain"}}}')
 echo "$R" | python3 -c "
 import json,sys
@@ -50,8 +55,8 @@ assert 'cautions' in r, 'no cautions'
 print('OK')
 " && pass "cache-explain" || fail "cache-explain"
 
-# ── Test 4: codelattice_workflow onboarding ──────────────────────────
-echo "── Test 4: codelattice_workflow onboarding ──"
+# ── Test 5: codelattice_workflow onboarding ──────────────────────────
+echo "── Test 5: codelattice_workflow onboarding ──"
 R=$(call '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_workflow","arguments":{"mode":"onboarding","compact":true}}}')
 echo "$R" | python3 -c "
 import json,sys
@@ -64,8 +69,8 @@ assert 'codelattice_workflow_presets' in r.get('underlyingTools',[]), 'missing u
 print('OK')
 " && pass "workflow-onboarding" || fail "workflow-onboarding"
 
-# ── Test 5: invalid mode returns structured error ────────────────────
-echo "── Test 5: invalid mode error ──"
+# ── Test 6: invalid mode returns structured error ────────────────────
+echo "── Test 6: invalid mode error ──"
 R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_cache\",\"arguments\":{\"mode\":\"bogus\"}}}")
 echo "$R" | python3 -c "
 import json,sys
@@ -76,8 +81,8 @@ assert 'Valid' in r.get('message',''), 'no valid modes in message'
 print('OK')
 " && pass "invalid-mode-error" || fail "invalid-mode-error"
 
-# ── Test 6: codelattice_workflow compact has no result ───────────────
-echo "── Test 6: compact strips result ──"
+# ── Test 7: codelattice_workflow compact has no result ───────────────
+echo "── Test 7: compact strips result ──"
 R=$(call '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_workflow","arguments":{"mode":"onboarding","compact":true}}}')
 echo "$R" | python3 -c "
 import json,sys
@@ -88,8 +93,8 @@ assert 'summary' in r, 'summary should remain'
 print('OK')
 " && pass "compact-strips-result" || fail "compact-strips-result"
 
-# ── Test 7: generatedFrom fields present ─────────────────────────────
-echo "── Test 7: generatedFrom fields ──"
+# ── Test 8: generatedFrom fields present ─────────────────────────────
+echo "── Test 8: generatedFrom fields ──"
 R=$(call '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_cache","arguments":{"mode":"explain"}}}')
 echo "$R" | python3 -c "
 import json,sys
@@ -102,8 +107,8 @@ assert g.get('scriptsExecuted')==False, 'scriptsExecuted should be false'
 print('OK')
 " && pass "generatedFrom-fields" || fail "generatedFrom-fields"
 
-# ── Test 8: codelattice_project overview mode with real root ──
-echo "── Test 8: codelattice_project overview ──"
+# ── Test 9: codelattice_project overview mode with real root ──
+echo "── Test 9: codelattice_project overview ──"
 R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_project\",\"arguments\":{\"root\":\"$ROOT/fixtures/workspace/rust-core\",\"mode\":\"overview\"}}}")
 echo "$R" | python3 -c "
 import json,sys
@@ -115,8 +120,8 @@ assert 'underlyingTools' in r, 'no underlyingTools'
 print('OK')
 " && pass "project-overview" || fail "project-overview"
 
-# ── Test 9: codelattice_workspace graph mode ─────────────────────────
-echo "── Test 9: codelattice_workspace graph ──"
+# ── Test 10: codelattice_workspace graph mode ────────────────────────
+echo "── Test 10: codelattice_workspace graph ──"
 R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_workspace\",\"arguments\":{\"root\":\"$ROOT/fixtures/workspace\",\"mode\":\"graph\",\"compact\":true}}}")
 echo "$R" | python3 -c "
 import json,sys
@@ -128,8 +133,8 @@ assert 'codelattice_workspace_graph' in r.get('underlyingTools',[]), 'missing un
 print('OK')
 " && pass "workspace-graph" || fail "workspace-graph"
 
-# ── Test 10: codelattice_symbol search mode ──────────────────────────
-echo "── Test 10: codelattice_symbol search ──"
+# ── Test 11: codelattice_symbol search mode ──────────────────────────
+echo "── Test 11: codelattice_symbol search ──"
 R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_symbol\",\"arguments\":{\"root\":\"$ROOT/fixtures/workspace/rust-core\",\"mode\":\"search\",\"query\":\"main\"}}}")
 echo "$R" | python3 -c "
 import json,sys

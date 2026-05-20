@@ -237,7 +237,7 @@ fi
 
 profile_json() {
     printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-release-profile","version":"1.0"}}}' \
-        | "$BIN" mcp 2>/dev/null \
+        | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null \
         | python3 -c 'import json, sys
 for line in sys.stdin:
     text = line.strip()
@@ -301,7 +301,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
-assert int(s.get("toolCount", 0)) >= 38
+assert int(s.get("toolCount", 0)) >= 50
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
@@ -329,7 +329,7 @@ SOURCE_REMOTE="$(git -C "$REPO_ROOT" remote get-url gitcode 2>/dev/null || git -
 PACKAGED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 BINARY_SHA256="$(shasum -a 256 "$STAGE_DIR/bin/codelattice" | awk '{print $1}')"
 COMPAT_SHA256="$(shasum -a 256 "$STAGE_DIR/bin/gitnexus-rust-core-cli" | awk '{print $1}')"
-PROFILE_JSON="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-release","version":"1.0"}}}' | "$STAGE_DIR/bin/codelattice" mcp 2>/dev/null | python3 -c 'import json, sys
+PROFILE_JSON="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"package-release","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$STAGE_DIR/bin/codelattice" mcp 2>/dev/null | python3 -c 'import json, sys
 for line in sys.stdin:
     text=line.strip()
     if not text:

@@ -182,7 +182,7 @@ fi
 
 profile_json() {
     printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-tool-profile","version":"1.0"}}}' \
-        | "$BIN" mcp 2>/dev/null \
+        | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null \
         | python3 -c 'import json, sys
 for line in sys.stdin:
     text = line.strip()
@@ -249,7 +249,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
-assert int(s.get("toolCount", 0)) >= 38
+assert int(s.get("toolCount", 0)) >= 50
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
@@ -267,7 +267,7 @@ print("  cppSupport: {}".format(s.get("cppSupport")))
 print("  pythonSupport: {}".format(s.get("pythonSupport")))
 print("  shellSupport: {}".format(s.get("shellSupport")))'
 
-    MULTI_RESP="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-tool-self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | "$BIN" mcp 2>/dev/null)"
+    MULTI_RESP="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-tool-self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n' | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null)"
     TOOL_COUNT="$(echo "$MULTI_RESP" | python3 -c 'import json,sys
 for line in sys.stdin:
     if not line.strip():
@@ -276,7 +276,7 @@ for line in sys.stdin:
     if d.get("id") == 2:
         print(len(d["result"]["tools"]))
         break')"
-    if [[ "$TOOL_COUNT" -lt 24 ]]; then
+    if [[ "$TOOL_COUNT" -lt 50 ]]; then
         echo "FAIL: tools/list returned $TOOL_COUNT tools" >&2
         exit 1
     fi
@@ -293,7 +293,7 @@ WRAPPER
     SOURCE_REMOTE="$(git -C "$REPO_ROOT" remote get-url gitcode 2>/dev/null || git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo unknown)"
     INSTALLED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
     BINARY_SHA256="$(shasum -a 256 "$INSTALL_BIN" | awk '{print $1}')"
-    INIT_RESP="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"promote-manifest","version":"1.0"}}}' | "$INSTALL_BIN" mcp 2>/dev/null | python3 -c 'import json, sys
+    INIT_RESP="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"promote-manifest","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$INSTALL_BIN" mcp 2>/dev/null | python3 -c 'import json, sys
 for line in sys.stdin:
     text=line.strip()
     if not text:

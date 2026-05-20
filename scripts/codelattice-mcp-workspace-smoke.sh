@@ -2,6 +2,7 @@
 # codelattice-mcp-workspace-smoke.sh
 # Smoke test for workspace graph and cross-project impact MCP tools
 set -euo pipefail
+export CODELATTICE_MCP_TOOLSET=full
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

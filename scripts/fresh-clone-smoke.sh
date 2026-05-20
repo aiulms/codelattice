@@ -106,7 +106,7 @@ run_in_fresh() {
 json_rpc() {
     local wrapper="$1"
     local payload="$2"
-    printf '%s\n' "$payload" | "$wrapper" 2>/dev/null
+    printf '%s\n' "$payload" | env CODELATTICE_MCP_TOOLSET=full "$wrapper" 2>/dev/null
 }
 
 check_tools_list() {
@@ -124,8 +124,8 @@ for line in sys.stdin:
         print(len(d["result"]["tools"]))
         break
 ')
-    if [[ "${count:-0}" -lt 37 ]]; then
-        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 38" >&2
+    if [[ "${count:-0}" -lt 50 ]]; then
+        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 50" >&2
         exit 1
     fi
     echo "PASS: tools/list returned $count tools"

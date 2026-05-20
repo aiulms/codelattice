@@ -134,7 +134,7 @@ echo "--- Wrapper self-test ---"
 echo ""
 echo "--- MCP tools/list ---"
 TOOLS_COUNT="$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"release-smoke","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' \
-    | "$WRAPPER" 2>/dev/null \
+    | env CODELATTICE_MCP_TOOLSET=full "$WRAPPER" 2>/dev/null \
     | python3 -c 'import json,sys
 for line in sys.stdin:
     if not line.strip():
@@ -143,7 +143,7 @@ for line in sys.stdin:
     if msg.get("id") == 2:
         print(len(msg["result"]["tools"]))
         break')"
-if [[ -z "$TOOLS_COUNT" || "$TOOLS_COUNT" -lt 37 ]]; then
+if [[ -z "$TOOLS_COUNT" || "$TOOLS_COUNT" -lt 50 ]]; then
     echo "ERROR: tools/list returned ${TOOLS_COUNT:-0} tools" >&2
     exit 1
 fi

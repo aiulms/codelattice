@@ -8557,39 +8557,144 @@ fn tools_list() -> Value {
     })
 }
 
-/// CODELATTICE_MCP_TOOLSET=core → only facade + essential standalone tools
-fn is_core_toolset() -> bool {
-    std::env::var("CODELATTICE_MCP_TOOLSET")
-        .unwrap_or_else(|_| "full".to_string())
-        .to_lowercase()
-        == "core"
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum McpToolset {
+    Ai,
+    Core,
+    Full,
+}
+
+impl McpToolset {
+    fn from_env() -> Self {
+        match std::env::var("CODELATTICE_MCP_TOOLSET")
+            .unwrap_or_else(|_| "ai".to_string())
+            .to_lowercase()
+            .as_str()
+        {
+            "full" => Self::Full,
+            "core" => Self::Core,
+            "ai" | "default" | "" => Self::Ai,
+            _ => Self::Ai,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Ai => "ai",
+            Self::Core => "core",
+            Self::Full => "full",
+        }
+    }
+
+    fn hidden_error_code(self) -> &'static str {
+        match self {
+            Self::Ai => "tool_not_in_ai_toolset",
+            Self::Core => "tool_not_in_core_toolset",
+            Self::Full => "unknown_tool",
+        }
+    }
+}
+
+const AI_TOOLSET_TOOLS: &[&str] = &[
+    "codelattice_project",
+    "codelattice_symbol",
+    "codelattice_change_review",
+    "codelattice_cleanup",
+    "codelattice_workspace",
+    "codelattice_release_check",
+    "codelattice_cache",
+    "codelattice_workflow",
+    "codelattice_ai_context_pack",
+];
+
+const CORE_EXTRA_TOOLS: &[&str] = &[
+    "codelattice_analyze",
+    "codelattice_quality",
+    "codelattice_summary",
+    "codelattice_graph_overview",
+    "codelattice_symbol_search",
+    "codelattice_symbol_context",
+    "codelattice_calls_from",
+    "codelattice_calls_to",
+    "codelattice_impact_preview",
+    "codelattice_project_overview",
+    "codelattice_changed_symbols",
+    "codelattice_production_assist",
+    "codelattice_project_insights",
+    "codelattice_review_plan",
+    "codelattice_cache_status",
+    "codelattice_cache_clear",
+    "codelattice_workspace_graph",
+    "codelattice_cross_project_impact",
+    "codelattice_workflow_presets",
+];
+
+fn current_toolset() -> McpToolset {
+    McpToolset::from_env()
+}
+
+fn is_ai_tool(name: &str) -> bool {
+    AI_TOOLSET_TOOLS.contains(&name)
 }
 
 fn is_core_tool(name: &str) -> bool {
-    // Facade tools
-    if name.starts_with("codelattice_project")
-        || name.starts_with("codelattice_symbol")
-        || name.starts_with("codelattice_change_review")
-        || name.starts_with("codelattice_cleanup")
-        || name.starts_with("codelattice_workspace")  // covers workspace_graph and cross_project_impact too
-        || name.starts_with("codelattice_release_check")
-        || name.starts_with("codelattice_cache")        // covers cache_status/clear/prewarm too
-        || name.starts_with("codelattice_workflow")
-    // covers workflow_presets too
-    {
-        return true;
+    is_ai_tool(name) || CORE_EXTRA_TOOLS.contains(&name)
+}
+
+fn is_tool_allowed_in_toolset(name: &str, toolset: McpToolset) -> bool {
+    match toolset {
+        McpToolset::Ai => is_ai_tool(name),
+        McpToolset::Core => is_core_tool(name),
+        McpToolset::Full => true,
     }
-    // Essential standalone tools
-    matches!(
-        name,
-        "codelattice_analyze"
-            | "codelattice_smoke"
-            | "codelattice_repo_registry"
-            | "codelattice_export_bridge"
-            | "codelattice_automation_graph"
-            | "codelattice_ai_context_pack"
-            | "codelattice_compare_runs"
-            | "codelattice_rename_preview"
+}
+
+fn tool_names_from_list(tools_val: &Value) -> Vec<&str> {
+    tools_val
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .map(|tools| tools.iter().filter_map(|t| t["name"].as_str()).collect())
+        .unwrap_or_default()
+}
+
+fn tool_exists(name: &str) -> bool {
+    tool_names_from_list(&tools_list()).contains(&name)
+}
+
+fn filter_tools_by_toolset(tools_val: &mut Value, toolset: McpToolset) {
+    if let Some(tools) = tools_val.get_mut("tools").and_then(|t| t.as_array_mut()) {
+        tools.retain(|t| is_tool_allowed_in_toolset(t["name"].as_str().unwrap_or(""), toolset));
+    }
+}
+
+fn tool_count_for_toolset(toolset: McpToolset) -> usize {
+    let mut tools_val = tools_list();
+    filter_tools_by_toolset(&mut tools_val, toolset);
+    tools_val
+        .get("tools")
+        .and_then(|t| t.as_array())
+        .map(|tools| tools.len())
+        .unwrap_or(0)
+}
+
+fn hidden_toolset_error(tool_name: &str, toolset: McpToolset) -> Value {
+    let (entry, upgrade) = match toolset {
+        McpToolset::Ai => (
+            "Use facade tools such as codelattice_project, codelattice_symbol, codelattice_change_review, codelattice_workspace, or codelattice_workflow.",
+            "Set CODELATTICE_MCP_TOOLSET=core for common low-level tools, or CODELATTICE_MCP_TOOLSET=full for all tools.",
+        ),
+        McpToolset::Core => (
+            "Use the facade tools first, or switch to full for specialist diagnostics.",
+            "Set CODELATTICE_MCP_TOOLSET=full to access every low-level diagnostic tool.",
+        ),
+        McpToolset::Full => ("", ""),
+    };
+    mcp_error(
+        toolset.hidden_error_code(),
+        &format!(
+            "Tool '{tool_name}' is hidden by the {} MCP toolset. {entry} {upgrade}",
+            toolset.as_str()
+        ),
     )
 }
 
@@ -12343,10 +12448,12 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     false
                 }
             };
-            let tool_count = tools_list()["tools"]
+            let toolset = current_toolset();
+            let full_tool_count = tools_list()["tools"]
                 .as_array()
                 .map(|tools| tools.len())
                 .unwrap_or(0);
+            let tool_count = tool_count_for_toolset(toolset);
             Some(make_response(
                 &id,
                 json!({
@@ -12362,7 +12469,15 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cppSupport": cpp_support,
                         "pythonSupport": python_support,
                         "shellSupport": true,
-                        "toolCount": tool_count
+                        "toolset": toolset.as_str(),
+                        "toolCount": tool_count,
+                        "fullToolCount": full_tool_count,
+                        "recommendedEntryTools": [
+                            "codelattice_workflow",
+                            "codelattice_project",
+                            "codelattice_change_review",
+                            "codelattice_workspace"
+                        ]
                     }
                 }),
             ))
@@ -12370,11 +12485,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
 
         "tools/list" => {
             let mut tools_val = tools_list();
-            if is_core_toolset() {
-                if let Some(tools) = tools_val.get_mut("tools").and_then(|t| t.as_array_mut()) {
-                    tools.retain(|t| is_core_tool(t["name"].as_str().unwrap_or("")));
-                }
-            }
+            filter_tools_by_toolset(&mut tools_val, current_toolset());
             Some(make_response(&id, tools_val))
         }
 
@@ -12382,6 +12493,16 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
             let tool_name = params["name"].as_str().unwrap_or("");
 
             let arguments = params.get("arguments").cloned().unwrap_or(json!({}));
+            let toolset = current_toolset();
+            if tool_exists(tool_name) && !is_tool_allowed_in_toolset(tool_name, toolset) {
+                return Some(make_response(
+                    &id,
+                    json!({
+                        "content": [{ "type": "text", "text": serde_json::to_string(&hidden_toolset_error(tool_name, toolset)).unwrap_or_default() }],
+                        "isError": true
+                    }),
+                ));
+            }
 
             let result = match tool_name {
                 "codelattice_analyze" => handle_analyze(cache, &arguments),
@@ -12444,19 +12565,10 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_release_check" => handle_release_check(cache, &arguments),
                 "codelattice_cache" => handle_cache(cache, &arguments),
                 "codelattice_workflow" => handle_workflow(cache, &arguments),
-                _ => {
-                    if is_core_toolset() {
-                        Err(mcp_error(
-                            "tool_not_in_core_toolset",
-                            &format!("Tool '{tool_name}' is not available in core toolset. Use CODELATTICE_MCP_TOOLSET=full to access all tools."),
-                        ))
-                    } else {
-                        Err(mcp_error(
-                            "unknown_tool",
-                            &format!("Unknown tool: {tool_name}"),
-                        ))
-                    }
-                }
+                _ => Err(mcp_error(
+                    "unknown_tool",
+                    &format!("Unknown tool: {tool_name}"),
+                )),
             };
 
             match result {

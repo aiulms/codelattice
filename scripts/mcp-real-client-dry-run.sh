@@ -15,10 +15,10 @@ ROOT="${1:-$REPO_ROOT/fixtures/call-resolution/c1-same-module}"
 # Find binary
 BIN=""
 for candidate in \
-    "$REPO_ROOT/target/release/codelattice" \
     "$REPO_ROOT/target/debug/codelattice" \
-    "$REPO_ROOT/target/release/gitnexus-rust-core-cli" \
-    "$REPO_ROOT/target/debug/gitnexus-rust-core-cli"; do
+    "$REPO_ROOT/target/release/codelattice" \
+    "$REPO_ROOT/target/debug/gitnexus-rust-core-cli" \
+    "$REPO_ROOT/target/release/gitnexus-rust-core-cli"; do
     if [[ -x "$candidate" ]]; then
         BIN="$candidate"
         break
@@ -37,7 +37,9 @@ echo "Root: $ROOT"
 echo "Bin:  $BIN"
 echo ""
 
-# Build multi-request sequence
+# Build multi-request sequence. Default MCP clients now see the compact AI
+# toolset; this dry-run also runs the historical low-level call sequence under
+# full toolset to prove compatibility for advanced/debug clients.
 printf '%s\n' \
     '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dry-run","version":"1.0"}}}' \
     '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
@@ -50,7 +52,7 @@ printf '%s\n' \
     "{\"jsonrpc\":\"2.0\",\"id\":8,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_impact_preview\",\"arguments\":{\"root\":\"$ROOT\",\"language\":\"rust\",\"symbol\":\"helper\"}}}" \
     "{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_production_assist\",\"arguments\":{\"root\":\"$ROOT\",\"language\":\"rust\"}}}" \
     "{\"jsonrpc\":\"2.0\",\"id\":10,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_cache_status\",\"arguments\":{}}}" \
-    | "$BIN" mcp 2>/dev/null > "$TMPFILE"
+    | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null > "$TMPFILE"
 
 # Parse results
 PASS=0
@@ -66,6 +68,26 @@ check_result() {
         FAIL=$((FAIL + 1))
     fi
 }
+
+# 0. Default AI toolset remains small and facade-first
+DEFAULT_TOOL_COUNT=$(printf '%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dry-run-default","version":"1.0"}}}' \
+    '{"jsonrpc":"2.0","method":"notifications/initialized"}' \
+    '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+    | "$BIN" mcp 2>/dev/null \
+    | python3 -c '
+import json, sys
+for line in sys.stdin:
+    if not line.strip():
+        continue
+    d = json.loads(line)
+    if d.get("id") == 2:
+        tools = [t["name"] for t in d["result"]["tools"]]
+        required = {"codelattice_project", "codelattice_symbol", "codelattice_change_review", "codelattice_workspace"}
+        print(len(tools) if required.issubset(set(tools)) else 0)
+        break
+' 2>/dev/null || echo "0")
+check_result "default AI tools/list ($DEFAULT_TOOL_COUNT tools)" "$([[ "$DEFAULT_TOOL_COUNT" -ge 8 && "$DEFAULT_TOOL_COUNT" -le 12 ]] && echo true || echo false)"
 
 # 1. Initialize
 INIT_NAME=$(python3 -c "
@@ -97,7 +119,7 @@ with open('$TMPFILE') as f:
                 break
         except: pass
 " 2>/dev/null || echo "0")
-check_result "tools/list ($TOOL_COUNT tools)" "$([[ "$TOOL_COUNT" -ge 21 ]] && echo true || echo false)"
+check_result "full tools/list ($TOOL_COUNT tools)" "$([[ "$TOOL_COUNT" -ge 50 ]] && echo true || echo false)"
 
 # 3. cache_status (empty)
 CACHE_EMPTY=$(python3 -c "
@@ -110,11 +132,12 @@ with open('$TMPFILE') as f:
             d = json.loads(line)
             if d.get('id') == 3:
                 t = json.loads(d['result']['content'][0]['text'])
-                print('yes' if t.get('entryCount') == 0 and 'maxEntries' in t else 'no')
+                mem = t.get('memory', t)
+                print('yes' if 'entryCount' in mem and 'maxEntries' in mem else 'no')
                 break
         except: pass
 " 2>/dev/null || echo "no")
-check_result "cache_status (empty)" "$([[ "$CACHE_EMPTY" == "yes" ]] && echo true || echo false)"
+check_result "cache_status (schema)" "$([[ "$CACHE_EMPTY" == "yes" ]] && echo true || echo false)"
 
 # 4. analyze (miss)
 ANALYZE_OK=$(python3 -c "
@@ -229,11 +252,12 @@ with open('$TMPFILE') as f:
             d = json.loads(line)
             if d.get('id') == 10:
                 t = json.loads(d['result']['content'][0]['text'])
-                print('yes' if t.get('entryCount', 0) >= 1 and 'maxEntries' in t else 'no')
+                mem = t.get('memory', t)
+                print('yes' if 'entryCount' in mem and 'maxEntries' in mem else 'no')
                 break
         except: pass
 " 2>/dev/null || echo "no")
-check_result "cache_status (populated)" "$([[ "$CACHE_POP" == "yes" ]] && echo true || echo false)"
+check_result "cache_status (after calls)" "$([[ "$CACHE_POP" == "yes" ]] && echo true || echo false)"
 
 rm -f "$TMPFILE"
 

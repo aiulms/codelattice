@@ -3,8 +3,7 @@
 //! Tests start the binary with `mcp` subcommand, communicate via stdin/stdout
 //! using newline-delimited JSON-RPC, and verify responses.
 //!
-//! Covers v0 (4 tools) + v0.1 (4 tools) + v0.2 (8 tools) + v0.3 (2 cache tools)
-//! + v0.5-v0.7 (5 tools) + v0.8 (1 tool) + v0.11 (3 tools) + v0.18 (1 tool) + v0.19 (5 tools) + v0.20 (1 tool) + v0.21 (1 tool) = 38 tools total.
+//! Covers the default AI toolset plus explicit core/full MCP toolset profiles.
 
 use std::io::{BufRead, Write};
 use std::path::PathBuf;
@@ -102,7 +101,46 @@ struct McpSession {
 
 impl McpSession {
     fn start() -> Self {
-        Self::start_with_cache_dir(None)
+        Self::start_with_toolset("full")
+    }
+
+    fn start_default_toolset() -> Self {
+        let bin = cli_binary();
+        let mut cmd = Command::new(bin);
+        cmd.arg("mcp")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().expect("Failed to start MCP server");
+
+        let stdin = child.stdin.take().expect("Failed to get stdin");
+        let stdout = child.stdout.take().expect("Failed to get stdout");
+
+        McpSession {
+            child,
+            stdin,
+            stdout,
+        }
+    }
+
+    fn start_with_toolset(toolset: &str) -> Self {
+        let bin = cli_binary();
+        let mut cmd = Command::new(bin);
+        cmd.arg("mcp")
+            .env("CODELATTICE_MCP_TOOLSET", toolset)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().expect("Failed to start MCP server");
+
+        let stdin = child.stdin.take().expect("Failed to get stdin");
+        let stdout = child.stdout.take().expect("Failed to get stdout");
+
+        McpSession {
+            child,
+            stdin,
+            stdout,
+        }
     }
 
     fn start_with_cache_dir(cache_dir: Option<&std::path::Path>) -> Self {
@@ -115,6 +153,7 @@ impl McpSession {
         if let Some(dir) = cache_dir {
             cmd.env("CODELATTICE_CACHE_DIR", dir);
         }
+        cmd.env("CODELATTICE_MCP_TOOLSET", "full");
         let mut child = cmd.spawn().expect("Failed to start MCP server");
 
         let stdin = child.stdin.take().expect("Failed to get stdin");
@@ -203,11 +242,21 @@ fn mcp_initialize_returns_capabilities() {
         cfg!(feature = "tree-sitter-typescript")
     );
     assert!(resp["result"]["capabilities"]["tools"].is_object());
+    assert!(
+        resp["result"]["serverInfo"]["toolCount"]
+            .as_u64()
+            .expect("toolCount should be numeric")
+            == resp["result"]["serverInfo"]["fullToolCount"]
+                .as_u64()
+                .expect("fullToolCount should be numeric"),
+        "explicit full regression sessions should expose the full tool count"
+    );
+    assert_eq!(resp["result"]["serverInfo"]["toolset"], "full");
 }
 
 #[test]
 fn mcp_tools_list_returns_fifty_tools() {
-    let mut session = McpSession::start();
+    let mut session = McpSession::start_with_toolset("full");
     session.initialize();
     session.send_notification_initialized();
 
@@ -368,6 +417,120 @@ fn mcp_tools_list_includes_shell_language() {
     assert!(
         serialized.contains("\"shell\""),
         "tools/list language schemas should include shell"
+    );
+}
+
+#[test]
+fn mcp_default_toolset_is_ai_friendly() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20001,
+        "method": "tools/list"
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 20001);
+
+    let tools = resp["result"]["tools"]
+        .as_array()
+        .expect("tools should be array");
+    assert!(
+        tools.len() <= 12,
+        "default AI toolset should be small, got {} tools",
+        tools.len()
+    );
+
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    for name in [
+        "codelattice_project",
+        "codelattice_symbol",
+        "codelattice_change_review",
+        "codelattice_cleanup",
+        "codelattice_workspace",
+        "codelattice_release_check",
+        "codelattice_cache",
+        "codelattice_workflow",
+    ] {
+        assert!(names.contains(&name), "missing AI facade tool {name}");
+    }
+    assert!(
+        !names.contains(&"codelattice_project_overview"),
+        "default AI toolset should hide low-level project_overview"
+    );
+}
+
+#[test]
+fn mcp_core_toolset_keeps_essential_low_level_tools_but_hides_diagnostics() {
+    let mut session = McpSession::start_with_toolset("core");
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20002,
+        "method": "tools/list"
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 20002);
+
+    let tools = resp["result"]["tools"]
+        .as_array()
+        .expect("tools should be array");
+    assert!(
+        tools.len() > 12 && tools.len() < 50,
+        "core toolset should sit between AI and full, got {} tools",
+        tools.len()
+    );
+
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(names.contains(&"codelattice_project"));
+    assert!(names.contains(&"codelattice_project_overview"));
+    assert!(names.contains(&"codelattice_symbol_context"));
+    assert!(
+        !names.contains(&"codelattice_unresolved_report"),
+        "core should hide specialist diagnostics unless CODELATTICE_MCP_TOOLSET=full"
+    );
+}
+
+#[test]
+fn mcp_hidden_tool_error_points_to_toolset_upgrade() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_overview",
+            "arguments": {
+                "root": portable_smoke_dir(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 20003);
+    assert_eq!(resp["result"]["isError"], true);
+
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("error text");
+    let payload: serde_json::Value = serde_json::from_str(text).expect("JSON error payload");
+    assert_eq!(payload["error"], "tool_not_in_ai_toolset");
+    assert!(
+        payload["message"]
+            .as_str()
+            .unwrap_or("")
+            .contains("codelattice_project"),
+        "error should point AI toward facade tool: {payload}"
     );
 }
 

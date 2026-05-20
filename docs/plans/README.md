@@ -19,6 +19,10 @@
 
 ## 当前状态总结
 
+**MCP AI Toolset Default Pack（2026-05-20，已完成）：**
+- 📝 [2026-05-20-mcp-ai-toolset-default-preflight.md](2026-05-20-mcp-ai-toolset-default-preflight.md) — MCP 默认工具面从 full 50-tool 调整为 AI facade-first 入口，`core/full` 作为显式扩展模式保留，降低 AI 工具选择负担。
+- ✅ [2026-05-20-mcp-ai-toolset-default-closure.md](2026-05-20-mcp-ai-toolset-default-closure.md) — closure：默认 AI 9 tools、core 30、full 50，隐藏工具结构化错误、脚本 full-compat 更新和验证记录。
+
 **Workspace Impact Precision Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-workspace-impact-precision-preflight.md](2026-05-20-workspace-impact-precision-preflight.md) — native `detect-changes` workspace impact 降噪：fixture/test/adjacency-only 影响摘要化、`--include-fixtures` / `--strict-workspace` 深度审计开关、分组 followups。
 - ✅ [2026-05-20-workspace-impact-precision-closure.md](2026-05-20-workspace-impact-precision-closure.md) — closure：daily precision policy、suppressedProjects/suppressedWorkspaceEdges、escape hatch flags、native precommit critical-risk 解释与验证记录。

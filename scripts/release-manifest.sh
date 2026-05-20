@@ -111,7 +111,7 @@ FEATURES_DEFAULT="tree-sitter-extraction"
 FEATURES_ENABLED="$FEATURES_DEFAULT"
 if [[ -n "$BINARY" ]]; then
     # Check which language adapters are available by probing MCP.
-    _PROFILE="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manifest","version":"1.0"}}}' | "$BINARY" mcp 2>/dev/null | head -1 || true)"
+    _PROFILE="$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"manifest","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$BINARY" mcp 2>/dev/null | head -1 || true)"
     MCP_VERSION="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("version","unknown"))' 2>/dev/null || echo "unknown")"
     CANGJIE_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport",False)).lower())' 2>/dev/null || echo "false")"
     ARKTS_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport",False)).lower())' 2>/dev/null || echo "false")"

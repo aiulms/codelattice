@@ -8,7 +8,7 @@ CodeLattice 是一个 **本地代码智能引擎**：面向大型、遗留、复
 
 一句话概括：**先把代码地图画出来，再让 AI 下手。**
 
-CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 暴露 50 个 MCP 工具，已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查、AI 工作流预设、工作区图谱和跨项目影响分析。
+CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 在 `full` 模式保留 50 个 MCP 工具；默认 `ai` 模式只暴露少量 facade-first 入口，避免 AI 被底层工具选择题淹没。能力已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查、AI 工作流预设、工作区图谱和跨项目影响分析。
 
 **当前状态：外部 Beta / daily-use candidate（当前 master 为 `v0.15.0-beta.1` candidate，最新已发布 GitCode Release 为 `v0.14.0-beta.1`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
@@ -408,23 +408,28 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 
 ### AI 工作流指南
 
-CodeLattice MCP 工具较多，推荐先用 `codelattice_workflow_presets` 选择场景，再按返回顺序调用具体工具。外部用户和执行 AI 可以直接使用这些指南：
+CodeLattice MCP 默认使用 `ai` toolset，只暴露 facade-first 入口；执行 AI 通常从 `codelattice_workflow`、`codelattice_project`、`codelattice_change_review`、`codelattice_workspace` 进入即可。需要更多底层工具时再显式设置：
+
+```bash
+CODELATTICE_MCP_TOOLSET=core   # 常用底层工具 + facade
+CODELATTICE_MCP_TOOLSET=full   # 全部 50 个工具，适合调试/回归 smoke
+```
+
+外部用户和执行 AI 可以直接使用这些指南：
 
 - [AI Prompt Cookbook](docs/guides/ai-prompt-cookbook.md)：接手项目、改代码前后、删代码前、发布前、遗留代码清理等可复制提示词。
 - [Workflow Presets](docs/guides/workflow-presets.md)：10 个场景对应的 MCP 工具链、关注字段和 stop-line。
 
 这些工作流只组织静态分析工具，不会执行项目代码，也不会证明运行时行为、外部真实使用、测试覆盖率或删除安全性。
 
-AI 编程助手推荐使用这条链路完成“接手项目 → 改代码 → 看影响 → 审查 → 提交”的闭环：
+AI 编程助手推荐使用这条 facade-first 链路完成“接手项目 → 改代码 → 看影响 → 审查 → 提交”的闭环：
 
-1. `codelattice_review_plan(mode=onboarding)`：接手陌生项目时，获取可操作的阅读/审查清单（入口点、热点文件、文档信号）
-2. `codelattice_review_plan(mode=before_edit, symbol=...)`：修改前获取影响预览和向后兼容性检查
-3. `codelattice_project_overview`：快速理解项目规模
-4. `codelattice_changed_symbols`：识别当前 git diff 影响的符号
-5. `codelattice_review_plan(mode=after_edit)`：修改后获取影响汇总、测试建议、文档更新提示
-6. `codelattice_impact_preview`：查看影响范围、风险理由、置信度和 review focus
-7. `codelattice_review_plan(mode=release_check)`：发布前检查：quality gates、测试建议、生产就绪评估
-8. `codelattice_production_assist`：汇总质量 gate、未解析调用、变更影响和审查清单
+1. `codelattice_workflow(mode=onboarding)`：选择接手项目的阅读路径和 stop-line
+2. `codelattice_project(mode=overview|insights|full, root=...)`：快速理解项目规模、热点、质量信号
+3. `codelattice_symbol(mode=search|context|callers|callees, root=..., name=...)`：定位符号、上下文和调用关系
+4. `codelattice_change_review(mode=native_review|impact|full_review, root=...)`：改动前后做影响审查
+5. `codelattice_workspace(mode=graph|impact, root=...)`：多项目仓库看跨项目关系和影响
+6. `codelattice_release_check(mode=quick|full, root=...)`：提交/发布前收敛质量、配置、文档和兼容风险
 
 ## Rust 支持范围
 
@@ -577,7 +582,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - C++ CLI 分析（Phase A）
 - Python CLI 分析（Phase A）
 - Shell CLI 分析（Phase A）
-- MCP sidecar 50 个工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱和跨项目影响分析
+- MCP sidecar 默认 AI toolset 暴露 facade-first 入口；`CODELATTICE_MCP_TOOLSET=full` 暴露 50 个工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱和跨项目影响分析
 - 两层持久化缓存
 - stable runtime promote
 - release tarball packaging + release smoke
