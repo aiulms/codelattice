@@ -1037,3 +1037,10 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - 保留旧 source mtime、manifest hash、docs mtime 检查作为兼容 guardrail
     - Plan: `docs/plans/2026-05-20-scheduler-cache-reuse-preflight.md`
     - Closure: `docs/plans/2026-05-20-scheduler-cache-reuse-closure.md`
+
+73. **Incremental Dirty-file Planning Pack** ✅ 完成（2026-05-20）：
+    - scheduler 新增 compact `FileSnapshot` 和 `incrementalPlan`，可比较上一轮 cache snapshot 与当前文件状态
+    - MCP memory / persistent cache 保存 scheduler-tracked file snapshot；stale miss 可报告 dirty files、added/modified/removed 统计和 affected phases
+    - `fileScopedCandidate` 只表示未来 partial graph rebuild 的候选计划；本包仍走现有 full analysis 执行路径
+    - Plan: `docs/plans/2026-05-20-incremental-dirty-file-planning-preflight.md`
+    - Closure: `docs/plans/2026-05-20-incremental-dirty-file-planning-closure.md`

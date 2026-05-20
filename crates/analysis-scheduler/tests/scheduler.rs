@@ -106,6 +106,46 @@ fn schedule_records_stale_reason_when_previous_fingerprint_differs() {
 }
 
 #[test]
+fn dirty_file_plan_reports_modified_source_file() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    fs::create_dir(temp.path().join("src")).expect("src");
+    let source = temp.path().join("src/lib.rs");
+    fs::write(&source, "pub fn live() {}\n").expect("write source");
+
+    let before_request = AnalysisRequest::new(temp.path(), "rust")
+        .with_scope(AnalysisScope::Graph)
+        .with_cache_intent(CacheIntent::ReusePreferred);
+    let before = build_schedule(&before_request).expect("initial schedule");
+
+    std::thread::sleep(Duration::from_millis(20));
+    fs::write(&source, "pub fn live() {}\npub fn changed() {}\n").expect("update source");
+
+    let after_request = AnalysisRequest::new(temp.path(), "rust")
+        .with_scope(AnalysisScope::Graph)
+        .with_previous_fingerprint(before.fingerprint.fingerprint.clone())
+        .with_previous_files(before.file_snapshot.clone())
+        .with_cache_intent(CacheIntent::ReusePreferred);
+    let after = build_schedule(&after_request).expect("dirty schedule");
+
+    assert_eq!(after.decision.action, "fresh");
+    assert!(after.incremental_plan.available);
+    assert!(after.incremental_plan.plan_only);
+    assert_eq!(after.incremental_plan.dirty_file_count, 1);
+    assert_eq!(after.incremental_plan.summary.modified, 1);
+    assert_eq!(after.incremental_plan.strategy, "fileScopedCandidate");
+    assert_eq!(after.incremental_plan.dirty_files[0].path, "src/lib.rs");
+    assert_eq!(after.incremental_plan.dirty_files[0].status, "modified");
+    assert!(
+        after
+            .incremental_plan
+            .affected_phases
+            .iter()
+            .any(|phase| phase == "graph"),
+        "source changes should affect graph phase"
+    );
+}
+
+#[test]
 fn request_normalizes_root_without_requiring_stringly_paths() {
     let temp = tempfile::tempdir().expect("tempdir");
     fs::write(temp.path().join("README.md"), "demo").expect("write readme");

@@ -5,7 +5,7 @@
 //! plan that higher layers can use for cache and stale-decision reporting.
 
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -34,6 +34,8 @@ pub struct AnalysisRequest {
     pub scope: AnalysisScope,
     pub cache_intent: CacheIntent,
     pub previous_fingerprint: Option<String>,
+    #[serde(default, skip)]
+    pub previous_files: Option<Vec<FileSnapshot>>,
     generated_at_ms: Option<u64>,
 }
 
@@ -46,6 +48,7 @@ impl AnalysisRequest {
             scope: AnalysisScope::Graph,
             cache_intent: CacheIntent::ReusePreferred,
             previous_fingerprint: None,
+            previous_files: None,
             generated_at_ms: None,
         }
     }
@@ -70,6 +73,11 @@ impl AnalysisRequest {
         self
     }
 
+    pub fn with_previous_files(mut self, files: Vec<FileSnapshot>) -> Self {
+        self.previous_files = Some(files);
+        self
+    }
+
     pub fn with_generated_at(mut self, generated_at: SystemTime) -> Self {
         self.generated_at_ms = Some(system_time_ms(generated_at));
         self
@@ -84,6 +92,48 @@ pub struct AnalysisFingerprint {
     pub tracked_extensions: Vec<String>,
     pub total_bytes: u64,
     pub latest_modified_ms: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileSnapshot {
+    pub path: String,
+    pub len: u64,
+    pub modified_ms: u64,
+    pub extension: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirtyFileSummary {
+    pub added: usize,
+    pub modified: usize,
+    pub removed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DirtyFile {
+    pub path: String,
+    pub status: String,
+    pub extension: Option<String>,
+    pub reason: String,
+    pub affected_phases: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IncrementalPlan {
+    pub available: bool,
+    pub plan_only: bool,
+    pub strategy: String,
+    pub reason: String,
+    pub dirty_file_count: usize,
+    pub omitted_dirty_file_count: usize,
+    pub summary: DirtyFileSummary,
+    pub dirty_files: Vec<DirtyFile>,
+    pub affected_phases: Vec<String>,
+    pub partial_graph_eligible: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -111,7 +161,10 @@ pub struct AnalysisSchedule {
     pub fingerprint: AnalysisFingerprint,
     pub phases: Vec<AnalysisPhase>,
     pub decision: CacheDecision,
+    pub incremental_plan: IncrementalPlan,
     pub generated_at_ms: u64,
+    #[serde(skip)]
+    pub file_snapshot: Vec<FileSnapshot>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,12 +190,14 @@ pub fn build_schedule(request: &AnalysisRequest) -> Result<AnalysisSchedule, Sch
     let mut normalized = request.clone();
     normalized.root = canonical.to_string_lossy().to_string();
 
-    let fingerprint = fingerprint_root(&canonical)?;
+    let (fingerprint, file_snapshot) = fingerprint_root_with_files(&canonical)?;
     let decision = cache_decision(
         request.cache_intent,
         &request.previous_fingerprint,
         &fingerprint,
     );
+    let incremental_plan =
+        build_incremental_plan(request.previous_files.as_deref(), &file_snapshot, &decision);
     let generated_at_ms = request
         .generated_at_ms
         .unwrap_or_else(|| system_time_ms(SystemTime::now()));
@@ -152,11 +207,19 @@ pub fn build_schedule(request: &AnalysisRequest) -> Result<AnalysisSchedule, Sch
         fingerprint,
         phases: phases_for_scope(request.scope),
         decision,
+        incremental_plan,
         generated_at_ms,
+        file_snapshot,
     })
 }
 
 pub fn fingerprint_root(root: impl AsRef<Path>) -> Result<AnalysisFingerprint, ScheduleError> {
+    fingerprint_root_with_files(root.as_ref()).map(|(fingerprint, _)| fingerprint)
+}
+
+fn fingerprint_root_with_files(
+    root: impl AsRef<Path>,
+) -> Result<(AnalysisFingerprint, Vec<FileSnapshot>), ScheduleError> {
     let root = canonical_root(root.as_ref())?;
     let mut files = Vec::new();
     collect_files(&root, &root, &mut files)?;
@@ -181,13 +244,18 @@ pub fn fingerprint_root(root: impl AsRef<Path>) -> Result<AnalysisFingerprint, S
         }
     }
 
-    Ok(AnalysisFingerprint {
-        fingerprint: format!("{state:016x}"),
-        tracked_file_count: files.len(),
-        tracked_extensions: extensions.into_iter().collect(),
-        total_bytes,
-        latest_modified_ms,
-    })
+    let snapshot = files.iter().map(FileSnapshot::from).collect();
+
+    Ok((
+        AnalysisFingerprint {
+            fingerprint: format!("{state:016x}"),
+            tracked_file_count: files.len(),
+            tracked_extensions: extensions.into_iter().collect(),
+            total_bytes,
+            latest_modified_ms,
+        },
+        snapshot,
+    ))
 }
 
 fn cache_decision(
@@ -258,6 +326,233 @@ struct FileFact {
     rel_path: String,
     len: u64,
     modified_ms: u64,
+}
+
+impl From<&FileFact> for FileSnapshot {
+    fn from(file: &FileFact) -> Self {
+        let extension = Path::new(&file.rel_path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_ascii_lowercase());
+        Self {
+            path: file.rel_path.clone(),
+            len: file.len,
+            modified_ms: file.modified_ms,
+            extension,
+        }
+    }
+}
+
+const DIRTY_FILE_PREVIEW_LIMIT: usize = 20;
+
+fn build_incremental_plan(
+    previous: Option<&[FileSnapshot]>,
+    current: &[FileSnapshot],
+    decision: &CacheDecision,
+) -> IncrementalPlan {
+    let Some(previous) = previous else {
+        return IncrementalPlan {
+            available: false,
+            plan_only: true,
+            strategy: "fullAnalysis".to_string(),
+            reason: if decision.previous_fingerprint.is_some() {
+                "previous-file-snapshot-missing".to_string()
+            } else {
+                "no-previous-file-snapshot".to_string()
+            },
+            dirty_file_count: 0,
+            omitted_dirty_file_count: 0,
+            summary: DirtyFileSummary {
+                added: 0,
+                modified: 0,
+                removed: 0,
+            },
+            dirty_files: Vec::new(),
+            affected_phases: Vec::new(),
+            partial_graph_eligible: false,
+        };
+    };
+
+    let previous_by_path: BTreeMap<&str, &FileSnapshot> = previous
+        .iter()
+        .map(|file| (file.path.as_str(), file))
+        .collect();
+    let current_by_path: BTreeMap<&str, &FileSnapshot> = current
+        .iter()
+        .map(|file| (file.path.as_str(), file))
+        .collect();
+
+    let mut dirty_files = Vec::new();
+    for (path, current_file) in &current_by_path {
+        match previous_by_path.get(path) {
+            Some(previous_file)
+                if previous_file.len == current_file.len
+                    && previous_file.modified_ms == current_file.modified_ms
+                    && previous_file.extension == current_file.extension => {}
+            Some(_) => dirty_files.push(build_dirty_file("modified", current_file)),
+            None => dirty_files.push(build_dirty_file("added", current_file)),
+        }
+    }
+    for (path, previous_file) in &previous_by_path {
+        if !current_by_path.contains_key(path) {
+            dirty_files.push(build_dirty_file("removed", previous_file));
+        }
+    }
+    dirty_files.sort_by(|a, b| a.path.cmp(&b.path).then(a.status.cmp(&b.status)));
+
+    let summary = DirtyFileSummary {
+        added: dirty_files
+            .iter()
+            .filter(|file| file.status == "added")
+            .count(),
+        modified: dirty_files
+            .iter()
+            .filter(|file| file.status == "modified")
+            .count(),
+        removed: dirty_files
+            .iter()
+            .filter(|file| file.status == "removed")
+            .count(),
+    };
+    let mut affected_phases = BTreeSet::new();
+    for file in &dirty_files {
+        affected_phases.extend(file.affected_phases.iter().cloned());
+    }
+    let affected_phases: Vec<String> = affected_phases.into_iter().collect();
+
+    let dirty_file_count = dirty_files.len();
+    let partial_graph_eligible = dirty_file_count > 0
+        && dirty_files.iter().all(|file| {
+            file.status == "modified" && is_source_extension(file.extension.as_deref())
+        });
+    let (strategy, reason) = if dirty_file_count == 0 {
+        ("reuse", "no-dirty-files")
+    } else if partial_graph_eligible {
+        ("fileScopedCandidate", "source-only-dirty-files")
+    } else {
+        ("fullAnalysis", "non-source-or-structural-change")
+    };
+    let omitted_dirty_file_count = dirty_file_count.saturating_sub(DIRTY_FILE_PREVIEW_LIMIT);
+    dirty_files.truncate(DIRTY_FILE_PREVIEW_LIMIT);
+
+    IncrementalPlan {
+        available: true,
+        plan_only: true,
+        strategy: strategy.to_string(),
+        reason: reason.to_string(),
+        dirty_file_count,
+        omitted_dirty_file_count,
+        summary,
+        dirty_files,
+        affected_phases,
+        partial_graph_eligible,
+    }
+}
+
+fn build_dirty_file(status: &str, file: &FileSnapshot) -> DirtyFile {
+    let affected_phases =
+        affected_phases_for(file.path.as_str(), file.extension.as_deref(), status);
+    DirtyFile {
+        path: file.path.clone(),
+        status: status.to_string(),
+        extension: file.extension.clone(),
+        reason: dirty_reason(status, file.path.as_str(), file.extension.as_deref()).to_string(),
+        affected_phases,
+    }
+}
+
+fn affected_phases_for(path: &str, extension: Option<&str>, status: &str) -> Vec<String> {
+    let phases = if status == "removed" {
+        &[
+            "discover",
+            "fingerprint",
+            "parse",
+            "symbols",
+            "imports",
+            "calls",
+            "diagnostics",
+            "graph",
+        ][..]
+    } else if is_source_extension(extension) {
+        &[
+            "fingerprint",
+            "parse",
+            "symbols",
+            "imports",
+            "calls",
+            "diagnostics",
+            "graph",
+        ][..]
+    } else if is_manifest_or_config(path, extension) {
+        &[
+            "discover",
+            "fingerprint",
+            "imports",
+            "calls",
+            "diagnostics",
+            "graph",
+        ][..]
+    } else if matches!(extension, Some("md" | "mdx" | "rst")) {
+        &["fingerprint", "diagnostics"][..]
+    } else {
+        &["fingerprint", "diagnostics", "graph"][..]
+    };
+    phases.iter().map(|phase| (*phase).to_string()).collect()
+}
+
+fn dirty_reason(status: &str, path: &str, extension: Option<&str>) -> &'static str {
+    if status == "removed" {
+        "tracked-file-removed"
+    } else if is_source_extension(extension) {
+        "source-file-metadata-changed"
+    } else if is_manifest_or_config(path, extension) {
+        "manifest-or-config-metadata-changed"
+    } else if matches!(extension, Some("md" | "mdx" | "rst")) {
+        "documentation-metadata-changed"
+    } else {
+        "tracked-file-metadata-changed"
+    }
+}
+
+fn is_source_extension(extension: Option<&str>) -> bool {
+    matches!(
+        extension,
+        Some(
+            "rs" | "cj"
+                | "ets"
+                | "ts"
+                | "tsx"
+                | "js"
+                | "jsx"
+                | "c"
+                | "h"
+                | "cpp"
+                | "hpp"
+                | "py"
+                | "sh"
+        )
+    )
+}
+
+fn is_manifest_or_config(path: &str, extension: Option<&str>) -> bool {
+    let basename = Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(path);
+    matches!(
+        basename,
+        "Cargo.toml"
+            | "Cargo.lock"
+            | "cjpm.toml"
+            | "oh-package.json5"
+            | "tsconfig.json"
+            | "package.json"
+            | "compile_commands.json"
+            | "pyproject.toml"
+            | "setup.py"
+            | "requirements.txt"
+    ) || matches!(extension, Some("yaml" | "yml" | "toml" | "json" | "json5"))
+        || path.contains("/config/")
 }
 
 fn canonical_root(root: &Path) -> Result<PathBuf, ScheduleError> {

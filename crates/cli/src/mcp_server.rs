@@ -31,7 +31,9 @@
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         All tools are read-only.
 
-use gitnexus_analysis_scheduler::{build_schedule, AnalysisRequest, AnalysisScope, CacheIntent};
+use gitnexus_analysis_scheduler::{
+    build_schedule, AnalysisRequest, AnalysisScope, CacheIntent, FileSnapshot,
+};
 use gitnexus_workspace_model::build_workspace_graph;
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
 use serde_json::{json, Value};
@@ -314,6 +316,8 @@ struct CacheEntry {
     graph_view: GraphView,
     /// Scheduler metadata captured for the analysis entry.
     scheduler: Value,
+    /// Scheduler-tracked file snapshot captured for dirty-file planning.
+    scheduler_files: Vec<FileSnapshot>,
     created_at: Instant,
     last_used_at: Instant,
     hit_count: u64,
@@ -341,7 +345,8 @@ fn build_scheduler_metadata(
     language: &str,
     strict: bool,
     previous_fingerprint: Option<String>,
-) -> Value {
+    previous_files: Option<Vec<FileSnapshot>>,
+) -> SchedulerMetadata {
     let mut request = AnalysisRequest::new(root, language)
         .with_scope(AnalysisScope::Graph)
         .with_strict(strict)
@@ -349,30 +354,55 @@ fn build_scheduler_metadata(
     if let Some(fingerprint) = previous_fingerprint {
         request = request.with_previous_fingerprint(fingerprint);
     }
+    if let Some(files) = previous_files {
+        request = request.with_previous_files(files);
+    }
 
-    match build_schedule(&request).and_then(|schedule| {
-        serde_json::to_value(schedule)
-            .map_err(|e| gitnexus_analysis_scheduler::ScheduleError::Io(e.to_string()))
-    }) {
-        Ok(mut schedule) => {
-            let phase_count = schedule
-                .get("phases")
-                .and_then(|v| v.as_array())
-                .map(Vec::len)
-                .unwrap_or(0);
-            if let Some(obj) = schedule.as_object_mut() {
-                obj.insert("phaseCount".to_string(), json!(phase_count));
-                obj.insert("scriptsExecuted".to_string(), json!(false));
-                obj.insert("runtimeExecuted".to_string(), json!(false));
+    match build_schedule(&request) {
+        Ok(schedule) => {
+            let file_snapshot = schedule.file_snapshot.clone();
+            match serde_json::to_value(schedule)
+                .map_err(|e| gitnexus_analysis_scheduler::ScheduleError::Io(e.to_string()))
+            {
+                Ok(mut schedule_value) => {
+                    let phase_count = schedule_value
+                        .get("phases")
+                        .and_then(|v| v.as_array())
+                        .map(Vec::len)
+                        .unwrap_or(0);
+                    if let Some(obj) = schedule_value.as_object_mut() {
+                        obj.insert("phaseCount".to_string(), json!(phase_count));
+                        obj.insert("scriptsExecuted".to_string(), json!(false));
+                        obj.insert("runtimeExecuted".to_string(), json!(false));
+                    }
+                    SchedulerMetadata {
+                        value: schedule_value,
+                        file_snapshot,
+                    }
+                }
+                Err(err) => SchedulerMetadata::error(err),
             }
-            schedule
         }
-        Err(err) => json!({
-            "error": "scheduler_metadata_failed",
-            "message": err.to_string(),
-            "scriptsExecuted": false,
-            "runtimeExecuted": false
-        }),
+        Err(err) => SchedulerMetadata::error(err),
+    }
+}
+
+struct SchedulerMetadata {
+    value: Value,
+    file_snapshot: Vec<FileSnapshot>,
+}
+
+impl SchedulerMetadata {
+    fn error(err: gitnexus_analysis_scheduler::ScheduleError) -> Self {
+        Self {
+            value: json!({
+                "error": "scheduler_metadata_failed",
+                "message": err.to_string(),
+                "scriptsExecuted": false,
+                "runtimeExecuted": false
+            }),
+            file_snapshot: Vec::new(),
+        }
     }
 }
 
@@ -659,6 +689,9 @@ struct PersistentCacheEntry {
     docs_mtimes: HashMap<String, u64>,
     /// Scheduler fingerprint at cache time.
     scheduler_fingerprint: Option<String>,
+    /// Scheduler-tracked file snapshot at cache time.
+    #[serde(default)]
+    scheduler_files: Vec<FileSnapshot>,
     /// Creation timestamp (ISO 8601).
     created_at: String,
     /// Analysis duration in ms.
@@ -671,7 +704,15 @@ struct PersistentCacheHit {
     manifest_hashes: HashMap<String, u64>,
     docs_mtimes: HashMap<String, u64>,
     scheduler: Value,
+    scheduler_files: Vec<FileSnapshot>,
     analysis_duration_ms: u64,
+}
+
+#[derive(Default)]
+struct PersistentStaleContext {
+    previous_scheduler_fingerprint: Option<String>,
+    previous_scheduler_files: Option<Vec<FileSnapshot>>,
+    stale_reason: Option<String>,
 }
 
 /// Try to load a cached analysis from the persistent cache layer.
@@ -683,6 +724,7 @@ fn try_load_persistent(
     language: &str,
     strict: bool,
     canonical_root: &Path,
+    stale_context: &mut PersistentStaleContext,
 ) -> Option<PersistentCacheHit> {
     let cache_dir = get_persistent_cache_dir()?;
     let filename = persistent_cache_filename(cache_key_str, language);
@@ -739,25 +781,46 @@ fn try_load_persistent(
             return None;
         }
     };
-    let scheduler =
-        build_scheduler_metadata(canonical_root, language, strict, Some(previous_fingerprint));
-    if scheduler_decision_action(&scheduler) != Some("reuse") {
+    let scheduler = build_scheduler_metadata(
+        canonical_root,
+        language,
+        strict,
+        Some(previous_fingerprint.clone()),
+        Some(entry.scheduler_files.clone()),
+    );
+    if scheduler_decision_action(&scheduler.value) != Some("reuse") {
+        stale_context.previous_scheduler_fingerprint = Some(previous_fingerprint);
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
+        stale_context.stale_reason = Some(
+            StaleReason::SchedulerFingerprintChanged
+                .reason_code()
+                .to_string(),
+        );
         let _ = std::fs::remove_file(&path);
         return None;
     }
 
-    if check_stale(canonical_root, &entry.file_mtimes).is_some() {
+    if let Some(reason) = check_stale(canonical_root, &entry.file_mtimes) {
         // Stale — remove and return None
+        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
+        stale_context.stale_reason = Some(reason.reason_code().to_string());
         let _ = std::fs::remove_file(&path);
         return None;
     }
 
-    if check_manifest_stale(canonical_root, &entry.manifest_hashes).is_some() {
+    if let Some(reason) = check_manifest_stale(canonical_root, &entry.manifest_hashes) {
+        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
+        stale_context.stale_reason = Some(reason.reason_code().to_string());
         let _ = std::fs::remove_file(&path);
         return None;
     }
 
-    if check_docs_stale(canonical_root, &entry.docs_mtimes).is_some() {
+    if let Some(reason) = check_docs_stale(canonical_root, &entry.docs_mtimes) {
+        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
+        stale_context.stale_reason = Some(reason.reason_code().to_string());
         let _ = std::fs::remove_file(&path);
         return None;
     }
@@ -767,7 +830,8 @@ fn try_load_persistent(
         file_mtimes: entry.file_mtimes,
         manifest_hashes: entry.manifest_hashes,
         docs_mtimes: entry.docs_mtimes,
-        scheduler,
+        scheduler: scheduler.value,
+        scheduler_files: scheduler.file_snapshot,
         analysis_duration_ms: entry.analysis_duration_ms,
     })
 }
@@ -785,6 +849,7 @@ fn save_persistent(
     manifest_hashes: &HashMap<String, u64>,
     docs_mtimes: &HashMap<String, u64>,
     scheduler_fingerprint: Option<String>,
+    scheduler_files: &[FileSnapshot],
     analysis_duration_ms: u64,
 ) {
     let cache_dir = match get_persistent_cache_dir() {
@@ -817,6 +882,7 @@ fn save_persistent(
         manifest_hashes: manifest_hashes.clone(),
         docs_mtimes: docs_mtimes.clone(),
         scheduler_fingerprint,
+        scheduler_files: scheduler_files.to_vec(),
         created_at: chrono_now_iso(),
         analysis_duration_ms,
     };
@@ -1058,12 +1124,15 @@ impl McpCache {
         let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
         let mut stale_reason_for_meta: Option<String> = None;
         let mut previous_scheduler_fingerprint_for_fresh: Option<String> = None;
+        let mut previous_scheduler_files_for_fresh: Option<Vec<FileSnapshot>> = None;
 
         // Layer 1: Check process-local memory cache
         if let Some(entry) = self.entries.get_mut(&key) {
             let root_path = Path::new(&entry.root_canonical);
             if let Some(reason) = check_stale(root_path, &entry.file_mtimes) {
                 // Stale — invalidate and fall through
+                previous_scheduler_fingerprint_for_fresh = scheduler_fingerprint(&entry.scheduler);
+                previous_scheduler_files_for_fresh = Some(entry.scheduler_files.clone());
                 stale_reason_for_meta = Some(reason.reason_code().to_string());
                 entry.stale_reason = Some(reason.reason_code().to_string());
                 self.entries.remove(&key);
@@ -1087,6 +1156,9 @@ impl McpCache {
                         .collect(),
                 );
                 if let Some(reason) = manifest_stale.or(docs_stale) {
+                    previous_scheduler_fingerprint_for_fresh =
+                        scheduler_fingerprint(&entry.scheduler);
+                    previous_scheduler_files_for_fresh = Some(entry.scheduler_files.clone());
                     stale_reason_for_meta = Some(reason.reason_code().to_string());
                     entry.stale_reason = Some(reason.reason_code().to_string());
                     self.entries.remove(&key);
@@ -1101,16 +1173,19 @@ impl McpCache {
                         language,
                         strict,
                         previous_fingerprint.clone(),
+                        Some(entry.scheduler_files.clone()),
                     );
-                    if scheduler_decision_action(&scheduler) != Some("reuse") {
+                    if scheduler_decision_action(&scheduler.value) != Some("reuse") {
                         previous_scheduler_fingerprint_for_fresh = previous_fingerprint;
+                        previous_scheduler_files_for_fresh = Some(entry.scheduler_files.clone());
                         let reason = StaleReason::SchedulerFingerprintChanged;
                         stale_reason_for_meta = Some(reason.reason_code().to_string());
                         entry.stale_reason = Some(reason.reason_code().to_string());
                         self.entries.remove(&key);
                     } else {
                         // Fresh memory hit
-                        entry.scheduler = scheduler.clone();
+                        entry.scheduler = scheduler.value.clone();
+                        entry.scheduler_files = scheduler.file_snapshot.clone();
                         entry.hit_count += 1;
                         entry.last_used_at = Instant::now();
                         self.total_hits += 1;
@@ -1120,7 +1195,7 @@ impl McpCache {
                             "cacheKey": cache_key_str,
                             "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
                             "analysisDurationMs": entry.analysis_duration_ms,
-                            "schedule": scheduler,
+                            "schedule": scheduler.value,
                         });
                         return Ok((
                             entry.graph_view.clone_shallow(),
@@ -1133,8 +1208,14 @@ impl McpCache {
         }
 
         // Layer 2: Check persistent disk cache
-        if let Some(persistent) = try_load_persistent(&cache_key_str, language, strict, &canonical)
-        {
+        let mut persistent_stale_context = PersistentStaleContext::default();
+        if let Some(persistent) = try_load_persistent(
+            &cache_key_str,
+            language,
+            strict,
+            &canonical,
+            &mut persistent_stale_context,
+        ) {
             // Persistent hit — build GraphView and load into memory cache
             let mut graph_view = GraphView::build(&persistent.analyze_result);
             graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
@@ -1148,6 +1229,7 @@ impl McpCache {
                 &canonical,
                 persistent.analysis_duration_ms,
                 persistent.scheduler.clone(),
+                persistent.scheduler_files.clone(),
                 // Also persist manifest/docs hashes in the analyze_result for memory-layer checks
             );
 
@@ -1177,6 +1259,16 @@ impl McpCache {
             });
             return Ok((graph_view, persistent.analyze_result, meta));
         }
+        if previous_scheduler_fingerprint_for_fresh.is_none() {
+            previous_scheduler_fingerprint_for_fresh =
+                persistent_stale_context.previous_scheduler_fingerprint;
+        }
+        if previous_scheduler_files_for_fresh.is_none() {
+            previous_scheduler_files_for_fresh = persistent_stale_context.previous_scheduler_files;
+        }
+        if stale_reason_for_meta.is_none() {
+            stale_reason_for_meta = persistent_stale_context.stale_reason;
+        }
 
         // Layer 3: Cache miss — run fresh analyze
         self.persistent_misses += 1;
@@ -1201,6 +1293,7 @@ impl McpCache {
             language,
             strict,
             previous_scheduler_fingerprint_for_fresh,
+            previous_scheduler_files_for_fresh,
         );
         let result = run_analyze_subprocess(root, language, "json", strict)?;
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -1238,7 +1331,8 @@ impl McpCache {
             CacheEntry {
                 analyze_result: result_with_meta.clone(),
                 graph_view: graph_view.clone_shallow(),
-                scheduler: scheduler.clone(),
+                scheduler: scheduler.value.clone(),
+                scheduler_files: scheduler.file_snapshot.clone(),
                 created_at: Instant::now(),
                 last_used_at: Instant::now(),
                 hit_count: 0,
@@ -1258,7 +1352,8 @@ impl McpCache {
             &file_mtimes,
             &manifest_hashes,
             &docs_mtimes,
-            scheduler_fingerprint(&scheduler),
+            scheduler_fingerprint(&scheduler.value),
+            &scheduler.file_snapshot,
             duration_ms,
         );
 
@@ -1267,7 +1362,7 @@ impl McpCache {
             "cacheLayer": "none",
             "cacheKey": cache_key_str,
             "analysisDurationMs": duration_ms,
-            "schedule": scheduler,
+            "schedule": scheduler.value,
         });
         if let Some(reason) = stale_reason_for_meta {
             if let Some(obj) = meta.as_object_mut() {
@@ -1287,6 +1382,7 @@ impl McpCache {
         canonical: &Path,
         duration_ms: u64,
         scheduler: Value,
+        scheduler_files: Vec<FileSnapshot>,
     ) {
         self.entries.insert(
             key,
@@ -1294,6 +1390,7 @@ impl McpCache {
                 analyze_result,
                 graph_view,
                 scheduler,
+                scheduler_files,
                 created_at: Instant::now(),
                 last_used_at: Instant::now(),
                 hit_count: 0,

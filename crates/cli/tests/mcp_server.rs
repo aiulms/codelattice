@@ -3393,7 +3393,112 @@ fn mcp_scheduler_fingerprint_invalidates_persistent_cache_for_non_source_change(
             "scheduler fingerprint change should invalidate persistent cache"
         );
         assert_eq!(data["cacheLayer"], "none");
+        assert_eq!(data["schedule"]["incrementalPlan"]["available"], true);
+        assert_eq!(
+            data["schedule"]["incrementalPlan"]["strategy"],
+            "fullAnalysis"
+        );
+        assert!(
+            data["schedule"]["incrementalPlan"]["dirtyFiles"]
+                .as_array()
+                .expect("dirty files")
+                .iter()
+                .any(|file| file["path"] == "config/schema.yaml" && file["status"] == "modified"),
+            "persistent stale plan should name the changed YAML config"
+        );
     }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn mcp_scheduler_incremental_plan_reports_config_dirty_file_on_cache_miss() {
+    let root = make_scheduler_cache_fixture("scheduler-incremental-plan");
+    let cache_dir = make_isolated_cache_dir("scheduler-incremental-plan");
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3201,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let first = extract_tool_data(&session.recv());
+    assert_eq!(first["cacheHit"], false, "initial analyze should miss");
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3202,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let second = extract_tool_data(&session.recv());
+    assert_eq!(second["cacheHit"], true, "second analyze should hit memory");
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(
+        root.join("config").join("schema.yaml"),
+        "version: 4\nfield: incremental-plan\n",
+    )
+    .expect("update scheduler-tracked config file");
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3203,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let third = extract_tool_data(&session.recv());
+    assert_eq!(
+        third["cacheHit"], false,
+        "config change should force fresh analysis"
+    );
+    assert_eq!(third["schedule"]["incrementalPlan"]["available"], true);
+    assert_eq!(third["schedule"]["incrementalPlan"]["planOnly"], true);
+    assert_eq!(
+        third["schedule"]["incrementalPlan"]["strategy"],
+        "fullAnalysis"
+    );
+    assert_eq!(
+        third["schedule"]["incrementalPlan"]["reason"],
+        "non-source-or-structural-change"
+    );
+    assert_eq!(third["schedule"]["incrementalPlan"]["dirtyFileCount"], 1);
+    assert_eq!(
+        third["schedule"]["incrementalPlan"]["summary"]["modified"],
+        1
+    );
+    assert!(
+        third["schedule"]["incrementalPlan"]["dirtyFiles"]
+            .as_array()
+            .expect("dirty files")
+            .iter()
+            .any(|file| file["path"] == "config/schema.yaml"
+                && file["status"] == "modified"
+                && file["reason"] == "manifest-or-config-metadata-changed"),
+        "dirty-file plan should name the changed YAML config"
+    );
 
     let _ = std::fs::remove_dir_all(&cache_dir);
     let _ = std::fs::remove_dir_all(&root);
