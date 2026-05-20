@@ -19,6 +19,10 @@
 
 ## 当前状态总结
 
+**Workspace Impact Precision Pack（2026-05-20，已完成）：**
+- 📝 [2026-05-20-workspace-impact-precision-preflight.md](2026-05-20-workspace-impact-precision-preflight.md) — native `detect-changes` workspace impact 降噪：fixture/test/adjacency-only 影响摘要化、`--include-fixtures` / `--strict-workspace` 深度审计开关、分组 followups。
+- ✅ [2026-05-20-workspace-impact-precision-closure.md](2026-05-20-workspace-impact-precision-closure.md) — closure：daily precision policy、suppressedProjects/suppressedWorkspaceEdges、escape hatch flags、native precommit critical-risk 解释与验证记录。
+
 **CodeLattice Native Governance Migration（2026-05-20，已完成）：**
 - 📝 [2026-05-20-native-governance-migration-preflight.md](2026-05-20-native-governance-migration-preflight.md) — 将 CodeLattice 日常自审从 legacy GitNexus-Tool 迁到原生命令：precommit bundle、AGENTS/README/MCP setup 文档更新、fallback 边界。
 - ✅ [2026-05-20-native-governance-migration-closure.md](2026-05-20-native-governance-migration-closure.md) — closure：`scripts/codelattice-precommit-check.sh`、native detect-changes 默认化、legacy Tool fallback 化、验证与边界记录。

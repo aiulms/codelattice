@@ -213,6 +213,86 @@ assert len(d.get('affectedProjects', [])) > 0
 assert any(e.get('kind') == 'config_refs' for e in d.get('affectedWorkspaceEdges', []))
 PY"
 
+echo "4. Workspace impact precision filters fixture-only adjacency noise"
+PREC="$TMP/precision-workspace"
+mkdir -p "$PREC/app/src" "$PREC/fixtures/corpus-one/src" "$PREC/fixtures/corpus-two/src"
+cat >"$PREC/app/Cargo.toml" <<'EOF'
+[package]
+name = "app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+corpus-one = { path = "../fixtures/corpus-one" }
+EOF
+cat >"$PREC/app/src/lib.rs" <<'EOF'
+pub fn app_entry() -> i32 {
+    1
+}
+EOF
+cat >"$PREC/fixtures/corpus-one/Cargo.toml" <<'EOF'
+[package]
+name = "corpus-one"
+version = "0.1.0"
+edition = "2021"
+EOF
+echo 'pub fn fixture_one() {}' >"$PREC/fixtures/corpus-one/src/lib.rs"
+cat >"$PREC/fixtures/corpus-two/Cargo.toml" <<'EOF'
+[package]
+name = "corpus-two"
+version = "0.1.0"
+edition = "2021"
+EOF
+echo 'pub fn fixture_two() {}' >"$PREC/fixtures/corpus-two/src/lib.rs"
+git -C "$PREC" init >/dev/null
+git -C "$PREC" config user.email "smoke@example.com"
+git -C "$PREC" config user.name "Smoke"
+git -C "$PREC" add .
+git -C "$PREC" commit -m baseline >/dev/null
+cat >"$PREC/app/src/lib.rs" <<'EOF'
+pub fn app_entry() -> i32 {
+    2
+}
+EOF
+PREC_REPORT="$TMP/precision-report.json"
+"$BIN" detect-changes \
+  --root "$PREC" \
+  --language rust \
+  --scope all \
+  --format json \
+  >"$PREC_REPORT"
+check "daily precision suppresses fixture-only projects" "python3 - '$PREC_REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+summary = d.get('workspaceImpactSummary') or {}
+policy = summary.get('policy') or {}
+assert policy.get('includeFixtures') is False
+assert policy.get('strictWorkspace') is False
+assert summary.get('suppressedProjectCount', 0) >= 1, summary
+assert summary.get('fixtureOnlyCount', 0) >= 1, summary
+labels = {p.get('label') for p in d.get('affectedProjects', [])}
+assert 'corpus-one' not in labels and 'corpus-two' not in labels, labels
+assert d.get('crossProjectRisk') in ('low', 'medium'), d.get('crossProjectRisk')
+PY"
+PREC_FULL_REPORT="$TMP/precision-report-full.json"
+"$BIN" detect-changes \
+  --root "$PREC" \
+  --language rust \
+  --scope all \
+  --format json \
+  --include-fixtures \
+  >"$PREC_FULL_REPORT"
+check "include-fixtures exposes suppressed fixture projects" "python3 - '$PREC_FULL_REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+summary = d.get('workspaceImpactSummary') or {}
+policy = summary.get('policy') or {}
+assert policy.get('includeFixtures') is True
+labels = {p.get('label') for p in d.get('affectedProjects', [])}
+assert 'corpus-one' in labels, labels
+assert summary.get('suppressedProjectCount', 0) == 0, summary
+PY"
+
 echo ""
 echo "PASS: $PASS"
 echo "FAIL: $FAIL"

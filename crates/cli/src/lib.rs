@@ -133,6 +133,12 @@ enum Commands {
         /// 代码片段上下文行数
         #[arg(long, default_value_t = 2)]
         snippet_context: usize,
+        /// 深度审计模式：默认隐藏 fixture/test/demo 等低信号间接影响；设置后展开这些项目
+        #[arg(long, default_value_t = false)]
+        include_fixtures: bool,
+        /// 严格 workspace 模式：保留所有 workspace graph 影响，包括低置信度 adjacency-only 边
+        #[arg(long, default_value_t = false)]
+        strict_workspace: bool,
     },
     /// Start MCP stdio server (JSON-RPC over stdin/stdout)
     Mcp,
@@ -473,6 +479,163 @@ fn workspace_file_node_id(owner_kind: &str, rel_path: &str) -> Option<String> {
 // Workspace change intelligence
 // ============================================================
 
+#[derive(Debug, Clone, Copy)]
+struct WorkspaceImpactPolicy {
+    include_fixtures: bool,
+    strict_workspace: bool,
+}
+
+impl WorkspaceImpactPolicy {
+    fn mode(self) -> &'static str {
+        if self.strict_workspace {
+            "strict"
+        } else if self.include_fixtures {
+            "include-fixtures"
+        } else {
+            "daily"
+        }
+    }
+}
+
+fn classify_workspace_surface(
+    path: &str,
+    label: &str,
+    language: &str,
+    owner_kind: &str,
+) -> &'static str {
+    let p = path.replace('\\', "/").to_lowercase();
+    let label_l = label.to_lowercase();
+    let lang_l = language.to_lowercase();
+
+    if owner_kind == "unsupported"
+        || matches!(
+            lang_l.as_str(),
+            "csharp" | "java" | "go" | "swift" | "kotlin"
+        )
+    {
+        return "unsupported";
+    }
+    if p.contains("/fixtures/")
+        || p.starts_with("fixtures/")
+        || p.contains("/fixture/")
+        || p.contains("portable-smoke")
+        || label_l.contains("fixture")
+        || label_l.contains("smoke")
+        || label_l.contains("corpus")
+    {
+        return "fixture";
+    }
+    if p.contains("/tests/")
+        || p.starts_with("tests/")
+        || p.contains("/__tests__/")
+        || p.contains("/test/")
+        || label_l.ends_with("-test")
+        || label_l.contains("test")
+    {
+        return "test";
+    }
+    if p.contains("/docs/") || p.starts_with("docs/") {
+        return "docs";
+    }
+    if p.contains("/webui/") || p.starts_with("webui/") {
+        return "webui";
+    }
+    if p.contains("/scripts/") || p.starts_with("scripts/") {
+        return "script";
+    }
+    "production"
+}
+
+fn is_fixture_like_surface(surface: &str) -> bool {
+    matches!(surface, "fixture" | "test" | "docs")
+}
+
+fn impact_group(
+    surface: &str,
+    change_type: &str,
+    confidence: f64,
+    supported: bool,
+) -> &'static str {
+    if change_type == "direct" {
+        return "direct";
+    }
+    if !supported || surface == "unsupported" {
+        return "unsupportedBoundary";
+    }
+    if is_fixture_like_surface(surface) {
+        return "fixtureOnly";
+    }
+    if confidence >= 0.65 {
+        "highConfidence"
+    } else {
+        "lowConfidence"
+    }
+}
+
+fn make_affected_project_json(
+    node_id: &str,
+    kind: &str,
+    label: &str,
+    path: &str,
+    language: &str,
+    supported: bool,
+    distance: usize,
+    confidence: f64,
+    change_type: &str,
+) -> Value {
+    let surface = classify_workspace_surface(
+        path,
+        label,
+        language,
+        if supported { "project" } else { "unsupported" },
+    );
+    let group = impact_group(surface, change_type, confidence, supported);
+    json!({
+        "nodeId": node_id,
+        "kind": kind,
+        "label": label,
+        "path": path,
+        "language": language,
+        "surface": surface,
+        "impactGroup": group,
+        "distance": distance,
+        "confidence": confidence,
+        "changeType": change_type
+    })
+}
+
+fn should_suppress_workspace_project(project: &Value, policy: WorkspaceImpactPolicy) -> bool {
+    if policy.strict_workspace {
+        return false;
+    }
+    let change_type = project["changeType"].as_str().unwrap_or("");
+    if change_type == "direct" {
+        return false;
+    }
+    let group = project["impactGroup"].as_str().unwrap_or("");
+    let surface = project["surface"].as_str().unwrap_or("");
+    if policy.include_fixtures && is_fixture_like_surface(surface) {
+        return false;
+    }
+    matches!(group, "fixtureOnly" | "lowConfidence")
+}
+
+fn short_project_labels(projects: &[Value], limit: usize) -> String {
+    let mut labels: Vec<String> = projects
+        .iter()
+        .filter_map(|p| p["label"].as_str().map(ToString::to_string))
+        .collect();
+    labels.sort();
+    labels.dedup();
+    if labels.len() > limit {
+        let remaining = labels.len() - limit;
+        labels.truncate(limit);
+        format!("{} (+{} more)", labels.join(", "), remaining)
+    } else {
+        labels.join(", ")
+    }
+}
+
 /// 文件路径到项目归属映射
 /// 基于 scan_workspace_inventory 的前缀匹配
 fn map_files_to_owners(changed_files: &[Value], root: &Path) -> Vec<Value> {
@@ -605,7 +768,11 @@ fn map_files_to_owners(changed_files: &[Value], root: &Path) -> Vec<Value> {
 
 /// 计算工作区级别的变更影响
 /// 包括：affectedProjects, affectedWorkspaceEdges, unsupportedBoundaryHits, crossProjectRisk
-fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
+fn compute_workspace_impact(
+    root: &Path,
+    file_owners: &[Value],
+    policy: WorkspaceImpactPolicy,
+) -> Value {
     // 如果没有 file owners，尝试构建 workspace graph
     if file_owners.is_empty() {
         return json!({
@@ -622,6 +789,21 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
             "affectedWorkspaceEdges": [],
             "unsupportedBoundaryHits": [],
             "crossProjectRisk": null,
+            "workspaceImpactSummary": {
+                "policy": {
+                    "mode": policy.mode(),
+                    "includeFixtures": policy.include_fixtures,
+                    "strictWorkspace": policy.strict_workspace
+                },
+                "rawAffectedProjectCount": 0,
+                "reportedProjectCount": 0,
+                "suppressedProjectCount": 0,
+                "directProjectCount": 0,
+                "highConfidenceProjectCount": 0,
+                "lowConfidenceProjectCount": 0,
+                "fixtureOnlyCount": 0,
+                "unsupportedBoundaryCount": 0
+            },
             "riskReasons": [],
             "recommendedFollowups": []
         });
@@ -645,6 +827,21 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                 "affectedWorkspaceEdges": [],
                 "unsupportedBoundaryHits": [],
                 "crossProjectRisk": null,
+                "workspaceImpactSummary": {
+                    "policy": {
+                        "mode": policy.mode(),
+                        "includeFixtures": policy.include_fixtures,
+                        "strictWorkspace": policy.strict_workspace
+                    },
+                    "rawAffectedProjectCount": 0,
+                    "reportedProjectCount": 0,
+                    "suppressedProjectCount": 0,
+                    "directProjectCount": 0,
+                    "highConfidenceProjectCount": 0,
+                    "lowConfidenceProjectCount": 0,
+                    "fixtureOnlyCount": 0,
+                    "unsupportedBoundaryCount": 0
+                },
                 "riskReasons": [],
                 "recommendedFollowups": []
             });
@@ -732,15 +929,17 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                 if node.kind == "project" {
                     changed_project_ids.insert(node.id.clone());
                     if seen_project_ids.insert(node.id.clone()) {
-                        affected_projects.push(json!({
-                            "nodeId": node.id,
-                            "kind": node.kind,
-                            "label": node.label,
-                            "path": node.path,
-                            "distance": 0,
-                            "confidence": 1.0,
-                            "changeType": "direct"
-                        }));
+                        affected_projects.push(make_affected_project_json(
+                            &node.id,
+                            &node.kind,
+                            &node.label,
+                            &node.path,
+                            &node.language,
+                            node.supported,
+                            0,
+                            1.0,
+                            "direct",
+                        ));
                     }
                     if !node.supported && seen_unsupported_ids.insert(node.id.clone()) {
                         unsupported_hits.push(json!({
@@ -751,6 +950,7 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                             "language": node.language,
                             "supported": false,
                             "distance": 0,
+                            "confidence": 1.0,
                             "reason": "changed file belongs to unsupported language project"
                         }));
                     }
@@ -766,15 +966,27 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                     .find(|n| n.id == proj.node_id)
                     .map(|n| n.supported)
                     .unwrap_or(true);
-                affected_projects.push(json!({
-                    "nodeId": proj.node_id,
-                    "kind": proj.kind,
-                    "label": proj.label,
-                    "path": proj.path,
-                    "distance": proj.distance,
-                    "confidence": proj.confidence,
-                    "changeType": if proj.distance == 0 { "direct" } else { "indirect" }
-                }));
+                let language = graph
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == proj.node_id)
+                    .map(|n| n.language.clone())
+                    .unwrap_or_default();
+                affected_projects.push(make_affected_project_json(
+                    &proj.node_id,
+                    &proj.kind,
+                    &proj.label,
+                    &proj.path,
+                    &language,
+                    supported,
+                    proj.distance,
+                    proj.confidence,
+                    if proj.distance == 0 {
+                        "direct"
+                    } else {
+                        "indirect"
+                    },
+                ));
                 if !supported && seen_unsupported_ids.insert(proj.node_id.clone()) {
                     unsupported_hits.push(json!({
                         "nodeId": proj.node_id,
@@ -787,6 +999,7 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                             .unwrap_or_default(),
                         "supported": false,
                         "distance": proj.distance,
+                        "confidence": proj.confidence,
                         "reason": "affected project uses unsupported language"
                     }));
                 }
@@ -806,21 +1019,17 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                         .unwrap_or_default(),
                     "supported": false,
                     "distance": boundary.distance,
+                    "confidence": boundary.confidence,
                     "reason": "adjacent to changed project or downstream dependent"
                 }));
             }
         }
 
-        for reason in &impact.risk_reasons {
-            if !risk_reasons.contains(reason) {
-                risk_reasons.push(reason.clone());
-            }
-        }
-        for item in &impact.review_checklist {
-            if !followups.contains(item) {
-                followups.push(item.clone());
-            }
-        }
+        // cross_project_impact 的原始风险理由基于完整 BFS 结果，包含大量
+        // fixture/adjacency-only 噪声。detect-changes 在这里重新按 precision
+        // buckets 计算风险理由，避免日常治理被低信号项目淹没。
+        // review_checklist 可能包含每个 BFS 命中的项目。这里先不直接继承，
+        // 后面按 precision buckets 生成更短、更可执行的跟进项。
     }
 
     // 从 graph edges 中收集与变更 project 相关的边
@@ -841,56 +1050,179 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
         }
     }
 
-    // 增加非跨项目的风险原因
+    let raw_affected_project_count = affected_projects.len();
+    let direct_project_count = affected_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("direct"))
+        .count();
+    let high_confidence_project_count = affected_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("highConfidence"))
+        .count();
+    let low_confidence_project_count = affected_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("lowConfidence"))
+        .count();
+    let fixture_only_count = affected_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("fixtureOnly"))
+        .count();
+    let unsupported_boundary_count = affected_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("unsupportedBoundary"))
+        .count();
+
+    let mut reported_projects = Vec::new();
+    let mut suppressed_projects = Vec::new();
+    for project in affected_projects {
+        if should_suppress_workspace_project(&project, policy) {
+            suppressed_projects.push(project);
+        } else {
+            reported_projects.push(project);
+        }
+    }
+
+    let mut reported_node_ids: HashSet<String> = changed_node_ids.clone();
+    for project in &reported_projects {
+        if let Some(id) = project["nodeId"].as_str() {
+            reported_node_ids.insert(id.to_string());
+        }
+    }
+
+    let mut reported_edges = Vec::new();
+    let mut suppressed_edges = Vec::new();
+    for edge in affected_edges {
+        let source = edge["source"].as_str().unwrap_or("");
+        let target = edge["target"].as_str().unwrap_or("");
+        let kind = edge["kind"].as_str().unwrap_or("");
+        let confidence = edge["confidence"].as_f64().unwrap_or(0.0);
+        let touches_reported =
+            reported_node_ids.contains(source) || reported_node_ids.contains(target);
+        let suppress = !policy.strict_workspace
+            && (!touches_reported || kind == "adjacent_to" || confidence < 0.65);
+        if suppress {
+            suppressed_edges.push(edge);
+        } else {
+            reported_edges.push(edge);
+        }
+    }
+
+    let high_signal_downstream = reported_projects
+        .iter()
+        .filter(|p| {
+            p["changeType"].as_str() == Some("indirect")
+                && p["impactGroup"].as_str() == Some("highConfidence")
+        })
+        .count();
+    let reported_downstream_count = reported_projects
+        .iter()
+        .filter(|p| p["changeType"].as_str() == Some("indirect"))
+        .count();
+    let high_signal_unsupported = unsupported_hits.iter().any(|u| {
+        u["distance"].as_u64().unwrap_or(99) == 0 || u["confidence"].as_f64().unwrap_or(0.0) >= 0.65
+    });
+
     if has_config_changes {
         risk_reasons.push("changed config file may affect multiple projects".to_string());
-        followups.push("Verify config change does not break other projects".to_string());
     }
     if has_script_changes {
         risk_reasons.push("changed script file may affect build/deploy pipeline".to_string());
-        followups.push("Review script change for side effects".to_string());
     }
     if has_unknown_owners {
         risk_reasons.push("changed file has unknown project owner".to_string());
     }
-    if !unsupported_hits.is_empty() {
+    if high_signal_unsupported {
+        risk_reasons.push(
+            "high-confidence unsupported language boundary hit near changed files".to_string(),
+        );
+    } else if !unsupported_hits.is_empty() {
         risk_reasons.push(format!(
-            "{} unsupported language boundary hit(s) near changed files",
+            "{} low-confidence unsupported boundary hit(s) summarized",
             unsupported_hits.len()
         ));
     }
+    if !suppressed_projects.is_empty() {
+        risk_reasons.push(format!(
+            "{} low-signal workspace project(s) summarized instead of reported",
+            suppressed_projects.len()
+        ));
+    }
 
-    // 计算 crossProjectRisk
-    let downstream_count = affected_projects
-        .iter()
-        .filter(|p| p["changeType"].as_str().unwrap_or("") == "indirect")
-        .count();
-    let cross_project_risk = if unsupported_hits.len() > 0 && downstream_count > 0 {
+    let cross_project_risk = if high_signal_downstream >= 10
+        || (high_signal_unsupported && high_signal_downstream >= 4)
+    {
         "critical"
-    } else if downstream_count > 0 && has_config_changes {
+    } else if (has_config_changes && high_signal_downstream > 0)
+        || high_signal_downstream >= 4
+        || high_signal_unsupported
+    {
         "high"
-    } else if downstream_count > 0 || (has_config_changes && project_count > 1) {
-        "medium"
-    } else if has_unknown_owners || unsupported_hits.len() > 0 {
+    } else if high_signal_downstream > 0
+        || reported_downstream_count > 0
+        || (has_config_changes && project_count > 1)
+        || has_script_changes
+        || has_unknown_owners
+    {
         "medium"
     } else {
         "low"
     };
 
-    // 推荐跟进项
-    if !affected_projects.is_empty() {
-        let labels: Vec<String> = affected_projects
-            .iter()
-            .filter(|p| p["changeType"].as_str() == Some("indirect"))
-            .filter_map(|p| p["label"].as_str().map(|s| s.to_string()))
-            .collect();
-        if !labels.is_empty() {
-            followups.insert(
-                0,
-                format!("Review downstream projects: {}", labels.join(", ")),
-            );
-        }
+    let direct_projects: Vec<Value> = reported_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("direct"))
+        .cloned()
+        .collect();
+    if !direct_projects.is_empty() {
+        followups.push(format!(
+            "Review direct owner project(s): {}",
+            short_project_labels(&direct_projects, 5)
+        ));
     }
+
+    let high_conf_projects: Vec<Value> = reported_projects
+        .iter()
+        .filter(|p| p["impactGroup"].as_str() == Some("highConfidence"))
+        .cloned()
+        .collect();
+    if !high_conf_projects.is_empty() {
+        followups.push(format!(
+            "Review high-confidence downstream project(s): {}",
+            short_project_labels(&high_conf_projects, 5)
+        ));
+    }
+    if has_config_changes {
+        followups.push(
+            "Verify config/CI change against the reported high-confidence projects".to_string(),
+        );
+    }
+    if has_script_changes {
+        followups.push("Review script change for build/deploy side effects".to_string());
+    }
+    if !suppressed_projects.is_empty() {
+        followups.push(format!(
+            "{} fixture/test/low-confidence workspace project(s) were summarized; rerun with --include-fixtures or --strict-workspace for full detail",
+            suppressed_projects.len()
+        ));
+    }
+
+    let workspace_impact_summary = json!({
+        "policy": {
+            "mode": policy.mode(),
+            "includeFixtures": policy.include_fixtures,
+            "strictWorkspace": policy.strict_workspace
+        },
+        "rawAffectedProjectCount": raw_affected_project_count,
+        "reportedProjectCount": reported_projects.len(),
+        "suppressedProjectCount": suppressed_projects.len(),
+        "directProjectCount": direct_project_count,
+        "highConfidenceProjectCount": high_confidence_project_count,
+        "lowConfidenceProjectCount": low_confidence_project_count,
+        "fixtureOnlyCount": fixture_only_count,
+        "unsupportedBoundaryCount": unsupported_boundary_count,
+        "reportedEdgeCount": reported_edges.len(),
+        "suppressedEdgeCount": suppressed_edges.len()
+    });
 
     json!({
         "workspaceContext": {
@@ -902,10 +1234,13 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
             "workspaceGraphAvailable": true,
             "workspaceGraphBuildError": null
         },
-        "affectedProjects": affected_projects,
-        "affectedWorkspaceEdges": affected_edges,
+        "affectedProjects": reported_projects,
+        "suppressedProjects": suppressed_projects,
+        "affectedWorkspaceEdges": reported_edges,
+        "suppressedWorkspaceEdges": suppressed_edges,
         "unsupportedBoundaryHits": unsupported_hits,
         "crossProjectRisk": cross_project_risk,
+        "workspaceImpactSummary": workspace_impact_summary,
         "riskReasons": risk_reasons,
         "recommendedFollowups": followups
     })
@@ -1121,9 +1456,12 @@ fn build_detect_changes_report(
         "workspaceContext": workspace_impact.get("workspaceContext").cloned().unwrap_or_else(|| json!(null)),
         "fileOwners": file_owners,
         "affectedProjects": workspace_impact.get("affectedProjects").cloned().unwrap_or_else(|| json!([])),
+        "suppressedProjects": workspace_impact.get("suppressedProjects").cloned().unwrap_or_else(|| json!([])),
         "affectedWorkspaceEdges": workspace_impact.get("affectedWorkspaceEdges").cloned().unwrap_or_else(|| json!([])),
+        "suppressedWorkspaceEdges": workspace_impact.get("suppressedWorkspaceEdges").cloned().unwrap_or_else(|| json!([])),
         "unsupportedBoundaryHits": workspace_impact.get("unsupportedBoundaryHits").cloned().unwrap_or_else(|| json!([])),
         "crossProjectRisk": workspace_impact.get("crossProjectRisk").cloned().unwrap_or_else(|| json!(null)),
+        "workspaceImpactSummary": workspace_impact.get("workspaceImpactSummary").cloned().unwrap_or_else(|| json!(null)),
         "recommendedFollowups": recommended_followups,
         "quality": {
             "qualityGatesPassed": assist.get("qualityGatesPassed").cloned().unwrap_or_else(|| json!(null)),
@@ -1142,7 +1480,8 @@ fn build_detect_changes_report(
             "previewOnly": true,
             "noWrites": true,
             "nativeCodeLattice": true,
-            "workspaceGraphEnabled": workspace_impact["workspaceContext"]["workspaceGraphAvailable"].as_bool().unwrap_or(false)
+            "workspaceGraphEnabled": workspace_impact["workspaceContext"]["workspaceGraphAvailable"].as_bool().unwrap_or(false),
+            "workspaceImpactPrecision": workspace_impact["workspaceImpactSummary"]["policy"]["mode"].as_str().unwrap_or("daily")
         },
         "cautions": [
             "Static analysis only: this does not prove runtime breakage or safety.",
@@ -1164,6 +1503,8 @@ fn build_detect_changes_report(
             obj.remove("docs");
             obj.remove("deletedFiles");
             obj.remove("renamedFiles");
+            obj.remove("suppressedProjects");
+            obj.remove("suppressedWorkspaceEdges");
         }
     }
 
@@ -3505,6 +3846,8 @@ pub fn run() {
             compact,
             include_snippet,
             snippet_context,
+            include_fixtures,
+            strict_workspace,
         } => {
             if format != "json" {
                 eprintln!("错误：detect-changes 当前仅支持 --format json");
@@ -3603,7 +3946,12 @@ pub fn run() {
                 .cloned()
                 .collect();
             let file_owners = map_files_to_owners(&all_changed_for_owners, root_path);
-            let workspace_impact = compute_workspace_impact(root_path, &file_owners);
+            let workspace_policy = WorkspaceImpactPolicy {
+                include_fixtures,
+                strict_workspace,
+            };
+            let workspace_impact =
+                compute_workspace_impact(root_path, &file_owners, workspace_policy);
 
             let output = build_detect_changes_report(
                 root_path,
