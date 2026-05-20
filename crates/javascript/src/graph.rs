@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::extractors::imports::JsImport;
-use crate::extractors::references::JsReference;
+use crate::extractors::references::{JsReference, JsReferenceKind};
 use crate::extractors::symbol::JsSymbol;
 use crate::manifest::detect_framework_hints;
 use crate::module_resolution::JsModuleResolver;
@@ -75,7 +75,7 @@ pub fn build_js_graph(
     project: &JsProject,
     symbols: &BTreeMap<PathBuf, Vec<JsSymbol>>,
     imports: &BTreeMap<PathBuf, Vec<JsImport>>,
-    _references: &BTreeMap<PathBuf, Vec<JsReference>>,
+    references: &BTreeMap<PathBuf, Vec<JsReference>>,
     module_resolver: Option<&JsModuleResolver>,
 ) -> JsGraphOutput {
     let mut nodes = Vec::new();
@@ -275,6 +275,8 @@ pub fn build_js_graph(
         }
     }
 
+    let mut emitted_call_edges: std::collections::BTreeSet<(String, String, usize)> =
+        std::collections::BTreeSet::new();
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
         if let Some(imps) = imports.get(file) {
@@ -407,6 +409,63 @@ pub fn build_js_graph(
                 }
             }
         }
+
+        if let Some(refs) = references.get(file) {
+            // JS Phase A 不做类型推断；CALLS 只用同文件/项目唯一名称做保守启发式连边。
+            for reference in refs {
+                if reference.kind != JsReferenceKind::Call {
+                    continue;
+                }
+                let Some(source_id) =
+                    source_symbol_for_call(file, reference.line, &symbol_ranges_by_file)
+                else {
+                    continue;
+                };
+                let target = resolve_call_target(
+                    file,
+                    &reference.name,
+                    &symbol_ids_by_file_name,
+                    &symbol_ids_by_name,
+                );
+                match target {
+                    CallTargetResolution::Resolved {
+                        target_id,
+                        confidence,
+                        reason,
+                    } => {
+                        if emitted_call_edges.insert((
+                            source_id.clone(),
+                            target_id.clone(),
+                            reference.line,
+                        )) {
+                            edges.push(JsGraphEdge {
+                                kind: JsEdgeKind::Calls,
+                                source: Some(source_id),
+                                target: target_id,
+                                properties: Some(serde_json::json!({
+                                    "line": reference.line,
+                                    "callee": reference.name,
+                                    "confidence": confidence,
+                                    "reason": reason,
+                                })),
+                            });
+                        }
+                    }
+                    CallTargetResolution::Ambiguous { candidates } => {
+                        diagnostics.push(serde_json::json!({
+                            "kind": "javascript-call-ambiguous",
+                            "severity": "info",
+                            "source": file_id,
+                            "callee": reference.name,
+                            "line": reference.line,
+                            "candidateCount": candidates,
+                            "reason": "multiple-symbols-match-callee",
+                        }));
+                    }
+                    CallTargetResolution::Unresolved => {}
+                }
+            }
+        }
     }
 
     let framework_hints = if let Some(ref manifest) = project.manifest {
@@ -436,7 +495,10 @@ pub fn build_js_graph(
         .iter()
         .filter(|e| matches!(e.kind, JsEdgeKind::Exports))
         .count();
-    let call_edge_count = 0usize;
+    let call_edge_count = edges
+        .iter()
+        .filter(|e| matches!(e.kind, JsEdgeKind::Calls))
+        .count();
     let dynamic_import_count = diagnostics
         .iter()
         .filter(|d| d["kind"].as_str() == Some("javascript-dynamic-import"))
@@ -486,4 +548,80 @@ pub fn build_js_graph(
         public_surface: exported_symbols,
         summary,
     }
+}
+
+enum CallTargetResolution {
+    Resolved {
+        target_id: String,
+        confidence: f64,
+        reason: &'static str,
+    },
+    Ambiguous {
+        candidates: usize,
+    },
+    Unresolved,
+}
+
+fn source_symbol_for_call(
+    file: &PathBuf,
+    line: usize,
+    symbol_ranges_by_file: &BTreeMap<PathBuf, Vec<(usize, usize, String)>>,
+) -> Option<String> {
+    symbol_ranges_by_file.get(file).and_then(|ranges| {
+        ranges
+            .iter()
+            .filter(|(start, end, _)| *start <= line && line <= *end)
+            .min_by_key(|(start, end, _)| end.saturating_sub(*start))
+            .map(|(_, _, id)| id.clone())
+    })
+}
+
+fn resolve_call_target(
+    file: &PathBuf,
+    callee: &str,
+    symbol_ids_by_file_name: &BTreeMap<(PathBuf, String), Vec<String>>,
+    symbol_ids_by_name: &BTreeMap<String, Vec<String>>,
+) -> CallTargetResolution {
+    let mut candidate_names = vec![callee.to_string()];
+    if let Some(last) = callee.rsplit('.').next() {
+        if last != callee {
+            candidate_names.push(last.to_string());
+        }
+    }
+
+    for name in &candidate_names {
+        if let Some(ids) = symbol_ids_by_file_name.get(&(file.clone(), name.clone())) {
+            if ids.len() == 1 {
+                return CallTargetResolution::Resolved {
+                    target_id: ids[0].clone(),
+                    confidence: 0.85,
+                    reason: "same-file-callee-name",
+                };
+            }
+            if !ids.is_empty() {
+                return CallTargetResolution::Ambiguous {
+                    candidates: ids.len(),
+                };
+            }
+        }
+    }
+
+    for name in &candidate_names {
+        if let Some(ids) = symbol_ids_by_name.get(name) {
+            if ids.len() == 1 {
+                return CallTargetResolution::Resolved {
+                    target_id: ids[0].clone(),
+                    confidence: 0.55,
+                    reason: "project-unique-callee-name",
+                };
+            }
+            if !ids.is_empty() {
+                return CallTargetResolution::Ambiguous {
+                    candidates: ids.len(),
+                };
+            }
+        }
+    }
+
+    CallTargetResolution::Unresolved
 }

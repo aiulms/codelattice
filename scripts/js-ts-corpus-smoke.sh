@@ -7,11 +7,10 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BINARY="$ROOT/target/debug/codelattice"
+FEATURES="tree-sitter-javascript,tree-sitter-typescript"
 
-if ! command -v "$BINARY" &>/dev/null; then
-    echo "Building codelattice..."
-    cargo build --manifest-path "$ROOT/Cargo.toml" --features tree-sitter-javascript,tree-sitter-typescript 2>&1
-fi
+echo "Building codelattice with JS/TS parser features..."
+cargo build --manifest-path "$ROOT/crates/cli/Cargo.toml" --features "$FEATURES" --bin codelattice
 
 PROJECTS=()
 FIXTURE_ONLY=false
@@ -27,7 +26,7 @@ done
 
 if [ "$FIXTURE_ONLY" = true ] || [ ${#PROJECTS[@]} -eq 0 ]; then
     JS_FIXTURE="$ROOT/fixtures/javascript/portable-smoke"
-    TS_FIXTURE="$ROOT/fixtures/typescript"
+    TS_FIXTURE="$ROOT/fixtures/typescript/portable-smoke"
     if [ -d "$JS_FIXTURE" ]; then
         PROJECTS+=("$JS_FIXTURE")
     fi
@@ -59,21 +58,30 @@ for PROJECT in "${PROJECTS[@]}"; do
         LANG="auto"
     fi
 
-    OUTPUT=$("$Binary" analyze --root "$PROJECT" --language "$LANG" --format json 2>/dev/null) || {
+    ERR_FILE="$(mktemp)"
+    OUTPUT=$("$BINARY" analyze --root "$PROJECT" --language "$LANG" --format json 2>"$ERR_FILE") || {
         echo "  ❌ Analysis failed for $PROJECT_NAME"
+        sed 's/^/     /' "$ERR_FILE" | head -20
+        rm -f "$ERR_FILE"
         FAIL=$((FAIL + 1))
         RESULTS+=("{\"project\":\"$PROJECT_NAME\",\"status\":\"error\",\"language\":\"$LANG\"}")
         continue
     }
+    rm -f "$ERR_FILE"
 
     SOURCE_COUNT=$(echo "$OUTPUT" | python3 -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
-    n = d.get('nodes', [])
+    s = d.get('summary', {})
+    if s.get('sourceFileCount') is not None:
+        print(s.get('sourceFileCount'))
+        raise SystemExit
+    g = d.get('graph', {})
+    n = g.get('nodes', d.get('nodes', []))
     files = [x for x in n if x.get('kind') == 'source-file']
     print(len(files))
-except:
+except Exception:
     print(0)
 " 2>/dev/null || echo "0")
 
@@ -81,10 +89,15 @@ except:
 import sys, json
 try:
     d = json.load(sys.stdin)
-    n = d.get('nodes', [])
+    s = d.get('summary', {})
+    if s.get('symbolCount') is not None:
+        print(s.get('symbolCount'))
+        raise SystemExit
+    g = d.get('graph', {})
+    n = g.get('nodes', d.get('nodes', []))
     syms = [x for x in n if x.get('kind') == 'symbol']
     print(len(syms))
-except:
+except Exception:
     print(0)
 " 2>/dev/null || echo "0")
 
@@ -92,8 +105,13 @@ except:
 import sys, json
 try:
     d = json.load(sys.stdin)
-    print(len(d.get('edges', [])))
-except:
+    s = d.get('summary', {})
+    if s.get('edgeCount') is not None:
+        print(s.get('edgeCount'))
+        raise SystemExit
+    g = d.get('graph', {})
+    print(len(g.get('edges', d.get('edges', []))))
+except Exception:
     print(0)
 " 2>/dev/null || echo "0")
 
@@ -101,8 +119,13 @@ except:
 import sys, json
 try:
     d = json.load(sys.stdin)
-    print(len(d.get('diagnostics', [])))
-except:
+    s = d.get('summary', {})
+    if s.get('diagnosticCount') is not None:
+        print(s.get('diagnosticCount'))
+        raise SystemExit
+    g = d.get('graph', {})
+    print(len(g.get('diagnostics', d.get('diagnostics', []))))
+except Exception:
     print(0)
 " 2>/dev/null || echo "0")
 
@@ -110,8 +133,13 @@ except:
 import sys, json
 try:
     d = json.load(sys.stdin)
-    print(len(d.get('frameworkHints', [])))
-except:
+    s = d.get('summary', {})
+    if s.get('frameworkHintCount') is not None:
+        print(s.get('frameworkHintCount'))
+        raise SystemExit
+    g = d.get('graph', {})
+    print(len(g.get('framework_hints', d.get('frameworkHints', []))))
+except Exception:
     print(0)
 " 2>/dev/null || echo "0")
 
@@ -119,8 +147,13 @@ except:
 import sys, json
 try:
     d = json.load(sys.stdin)
-    print(len(d.get('publicSurface', [])))
-except:
+    s = d.get('summary', {})
+    if s.get('publicSurfaceCandidateCount') is not None:
+        print(s.get('publicSurfaceCandidateCount'))
+        raise SystemExit
+    g = d.get('graph', {})
+    print(len(g.get('public_surface', d.get('publicSurface', []))))
+except Exception:
     print(0)
 " 2>/dev/null || echo "0")
 
@@ -130,7 +163,7 @@ try:
     d = json.load(sys.stdin)
     s = d.get('summary', {})
     print(json.dumps(s))
-except:
+except Exception:
     print('{}')
 " 2>/dev/null || echo "{}")
 

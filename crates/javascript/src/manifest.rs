@@ -22,7 +22,7 @@ pub struct JsManifest {
     pub browser: Option<String>,
     pub types: Option<String>,
     pub typings: Option<String>,
-    pub exports: Option<HashMap<String, serde_json::Value>>,
+    pub exports: Option<serde_json::Value>,
     pub bin: Option<serde_json::Value>,
     pub scripts: Option<HashMap<String, String>>,
     pub dependencies: Option<HashMap<String, String>>,
@@ -80,9 +80,7 @@ pub fn parse_package_json(path: &Path) -> Result<JsManifest, JsManifestError> {
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let exports = json
-        .get("exports")
-        .and_then(|v| serde_json::from_value(v.clone()).ok());
+    let exports = json.get("exports").cloned();
 
     let bin = json.get("bin").cloned();
 
@@ -157,16 +155,39 @@ pub fn parse_package_json(path: &Path) -> Result<JsManifest, JsManifestError> {
             _ => {}
         }
     }
-    if let Some(ref exports_map) = exports {
-        for (key, val) in exports_map {
-            let path_str = resolve_export_value(val);
-            if let Some(p) = path_str {
-                entry_points.push(JsEntryPoint {
-                    field: format!("exports.{}", key),
-                    path: p,
-                    kind: JsEntryPointKind::Exports,
-                });
+    if let Some(ref exports_val) = exports {
+        match exports_val {
+            serde_json::Value::String(_) => {
+                if let Some(p) = resolve_export_value(exports_val) {
+                    entry_points.push(JsEntryPoint {
+                        field: "exports".to_string(),
+                        path: p,
+                        kind: JsEntryPointKind::Exports,
+                    });
+                }
             }
+            serde_json::Value::Object(map) if is_condition_object(map) => {
+                if let Some(p) = resolve_export_value(exports_val) {
+                    entry_points.push(JsEntryPoint {
+                        field: "exports".to_string(),
+                        path: p,
+                        kind: JsEntryPointKind::Exports,
+                    });
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for (key, val) in map {
+                    let path_str = resolve_export_value(val);
+                    if let Some(p) = path_str {
+                        entry_points.push(JsEntryPoint {
+                            field: format!("exports.{}", key),
+                            path: p,
+                            kind: JsEntryPointKind::Exports,
+                        });
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -202,6 +223,15 @@ fn resolve_export_value(val: &serde_json::Value) -> Option<String> {
         }
         _ => None,
     }
+}
+
+fn is_condition_object(map: &serde_json::Map<String, serde_json::Value>) -> bool {
+    map.keys().all(|key| {
+        matches!(
+            key.as_str(),
+            "default" | "import" | "require" | "node" | "browser" | "types" | "typings"
+        )
+    })
 }
 
 /// 检测 JS 项目是否使用特定框架（heuristic）。
