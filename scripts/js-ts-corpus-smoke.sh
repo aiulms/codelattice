@@ -12,11 +12,17 @@ FEATURES="tree-sitter-javascript,tree-sitter-typescript"
 MANIFEST="$ROOT/fixtures/corpus/js-ts-corpus-manifest.json"
 REPORT="/tmp/codelattice-js-ts-corpus-report.json"
 
-PROJECTS=()
+PROJECT_ENTRIES=()
 FIXTURE_ONLY=false
 CORPUS_DIR=""
 CLONE_MISSING=false
 OFFLINE=false
+DEFAULT_CORPUS_DIR="/Users/jiangxuanyang/Desktop/codelattice-corpus/js-ts"
+PASS=0
+WARN=0
+FAIL=0
+SKIP=0
+RESULTS=()
 
 usage() {
   cat <<'USAGE'
@@ -41,32 +47,44 @@ while [[ $# -gt 0 ]]; do
         --corpus-dir) CORPUS_DIR="$2"; shift 2 ;;
         --clone-missing) CLONE_MISSING=true; shift ;;
         --offline) OFFLINE=true; shift ;;
-        --project) PROJECTS+=("$2"); shift 2 ;;
+        --project)
+            PROJECT_PATH="$2"
+            PROJECT_ID="$(basename "$PROJECT_PATH")"
+            PROJECT_ENTRIES+=("${PROJECT_PATH}"$'\t'"auto"$'\t'"${PROJECT_ID}")
+            shift 2
+            ;;
         --help) usage; exit 0 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
 
+if [ -z "$CORPUS_DIR" ] && { [ "$CLONE_MISSING" = true ] || [ "$OFFLINE" = true ]; }; then
+    CORPUS_DIR="$DEFAULT_CORPUS_DIR"
+fi
+
 echo "Building codelattice with JS/TS parser features..."
 cargo build --manifest-path "$ROOT/crates/cli/Cargo.toml" --features "$FEATURES" --bin codelattice 2>/dev/null
 
-# Always include fixtures
+# Always include fixtures. 真实 corpus 的语言来自 manifest，fixture 语言在这里显式固定；
+# 避免用 tsconfig/package.json 重新猜测导致 baseline 被错误语言污染。
 JS_FIXTURE="$ROOT/fixtures/javascript/portable-smoke"
 TS_FIXTURE="$ROOT/fixtures/typescript/portable-smoke"
-[ -d "$JS_FIXTURE" ] && PROJECTS+=("$JS_FIXTURE")
-[ -d "$TS_FIXTURE" ] && PROJECTS+=("$TS_FIXTURE")
+[ -d "$JS_FIXTURE" ] && PROJECT_ENTRIES+=("${JS_FIXTURE}"$'\t'"javascript"$'\t'"javascript-fixture")
+[ -d "$TS_FIXTURE" ] && PROJECT_ENTRIES+=("${TS_FIXTURE}"$'\t'"typescript"$'\t'"typescript-fixture")
 
 # Add real corpus projects from manifest
 if [ "$FIXTURE_ONLY" = false ] && [ -n "$CORPUS_DIR" ]; then
     if [ ! -f "$MANIFEST" ]; then
         echo "Warning: manifest not found at $MANIFEST, skipping corpus"
     else
-        while IFS=$'\t' read -r status path proj_id info; do
+        while IFS=$'\t' read -r status path proj_id language info; do
             if [ "$status" = "exists" ]; then
-                PROJECTS+=("$path")
-                echo "  Added corpus project: $proj_id"
+                PROJECT_ENTRIES+=("${path}"$'\t'"${language}"$'\t'"${proj_id}")
+                echo "  Added corpus project: $proj_id ($language)"
             else
                 echo "  Skipping $proj_id: $info"
+                SKIP=$((SKIP + 1))
+                RESULTS+=("{\"project\":\"$proj_id\",\"status\":\"skipped\",\"language\":\"$language\",\"reason\":\"$info\"}")
             fi
         done < <(CLONE_MISSING="${CLONE_MISSING}" OFFLINE="${OFFLINE}" python3 - "$MANIFEST" "$CORPUS_DIR" <<'PY'
 import json, sys, os, subprocess
@@ -83,11 +101,12 @@ for proj in manifest.get("projects", []):
     subdir = proj.get("subdir", proj["id"])
     path = os.path.join(corpus_dir, subdir)
     repo_url = proj.get("repoUrl", "")
+    language = proj.get("language", "auto")
     optional = proj.get("optional", False)
     depth = proj.get("cloneDepth", 1)
 
     if os.path.isdir(path) and os.listdir(path):
-        print(f"exists\t{path}\t{proj['id']}\t")
+        print(f"exists\t{path}\t{proj['id']}\t{language}\t")
     elif clone_missing and repo_url and not offline:
         os.makedirs(os.path.dirname(path), exist_ok=True)
         try:
@@ -95,17 +114,17 @@ for proj in manifest.get("projects", []):
                 ["git", "clone", "--depth", str(depth), repo_url, path],
                 capture_output=True, timeout=120, check=True
             )
-            print(f"exists\t{path}\t{proj['id']}\t")
+            print(f"exists\t{path}\t{proj['id']}\t{language}\t")
         except Exception as e:
             reason = str(e)[:80]
             if optional:
-                print(f"skip\t{path}\t{proj['id']}\toptional clone failed: {reason}")
+                print(f"skip\t{path}\t{proj['id']}\t{language}\toptional clone failed: {reason}")
             else:
-                print(f"skip\t{path}\t{proj['id']}\tclone failed: {reason}")
+                print(f"skip\t{path}\t{proj['id']}\t{language}\tclone failed: {reason}")
     elif optional:
-        print(f"skip\t{path}\t{proj['id']}\toptional and not cloned")
+        print(f"skip\t{path}\t{proj['id']}\t{language}\toptional and not cloned")
     else:
-        print(f"skip\t{path}\t{proj['id']}\tnot cloned (use --clone-missing)")
+        print(f"skip\t{path}\t{proj['id']}\t{language}\tnot cloned (use --clone-missing)")
 PY
         )
     fi
@@ -113,26 +132,23 @@ fi
 
 echo ""
 echo "=== JS/TS Real-World Corpus Smoke ==="
-echo "Projects: ${#PROJECTS[@]}"
+echo "Projects: ${#PROJECT_ENTRIES[@]} analyzed, $SKIP skipped"
 echo "Report: $REPORT"
 echo ""
 
-PASS=0
-WARN=0
-FAIL=0
-RESULTS=()
+for ENTRY in "${PROJECT_ENTRIES[@]}"; do
+    IFS=$'\t' read -r PROJECT LANG PROJECT_ID <<< "$ENTRY"
+    PROJECT_NAME="$PROJECT_ID"
 
-for PROJECT in "${PROJECTS[@]}"; do
-    PROJECT_NAME="$(basename "$PROJECT")"
-
-    # Detect language
-    LANG=""
-    if [ -f "$PROJECT/tsconfig.json" ]; then
-        LANG="typescript"
-    elif [ -f "$PROJECT/package.json" ]; then
-        LANG="javascript"
-    else
-        LANG="auto"
+    # Manually supplied projects default to auto, while fixtures/corpus use explicit languages.
+    if [ -z "$LANG" ] || [ "$LANG" = "auto" ]; then
+        if [ -f "$PROJECT/tsconfig.json" ]; then
+            LANG="typescript"
+        elif [ -f "$PROJECT/package.json" ]; then
+            LANG="javascript"
+        else
+            LANG="auto"
+        fi
     fi
 
     echo "--- Analyzing: $PROJECT_NAME ($LANG) ---"
@@ -216,16 +232,16 @@ print(f'{source_files}\t{symbols}\t{all_edges}\t{call_edges}\t{diagnostics}\t{fw
     echo ""
 done
 
-TOTAL=${#PROJECTS[@]}
+TOTAL=$(( ${#PROJECT_ENTRIES[@]} + SKIP ))
 echo "=== Summary ==="
-echo "Total: $TOTAL, Passed: $PASS, Warnings: $WARN, Failed: $FAIL"
+echo "Total: $TOTAL, Passed: $PASS, Warnings: $WARN, Failed: $FAIL, Skipped: $SKIP"
 
 # Write JSON report
-python3 - "$REPORT" "$TOTAL" "$PASS" "$WARN" "$FAIL" "${RESULTS[*]}" <<'PY'
+python3 - "$REPORT" "$TOTAL" "$PASS" "$WARN" "$FAIL" "$SKIP" "${RESULTS[*]}" <<'PY'
 import sys, json
 path = sys.argv[1]
-total, passed, warnings, failed = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
-results_raw = sys.argv[6] if len(sys.argv) > 6 else ""
+total, passed, warnings, failed, skipped = sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5], sys.argv[6]
+results_raw = sys.argv[7] if len(sys.argv) > 7 else ""
 results = []
 if results_raw:
     for r in results_raw.split("} {"):
@@ -244,6 +260,7 @@ report = {
     "passed": int(passed),
     "warnings": int(warnings),
     "failed": int(failed),
+    "skipped": int(skipped),
     "results": results
 }
 with open(path, 'w') as f:
