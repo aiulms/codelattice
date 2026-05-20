@@ -3240,6 +3240,166 @@ fn mcp_scheduler_cache_prewarm_returns_schedule_metadata() {
 }
 
 #[test]
+fn mcp_scheduler_fingerprint_invalidates_memory_cache_for_non_source_change() {
+    let root = make_scheduler_cache_fixture("scheduler-memory");
+    let cache_dir = make_isolated_cache_dir("scheduler-memory-fingerprint");
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3195,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let first = extract_tool_data(&session.recv());
+    assert_eq!(first["cacheHit"], false, "first analyze should miss");
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3196,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let second = extract_tool_data(&session.recv());
+    assert_eq!(second["cacheHit"], true, "second analyze should hit memory");
+    assert_eq!(second["cacheLayer"], "memory");
+    assert_eq!(second["schedule"]["decision"]["action"], "reuse");
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(
+        root.join("config").join("schema.yaml"),
+        "version: 2\nfield: changed\n",
+    )
+    .expect("update scheduler-tracked non-source file");
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3197,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let third = extract_tool_data(&session.recv());
+    assert_eq!(
+        third["cacheHit"], false,
+        "scheduler fingerprint change should invalidate memory cache"
+    );
+    assert_eq!(third["staleReason"], "scheduler_fingerprint_changed");
+    assert_eq!(third["schedule"]["decision"]["action"], "fresh");
+    assert_eq!(
+        third["schedule"]["decision"]["reason"],
+        "fingerprint-changed"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn mcp_scheduler_fingerprint_invalidates_persistent_cache_for_non_source_change() {
+    let root = make_scheduler_cache_fixture("scheduler-persistent");
+    let cache_dir = make_isolated_cache_dir("scheduler-persistent-fingerprint");
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3198,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let data = extract_tool_data(&session.recv());
+        assert_eq!(data["cacheHit"], false, "initial analyze should miss");
+    }
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3199,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let data = extract_tool_data(&session.recv());
+        assert_eq!(
+            data["cacheHit"], true,
+            "second process should hit persistent cache"
+        );
+        assert_eq!(data["cacheLayer"], "persistent");
+        assert_eq!(data["schedule"]["decision"]["action"], "reuse");
+    }
+
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    std::fs::write(
+        root.join("config").join("schema.yaml"),
+        "version: 3\nfield: changed-through-persistent\n",
+    )
+    .expect("update scheduler-tracked non-source file");
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        session.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 3200,
+            "method": "tools/call",
+            "params": {
+                "name": "codelattice_analyze",
+                "arguments": {
+                    "root": root.to_string_lossy(),
+                    "language": "rust"
+                }
+            }
+        }));
+        let data = extract_tool_data(&session.recv());
+        assert_eq!(
+            data["cacheHit"], false,
+            "scheduler fingerprint change should invalidate persistent cache"
+        );
+        assert_eq!(data["cacheLayer"], "none");
+    }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 #[cfg(feature = "tree-sitter-cangjie")]
 fn mcp_cangjie_symbol_search_finds_init() {
     let mut session = McpSession::start();
@@ -6344,6 +6504,36 @@ fn make_isolated_cache_dir(test_name: &str) -> std::path::PathBuf {
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+fn make_scheduler_cache_fixture(test_name: &str) -> std::path::PathBuf {
+    use std::time::SystemTime;
+    let ts = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let root = std::env::temp_dir().join(format!(
+        "codelattice-scheduler-fixture-{}-{}-{}",
+        test_name,
+        std::process::id(),
+        ts
+    ));
+    let _ = std::fs::remove_dir_all(&root);
+    std::fs::create_dir_all(root.join("src")).expect("create src");
+    std::fs::create_dir_all(root.join("config")).expect("create config");
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname='scheduler-cache-fixture'\nversion='0.1.0'\nedition='2021'\n",
+    )
+    .expect("write Cargo.toml");
+    std::fs::write(
+        root.join("src").join("lib.rs"),
+        "pub fn live() -> u8 { 1 }\n",
+    )
+    .expect("write lib.rs");
+    std::fs::write(root.join("config").join("schema.yaml"), "version: 1\n")
+        .expect("write schema.yaml");
+    root
 }
 
 /// Copy a fixture directory to an isolated temp dir so parallel tests

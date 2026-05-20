@@ -1030,3 +1030,10 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - 不替换 tree-sitter，不执行项目代码，不新增语言语义
     - Plan: `docs/plans/2026-05-20-analysis-scheduler-incremental-core-preflight.md`
     - Closure: `docs/plans/2026-05-20-analysis-scheduler-incremental-core-closure.md`
+
+72. **Scheduler Cache Reuse Pack** ✅ 完成（2026-05-20）：
+    - scheduler fingerprint 进入 MCP memory / persistent cache 真实 freshness 判定
+    - 非 source-extension 的项目本地文件变更（如 `config/schema.yaml`）现在可触发 cache miss，避免旧 mtime map 忽略导致 stale reuse
+    - 保留旧 source mtime、manifest hash、docs mtime 检查作为兼容 guardrail
+    - Plan: `docs/plans/2026-05-20-scheduler-cache-reuse-preflight.md`
+    - Closure: `docs/plans/2026-05-20-scheduler-cache-reuse-closure.md`
