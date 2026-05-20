@@ -18,6 +18,7 @@ tree-sitter-extraction = ["gitnexus-project-model/tree-sitter-extraction"]
 tree-sitter-cangjie = ["gitnexus-cangjie/tree-sitter-cangjie"]
 tree-sitter-arkts = ["dep:gitnexus-arkts", "dep:gitnexus-typescript", "gitnexus-arkts/tree-sitter-arkts"]
 tree-sitter-typescript = ["dep:gitnexus-typescript", "gitnexus-typescript/tree-sitter-typescript"]
+tree-sitter-javascript = ["dep:gitnexus-javascript", "gitnexus-javascript/tree-sitter-javascript", "dep:gitnexus-typescript", "gitnexus-typescript/tree-sitter-typescript"]
 tree-sitter-c = ["dep:gitnexus-c", "gitnexus-c/tree-sitter-c"]
 tree-sitter-cpp = ["dep:gitnexus-cpp", "gitnexus-cpp/tree-sitter-cpp"]
 tree-sitter-python = ["dep:gitnexus-python", "gitnexus-python/tree-sitter-python"]
@@ -31,6 +32,7 @@ gitnexus-analysis-scheduler = { path = "../analysis-scheduler" }
 gitnexus-cangjie = { path = "../cangjie", optional = true }
 gitnexus-arkts = { path = "../arkts", optional = true }
 gitnexus-typescript = { path = "../typescript", optional = true }
+gitnexus-javascript = { path = "../javascript", optional = true }
 gitnexus-c = { path = "../c", optional = true }
 gitnexus-cpp = { path = "../cpp", optional = true }
 gitnexus-python = { path = "../python", optional = true }

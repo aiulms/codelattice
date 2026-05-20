@@ -187,12 +187,13 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
             DetectedLanguage::Cangjie => Ok("cangjie".to_string()),
             DetectedLanguage::ArkTS => Ok("arkts".to_string()),
             DetectedLanguage::TypeScript => Ok("typescript".to_string()),
+            DetectedLanguage::JavaScript => Ok("javascript".to_string()),
             DetectedLanguage::C => Ok("c".to_string()),
             DetectedLanguage::Cpp => Ok("cpp".to_string()),
             DetectedLanguage::Python => Ok("python".to_string()),
             DetectedLanguage::Shell => Ok("shell".to_string()),
             DetectedLanguage::Ambiguous => Err(
-                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript|c|cpp|python|shell 显式指定".to_string(),
+                "语言检测失败：存在多种清单文件，请使用 --language rust|cangjie|arkts|typescript|javascript|c|cpp|python|shell 显式指定".to_string(),
             ),
             DetectedLanguage::Unknown => Err(
                 "语言检测失败：未找到可识别的清单文件，无法自动检测语言".to_string(),
@@ -203,6 +204,7 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
         "cangjie",
         "arkts",
         "typescript",
+        "javascript",
         "c",
         "cpp",
         "python",
@@ -2115,6 +2117,132 @@ fn run_typescript_analysis(
 }
 
 // ============================================================
+// JavaScript 分析 + Graph 提取
+// ============================================================
+
+#[cfg(feature = "tree-sitter-javascript")]
+fn run_javascript_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    use std::collections::BTreeMap;
+
+    // 1. Build project model
+    let project =
+        gitnexus_javascript::project::find_javascript_project_root(root).ok_or_else(|| {
+            "JavaScript project root not found (no package.json or JS files)".to_string()
+        })?;
+
+    let source_files = gitnexus_javascript::project::list_source_files(&project)
+        .map_err(|e| format!("Failed to list JavaScript source files: {e}"))?;
+
+    // 2. Parse manifest
+    let manifest_path = project.join("package.json");
+    let manifest = if manifest_path.is_file() {
+        gitnexus_javascript::parse_package_json(&manifest_path).ok()
+    } else {
+        None
+    };
+
+    // 3. Extract per-file data
+    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_javascript::JsSymbol>> =
+        BTreeMap::new();
+    let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_javascript::JsImport>> =
+        BTreeMap::new();
+    let mut references_by_file: BTreeMap<
+        std::path::PathBuf,
+        Vec<gitnexus_javascript::JsReference>,
+    > = BTreeMap::new();
+
+    for file in &source_files {
+        let source = match std::fs::read_to_string(file) {
+            Ok(s) => s,
+            Err(_) => continue,
+        };
+
+        // Detect language variant from extension
+        let lang = if file
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e == "jsx")
+            .unwrap_or(false)
+        {
+            gitnexus_javascript::extractors::JsLanguage::Jsx
+        } else {
+            gitnexus_javascript::extractors::JsLanguage::JavaScript
+        };
+
+        let syms = gitnexus_javascript::extractors::extract_js_symbols(&source, lang);
+        let imps = gitnexus_javascript::extractors::extract_js_imports(&source, lang);
+        let refs = gitnexus_javascript::extractors::extract_js_references(&source, lang);
+
+        symbols_by_file.insert(file.clone(), syms);
+        imports_by_file.insert(file.clone(), imps);
+        references_by_file.insert(file.clone(), refs);
+    }
+
+    // 4. Build graph
+    let kind = gitnexus_javascript::project::detect_project_kind(&project);
+    let js_project = gitnexus_javascript::JsProject {
+        root: project.clone(),
+        kind,
+        manifest,
+        source_files: source_files.clone(),
+    };
+
+    // Build module resolver
+    let resolver = gitnexus_javascript::JsModuleResolver::new(project);
+
+    let graph = gitnexus_javascript::graph::build_js_graph(
+        &js_project,
+        &symbols_by_file,
+        &imports_by_file,
+        &references_by_file,
+        Some(&resolver),
+    );
+
+    let json_val = serde_json::to_value(&graph)
+        .map_err(|e| format!("JavaScript graph JSON serialization failed: {e}"))?;
+
+    let nodes: Vec<serde_json::Value> = json_val
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let edges: Vec<serde_json::Value> = json_val
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-javascript"))]
+fn run_javascript_analysis(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    Err(
+        "JavaScript support is disabled. 请使用 --features tree-sitter-javascript 重新编译。"
+            .to_string(),
+    )
+}
+
+// ============================================================
 // C 分析 + Graph 提取
 // ============================================================
 
@@ -3290,6 +3418,69 @@ pub fn run() {
                         }
                     }
                 }
+                "javascript" => {
+                    let (json_val, nodes, edges) = match run_javascript_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+
+                    let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let schema_version = json_val
+                        .get("schemaVersion")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("v0.1.0")
+                        .to_string();
+
+                    if is_bridge {
+                        let analyzed_at = now_iso8601();
+                        let bridge = bridge_format::convert_arkts_graph(
+                            &json_val,
+                            &lang,
+                            &root_path.to_string_lossy(),
+                            &analyzed_at,
+                        )
+                        .unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge 格式转换失败: {e}");
+                            std::process::exit(1);
+                        });
+                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    } else {
+                        let summary = build_arkts_summary(&nodes, &edges);
+                        let result = LanguageAnalysisResult {
+                            language: lang,
+                            root: root_path.to_string_lossy().to_string(),
+                            analyzed_at: now_iso8601(),
+                            schema_version,
+                            summary,
+                            quality_gates: quality_gates.clone(),
+                            graph: json_val,
+                        };
+                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
+                            eprintln!("错误：JSON 序列化失败: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                    }
+
+                    if strict {
+                        let failed: Vec<&QualityGateResult> =
+                            quality_gates.iter().filter(|g| !g.passed).collect();
+                        if !failed.is_empty() {
+                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
+                            for g in &failed {
+                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            }
+                            std::process::exit(1);
+                        }
+                    }
+                }
                 "c" => {
                     let (json_val, nodes, edges) = match run_c_analysis(root_path) {
                         Ok(v) => v,
@@ -3638,6 +3829,19 @@ pub fn run() {
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
                 }
+                "javascript" => {
+                    let (_json_val, nodes, edges) = match run_javascript_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let all_pass = gates.iter().all(|g| g.passed);
+                    let overall = if all_pass { "pass" } else { "fail" };
+                    (gates, overall)
+                }
                 "c" => {
                     let (_json_val, nodes, edges) = match run_c_analysis(root_path) {
                         Ok(v) => v,
@@ -3804,6 +4008,26 @@ pub fn run() {
                 }
                 "typescript" => {
                     let (_json_val, nodes, edges) = match run_typescript_analysis(root_path) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            eprintln!("{e}");
+                            std::process::exit(1);
+                        }
+                    };
+                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let total = gates.len() as u32;
+                    let passed = gates.iter().filter(|g| g.passed).count() as u32;
+                    let failed = total - passed;
+                    let qs = QualitySummary {
+                        total,
+                        passed,
+                        failed,
+                    };
+                    (gs, qs)
+                }
+                "javascript" => {
+                    let (_json_val, nodes, edges) = match run_javascript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");

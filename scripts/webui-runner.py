@@ -11,12 +11,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 STATIC_D = REPO_ROOT / "webui" / "snapshot-viewer"
 SNAP_SCRIPT = REPO_ROOT / "scripts" / "webui-snapshot.sh"
 GEN_TIMEOUT = 120
-SUPPORTED = ["rust","typescript","c","cpp","python","shell","arkts","cangjie","auto"]
+SUPPORTED = ["rust","typescript","javascript","c","cpp","python","shell","arkts","cangjie","auto"]
 LANG_MARKERS = {
     "cjpm.toml": "cangjie",
     "oh-package.json5": "arkts",
     "Cargo.toml": "rust",
     "tsconfig.json": "typescript",
+    "package.json": "javascript",
     "pyproject.toml": "python",
     "setup.py": "python",
     "requirements.txt": "python",
@@ -32,7 +33,7 @@ LANG_MARKERS = {
     "build.gradle.kts": "unsupported:kotlin",
     "Package.swift": "unsupported:swift",
 }
-LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "python": 4, "c/cpp": 5, "c": 5, "cpp": 5, "shell": 6, "unsupported:csharp": 9, "unsupported:go": 9, "unsupported:java": 9, "unsupported:kotlin": 9, "unsupported:swift": 9}
+LANG_PRIORITY = {"cangjie": 0, "arkts": 1, "rust": 2, "typescript": 3, "javascript": 3, "python": 4, "c/cpp": 5, "c": 5, "cpp": 5, "shell": 6, "unsupported:csharp": 9, "unsupported:go": 9, "unsupported:java": 9, "unsupported:kotlin": 9, "unsupported:swift": 9}
 
 # Workspace scan: file extensions for language detection without manifest files
 WORKSPACE_EXT_LANG = {
@@ -40,6 +41,7 @@ WORKSPACE_EXT_LANG = {
     ".ets": "arkts",
     ".rs": "rust",
     ".ts": "typescript", ".tsx": "typescript",
+    ".js": "javascript", ".jsx": "javascript", ".mjs": "javascript", ".cjs": "javascript",
     ".py": "python",
     ".sh": "shell", ".bash": "shell", ".zsh": "shell", ".ksh": "shell", ".bats": "shell",
     ".c": "c", ".h": "c",

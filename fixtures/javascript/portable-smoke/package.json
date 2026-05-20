@@ -1,0 +1,16 @@
+{
+  "name": "codelattice-js-portable-smoke",
+  "version": "1.0.0",
+  "description": "JavaScript portable smoke fixture for CodeLattice",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "build": "echo 'build placeholder'"
+  },
+  "keywords": ["codelattice", "test"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {}
+}

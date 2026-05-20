@@ -38,7 +38,7 @@ Generate a CodeLatticeWebSnapshotV1 JSON (Phase A enriched) for WebUI consumptio
 
 Required:
   --root <path>        Project root directory
-  --language <lang>    rust|cangjie|arkts|typescript|c|cpp|python|shell|auto
+  --language <lang>    rust|cangjie|arkts|typescript|javascript|c|cpp|python|shell|auto
   --output <path>      Output JSON file path, or '-' for stdout
 
 Options:

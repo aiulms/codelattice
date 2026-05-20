@@ -4,12 +4,13 @@
 //! 1. 有 oh-package.json5 → arkts
 //! 2. 有 Cargo.toml → rust
 //! 3. 有 cjpm.toml → cangjie
-//! 4. 有 tsconfig.json 或 package.json（非 ArkTS/非 Rust/非 Cangjie）→ typescript
-//! 5. 有 C 项目标记且无 C++ 文件 → c
-//! 6. 有 Python 项目标记 → python
-//! 7. 只有 shell 脚本 / shebang → shell
-//! 8. 多种存在 → 报错要求显式指定
-//! 9. 都没有 → 报错"无法检测语言"
+//! 4. 有 tsconfig.json → typescript
+//! 5. 有 package.json 且无 tsconfig.json → typescript (如果有 .ts/.tsx) 或 javascript (如果有 .js/.jsx/.mjs/.cjs)
+//! 6. 有 C 项目标记且无 C++ 文件 → c
+//! 7. 有 Python 项目标记 → python
+//! 8. 只有 shell 脚本 / shebang → shell
+//! 9. 多种存在 → 报错要求显式指定
+//! 10. 都没有 → 报错"无法检测语言"
 
 use std::path::Path;
 
@@ -72,6 +73,16 @@ fn has_c_files(root: &Path) -> bool {
 /// Check if any .py files exist in the tree.
 fn has_python_files(root: &Path) -> bool {
     walk_for_extension(root, &["py"])
+}
+
+/// Check if any JavaScript files exist in the tree.
+fn has_js_files(root: &Path) -> bool {
+    walk_for_extension(root, &["js", "jsx", "mjs", "cjs"])
+}
+
+/// Check if any TypeScript files exist in the tree.
+fn has_ts_files(root: &Path) -> bool {
+    walk_for_extension(root, &["ts", "tsx"])
 }
 
 fn has_shell_files(root: &Path) -> bool {
@@ -152,9 +163,20 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
     if has_cjpm {
         detected.push(DetectedLanguage::Cangjie);
     }
-    // TypeScript: only if not already claimed by ArkTS/Rust/Cangjie
-    if has_tsconfig || (has_pkg_json && !has_oh_pkg && !has_cargo && !has_cjpm) {
+    // TypeScript: only if has tsconfig.json
+    if has_tsconfig {
         detected.push(DetectedLanguage::TypeScript);
+    }
+    // JavaScript: package.json exists but no tsconfig.json, and has .js/.jsx/.mjs/.cjs files
+    // but no .ts/.tsx files
+    if has_pkg_json && !has_tsconfig && !has_oh_pkg && !has_cargo && !has_cjpm {
+        let has_ts_files = has_ts_files(root);
+        let has_js_files = has_js_files(root);
+        if has_js_files && !has_ts_files {
+            detected.push(DetectedLanguage::JavaScript);
+        } else if has_ts_files {
+            detected.push(DetectedLanguage::TypeScript);
+        }
     }
     // C: only if no stronger markers, has C markers/files, and NO C++ files
     if !has_cargo && !has_cjpm && !has_oh_pkg && !has_tsconfig && !has_pkg_json {

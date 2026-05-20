@@ -115,6 +115,8 @@ pub enum DetectedLanguage {
     ArkTS,
     /// TypeScript project (tsconfig.json / package.json with .ts/.tsx files)
     TypeScript,
+    /// JavaScript project (package.json with .js/.jsx/.mjs/.cjs files, no tsconfig.json)
+    JavaScript,
     /// C project (CMakeLists.txt / Makefile / .c/.h files, no C++ files)
     C,
     /// C++ project (CMakeLists.txt / .cpp/.hpp files; may include .h)
@@ -137,6 +139,7 @@ impl DetectedLanguage {
             DetectedLanguage::Cangjie => "cangjie",
             DetectedLanguage::ArkTS => "arkts",
             DetectedLanguage::TypeScript => "typescript",
+            DetectedLanguage::JavaScript => "javascript",
             DetectedLanguage::C => "c",
             DetectedLanguage::Cpp => "cpp",
             DetectedLanguage::Python => "python",

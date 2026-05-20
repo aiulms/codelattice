@@ -433,7 +433,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "项目根目录绝对路径" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "auto"], "default": "auto" },
     "symbol": { "type": "string", "description": "要分析影响范围的符号名称" },
     "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
     "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
@@ -821,7 +821,7 @@ Detect changed symbols from git diff. Maps diff hunks to graph symbols using sou
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "Project root (absolute path, must be a git repo)" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "auto"], "default": "auto" },
     "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree" },
     "baseRef": { "type": "string", "description": "Optional git ref to compare against" },
     "compact": { "type": "boolean", "default": true },
@@ -890,7 +890,7 @@ Identify static dead-code candidates — symbols and files with no incoming edge
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "Project root (absolute path)" },
-    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "auto"], "default": "auto" },
     "compact": { "type": "boolean", "default": true },
     "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200 },
     "includeFiles": { "type": "boolean", "default": true },
@@ -936,7 +936,7 @@ Change impact analysis — find what breaks if a symbol changes.
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "Project root directory" },
-    "language": { "type": "string", "enum": ["rust","cangjie","arkts","typescript","c","cpp","python","auto"] },
+    "language": { "type": "string", "enum": ["rust","cangjie","arkts","typescript","javascript","c","cpp","python","auto"] },
     "target": { "type": "string", "description": "Target symbol name" },
     "compact": { "type": "boolean", "default": false },
     "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 }
@@ -1259,7 +1259,7 @@ Compute reachability map from detected entry points. Returns entry points, reach
   "type": "object",
   "properties": {
     "root": { "type": "string", "description": "Project root directory (absolute path)" },
-    "language": { "type": "string", "enum": ["rust","cangjie","arkts","typescript","c","cpp","python","auto"], "default": "auto" },
+    "language": { "type": "string", "enum": ["rust","cangjie","arkts","typescript","javascript","c","cpp","python","auto"], "default": "auto" },
     "maxDepth": { "type": "integer", "description": "Max traversal depth (default 8)", "default": 8, "minimum": 1, "maximum": 32 },
     "entryHints": { "type": "array", "items": { "type": "string" }, "description": "Optional entry point hints" },
     "includeUnreachable": { "type": "boolean", "description": "Include unreachable candidates (default true)", "default": true },

@@ -1851,6 +1851,17 @@ fn check_language_feature(language: &str) -> Result<(), Value> {
             ));
         }
     }
+    if language == "javascript" {
+        #[cfg(not(feature = "tree-sitter-javascript"))]
+        {
+            return Err(mcp_error_with_hint(
+                "javascript_disabled",
+                "JavaScript support not compiled",
+                "JavaScript language was requested but tree-sitter-javascript feature is not enabled",
+                "Rebuild with --features tree-sitter-javascript",
+            ));
+        }
+    }
     Ok(())
 }
 
@@ -13350,6 +13361,16 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     false
                 }
             };
+            let javascript_support = {
+                #[cfg(feature = "tree-sitter-javascript")]
+                {
+                    true
+                }
+                #[cfg(not(feature = "tree-sitter-javascript"))]
+                {
+                    false
+                }
+            };
             let toolset = current_toolset();
             let full_tool_count = tools_list()["tools"]
                 .as_array()
@@ -13370,6 +13391,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "cSupport": c_support,
                         "cppSupport": cpp_support,
                         "pythonSupport": python_support,
+                        "javascriptSupport": javascript_support,
                         "shellSupport": true,
                         "toolset": toolset.as_str(),
                         "toolCount": tool_count,

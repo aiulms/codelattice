@@ -9,6 +9,7 @@ members = [
     "crates/arkts",
     "crates/c",
     "crates/cpp",
+    "crates/javascript",
     "crates/python",
     "crates/shell",
     "crates/workspace-model",

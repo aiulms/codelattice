@@ -1,0 +1,20 @@
+[package]
+name = "gitnexus-javascript"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+# JavaScript 解析器后端。
+# 实际复用 tree-sitter-typescript grammar（TypeScript grammar 向下兼容 JavaScript），
+# 不存在独立的 tree-sitter-javascript grammar。
+# 用户面向 feature 名称是 tree-sitter-javascript，内部通过 gitnexus-typescript 代理。
+tree-sitter-javascript = ["dep:tree-sitter", "gitnexus-typescript/tree-sitter-typescript"]
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+tree-sitter = { version = "0.26", optional = true }
+gitnexus-typescript = { path = "../typescript" }
