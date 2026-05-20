@@ -1,0 +1,67 @@
+{
+  "schemaVersion": "codelattice.corpus.manifest.v1",
+  "description": "JS/TS real-world corpus for CodeLattice static analysis validation. Only metadata — no source code included.",
+  "corpusRoot": "/Users/jiangxuanyang/Desktop/codelattice-corpus/js-ts",
+  "projects": [
+    {
+      "id": "lodash-es",
+      "repoUrl": "https://github.com/lodash/lodash.git",
+      "subdir": "lodash",
+      "cloneDepth": 1,
+      "language": "javascript",
+      "projectType": "pure-js-cjs-esm",
+      "coveragePoints": ["CJS exports", "ESM exports", "large function surface", "public API detection"],
+      "optional": false
+    },
+    {
+      "id": "uuid",
+      "repoUrl": "https://github.com/uuidjs/uuid.git",
+      "subdir": "uuid",
+      "cloneDepth": 1,
+      "language": "javascript",
+      "projectType": "esm-with-exports",
+      "coveragePoints": ["package.json exports field", "bin field", "ESM/CJS dual", "named exports"],
+      "optional": false
+    },
+    {
+      "id": "zod",
+      "repoUrl": "https://github.com/colinhacks/zod.git",
+      "subdir": "zod",
+      "cloneDepth": 1,
+      "language": "typescript",
+      "projectType": "ts-library",
+      "coveragePoints": ["TypeScript library", "package.json exports/types", "generics", "public surface"],
+      "optional": true
+    },
+    {
+      "id": "tinybench",
+      "repoUrl": "https://github.com/tinylibs/tinybench.git",
+      "subdir": "tinybench",
+      "cloneDepth": 1,
+      "language": "typescript",
+      "projectType": "ts-library-small",
+      "coveragePoints": ["TypeScript library", "ESM exports", "small project baseline"],
+      "optional": false
+    },
+    {
+      "id": "vite-plugin-react",
+      "repoUrl": "https://github.com/vitejs/vite-plugin-react.git",
+      "subdir": "vite-plugin-react",
+      "cloneDepth": 1,
+      "language": "typescript",
+      "projectType": "framework-plugin-monorepo",
+      "coveragePoints": ["monorepo", "packages/ structure", "framework plugin", "React integration"],
+      "optional": true
+    },
+    {
+      "id": "conf",
+      "repoUrl": "https://github.com/sindresorhus/conf.git",
+      "subdir": "conf",
+      "cloneDepth": 1,
+      "language": "typescript",
+      "projectType": "esm-ts-library",
+      "coveragePoints": ["ESM-only", "package.json exports", "browser field", "small project"],
+      "optional": false
+    }
+  ]
+}
