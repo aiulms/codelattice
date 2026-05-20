@@ -73,6 +73,22 @@ print('OK: inventory supported=' + str(inv['summary']['supportedProjectCount']) 
 ERR=$(curl -s "$BASE/api/workspace/inventory?root=/nonexistent/path/xyz")
 echo "$ERR" | python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False and d['error']" 2>/dev/null && pass "inventory error" || fail "inventory error"
 
+# ── Quick Analyze Auto-Entry ──────────────────────────────────────────
+QA=$(curl -s -X POST "$BASE/api/quick-analyze" -H "Content-Type: application/json" -d "{\"root\":\"$WF\",\"language\":\"auto\"}")
+echo "$QA" | python3 -c "
+import json,sys; d=json.load(sys.stdin);
+assert d['success'], 'quick analyze failed: ' + d.get('error','');
+data=d['data'];
+assert data.get('kind')=='workspace', 'multi-project root should auto-enter workspace mode';
+assert data.get('workspaceId'), 'missing workspaceId';
+summary=data.get('summary',{});
+assert summary.get('succeededProjectCount',0) >= 1, 'should analyze at least one recommended project';
+gf=data.get('generatedFrom',{});
+assert gf.get('workspaceAutoEntry') is True, 'missing workspaceAutoEntry flag';
+assert gf.get('scriptsExecuted') is False, 'scripts must not execute';
+print('OK: quick analyze workspaceId=' + data.get('workspaceId',''))
+" 2>/dev/null && pass "quick analyze workspace auto-entry" || { fail "quick analyze workspace auto-entry"; echo "  ${QA:0:300}"; }
+
 # ── Analyze (recommended) ─────────────────────────────────────────────
 AN=$(curl -s -X POST "$BASE/api/workspace/analyze" -H "Content-Type: application/json" -d "{\"root\":\"$WF\",\"mode\":\"recommended\",\"redactRoot\":true}")
 echo "$AN" | python3 -c "

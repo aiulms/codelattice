@@ -769,13 +769,25 @@ bash scripts/webui-runner.sh --open
 
 启动后浏览器可：
 - 直接分析单个项目
-- **选择大目录时自动跳到 Workspace 发现视图**，列出所有支持/暂不支持的子项目
+- **直接选择大目录 / workspace 根目录**：如果 `auto` 检测到多个可分析子项目，Runner 会自动进入 Workspace 模式并分析推荐项目，不再要求用户先猜具体子目录
 - 分析推荐项目（一键）或勾选子项目批量分析；完成后停留在 Workspace 总览，不会自动把你带走
 - 查看 Workspace 分析历史、每个子项目状态和 snapshot；洞察推荐项可一键打开对应子项目快照
 - 暂不支持的语言（C#、Java、Go、Swift、Kotlin）会标注为「暂不支持模块」，并汇总为未来语言支持 backlog
 - 复制一段适合发给 AI 的工作区摘要，用于下一步审查/清理规划
 
 **Workspace 扫描规则**：只读取目录结构和 manifest 文件名，不读取文件内容、不执行任何项目代码。上限 depth=5、entries=5000，超出后标记 `truncated=true`。
+
+**Protected live root 规则**：对 live repo 根目录，低层单项目 `analyze` 仍保持保护性拒绝；但 `auto` 入口、workspace graph 和 cross-project impact 可以把根目录当作只读工作区入口，输出会标注 `liveRootProtected=true`、`runtimeVerified=false`、`scriptsExecuted=false`。
+
+CLI / MCP 中也遵循同一规则：
+
+```bash
+# 多项目根目录会返回 codelattice.workspaceAutoEntry.v1
+target/debug/codelattice analyze --root /path/to/workspace --language auto --format json
+
+# AI 推荐入口：language=auto 时自动判断单项目 vs workspace
+codelattice_project(mode=overview, root=/path/to/workspace, language=auto)
+```
 
 ### Multi-Language Fixture Snapshot Matrix
 

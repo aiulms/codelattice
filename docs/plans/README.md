@@ -19,6 +19,10 @@
 
 ## 当前状态总结
 
+**Live Root Workspace Auto-Entry Pack（2026-05-20，已完成）：**
+- 📝 [2026-05-20-live-root-workspace-auto-entry-preflight.md](2026-05-20-live-root-workspace-auto-entry-preflight.md) — 让大根目录成为自然入口：CLI/MCP/WebUI 在 `auto` 多项目根目录上自动进入 workspace 模式，protected live root 只放开 workspace 层只读图谱。
+- ✅ [2026-05-20-live-root-workspace-auto-entry-closure.md](2026-05-20-live-root-workspace-auto-entry-closure.md) — closure：workspace auto-entry schema、WebUI quick-analyze 自动工作区分析、path-denied 低层保护保留和 smoke/regression 记录。
+
 **AI Workflow Executor Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-ai-workflow-executor-preflight.md](2026-05-20-ai-workflow-executor-preflight.md) — `codelattice_workflow execute=true`：执行推荐的非递归 facade actions，返回 completed/failed/skipped/evidence/answerSummary。
 - ✅ [2026-05-20-ai-workflow-executor-closure.md](2026-05-20-ai-workflow-executor-closure.md) — closure：workflow executor、needs_input 安全停止、symbol callers/callees name alias 兼容和验证记录。

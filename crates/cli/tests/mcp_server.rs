@@ -26,6 +26,39 @@ fn portable_smoke_dir() -> std::path::PathBuf {
         .join("c1-same-module")
 }
 
+fn create_multi_project_workspace() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create multi-project workspace");
+    let root = dir.path();
+
+    let rust_src = root.join("rust-app/src");
+    std::fs::create_dir_all(&rust_src).unwrap();
+    std::fs::write(
+        root.join("rust-app/Cargo.toml"),
+        "[package]\nname = \"rust-app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(rust_src.join("main.rs"), "fn main() {}\n").unwrap();
+
+    let py_dir = root.join("python-tool");
+    std::fs::create_dir_all(&py_dir).unwrap();
+    std::fs::write(
+        py_dir.join("pyproject.toml"),
+        "[project]\nname = \"python-tool\"\n",
+    )
+    .unwrap();
+    std::fs::write(py_dir.join("main.py"), "def main():\n    return 1\n").unwrap();
+
+    let unsupported = root.join("csharp-addon");
+    std::fs::create_dir_all(&unsupported).unwrap();
+    std::fs::write(
+        unsupported.join("csharp-addon.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 #[allow(dead_code)]
 fn cangjie_portable_smoke_dir() -> std::path::PathBuf {
     workspace_root()
@@ -763,6 +796,54 @@ fn mcp_workflow_execute_with_missing_inputs_does_not_run_actions() {
             .unwrap_or(false),
         "missing-input response should still guide the next discovery action: {data:?}"
     );
+}
+
+#[test]
+fn mcp_project_auto_enters_workspace_for_multi_project_root() {
+    let dir = create_multi_project_workspace();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "overview",
+                "root": dir.path(),
+                "language": "auto",
+                "compact": false
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.workspaceAutoEntry.v1")
+    );
+    assert_eq!(data["status"].as_str(), Some("workspace_analyzed"));
+    assert_eq!(data["rootKind"].as_str(), Some("workspace"));
+    assert!(
+        data["summary"]["supportedProjectCount"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 2,
+        "workspace auto-entry should expose supported projects: {data:?}"
+    );
+    assert!(
+        data["unsupportedModules"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "unsupported modules should be visible as backlog, not silently analyzed: {data:?}"
+    );
+    assert_eq!(data["generatedFrom"]["staticAnalysis"], true);
+    assert_eq!(data["generatedFrom"]["scriptsExecuted"], false);
+    assert_eq!(data["generatedFrom"]["projectContentRead"], false);
 }
 
 #[test]

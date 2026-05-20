@@ -303,6 +303,28 @@ function analyzeAfterInventory(root, lang, where, run){
   return projectInventory(root,where).then(function(inv){
     if(!inv)return run(root,lang);
     if(lang==="auto"){
+      if(inv.status==="multi_project"){
+        var hint=where==="picker"?document.getElementById("picker-hint"):document.getElementById("runner-status");
+        if(hint)hint.textContent=tr("workspace.scanning");
+        return new Promise(function(resolve){
+          workspaceScanInventory(root,function(scanErr){
+            if(scanErr){
+              if(hint)hint.textContent=tr("workspace.noSupported");
+              resolve(null);
+              return;
+            }
+            workspaceAnalyze(root,"recommended",null,function(runErr,ws){
+              if(runErr){
+                if(hint)hint.textContent="Workspace analysis failed: "+(runErr.message||runErr);
+                resolve(null);
+                return;
+              }
+              workspaceFocusRun(ws,{scroll:true});
+              resolve(null);
+            });
+          });
+        });
+      }
       if(inv.status==="single_candidate"&&inv.recommendedRoot){
         return run(inv.recommendedRoot,inv.recommendedLanguage||"auto");
       }

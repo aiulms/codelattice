@@ -177,7 +177,10 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         candidates = self._project_candidates(root, limit=16)
         supported_candidates = [c for c in candidates if c.get("supportedLanguages")]
         unsupported_candidates = [c for c in candidates if c.get("unsupportedLanguages") and not c.get("supportedLanguages")]
-        if root_supported:
+        if len(supported_candidates) > 1:
+            status = "multi_project"
+            message = "当前目录包含多个可分析子项目，已按工作区处理。"
+        elif root_supported:
             status = "root_project"
             message = "当前目录看起来就是可分析项目。"
         elif len(supported_candidates) == 1 and not unsupported_candidates:
@@ -279,10 +282,10 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
             found_markers_raw += [m for m in LANG_MARKERS if any(f.endswith(m) for f in files)]
             # 去重
             seen = set(); found_markers = [m for m in found_markers_raw if not (m in seen or seen.add(m))]
+            ext_langs = set()
             # 决定是否将此目录识别为项目/模块
             if not found_markers:
                 # 回退：检查文件扩展名
-                ext_langs = set()
                 for name in files[:200]:
                     _, ext = os.path.splitext(name)
                     lang = WORKSPACE_EXT_LANG.get(ext.lower(), "")
@@ -2667,6 +2670,25 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         lang=(body.get("language") or "auto").strip()
         if not root or not os.path.isdir(root): return err("invalid root",400)
         if lang not in SUPPORTED: return err(f"unsupported language: {lang}",400)
+        if lang == "auto":
+            inv = self._project_inventory_data(root)
+            if inv.get("status") == "multi_project":
+                ws_result = self._workspace_analyze({"root": root, "mode": "recommended", "redactRoot": True})
+                if not ws_result.get("success"):
+                    return ws_result
+                return ok({
+                    "kind": "workspace",
+                    "workspaceId": ws_result["data"].get("workspaceId"),
+                    "workspace": ws_result["data"],
+                    "inventory": inv,
+                    "summary": ws_result["data"].get("summary", {}),
+                    "generatedFrom": {
+                        "staticAnalysis": True,
+                        "workspaceAutoEntry": True,
+                        "scriptsExecuted": False,
+                        "runtimeVerified": False,
+                    },
+                })
         root, lang, blocker = self._prepare_analysis_target(root, lang)
         if blocker: return blocker
         # Create/touch profile

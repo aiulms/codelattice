@@ -37,7 +37,7 @@ use unified_types::{
 
 // workspace-model 直接库调用（不需要 MCP subprocess）
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
-use gitnexus_workspace_model::scan_workspace_inventory;
+use gitnexus_workspace_model::{build_workspace_graph, scan_workspace_inventory};
 
 #[derive(Parser)]
 #[command(
@@ -225,6 +225,82 @@ fn check_root(root: &str) -> Result<&Path, String> {
         return Err(format!("错误：root 路径不存在: {root}"));
     }
     Ok(path)
+}
+
+/// 当用户/AI 把多项目根目录直接交给 `analyze --language auto` 时，
+/// 不再强行选单一语言；改为返回受保护的 workspace auto-entry 摘要。
+/// 这里只做目录/manifest/config 级静态扫描，不执行项目代码，也不读取源码内容。
+fn build_workspace_auto_entry(root: &Path, reason: &str) -> Option<Value> {
+    let inventory = scan_workspace_inventory(root, true).ok()?;
+    let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
+    let root_is_project = supported.iter().any(|p| p.relative_path == ".");
+    let manifest_project_count = supported
+        .iter()
+        .filter(|p| !p.manifest_file.is_empty())
+        .count();
+    let child_project_count = supported.iter().filter(|p| p.relative_path != ".").count();
+    if manifest_project_count < 2 && (root_is_project || child_project_count < 2) {
+        return None;
+    }
+
+    let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
+    let graph_summary = build_workspace_graph(root, true)
+        .ok()
+        .and_then(|g| serde_json::to_value(g.summary).ok());
+    let workspace_graph_available = graph_summary.is_some();
+    let workspace_summary = graph_summary.unwrap_or_else(|| json!({}));
+
+    Some(json!({
+        "schemaVersion": "codelattice.workspaceAutoEntry.v1",
+        "status": "workspace_analyzed",
+        "rootKind": "workspace",
+        "root": root.to_string_lossy(),
+        "reason": reason,
+        "summary": {
+            "supportedProjectCount": supported.len(),
+            "unsupportedModuleCount": unsupported.len(),
+            "recommendedProjectCount": supported.iter().filter(|p| p.supported).count(),
+            "workspaceGraphAvailable": workspace_graph_available
+        },
+        "supportedProjects": supported.iter().map(|p| json!({
+            "path": p.path,
+            "relativePath": p.relative_path,
+            "name": p.name,
+            "language": p.language,
+            "manifestFile": p.manifest_file,
+            "recommended": true
+        })).collect::<Vec<_>>(),
+        "unsupportedModules": unsupported.iter().map(|p| json!({
+            "path": p.path,
+            "relativePath": p.relative_path,
+            "name": p.name,
+            "language": p.language,
+            "manifestFile": p.manifest_file,
+            "supported": false
+        })).collect::<Vec<_>>(),
+        "analyzedProjects": [],
+        "failedProjects": [],
+        "workspaceSummary": workspace_summary,
+        "recommendedNextActions": [
+            "Use codelattice_workspace mode=graph for cross-project structure.",
+            "Use codelattice_workspace mode=impact with a selected projectId/path for blast radius.",
+            "Use WebUI workspace recommended analysis for per-project snapshots."
+        ],
+        "cautions": [
+            "workspace auto-entry is static-only",
+            "inventory does not execute build/test/package-manager scripts",
+            "unsupported modules are shown as backlog and are not analyzed"
+        ],
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "workspaceInventory": true,
+            "workspaceGraph": workspace_graph_available,
+            "projectContentRead": false,
+            "scriptsExecuted": false,
+            "runtimeVerified": false,
+            "coverageVerified": false
+        }
+    }))
 }
 
 /// 获取当前时间 ISO 8601 字符串
@@ -2928,6 +3004,19 @@ pub fn run() {
                     std::process::exit(1);
                 }
             };
+
+            if language == "auto" && !is_bridge {
+                if let Some(workspace) =
+                    build_workspace_auto_entry(root_path, "auto-language-multi-project-root")
+                {
+                    let json = serde_json::to_string_pretty(&workspace).unwrap_or_else(|e| {
+                        eprintln!("错误：Workspace JSON 序列化失败: {e}");
+                        std::process::exit(1);
+                    });
+                    println!("{json}");
+                    return;
+                }
+            }
 
             let lang = match resolve_language(&language, root_path) {
                 Ok(l) => l,

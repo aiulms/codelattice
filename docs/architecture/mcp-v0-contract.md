@@ -1478,6 +1478,53 @@ Scripts parse this output to detect the binary's capabilities and warn if option
 > - `query_graph`: matched nodes can include `sourceSnippet` (controlled by `includeSnippet`, default false for compact output).
 > - `rename_preview`: candidates now include `sourceSnippet` by default.
 
+### 3.x Workspace Auto-Entry (v0.15)
+
+`language=auto` 的高层入口会把多项目根目录识别成 workspace，而不是盲目进入某一种语言分析。
+
+适用入口：
+
+- CLI `analyze --language auto --format json`
+- MCP facade `codelattice_project`
+- WebUI Runner `POST /api/quick-analyze`
+
+输出 envelope：
+
+```json
+{
+  "schemaVersion": "codelattice.workspaceAutoEntry.v1",
+  "status": "workspace_analyzed",
+  "rootKind": "workspace",
+  "summary": {
+    "supportedProjectCount": 2,
+    "unsupportedModuleCount": 1,
+    "workspaceGraphAvailable": true,
+    "liveRootProtected": false
+  },
+  "supportedProjects": [],
+  "unsupportedModules": [],
+  "analyzedProjects": [],
+  "failedProjects": [],
+  "recommendedNextActions": [],
+  "cautions": [
+    "static analysis only — no runtime proof"
+  ],
+  "generatedFrom": {
+    "staticAnalysis": true,
+    "workspaceInventory": true,
+    "projectContentRead": false,
+    "scriptsExecuted": false,
+    "runtimeVerified": false
+  }
+}
+```
+
+Protected live root 规则：
+
+- 低层 `codelattice_analyze` 对 live repo 根目录继续返回 `path_denied`。
+- workspace graph / cross-project impact / high-level auto-entry 可以接受 protected root，但必须标注 `rootKind=protected_live_workspace` 或 `generatedFrom.liveRootProtected=true`。
+- 这些路径只做 workspace 层静态发现/图谱/影响，不执行项目代码，不证明运行时安全。
+
 ---
 
 ## 四、错误格式
@@ -1520,7 +1567,7 @@ Scripts parse this output to detect the binary's capabilities and warn if option
 2. **Temp files only** — export_bridge 仅写入 /tmp，路径校验拒绝非 /tmp 路径
 3. **No default switch** — MCP server 不修改任何默认工具配置
 4. **No generatedAt strict comparison** — generatedAt 不参与 deterministic compare
-5. **Path deny list** — `/Users/jiangxuanyang/Desktop/cangjie` 等生产 live repo 默认拒绝
+5. **Path deny list** — `/Users/jiangxuanyang/Desktop/cangjie` 等生产 live repo 的低层单项目 analyze 默认拒绝；高层 workspace auto-entry / workspace graph / cross-project impact 可作为只读工作区入口，并必须标注 protected/static-only
 6. **Timeout protection** — 所有 subprocess 有超时保护
 7. **Stdout purity** — stdout 只输出 JSON-RPC，不混入其他文本
 

@@ -34,8 +34,8 @@
 use gitnexus_analysis_scheduler::{
     build_schedule, AnalysisRequest, AnalysisScope, CacheIntent, FileSnapshot,
 };
-use gitnexus_workspace_model::build_workspace_graph;
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
+use gitnexus_workspace_model::{build_workspace_graph, scan_workspace_inventory};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
@@ -141,6 +141,116 @@ fn validate_root_path(root: &str) -> Result<PathBuf, Value> {
     }
 
     Ok(canonical)
+}
+
+fn root_is_under_denied_path(canonical: &Path) -> bool {
+    for denied in DENIED_PATHS {
+        let denied_canonical = PathBuf::from(denied).canonicalize().ok();
+        if let Some(dc) = denied_canonical {
+            if canonical == dc || canonical.starts_with(&dc) {
+                return true;
+            }
+        }
+        let denied_with_sep = format!("{}/", denied.trim_end_matches('/'));
+        let canonical_str = canonical.to_string_lossy();
+        if canonical_str.starts_with(&denied_with_sep) || canonical_str == *denied {
+            return true;
+        }
+    }
+    false
+}
+
+/// Workspace-level tools may enter a protected live root in static workspace mode.
+/// This does not relax source analysis deny rules for low-level project tools.
+fn validate_workspace_root_path(root: &str) -> Result<(PathBuf, bool), Value> {
+    let path = PathBuf::from(root);
+    let canonical = path
+        .canonicalize()
+        .map_err(|_| mcp_error("path_not_found", &format!("Path does not exist: {root}")))?;
+
+    if !canonical.is_dir() {
+        return Err(mcp_error(
+            "path_not_directory",
+            &format!("Path is not a directory: {root}"),
+        ));
+    }
+
+    let protected = root_is_under_denied_path(&canonical);
+    Ok((canonical, protected))
+}
+
+fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
+    let path = PathBuf::from(root).canonicalize().ok()?;
+    let inventory = scan_workspace_inventory(&path, true).ok()?;
+    let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
+    let root_is_project = supported.iter().any(|p| p.relative_path == ".");
+    let manifest_project_count = supported
+        .iter()
+        .filter(|p| !p.manifest_file.is_empty())
+        .count();
+    let child_project_count = supported.iter().filter(|p| p.relative_path != ".").count();
+    if manifest_project_count < 2 && (root_is_project || child_project_count < 2) && !protected {
+        return None;
+    }
+    let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
+    let graph_summary = build_workspace_graph(&path, true)
+        .ok()
+        .and_then(|g| serde_json::to_value(g.summary).ok());
+    let workspace_graph_available = graph_summary.is_some();
+    let workspace_summary = graph_summary.unwrap_or_else(|| json!({}));
+
+    Some(json!({
+        "schemaVersion": "codelattice.workspaceAutoEntry.v1",
+        "status": if supported.is_empty() { "needs_selection" } else { "workspace_analyzed" },
+        "rootKind": if protected { "protected_live_workspace" } else { "workspace" },
+        "root": path.to_string_lossy(),
+        "summary": {
+            "supportedProjectCount": supported.len(),
+            "unsupportedModuleCount": unsupported.len(),
+            "recommendedProjectCount": supported.len(),
+            "workspaceGraphAvailable": workspace_graph_available,
+            "liveRootProtected": protected
+        },
+        "supportedProjects": supported.iter().map(|p| json!({
+            "path": p.path,
+            "relativePath": p.relative_path,
+            "name": p.name,
+            "language": p.language,
+            "manifestFile": p.manifest_file,
+            "recommended": true
+        })).collect::<Vec<_>>(),
+        "unsupportedModules": unsupported.iter().map(|p| json!({
+            "path": p.path,
+            "relativePath": p.relative_path,
+            "name": p.name,
+            "language": p.language,
+            "manifestFile": p.manifest_file,
+            "supported": false
+        })).collect::<Vec<_>>(),
+        "analyzedProjects": [],
+        "failedProjects": [],
+        "workspaceSummary": workspace_summary,
+        "nextActions": [
+            "Use codelattice_workspace mode=graph to inspect project boundaries.",
+            "Use codelattice_workspace mode=impact with target.projectId or target.path.",
+            "Use WebUI workspace recommended analysis to generate per-project snapshots."
+        ],
+        "cautions": [
+            "protected workspace mode is static-only",
+            "no build/test/package-manager scripts are executed",
+            "unsupported modules are reported but not analyzed"
+        ],
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "workspaceInventory": true,
+            "workspaceGraph": workspace_graph_available,
+            "projectContentRead": false,
+            "scriptsExecuted": false,
+            "runtimeVerified": false,
+            "coverageVerified": false,
+            "liveRootProtected": protected
+        }
+    }))
 }
 
 // ============================================================
@@ -16579,7 +16689,7 @@ fn handle_workspace_graph(_cache: &mut McpCache, params: &Value) -> Result<Value
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
-    let validated = validate_root_path(root)?;
+    let (validated, protected) = validate_workspace_root_path(root)?;
     let redact_root = params["redactRoot"].as_bool().unwrap_or(true);
     let compact = params["compact"].as_bool().unwrap_or(false);
 
@@ -16600,6 +16710,20 @@ fn handle_workspace_graph(_cache: &mut McpCache, params: &Value) -> Result<Value
             obj.remove("edges");
         }
     }
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert(
+            "rootKind".to_string(),
+            json!(if protected {
+                "protected_live_workspace"
+            } else {
+                "workspace"
+            }),
+        );
+        if let Some(gf) = obj.get_mut("generatedFrom").and_then(|v| v.as_object_mut()) {
+            gf.insert("liveRootProtected".to_string(), json!(protected));
+            gf.insert("projectContentRead".to_string(), json!(false));
+        }
+    }
 
     Ok(tool_result(&out))
 }
@@ -16609,7 +16733,7 @@ fn handle_cross_project_impact(_cache: &mut McpCache, params: &Value) -> Result<
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
-    let validated = validate_root_path(root)?;
+    let (validated, _protected) = validate_workspace_root_path(root)?;
     let compact = params["compact"].as_bool().unwrap_or(false);
     let redact_root = params["redactRoot"].as_bool().unwrap_or(true);
 
@@ -16776,6 +16900,15 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         &["overview", "quality", "insights", "full"],
         "codelattice_project",
     )?;
+    if language == "auto" {
+        if let Ok((validated, protected)) = validate_workspace_root_path(root) {
+            if let Some(workspace) =
+                build_workspace_auto_entry(&validated.to_string_lossy(), protected)
+            {
+                return Ok(tool_result(&workspace));
+            }
+        }
+    }
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "overview" => {
             let r = handle_project_overview(cache, params)?;

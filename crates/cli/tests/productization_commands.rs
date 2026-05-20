@@ -27,6 +27,39 @@ fn cangjie_portable_smoke_path() -> String {
     format!("{manifest_dir}/../../fixtures/cangjie/portable-smoke")
 }
 
+fn create_multi_project_workspace() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let root = dir.path();
+
+    let rust_src = root.join("rust-app/src");
+    std::fs::create_dir_all(&rust_src).unwrap();
+    std::fs::write(
+        root.join("rust-app/Cargo.toml"),
+        "[package]\nname = \"rust-app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(rust_src.join("main.rs"), "fn main() {}\n").unwrap();
+
+    let py = root.join("python-tool");
+    std::fs::create_dir_all(&py).unwrap();
+    std::fs::write(
+        py.join("pyproject.toml"),
+        "[project]\nname = \"python-tool\"\n",
+    )
+    .unwrap();
+    std::fs::write(py.join("main.py"), "def main():\n    return 1\n").unwrap();
+
+    let unsupported = root.join("csharp-addon");
+    std::fs::create_dir_all(&unsupported).unwrap();
+    std::fs::write(
+        unsupported.join("csharp-addon.csproj"),
+        "<Project Sdk=\"Microsoft.NET.Sdk\"></Project>\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_detect_changes_git_repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let root = dir.path();
@@ -252,6 +285,36 @@ fn analyze_rust_auto_detects_language() {
         !v["qualityGates"].as_array().unwrap().is_empty(),
         "qualityGates 不应为空"
     );
+}
+
+#[test]
+fn analyze_auto_multi_project_root_returns_workspace_auto_entry() {
+    let dir = create_multi_project_workspace();
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(dir.path())
+        .arg("--language")
+        .arg("auto")
+        .arg("--format")
+        .arg("json")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(v["schemaVersion"], "codelattice.workspaceAutoEntry.v1");
+    assert_eq!(v["status"], "workspace_analyzed");
+    assert_eq!(v["rootKind"], "workspace");
+    assert!(v["summary"]["supportedProjectCount"].as_u64().unwrap_or(0) >= 2);
+    assert!(v["supportedProjects"].as_array().unwrap().len() >= 2);
+    assert!(v["unsupportedModules"].as_array().unwrap().len() >= 1);
+    assert_eq!(v["generatedFrom"]["staticAnalysis"], true);
+    assert_eq!(v["generatedFrom"]["scriptsExecuted"], false);
+    assert_eq!(v["generatedFrom"]["projectContentRead"], false);
 }
 
 #[test]

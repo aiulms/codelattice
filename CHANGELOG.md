@@ -8,6 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Live Root Workspace Auto-Entry Pack**: makes large repository/workspace roots first-class inputs. CLI `analyze --language auto`, MCP facade `codelattice_project`, and WebUI Runner `quick-analyze` now detect multi-project roots and return/enter `codelattice.workspaceAutoEntry.v1` workspace mode instead of forcing users or AI agents to discover a specific child directory. Protected live roots keep low-level `codelattice_analyze` path-denied, while workspace graph/impact/high-level auto-entry are allowed as read-only static workspace entry points with `liveRootProtected=true`, `runtimeVerified=false`, and `scriptsExecuted=false`.
+
 - **Analysis Scheduler / Incremental Core Pack**: adds an internal `gitnexus-analysis-scheduler` crate that models CodeLattice analysis as deterministic phases (`discover`, `fingerprint`, `parse`, `symbols`, `imports`, `calls`, `diagnostics`, `graph`) with cheap filesystem fingerprints and cache decisions. Existing MCP cache flows now expose scheduler metadata in `codelattice_cache_status` and `codelattice_cache_prewarm`, making reuse/fresh/stale reasoning visible without changing parser semantics or executing project code.
 
 - **Scheduler Cache Reuse Pack**: promotes scheduler fingerprints from explanatory metadata into the actual MCP cache freshness path. Memory and persistent cache entries now reuse analysis only when the current scheduler decision is `reuse`, and project-local non-source file changes such as YAML config updates can invalidate stale cache entries even when the legacy source-extension mtime map would ignore them. Existing mtime, manifest, and docs checks remain as conservative guardrails.

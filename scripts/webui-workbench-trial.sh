@@ -36,9 +36,20 @@ QMR=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))
 MINV=$(curl -s "$BASE/api/project/inventory?root=$QMR")
 echo "$MINV"|python3 -c "import json,sys;d=json.load(sys.stdin)['data'];assert d['status']=='multi_project' and d['supportedCandidateCount']>=2 and d['unsupportedCandidateCount']>=1" 2>/dev/null && pass "inventory multi-project" || { fail "inventory multi-project"; echo "  resp: ${MINV:0:300}"; }
 
-# Auto analyze should stop before guessing a multi-project parent
-MERR=$(curl -s -X POST "$BASE/api/quick-analyze" -H "Content-Type: application/json" -d "{\"root\":\"$MR\",\"language\":\"auto\"}")
-echo "$MERR"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success']==False and '可分析' in (d.get('hint') or '')" 2>/dev/null && pass "multi-project analyze asks candidate" || fail "multi-project analyze asks candidate"
+# Auto analyze should enter workspace mode for a multi-project parent.
+MWA=$(curl -s -X POST "$BASE/api/quick-analyze" -H "Content-Type: application/json" -d "{\"root\":\"$MR\",\"language\":\"auto\"}")
+echo "$MWA"|python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+assert d['success'], 'quick analyze failed: ' + d.get('error','')
+data=d['data']
+assert data.get('kind')=='workspace', 'expected workspace auto-entry'
+assert data.get('workspaceId'), 'missing workspaceId'
+summary=data.get('summary',{})
+assert summary.get('succeededProjectCount',0) >= 1, 'expected at least one analyzed project'
+gf=data.get('generatedFrom',{})
+assert gf.get('workspaceAutoEntry') is True, 'missing workspaceAutoEntry flag'
+" 2>/dev/null && pass "multi-project auto-enters workspace" || { fail "multi-project auto-enters workspace"; echo "  resp: ${MWA:0:300}"; }
 
 # Create profiles
 P1=$(curl -s -X POST "$BASE/api/profiles" -H "Content-Type: application/json" -d "{\"name\":\"Rust Fixture\",\"root\":\"$WS/fixtures/rust/portable-smoke\",\"language\":\"rust\"}")
