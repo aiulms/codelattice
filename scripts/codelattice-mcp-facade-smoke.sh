@@ -57,15 +57,17 @@ print('OK')
 
 # ── Test 5: codelattice_workflow onboarding ──────────────────────────
 echo "── Test 5: codelattice_workflow onboarding ──"
-R=$(call '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_workflow","arguments":{"mode":"onboarding","compact":true}}}')
+R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_workflow\",\"arguments\":{\"mode\":\"onboarding\",\"root\":\"$ROOT/fixtures/workspace/rust-core\",\"language\":\"rust\",\"compact\":true}}}")
 echo "$R" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 r=json.loads(d['result']['content'][0]['text'])
+assert r.get('schemaVersion')=='ai.workflow.v1', 'wrong schema'
 assert r.get('tool')=='codelattice_workflow', 'wrong tool'
 assert r.get('mode')=='onboarding', 'wrong mode'
 assert r.get('compact')==True, 'compact should be true'
-assert 'codelattice_workflow_presets' in r.get('underlyingTools',[]), 'missing underlying'
+assert isinstance(r.get('nextActions'), list) and r['nextActions'], 'missing nextActions'
+assert any(a.get('tool')=='codelattice_project' for a in r['nextActions']), 'missing project nextAction'
 print('OK')
 " && pass "workflow-onboarding" || fail "workflow-onboarding"
 
@@ -81,17 +83,19 @@ assert 'Valid' in r.get('message',''), 'no valid modes in message'
 print('OK')
 " && pass "invalid-mode-error" || fail "invalid-mode-error"
 
-# ── Test 7: codelattice_workflow compact has no result ───────────────
-echo "── Test 7: compact strips result ──"
-R=$(call '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"codelattice_workflow","arguments":{"mode":"onboarding","compact":true}}}')
+# ── Test 7: codelattice_workflow missing symbol guidance ─────────────
+echo "── Test 7: workflow missing symbol guidance ──"
+R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_workflow\",\"arguments\":{\"mode\":\"before_edit\",\"root\":\"$ROOT/fixtures/workspace/rust-core\",\"language\":\"rust\",\"compact\":true}}}")
 echo "$R" | python3 -c "
 import json,sys
 d=json.load(sys.stdin)
 r=json.loads(d['result']['content'][0]['text'])
-assert 'result' not in r, 'result should be stripped in compact mode'
-assert 'summary' in r, 'summary should remain'
+assert r.get('schemaVersion')=='ai.workflow.v1', 'wrong schema'
+assert r.get('riskLevel')=='unknown', 'missing-symbol risk should be unknown'
+assert any(m.get('name')=='symbol' for m in r.get('missingInputs',[])), 'missing symbol input not reported'
+assert any(a.get('tool')=='codelattice_symbol' and a.get('arguments',{}).get('mode')=='search' for a in r.get('nextActions',[])), 'missing symbol search nextAction'
 print('OK')
-" && pass "compact-strips-result" || fail "compact-strips-result"
+" && pass "workflow-missing-symbol" || fail "workflow-missing-symbol"
 
 # ── Test 8: generatedFrom fields present ─────────────────────────────
 echo "── Test 8: generatedFrom fields ──"
@@ -144,6 +148,19 @@ assert r.get('tool')=='codelattice_symbol', 'wrong tool'
 assert r.get('mode')=='search', 'wrong mode'
 print('OK')
 " && pass "symbol-search" || fail "symbol-search"
+
+# ── Test 12: codelattice_workflow cross-project target guidance ──────
+echo "── Test 12: workflow cross-project target guidance ──"
+R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_workflow\",\"arguments\":{\"mode\":\"cross_project_impact\",\"root\":\"$ROOT/fixtures/workspace\",\"compact\":true}}}")
+echo "$R" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+r=json.loads(d['result']['content'][0]['text'])
+assert r.get('schemaVersion')=='ai.workflow.v1', 'wrong schema'
+assert any(m.get('name')=='target' for m in r.get('missingInputs',[])), 'missing target input not reported'
+assert any(a.get('tool')=='codelattice_workspace' and a.get('arguments',{}).get('mode')=='graph' for a in r.get('nextActions',[])), 'missing workspace graph nextAction'
+print('OK')
+" && pass "workflow-cross-project-target" || fail "workflow-cross-project-target"
 
 # ── Results ───────────────────────────────────────────────────────────
 echo ""

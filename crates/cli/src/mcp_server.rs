@@ -8539,12 +8539,27 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_workflow",
-                "description": "AI workflow guidance: onboarding, before_edit, after_edit, delete_code, release_check, legacy_cleanup. Returns suggested tool sequences.",
+                "description": "AI intent router and workflow guidance. Use this as the first MCP call when an AI agent is unsure which CodeLattice tool to use. Returns an action envelope with missingInputs, cautions, and directly callable nextActions.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup"], "default": "onboarding", "description": "Workflow scenario" },
+                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "explain_symbol", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent" },
+                        "intent": { "type": "string", "description": "Optional natural intent alias; when present it is treated like mode" },
+                        "root": { "type": "string", "description": "Project or workspace root when a next action needs analysis" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
+                        "symbol": { "type": "string", "description": "Target symbol for before_edit, delete_code, explain_symbol, or impact flows" },
+                        "name": { "type": "string", "description": "Alias for symbol in explain_symbol flows" },
+                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Changed symbol names for after_edit flows" },
+                        "target": {
+                            "type": "object",
+                            "description": "Workspace impact target for cross_project_impact",
+                            "properties": {
+                                "nodeId": { "type": "string" },
+                                "projectId": { "type": "string" },
+                                "path": { "type": "string" },
+                                "query": { "type": "string" }
+                            }
+                        },
                         "compact": { "type": "boolean", "default": true }
                     }
                 }
@@ -17157,10 +17172,64 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
 
 // ── codelattice_workflow ─────────────────────────────────────────────
 
-fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
-    let mode = params["mode"].as_str().unwrap_or("onboarding");
+fn workflow_base_args(root: &str, language: &str, mode: &str) -> Value {
+    let mut args = json!({
+        "mode": mode,
+        "language": language,
+        "compact": true
+    });
+    if !root.is_empty() {
+        args["root"] = json!(root);
+    }
+    args
+}
+
+fn workflow_action(tool: &str, arguments: Value, why: &str, required: bool) -> Value {
+    json!({
+        "tool": tool,
+        "arguments": arguments,
+        "why": why,
+        "required": required
+    })
+}
+
+fn workflow_missing(name: &str, reason: &str, suggestion: &str) -> Value {
+    json!({
+        "name": name,
+        "reason": reason,
+        "suggestion": suggestion
+    })
+}
+
+fn workflow_static_cautions(mode: &str) -> Vec<Value> {
+    let mut cautions = vec![
+        json!("static analysis only — no runtime proof"),
+        json!("scripts executed: false"),
+        json!("coverage verified: false"),
+    ];
+    if mode == "delete_code" {
+        cautions.push(json!("NOT deletion-proof: do not delete solely from static reachability/dead-code candidates"));
+    }
+    if mode == "cross_project_impact" {
+        cautions.push(json!(
+            "workspace graph impact is heuristic and may include config/script adjacency"
+        ));
+    }
+    cautions
+}
+
+fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let mode = params["intent"]
+        .as_str()
+        .or_else(|| params["mode"].as_str())
+        .unwrap_or("onboarding");
     let compact = params["compact"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
+    let root = params["root"].as_str().unwrap_or("");
+    let symbol = params["symbol"]
+        .as_str()
+        .or_else(|| params["name"].as_str())
+        .unwrap_or("");
     validate_facade_mode(
         mode,
         &[
@@ -17170,21 +17239,378 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "delete_code",
             "release_check",
             "legacy_cleanup",
+            "workspace_review",
+            "cross_project_impact",
+            "explain_symbol",
+            "docs_tests_sync",
+            "config_examples_sync",
+            "public_api_change",
+            "framework_route_change",
         ],
         "codelattice_workflow",
     )?;
-    let inner = unwrap_tool_result(&handle_workflow_presets(cache, params)?);
-    Ok(tool_result(&wrap_facade_output(
-        inner,
-        "codelattice_workflow",
-        mode,
-        language,
-        "n/a",
-        json!({"riskLevel":"low","mode":mode}),
-        vec!["Follow the workflow steps"],
-        vec!["codelattice_workflow_presets"],
-        compact,
-    )))
+
+    let mut missing_inputs: Vec<Value> = Vec::new();
+    let mut next_actions: Vec<Value> = Vec::new();
+    let mut findings: Vec<Value> = Vec::new();
+    let mut underlying = vec!["codelattice_workflow_presets"];
+    let mut risk_level = "low";
+    let situation;
+    let human_review_needed = true;
+
+    if root.is_empty() {
+        missing_inputs.push(workflow_missing(
+            "root",
+            "Most CodeLattice analysis actions need a project or workspace root.",
+            "Pass root as an absolute project/workspace path.",
+        ));
+    }
+
+    match mode {
+        "onboarding" => {
+            situation = "Start with a project map, then inspect hotspots and read-first files.";
+            next_actions.push(workflow_action(
+                "codelattice_project",
+                workflow_base_args(root, language, "full"),
+                "Get overview, quality gates, and project insights in one call.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_workflow",
+                json!({"mode":"before_edit","root":root,"language":language,"compact":true}),
+                "Use this after choosing a symbol or file to change.",
+                false,
+            ));
+        }
+        "before_edit" => {
+            risk_level = if symbol.is_empty() {
+                "unknown"
+            } else {
+                "medium"
+            };
+            situation = if symbol.is_empty() {
+                "Before-edit review needs a target symbol. I will route you to symbol discovery instead of failing."
+            } else {
+                "Before editing, inspect symbol context and impact radius first."
+            };
+            if symbol.is_empty() {
+                missing_inputs.push(workflow_missing(
+                    "symbol",
+                    "Impact preview needs the symbol you plan to edit.",
+                    "Run codelattice_symbol mode=search, then retry before_edit with symbol.",
+                ));
+                let mut search_args = workflow_base_args(root, language, "search");
+                search_args["query"] = json!("");
+                next_actions.push(workflow_action(
+                    "codelattice_symbol",
+                    search_args,
+                    "Find candidate symbols before choosing an edit target.",
+                    true,
+                ));
+            } else {
+                let mut ctx_args = workflow_base_args(root, language, "context");
+                ctx_args["name"] = json!(symbol);
+                next_actions.push(workflow_action(
+                    "codelattice_symbol",
+                    ctx_args,
+                    "Read the exact symbol location, snippet, docs, and candidates.",
+                    true,
+                ));
+                let mut impact_args = workflow_base_args(root, language, "impact");
+                impact_args["symbol"] = json!(symbol);
+                next_actions.push(workflow_action(
+                    "codelattice_change_review",
+                    impact_args,
+                    "Estimate blast radius and risk reasons before editing.",
+                    true,
+                ));
+                let mut callers_args = workflow_base_args(root, language, "callers");
+                callers_args["name"] = json!(symbol);
+                next_actions.push(workflow_action(
+                    "codelattice_symbol",
+                    callers_args,
+                    "Inspect direct callers that may need updates.",
+                    false,
+                ));
+            }
+        }
+        "after_edit" => {
+            risk_level = "medium";
+            situation = "After editing, derive changed symbols, then check impact, docs/tests/config consistency, and release readiness.";
+            next_actions.push(workflow_action(
+                "codelattice_change_review",
+                workflow_base_args(root, language, "native_review"),
+                "Auto-detect changed symbols and produce a static review checklist.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_release_check",
+                workflow_base_args(root, language, "docs_tests"),
+                "Check whether docs and tests appear stale or missing.",
+                false,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_release_check",
+                workflow_base_args(root, language, "config"),
+                "Check configs/examples for stale references after the edit.",
+                false,
+            ));
+        }
+        "delete_code" => {
+            risk_level = "high";
+            situation = "Deletion requires conservative review: dead-code signals are investigation leads, not deletion proof.";
+            next_actions.push(workflow_action(
+                "codelattice_cleanup",
+                workflow_base_args(root, language, "safe_cleanup_review"),
+                "Combine dead code, reachability, public API, and framework entry signals.",
+                true,
+            ));
+            if symbol.is_empty() {
+                missing_inputs.push(workflow_missing(
+                    "symbol",
+                    "Deletion review is stronger when the candidate symbol is known.",
+                    "Pass symbol when reviewing a specific deletion.",
+                ));
+            } else {
+                let mut impact_args = workflow_base_args(root, language, "impact");
+                impact_args["symbol"] = json!(symbol);
+                next_actions.push(workflow_action(
+                    "codelattice_change_review",
+                    impact_args,
+                    "Check callers and downstream impact before deleting the symbol.",
+                    true,
+                ));
+            }
+        }
+        "release_check" => {
+            risk_level = "medium";
+            situation = "Release check should combine quality, compatibility, docs/tests, and config/example consistency.";
+            next_actions.push(workflow_action(
+                "codelattice_release_check",
+                workflow_base_args(root, language, "full"),
+                "Run the consolidated release review.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_change_review",
+                workflow_base_args(root, language, "full_review"),
+                "Review current diff for breaking-change and consistency risks.",
+                false,
+            ));
+        }
+        "legacy_cleanup" => {
+            risk_level = "medium";
+            situation = "Legacy cleanup starts with hotspots/read-first areas, then uses conservative cleanup review.";
+            next_actions.push(workflow_action(
+                "codelattice_project",
+                workflow_base_args(root, language, "insights"),
+                "Identify hotspots, read-first files, and low-confidence zones.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_cleanup",
+                workflow_base_args(root, language, "safe_cleanup_review"),
+                "Review cleanup candidates without treating them as safe-to-delete proof.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_workspace",
+                json!({"mode":"graph","root":root,"compact":true}),
+                "If this is a multi-project workspace, inspect cross-project boundaries.",
+                false,
+            ));
+        }
+        "workspace_review" => {
+            situation = "Workspace review starts with the cross-project graph, then drills into risky project boundaries.";
+            next_actions.push(workflow_action(
+                "codelattice_workspace",
+                json!({"mode":"graph","root":root,"compact":true}),
+                "Build the static cross-project graph.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_workspace",
+                json!({"mode":"overview","root":root,"compact":true}),
+                "Summarize the workspace graph before choosing targets.",
+                false,
+            ));
+        }
+        "cross_project_impact" => {
+            underlying = vec![
+                "codelattice_workspace_graph",
+                "codelattice_cross_project_impact",
+            ];
+            let target = params.get("target").cloned().unwrap_or(Value::Null);
+            if target.is_null() || target.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                risk_level = "unknown";
+                situation = "Cross-project impact needs a target. I will route you to the workspace graph to choose one.";
+                missing_inputs.push(workflow_missing(
+                    "target",
+                    "Impact traversal needs nodeId, projectId, path, or query.",
+                    "Run codelattice_workspace mode=graph, then retry with target.",
+                ));
+                next_actions.push(workflow_action(
+                    "codelattice_workspace",
+                    json!({"mode":"graph","root":root,"compact":true}),
+                    "List projects/configs/scripts and choose a stable target.",
+                    true,
+                ));
+            } else {
+                risk_level = "medium";
+                situation = "Cross-project target provided. Traverse workspace graph to estimate affected projects and boundaries.";
+                next_actions.push(workflow_action(
+                    "codelattice_workspace",
+                    json!({"mode":"impact","root":root,"target":target,"direction":"both","maxDepth":3,"compact":true}),
+                    "Run cross-project impact from the target.",
+                    true,
+                ));
+            }
+        }
+        "explain_symbol" => {
+            risk_level = "low";
+            situation = if symbol.is_empty() {
+                "Symbol explanation needs a symbol name. I will route you to symbol search first."
+            } else {
+                "Explain a symbol by reading context, callers, and callees."
+            };
+            if symbol.is_empty() {
+                missing_inputs.push(workflow_missing(
+                    "symbol",
+                    "Symbol explanation needs a symbol/name.",
+                    "Run codelattice_symbol mode=search or pass name/symbol directly.",
+                ));
+                let mut search_args = workflow_base_args(root, language, "search");
+                search_args["query"] = json!("");
+                next_actions.push(workflow_action(
+                    "codelattice_symbol",
+                    search_args,
+                    "Find candidate symbols to explain.",
+                    true,
+                ));
+            } else {
+                for (mode_name, why) in [
+                    ("context", "Read source snippet and related docs."),
+                    ("callers", "Find who calls this symbol."),
+                    ("callees", "Find what this symbol calls."),
+                ] {
+                    let mut args = workflow_base_args(root, language, mode_name);
+                    args["name"] = json!(symbol);
+                    next_actions.push(workflow_action("codelattice_symbol", args, why, true));
+                }
+            }
+        }
+        "docs_tests_sync" => {
+            risk_level = "medium";
+            situation = "Check whether documentation and tests appear synchronized with the current change.";
+            next_actions.push(workflow_action(
+                "codelattice_release_check",
+                workflow_base_args(root, language, "docs_tests"),
+                "Review stale/missing docs and related tests.",
+                true,
+            ));
+        }
+        "config_examples_sync" => {
+            risk_level = "medium";
+            situation = "Check whether configs and examples still point at existing files/symbols.";
+            next_actions.push(workflow_action(
+                "codelattice_release_check",
+                workflow_base_args(root, language, "config"),
+                "Review package/tsconfig/examples/CI/Docker references.",
+                true,
+            ));
+        }
+        "public_api_change" => {
+            risk_level = "high";
+            situation = "Public API changes need compatibility and release-note review.";
+            next_actions.push(workflow_action(
+                "codelattice_cleanup",
+                workflow_base_args(root, language, "external_api"),
+                "Identify public/external API surface signals.",
+                true,
+            ));
+            let mut breaking_args = workflow_base_args(root, language, "breaking_change");
+            if !symbol.is_empty() {
+                breaking_args["changedSymbols"] = json!([symbol]);
+            } else {
+                missing_inputs.push(workflow_missing(
+                    "symbol",
+                    "Public API review is stronger with the symbol that will change.",
+                    "Pass symbol, or follow external_api_surface results to choose a public symbol.",
+                ));
+            }
+            next_actions.push(workflow_action(
+                "codelattice_change_review",
+                breaking_args,
+                "Review compatibility and release-note risk.",
+                true,
+            ));
+        }
+        "framework_route_change" => {
+            risk_level = "high";
+            situation = "Framework routes/callbacks are often called implicitly, so static reachability can under-report them.";
+            next_actions.push(workflow_action(
+                "codelattice_cleanup",
+                workflow_base_args(root, language, "framework_entries"),
+                "Find route/callback/lifecycle entry hints.",
+                true,
+            ));
+            let mut breaking_args = workflow_base_args(root, language, "breaking_change");
+            if !symbol.is_empty() {
+                breaking_args["changedSymbols"] = json!([symbol]);
+            } else {
+                missing_inputs.push(workflow_missing(
+                    "symbol",
+                    "Framework route/callback review is stronger with the entry symbol.",
+                    "Pass symbol after inspecting framework entry hints.",
+                ));
+            }
+            next_actions.push(workflow_action(
+                "codelattice_change_review",
+                breaking_args,
+                "Review route/callback compatibility risk.",
+                false,
+            ));
+        }
+        _ => unreachable!(),
+    }
+
+    if missing_inputs.is_empty() {
+        findings.push(json!(
+            "All required routing inputs for this intent are present."
+        ));
+    } else {
+        findings.push(json!(
+            "Some inputs are missing; nextActions include discovery calls instead of failing."
+        ));
+    }
+
+    let out = json!({
+        "schemaVersion": "ai.workflow.v1",
+        "tool": "codelattice_workflow",
+        "mode": mode,
+        "language": language,
+        "root": if root.is_empty() { Value::Null } else { json!(root) },
+        "situation": situation,
+        "riskLevel": risk_level,
+        "confidence": "medium",
+        "findings": findings,
+        "missingInputs": missing_inputs,
+        "nextActions": next_actions,
+        "cautions": workflow_static_cautions(mode),
+        "humanReviewNeeded": human_review_needed,
+        "safeToProceed": if mode == "delete_code" { "no" } else { "unknown" },
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "coverageVerified": false,
+            "analysisExecuted": false,
+            "routerOnly": true
+        },
+        "compact": compact,
+        "underlyingTools": underlying
+    });
+    Ok(tool_result(&out))
 }
 
 pub fn run_mcp_server() -> Result<(), String> {

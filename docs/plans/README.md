@@ -19,6 +19,10 @@
 
 ## 当前状态总结
 
+**AI Tool Experience Pack（2026-05-20，已完成）：**
+- 📝 [2026-05-20-ai-tool-experience-preflight.md](2026-05-20-ai-tool-experience-preflight.md) — 将 `codelattice_workflow` 从 preset 包装升级为 AI intent router：返回 `missingInputs`、可直接调用的 `nextActions`、risk/safety/caution envelope。
+- ✅ [2026-05-20-ai-tool-experience-closure.md](2026-05-20-ai-tool-experience-closure.md) — closure：before_edit / cross_project_impact / explain_symbol 等意图路由、缺参引导和 smoke/regression 记录。
+
 **MCP AI Toolset Default Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-mcp-ai-toolset-default-preflight.md](2026-05-20-mcp-ai-toolset-default-preflight.md) — MCP 默认工具面从 full 50-tool 调整为 AI facade-first 入口，`core/full` 作为显式扩展模式保留，降低 AI 工具选择负担。
 - ✅ [2026-05-20-mcp-ai-toolset-default-closure.md](2026-05-20-mcp-ai-toolset-default-closure.md) — closure：默认 AI 9 tools、core 30、full 50，隐藏工具结构化错误、脚本 full-compat 更新和验证记录。

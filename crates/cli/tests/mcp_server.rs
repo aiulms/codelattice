@@ -535,6 +535,135 @@ fn mcp_hidden_tool_error_points_to_toolset_upgrade() {
 }
 
 #[test]
+fn mcp_workflow_before_edit_returns_callable_next_actions() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "before_edit",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
+    assert_eq!(data["mode"].as_str(), Some("before_edit"));
+    assert_eq!(data["riskLevel"].as_str(), Some("medium"));
+    assert_eq!(data["safeToProceed"].as_str(), Some("unknown"));
+    assert_eq!(data["humanReviewNeeded"].as_bool(), Some(true));
+    assert!(
+        data["missingInputs"]
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(false),
+        "symbol was provided, so missingInputs should be empty: {data:?}"
+    );
+    let next = data["nextActions"].as_array().expect("nextActions array");
+    assert!(
+        next.iter().any(|a| {
+            a["tool"].as_str() == Some("codelattice_change_review")
+                && a["arguments"]["mode"].as_str() == Some("impact")
+                && a["arguments"]["symbol"].as_str() == Some("helper")
+        }),
+        "before_edit should suggest direct impact review: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_before_edit_missing_symbol_guides_symbol_search() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "before_edit",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    let missing = data["missingInputs"]
+        .as_array()
+        .expect("missingInputs array");
+    assert!(
+        missing.iter().any(|m| m["name"].as_str() == Some("symbol")),
+        "missingInputs should explain that symbol is needed: {data:?}"
+    );
+    let next = data["nextActions"].as_array().expect("nextActions array");
+    assert!(
+        next.iter().any(|a| {
+            a["tool"].as_str() == Some("codelattice_symbol")
+                && a["arguments"]["mode"].as_str() == Some("search")
+                && a["arguments"].get("query").is_some()
+        }),
+        "missing symbol should route AI to symbol search, not fail: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_cross_project_impact_missing_target_guides_workspace_graph() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = workspace_root().join("fixtures").join("workspace");
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "cross_project_impact",
+                "root": root.to_string_lossy(),
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["mode"].as_str(), Some("cross_project_impact"));
+    assert_eq!(data["riskLevel"].as_str(), Some("unknown"));
+    let missing = data["missingInputs"]
+        .as_array()
+        .expect("missingInputs array");
+    assert!(
+        missing.iter().any(|m| m["name"].as_str() == Some("target")),
+        "missingInputs should ask for target: {data:?}"
+    );
+    let next = data["nextActions"].as_array().expect("nextActions array");
+    assert!(
+        next.iter().any(|a| {
+            a["tool"].as_str() == Some("codelattice_workspace")
+                && a["arguments"]["mode"].as_str() == Some("graph")
+        }),
+        "missing target should route AI to workspace graph: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_analyze_shell_portable_smoke() {
     let mut session = McpSession::start();
     session.initialize();

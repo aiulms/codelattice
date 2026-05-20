@@ -1621,7 +1621,74 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
 
 ---
 
-## 九、变更历史
+## 九、AI Workflow Intent Router (`codelattice_workflow`)
+
+`codelattice_workflow` 是 AI-friendly toolset 的推荐第一入口。它不直接执行项目分析，而是把用户意图路由成可调用的下一步动作，避免 AI 在 50 个底层工具之间猜测。
+
+**典型输入：**
+
+```json
+{
+  "mode": "before_edit",
+  "root": "/path/to/repo",
+  "language": "rust",
+  "symbol": "helper",
+  "compact": true
+}
+```
+
+**典型输出：**
+
+```json
+{
+  "schemaVersion": "ai.workflow.v1",
+  "tool": "codelattice_workflow",
+  "mode": "before_edit",
+  "situation": "Before editing a known symbol, inspect impact and compatibility risk.",
+  "riskLevel": "medium",
+  "confidence": "medium",
+  "missingInputs": [],
+  "nextActions": [
+    {
+      "tool": "codelattice_symbol",
+      "arguments": {
+        "mode": "context",
+        "root": "/path/to/repo",
+        "language": "rust",
+        "symbol": "helper"
+      },
+      "why": "Locate the exact symbol and context before editing.",
+      "required": true
+    }
+  ],
+  "cautions": [
+    "static analysis only — no runtime proof",
+    "scripts executed: false",
+    "coverage verified: false"
+  ],
+  "humanReviewNeeded": true,
+  "safeToProceed": "unknown",
+  "generatedFrom": {
+    "staticAnalysis": true,
+    "runtimeVerified": false,
+    "scriptsExecuted": false,
+    "analysisExecuted": false,
+    "routerOnly": true
+  }
+}
+```
+
+**Missing input behavior:**
+
+- `before_edit` / `explain_symbol` 缺少 `symbol` 或 `name` 时，返回 `missingInputs`，并给出 `codelattice_symbol mode=search` 的 nextAction。
+- `cross_project_impact` 缺少 `target` 时，返回 `missingInputs`，并给出 `codelattice_workspace mode=graph` 的 nextAction。
+- `delete_code` 默认高谨慎，`safeToProceed` 必须为 `no`；不能把 dead-code / reachability 结果当作删除证明。
+
+`nextActions` 是建议性的 MCP 调用参数，不代表这些检查已经执行。调用方必须逐项执行并在最终汇报中说明哪些 action 已完成、哪些仍不确定。
+
+---
+
+## 十、变更历史
 
 | 日期 | 版本 | 变更 |
 |------|------|------|

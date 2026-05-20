@@ -15,13 +15,9 @@ Use CodeLattice to help me onboard this repository.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=onboarding first. Then follow
-the suggested tools in order:
-- project_insights
-- reachability_map
-- external_api_surface
-- framework_entry_hints
-- review_plan mode=onboarding
+Call codelattice_workflow with mode=onboarding first. Inspect its
+missingInputs and nextActions, then call the recommended actions in order
+instead of guessing individual low-level tools.
 
 Return:
 - the first 5 files I should read;
@@ -44,11 +40,9 @@ Root: <repo-root>
 Language: <language or auto>
 Target symbol: <symbol>
 
-Call codelattice_workflow_presets with scenario=before_edit. Then use:
-- symbol_context or symbol_search to identify the exact symbol;
-- impact_preview for blast radius;
-- breaking_change_review for public API/framework compatibility risk;
-- review_plan mode=before_edit.
+Call codelattice_workflow with mode=before_edit and symbol=<symbol>. Inspect
+missingInputs and nextActions. If the symbol is ambiguous, follow the returned
+codelattice_symbol search/context action before impact review.
 
 Return:
 - direct callers and important callees;
@@ -67,13 +61,9 @@ I have local code changes. Use CodeLattice for an after-edit review.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=after_edit. Then run:
-- changed_symbols using the working tree diff;
-- impact_preview for changed symbols;
-- breaking_change_review;
-- consistency_review;
-- config_examples_review;
-- review_plan mode=after_edit.
+Call codelattice_workflow with mode=after_edit. Inspect its nextActions, then
+run the recommended change review, consistency, config/examples, and review
+plan actions.
 
 Return:
 - changed symbols and unknown hunks;
@@ -94,13 +84,10 @@ I want to investigate whether `<symbol-or-file>` can be removed.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=delete_code. Then use:
-- dead_code_candidates;
-- reachability_map;
-- external_api_surface;
-- framework_entry_hints;
-- impact_preview;
-- review_plan mode=before_edit.
+Call codelattice_workflow with mode=delete_code and symbol=<symbol-or-file>.
+This mode should return high caution and safeToProceed=no. Follow the returned
+nextActions for dead-code, reachability, external API, framework-entry, and
+impact checks.
 
 Return:
 - whether it is a dead-code candidate;
@@ -122,12 +109,9 @@ I plan to change public API `<symbol>`.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=public_api_change. Then use:
-- external_api_surface;
-- breaking_change_review with changedSymbols=["<symbol>"];
-- impact_preview;
-- consistency_review;
-- review_plan mode=before_edit.
+Call codelattice_workflow with mode=public_api_change and symbol=<symbol>.
+Follow nextActions for external API surface, breaking-change review, impact,
+consistency, and review planning.
 
 Return:
 - whether this symbol looks externally visible;
@@ -148,12 +132,9 @@ I plan to change framework or callback entry `<symbol>`.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=framework_route_change. Then use:
-- framework_entry_hints;
-- reachability_map;
-- breaking_change_review with changedSymbols=["<symbol>"];
-- consistency_review;
-- review_plan mode=before_edit.
+Call codelattice_workflow with mode=framework_route_change and symbol=<symbol>.
+Follow nextActions for framework-entry hints, reachability, breaking-change,
+consistency, and review planning.
 
 Return:
 - whether the symbol looks like a route, handler, CLI command, callback,
@@ -174,11 +155,8 @@ Check whether docs and tests are consistent with my current changes.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=docs_tests_sync. Then use:
-- changed_symbols;
-- consistency_review;
-- breaking_change_review;
-- review_plan mode=after_edit.
+Call codelattice_workflow with mode=docs_tests_sync. Follow nextActions for
+changed symbols, consistency, breaking-change, and after-edit review planning.
 
 Return:
 - staleDocCandidates;
@@ -200,11 +178,8 @@ codebase.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=config_examples_sync. Then use:
-- config_examples_review;
-- consistency_review;
-- breaking_change_review;
-- review_plan mode=release_check.
+Call codelattice_workflow with mode=config_examples_sync. Follow nextActions
+for config/examples, consistency, breaking-change, and release-check planning.
 
 Return:
 - staleExamples;
@@ -229,13 +204,9 @@ Use CodeLattice for a release-readiness review.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=release_check. Then use:
-- quality;
-- project_overview;
-- breaking_change_review;
-- consistency_review;
-- config_examples_review;
-- review_plan mode=release_check.
+Call codelattice_workflow with mode=release_check. Follow nextActions for
+quality, project overview, breaking-change, consistency, config/examples, and
+release-check planning.
 
 Return:
 - failed quality gates;
@@ -257,13 +228,9 @@ Help me plan cleanup for a large legacy codebase.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow_presets with scenario=legacy_cleanup. Then use:
-- project_insights;
-- dead_code_candidates;
-- reachability_map;
-- external_api_surface;
-- framework_entry_hints;
-- config_examples_review.
+Call codelattice_workflow with mode=legacy_cleanup. Follow nextActions for
+project insights, cleanup candidates, reachability, public API surface,
+framework entries, and config/examples risks.
 
 Return:
 - read-first files;
@@ -283,14 +250,15 @@ Do not delete code automatically. Treat cleanup targets as candidates.
 Use CodeLattice MCP before and after this edit.
 
 Before editing:
-1. Run workflow_presets scenario=before_edit.
-2. Identify the target with symbol_context.
-3. Run impact_preview and breaking_change_review.
+1. Run codelattice_workflow mode=before_edit.
+2. If missingInputs asks for a symbol, follow the returned codelattice_symbol
+   nextAction.
+3. Run the returned impact and breaking-change nextActions.
 
 After editing:
-1. Run changed_symbols.
-2. Run impact_preview, breaking_change_review, consistency_review, and
-   config_examples_review.
+1. Run codelattice_workflow mode=after_edit.
+2. Follow its returned nextActions for changed symbols, impact,
+   breaking-change, consistency, and config/examples review.
 3. Summarize risks, docs/tests/config updates, and manual test commands.
 
 Follow CodeLattice stop-lines:
@@ -306,10 +274,13 @@ Follow CodeLattice stop-lines:
 ```text
 You are working in a repository with CodeLattice MCP available.
 
-Start by calling codelattice_workflow_presets for the scenario that matches the
-task. Follow the returned tool order. Do not skip stopLines. When reporting,
-include:
+Start by calling codelattice_workflow for the mode that matches the task. Read
+missingInputs first; if anything is missing, run the suggested discovery action
+instead of guessing. Then follow nextActions in order. Do not skip cautions or
+stop-lines. When reporting, include:
 - tools called;
+- missingInputs resolved;
+- nextActions followed;
 - fields inspected;
 - risks and cautions;
 - recommended manual verification;
