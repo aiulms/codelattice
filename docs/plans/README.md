@@ -19,6 +19,10 @@
 
 ## 当前状态总结
 
+**AI Workflow Executor Pack（2026-05-20，已完成）：**
+- 📝 [2026-05-20-ai-workflow-executor-preflight.md](2026-05-20-ai-workflow-executor-preflight.md) — `codelattice_workflow execute=true`：执行推荐的非递归 facade actions，返回 completed/failed/skipped/evidence/answerSummary。
+- ✅ [2026-05-20-ai-workflow-executor-closure.md](2026-05-20-ai-workflow-executor-closure.md) — closure：workflow executor、needs_input 安全停止、symbol callers/callees name alias 兼容和验证记录。
+
 **AI Tool Experience Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-ai-tool-experience-preflight.md](2026-05-20-ai-tool-experience-preflight.md) — 将 `codelattice_workflow` 从 preset 包装升级为 AI intent router：返回 `missingInputs`、可直接调用的 `nextActions`、risk/safety/caution envelope。
 - ✅ [2026-05-20-ai-tool-experience-closure.md](2026-05-20-ai-tool-experience-closure.md) — closure：before_edit / cross_project_impact / explain_symbol 等意图路由、缺参引导和 smoke/regression 记录。

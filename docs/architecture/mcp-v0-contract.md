@@ -1633,6 +1633,7 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
   "root": "/path/to/repo",
   "language": "rust",
   "symbol": "helper",
+  "execute": true,
   "compact": true
 }
 ```
@@ -1661,6 +1662,30 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
       "required": true
     }
   ],
+  "execution": {
+    "requested": true,
+    "status": "completed"
+  },
+  "completedActions": [
+    {
+      "tool": "codelattice_symbol",
+      "mode": "context",
+      "required": true
+    }
+  ],
+  "failedActions": [],
+  "skippedActions": [],
+  "evidence": [
+    {
+      "tool": "codelattice_symbol",
+      "mode": "context",
+      "ok": true,
+      "summary": {
+        "riskLevel": "low"
+      }
+    }
+  ],
+  "answerSummary": "before_edit: executed 1 CodeLattice action(s); review evidence and cautions before editing.",
   "cautions": [
     "static analysis only — no runtime proof",
     "scripts executed: false",
@@ -1684,7 +1709,16 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
 - `cross_project_impact` 缺少 `target` 时，返回 `missingInputs`，并给出 `codelattice_workspace mode=graph` 的 nextAction。
 - `delete_code` 默认高谨慎，`safeToProceed` 必须为 `no`；不能把 dead-code / reachability 结果当作删除证明。
 
-`nextActions` 是建议性的 MCP 调用参数，不代表这些检查已经执行。调用方必须逐项执行并在最终汇报中说明哪些 action 已完成、哪些仍不确定。
+`nextActions` 是建议性的 MCP 调用参数。默认 `execute=false` 时它们不会被执行；调用方必须逐项执行并在最终汇报中说明哪些 action 已完成、哪些仍不确定。`execute=true` 时，workflow 会执行非递归的 facade actions，并返回：
+
+- `execution.status`: `not_requested` / `needs_input` / `completed` / `partial` / `skipped` / `no_actions`
+- `completedActions`: 已执行的 action
+- `failedActions`: 执行失败的 action 和错误
+- `skippedActions`: 递归 workflow 等不会自动执行的 action
+- `evidence`: 面向 AI 的紧凑证据摘要
+- `answerSummary`: 可直接放入回复的简短结论
+
+如果存在 `missingInputs`，`execute=true` 不会盲目执行 discovery 以外的检查，而是返回 `execution.status=needs_input`，让 AI 先补齐目标。
 
 ---
 

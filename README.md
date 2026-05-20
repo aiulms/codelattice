@@ -425,11 +425,14 @@ CODELATTICE_MCP_TOOLSET=full   # 全部 50 个工具，适合调试/回归 smoke
 
 AI 编程助手推荐先调用 `codelattice_workflow`。它现在是意图路由器，会返回 `ai.workflow.v1` envelope：`situation`、`riskLevel`、`missingInputs`、`nextActions`、`cautions` 和 `safeToProceed`。`nextActions` 中的每一项都可以直接转成下一次 MCP `tools/call` 参数，减少 AI 猜工具和猜参数。
 
+如果执行 AI 想要“一次调用先跑完常规检查”，可以传 `execute=true`。此时 workflow 会执行非递归的 nextActions，并返回 `execution`、`completedActions`、`failedActions`、`evidence` 和 `answerSummary`。如果缺少 `symbol` / `target` 等必要输入，执行会停在 `execution.status=needs_input`，不会盲目分析错误对象。
+
 常见意图：
 
 ```json
 {"mode":"onboarding","root":"/path/to/project","language":"auto"}
 {"mode":"before_edit","root":"/path/to/project","language":"rust","symbol":"helper"}
+{"mode":"before_edit","root":"/path/to/project","language":"rust","symbol":"helper","execute":true}
 {"mode":"delete_code","root":"/path/to/project","language":"typescript","symbol":"oldApi"}
 {"mode":"cross_project_impact","root":"/path/to/workspace","target":{"path":"Dockerfile"}}
 ```

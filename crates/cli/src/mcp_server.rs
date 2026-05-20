@@ -8560,6 +8560,7 @@ fn tools_list() -> Value {
                                 "query": { "type": "string" }
                             }
                         },
+                        "execute": { "type": "boolean", "default": false, "description": "When true, execute non-recursive nextActions and return completedActions, failedActions, evidence, and answerSummary" },
                         "compact": { "type": "boolean", "default": true }
                     }
                 }
@@ -16635,11 +16636,23 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             (unwrap_tool_result(&r), vec!["codelattice_symbol_context"])
         }
         "callers" => {
-            let r = handle_calls_to(cache, params)?;
+            let mut call_params = params.clone();
+            if call_params.get("symbol").and_then(|v| v.as_str()).is_none() {
+                if let Some(name) = call_params.get("name").and_then(|v| v.as_str()) {
+                    call_params["symbol"] = json!(name);
+                }
+            }
+            let r = handle_calls_to(cache, &call_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_calls_to"])
         }
         "callees" => {
-            let r = handle_calls_from(cache, params)?;
+            let mut call_params = params.clone();
+            if call_params.get("symbol").and_then(|v| v.as_str()).is_none() {
+                if let Some(name) = call_params.get("name").and_then(|v| v.as_str()) {
+                    call_params["symbol"] = json!(name);
+                }
+            }
+            let r = handle_calls_from(cache, &call_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_calls_from"])
         }
         "graph" => {
@@ -17218,12 +17231,185 @@ fn workflow_static_cautions(mode: &str) -> Vec<Value> {
     cautions
 }
 
+fn workflow_action_mode(action: &Value) -> String {
+    action["arguments"]["mode"]
+        .as_str()
+        .unwrap_or("default")
+        .to_string()
+}
+
+fn workflow_evidence(tool: &str, args: &Value, result: &Value) -> Value {
+    let mode = args["mode"].as_str().unwrap_or("default");
+    let mut item = json!({
+        "tool": tool,
+        "mode": mode,
+        "ok": true
+    });
+    if let Some(obj) = item.as_object_mut() {
+        if let Some(summary) = result.get("summary") {
+            obj.insert("summary".to_string(), summary.clone());
+        }
+        if let Some(risk) = result.get("risk").or_else(|| result.get("riskLevel")) {
+            obj.insert("risk".to_string(), risk.clone());
+        }
+        if let Some(overall) = result.get("overallRisk").or_else(|| result.get("overall")) {
+            obj.insert("overall".to_string(), overall.clone());
+        }
+        if let Some(count) = result.get("matchCount") {
+            obj.insert("matchCount".to_string(), count.clone());
+        }
+        if let Some(selected) = result.get("selected") {
+            obj.insert("selected".to_string(), selected.clone());
+        }
+        if let Some(metrics) = result.get("impactMetrics") {
+            obj.insert("impactMetrics".to_string(), metrics.clone());
+        }
+    }
+    item
+}
+
+fn execute_workflow_action(cache: &mut McpCache, tool: &str, args: &Value) -> Result<Value, Value> {
+    match tool {
+        "codelattice_project" => handle_project(cache, args),
+        "codelattice_symbol" => handle_symbol(cache, args),
+        "codelattice_change_review" => handle_change_review(cache, args),
+        "codelattice_cleanup" => handle_cleanup(cache, args),
+        "codelattice_workspace" => handle_workspace(cache, args),
+        "codelattice_release_check" => handle_release_check(cache, args),
+        "codelattice_cache" => handle_cache(cache, args),
+        _ => Err(mcp_error(
+            "unsupported_workflow_action",
+            &format!("Workflow executor cannot execute action tool '{tool}'"),
+        )),
+    }
+}
+
+fn workflow_answer_summary(mode: &str, completed: &[Value], failed: &[Value]) -> String {
+    if completed.is_empty() && failed.is_empty() {
+        return format!("{mode}: no actions were executed.");
+    }
+    if failed.is_empty() {
+        format!(
+            "{mode}: executed {} CodeLattice action(s); review evidence and cautions before editing.",
+            completed.len()
+        )
+    } else {
+        format!(
+            "{mode}: executed {} action(s), {} action(s) failed; treat the result as partial.",
+            completed.len(),
+            failed.len()
+        )
+    }
+}
+
+fn workflow_missing_summary(mode: &str, missing_inputs: &[Value]) -> String {
+    let names = missing_inputs
+        .iter()
+        .filter_map(|m| m["name"].as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{mode}: execution paused because required input is missing ({names}). Follow nextActions to discover it.")
+}
+
+fn workflow_execute_next_actions(
+    cache: &mut McpCache,
+    mode: &str,
+    execute: bool,
+    missing_inputs: &[Value],
+    next_actions: &[Value],
+) -> (
+    Value,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    String,
+) {
+    if !execute {
+        return (
+            json!({"requested": false, "status": "not_requested"}),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            "Execution not requested; follow nextActions manually.".to_string(),
+        );
+    }
+    if !missing_inputs.is_empty() {
+        return (
+            json!({"requested": true, "status": "needs_input"}),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            workflow_missing_summary(mode, missing_inputs),
+        );
+    }
+
+    let mut completed = Vec::new();
+    let mut failed = Vec::new();
+    let mut skipped = Vec::new();
+    let mut evidence = Vec::new();
+
+    for action in next_actions {
+        let tool = action["tool"].as_str().unwrap_or("");
+        let args = action["arguments"].clone();
+        if tool.is_empty() || tool == "codelattice_workflow" {
+            skipped.push(json!({
+                "tool": tool,
+                "mode": workflow_action_mode(action),
+                "reason": "recursive or empty workflow action is not executed automatically"
+            }));
+            continue;
+        }
+        match execute_workflow_action(cache, tool, &args) {
+            Ok(result) => {
+                let inner = unwrap_tool_result(&result);
+                completed.push(json!({
+                    "tool": tool,
+                    "mode": args["mode"].as_str().unwrap_or("default"),
+                    "required": action["required"].as_bool().unwrap_or(false)
+                }));
+                evidence.push(workflow_evidence(tool, &args, &inner));
+            }
+            Err(err) => {
+                failed.push(json!({
+                    "tool": tool,
+                    "mode": args["mode"].as_str().unwrap_or("default"),
+                    "required": action["required"].as_bool().unwrap_or(false),
+                    "error": err
+                }));
+            }
+        }
+    }
+
+    let status = if failed.is_empty() && !completed.is_empty() {
+        "completed"
+    } else if !completed.is_empty() {
+        "partial"
+    } else if !skipped.is_empty() {
+        "skipped"
+    } else {
+        "no_actions"
+    };
+    let summary = workflow_answer_summary(mode, &completed, &failed);
+    (
+        json!({"requested": true, "status": status}),
+        completed,
+        failed,
+        skipped,
+        evidence,
+        summary,
+    )
+}
+
 fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["intent"]
         .as_str()
         .or_else(|| params["mode"].as_str())
         .unwrap_or("onboarding");
     let compact = params["compact"].as_bool().unwrap_or(false);
+    let execute = params["execute"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
     let root = params["root"].as_str().unwrap_or("");
     let symbol = params["symbol"]
@@ -17584,6 +17770,9 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         ));
     }
 
+    let (execution, completed_actions, failed_actions, skipped_actions, evidence, answer_summary) =
+        workflow_execute_next_actions(_cache, mode, execute, &missing_inputs, &next_actions);
+
     let out = json!({
         "schemaVersion": "ai.workflow.v1",
         "tool": "codelattice_workflow",
@@ -17596,6 +17785,12 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         "findings": findings,
         "missingInputs": missing_inputs,
         "nextActions": next_actions,
+        "execution": execution,
+        "completedActions": completed_actions,
+        "failedActions": failed_actions,
+        "skippedActions": skipped_actions,
+        "evidence": evidence,
+        "answerSummary": answer_summary,
         "cautions": workflow_static_cautions(mode),
         "humanReviewNeeded": human_review_needed,
         "safeToProceed": if mode == "delete_code" { "no" } else { "unknown" },

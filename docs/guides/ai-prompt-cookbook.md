@@ -15,9 +15,9 @@ Use CodeLattice to help me onboard this repository.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow with mode=onboarding first. Inspect its
-missingInputs and nextActions, then call the recommended actions in order
-instead of guessing individual low-level tools.
+Call codelattice_workflow with mode=onboarding and execute=true first. Inspect
+execution/completedActions/evidence. If execution.status=needs_input, follow
+missingInputs and nextActions instead of guessing individual low-level tools.
 
 Return:
 - the first 5 files I should read;
@@ -40,8 +40,9 @@ Root: <repo-root>
 Language: <language or auto>
 Target symbol: <symbol>
 
-Call codelattice_workflow with mode=before_edit and symbol=<symbol>. Inspect
-missingInputs and nextActions. If the symbol is ambiguous, follow the returned
+Call codelattice_workflow with mode=before_edit, symbol=<symbol>, and
+execute=true. Inspect completedActions, failedActions, evidence, riskLevel, and
+answerSummary. If the symbol is ambiguous, follow the returned
 codelattice_symbol search/context action before impact review.
 
 Return:
@@ -61,9 +62,9 @@ I have local code changes. Use CodeLattice for an after-edit review.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow with mode=after_edit. Inspect its nextActions, then
-run the recommended change review, consistency, config/examples, and review
-plan actions.
+Call codelattice_workflow with mode=after_edit and execute=true. Inspect
+completedActions, failedActions, evidence, and answerSummary, then run any
+remaining optional nextActions if needed.
 
 Return:
 - changed symbols and unknown hunks;
@@ -84,10 +85,10 @@ I want to investigate whether `<symbol-or-file>` can be removed.
 Root: <repo-root>
 Language: <language or auto>
 
-Call codelattice_workflow with mode=delete_code and symbol=<symbol-or-file>.
-This mode should return high caution and safeToProceed=no. Follow the returned
-nextActions for dead-code, reachability, external API, framework-entry, and
-impact checks.
+Call codelattice_workflow with mode=delete_code, symbol=<symbol-or-file>, and
+execute=true. This mode should return high caution and safeToProceed=no.
+Review completedActions/evidence, then follow any remaining nextActions for
+manual verification.
 
 Return:
 - whether it is a dead-code candidate;

@@ -162,6 +162,23 @@ assert any(a.get('tool')=='codelattice_workspace' and a.get('arguments',{}).get(
 print('OK')
 " && pass "workflow-cross-project-target" || fail "workflow-cross-project-target"
 
+# ── Test 13: codelattice_workflow execute=true runs actions ──────────
+echo "── Test 13: workflow execute=true ──"
+R=$(call "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{\"name\":\"codelattice_workflow\",\"arguments\":{\"mode\":\"before_edit\",\"root\":\"$ROOT/fixtures/workspace/rust-core\",\"language\":\"rust\",\"symbol\":\"main\",\"execute\":true,\"compact\":true}}}")
+echo "$R" | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+r=json.loads(d['result']['content'][0]['text'])
+assert r.get('schemaVersion')=='ai.workflow.v1', 'wrong schema'
+assert r.get('execution',{}).get('requested') is True, 'execution not requested'
+assert r.get('execution',{}).get('status')=='completed', f\"unexpected execution status {r.get('execution')}\"
+assert any(a.get('tool')=='codelattice_symbol' for a in r.get('completedActions',[])), 'symbol action not completed'
+assert any(a.get('tool')=='codelattice_change_review' for a in r.get('completedActions',[])), 'change review action not completed'
+assert isinstance(r.get('evidence'), list) and r['evidence'], 'missing evidence'
+assert 'before_edit' in r.get('answerSummary',''), 'missing answer summary'
+print('OK')
+" && pass "workflow-execute" || fail "workflow-execute"
+
 # ── Results ───────────────────────────────────────────────────────────
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed, $((PASS+FAIL)) total ==="

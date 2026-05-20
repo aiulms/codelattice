@@ -664,6 +664,108 @@ fn mcp_workflow_cross_project_impact_missing_target_guides_workspace_graph() {
 }
 
 #[test]
+fn mcp_workflow_before_edit_execute_runs_next_actions() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42004,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "before_edit",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symbol": "helper",
+                "execute": true,
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
+    assert_eq!(data["mode"].as_str(), Some("before_edit"));
+    assert_eq!(data["execution"]["requested"].as_bool(), Some(true));
+    assert_eq!(data["execution"]["status"].as_str(), Some("completed"));
+    let completed = data["completedActions"]
+        .as_array()
+        .expect("completedActions array");
+    assert!(
+        completed
+            .iter()
+            .any(|a| a["tool"].as_str() == Some("codelattice_symbol")),
+        "execute=true should run symbol context action: {data:?}"
+    );
+    assert!(
+        completed
+            .iter()
+            .any(|a| a["tool"].as_str() == Some("codelattice_change_review")),
+        "execute=true should run impact review action: {data:?}"
+    );
+    assert!(
+        data["answerSummary"]
+            .as_str()
+            .unwrap_or("")
+            .contains("before_edit"),
+        "executor should return an AI-readable answerSummary: {data:?}"
+    );
+    assert!(
+        data["evidence"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "executor should expose compact evidence for completed actions: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_execute_with_missing_inputs_does_not_run_actions() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "before_edit",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "execute": true,
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["execution"]["requested"].as_bool(), Some(true));
+    assert_eq!(data["execution"]["status"].as_str(), Some("needs_input"));
+    assert!(
+        data["completedActions"]
+            .as_array()
+            .map(|a| a.is_empty())
+            .unwrap_or(false),
+        "missing inputs should prevent eager execution: {data:?}"
+    );
+    assert!(
+        data["nextActions"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "missing-input response should still guide the next discovery action: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_analyze_shell_portable_smoke() {
     let mut session = McpSession::start();
     session.initialize();
