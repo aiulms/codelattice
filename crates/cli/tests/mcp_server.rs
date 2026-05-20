@@ -3151,6 +3151,95 @@ fn mcp_cache_prewarm_returns_hit_if_fresh() {
 }
 
 #[test]
+fn mcp_scheduler_cache_status_reports_schedule_after_analyze() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("scheduler-status");
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3180,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_analyze",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let _ = session.recv();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3181,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_status",
+            "arguments": {}
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 3181);
+    let data = extract_tool_data(&resp);
+    let entry = &data["memory"]["entries"][0];
+    assert_eq!(entry["scheduler"]["phaseCount"], 8);
+    assert_eq!(entry["scheduler"]["decision"]["action"], "fresh");
+    assert!(
+        entry["scheduler"]["fingerprint"]["fingerprint"]
+            .as_str()
+            .unwrap_or("")
+            .len()
+            >= 16,
+        "scheduler fingerprint should be surfaced"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_scheduler_cache_prewarm_returns_schedule_metadata() {
+    let root = portable_smoke_dir();
+    let cache_dir = make_isolated_cache_dir("scheduler-prewarm");
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 3190,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_cache_prewarm",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], 3190);
+    let data = extract_tool_data(&resp);
+    assert_eq!(data["schedule"]["phaseCount"], 8);
+    assert_eq!(
+        data["schedule"]["decision"]["cacheIntent"],
+        "reusePreferred"
+    );
+    assert!(
+        data["schedule"]["phases"]
+            .as_array()
+            .expect("phases")
+            .iter()
+            .any(|phase| phase["name"] == "graph"),
+        "graph phase should be present for prewarm"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
 #[cfg(feature = "tree-sitter-cangjie")]
 fn mcp_cangjie_symbol_search_finds_init() {
     let mut session = McpSession::start();
@@ -5213,13 +5302,29 @@ fn mcp_project_overview_returns_docs_summary() {
 
 #[test]
 fn mcp_doc_scanner_excludes_hidden_dirs() {
-    // Verify that .agents/.claude/.gitnexus/target dirs are excluded
-    // by checking the doc scanner on the workspace root
+    // Verify hidden/generated dirs are excluded with a tiny fixture instead of
+    // relying on the repository's ever-growing real documentation count.
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[package]\nname='doc-scan-fixture'\nversion='0.1.0'\nedition='2021'\n",
+    )
+    .expect("write Cargo.toml");
+    std::fs::create_dir_all(dir.path().join("src")).expect("create src");
+    std::fs::write(dir.path().join("src/lib.rs"), "pub fn live() {}\n").expect("write lib");
+    std::fs::write(dir.path().join("README.md"), "# Visible README\n").expect("write README");
+    std::fs::create_dir_all(dir.path().join("docs")).expect("create docs");
+    std::fs::write(dir.path().join("docs/visible.md"), "# Visible Doc\n").expect("write doc");
+    for hidden in [".claude", ".agents", ".gitnexus", ".arts", "target"] {
+        let hidden_dir = dir.path().join(hidden);
+        std::fs::create_dir_all(&hidden_dir).expect("create hidden dir");
+        std::fs::write(hidden_dir.join("hidden.md"), "# Hidden Doc\n").expect("write hidden doc");
+    }
+
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
 
-    let root = workspace_root();
     session.send(&serde_json::json!({
         "jsonrpc": "2.0",
         "id": 11005,
@@ -5227,7 +5332,7 @@ fn mcp_doc_scanner_excludes_hidden_dirs() {
         "params": {
             "name": "codelattice_project_overview",
             "arguments": {
-                "root": root.to_string_lossy(),
+                "root": dir.path().to_string_lossy(),
                 "language": "rust"
             }
         }
@@ -5237,12 +5342,10 @@ fn mcp_doc_scanner_excludes_hidden_dirs() {
     assert_eq!(resp["id"], 11005);
     let data = extract_tool_data(&resp);
     let docs = &data["docs"];
-    // docCount should be reasonable (not hundreds from .agents or .claude)
     let doc_count = docs["docCount"].as_u64().unwrap_or(0);
-    // The codelattice repo has roughly 100-200 docs in docs/plans + a few others
     assert!(
-        doc_count < 300,
-        "doc count should be reasonable (excluded hidden dirs), got: {}",
+        doc_count <= 2,
+        "doc scanner should ignore hidden/generated dirs, got docCount: {}",
         doc_count
     );
 }

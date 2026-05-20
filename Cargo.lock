@@ -230,6 +230,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitnexus-analysis-scheduler"
+version = "0.15.0-beta.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tempfile",
+]
+
+[[package]]
 name = "gitnexus-arkts"
 version = "0.15.0-beta.1"
 dependencies = [
@@ -304,6 +313,7 @@ version = "0.15.0-beta.1"
 dependencies = [
  "assert_cmd",
  "clap",
+ "gitnexus-analysis-scheduler",
  "gitnexus-arkts",
  "gitnexus-c",
  "gitnexus-cangjie",

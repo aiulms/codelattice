@@ -1022,3 +1022,11 @@ CALLS large-file maintenance preflight 已完成并进入 implementation：
     - 文档包，无 runtime/MCP 行为变更
     - Plan: `docs/plans/2026-05-16-ai-prompt-cookbook-preflight.md`
     - Closure: `docs/plans/2026-05-16-ai-prompt-cookbook-closure.md`
+
+71. **Analysis Scheduler / Incremental Core Pack** ✅ 完成（2026-05-20）：
+    - 新增内部 crate `gitnexus-analysis-scheduler`：`AnalysisRequest`、filesystem fingerprint、phase plan、cache decision
+    - MCP cache/prewarm 输出暴露 `schedule` / `scheduler` 元数据，便于解释 fresh/reuse/stale 决策
+    - dogfood workflow facade 断言同步到 `ai.workflow.v1`
+    - 不替换 tree-sitter，不执行项目代码，不新增语言语义
+    - Plan: `docs/plans/2026-05-20-analysis-scheduler-incremental-core-preflight.md`
+    - Closure: `docs/plans/2026-05-20-analysis-scheduler-incremental-core-closure.md`

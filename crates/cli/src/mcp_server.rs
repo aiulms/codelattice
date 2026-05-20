@@ -31,6 +31,7 @@
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         All tools are read-only.
 
+use gitnexus_analysis_scheduler::{build_schedule, AnalysisRequest, AnalysisScope, CacheIntent};
 use gitnexus_workspace_model::build_workspace_graph;
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
 use serde_json::{json, Value};
@@ -311,6 +312,8 @@ struct CacheKey {
 struct CacheEntry {
     analyze_result: Value,
     graph_view: GraphView,
+    /// Scheduler metadata captured for the analysis entry.
+    scheduler: Value,
     created_at: Instant,
     last_used_at: Instant,
     hit_count: u64,
@@ -332,6 +335,54 @@ const CODELATTICE_CACHE_VERSION: &str = "0.13.0";
 
 /// Persistent cache schema version.
 const CACHE_SCHEMA_VERSION: u32 = 1;
+
+fn build_scheduler_metadata(
+    root: &Path,
+    language: &str,
+    strict: bool,
+    previous_fingerprint: Option<String>,
+) -> Value {
+    let mut request = AnalysisRequest::new(root, language)
+        .with_scope(AnalysisScope::Graph)
+        .with_strict(strict)
+        .with_cache_intent(CacheIntent::ReusePreferred);
+    if let Some(fingerprint) = previous_fingerprint {
+        request = request.with_previous_fingerprint(fingerprint);
+    }
+
+    match build_schedule(&request).and_then(|schedule| {
+        serde_json::to_value(schedule)
+            .map_err(|e| gitnexus_analysis_scheduler::ScheduleError::Io(e.to_string()))
+    }) {
+        Ok(mut schedule) => {
+            let phase_count = schedule
+                .get("phases")
+                .and_then(|v| v.as_array())
+                .map(Vec::len)
+                .unwrap_or(0);
+            if let Some(obj) = schedule.as_object_mut() {
+                obj.insert("phaseCount".to_string(), json!(phase_count));
+                obj.insert("scriptsExecuted".to_string(), json!(false));
+                obj.insert("runtimeExecuted".to_string(), json!(false));
+            }
+            schedule
+        }
+        Err(err) => json!({
+            "error": "scheduler_metadata_failed",
+            "message": err.to_string(),
+            "scriptsExecuted": false,
+            "runtimeExecuted": false
+        }),
+    }
+}
+
+fn scheduler_fingerprint(schedule: &Value) -> Option<String> {
+    schedule
+        .get("fingerprint")
+        .and_then(|v| v.get("fingerprint"))
+        .and_then(|v| v.as_str())
+        .map(ToString::to_string)
+}
 
 /// All source file extensions tracked for stale detection across all languages.
 const SOURCE_EXTENSIONS: &[&str] = &[
@@ -1002,6 +1053,10 @@ impl McpCache {
                     self.entries.remove(&key);
                 } else {
                     // Fresh memory hit
+                    let previous_fingerprint = scheduler_fingerprint(&entry.scheduler);
+                    let scheduler =
+                        build_scheduler_metadata(root_path, language, strict, previous_fingerprint);
+                    entry.scheduler = scheduler.clone();
                     entry.hit_count += 1;
                     entry.last_used_at = Instant::now();
                     self.total_hits += 1;
@@ -1011,6 +1066,7 @@ impl McpCache {
                         "cacheKey": cache_key_str,
                         "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
                         "analysisDurationMs": entry.analysis_duration_ms,
+                        "schedule": scheduler,
                     });
                     return Ok((
                         entry.graph_view.clone_shallow(),
@@ -1028,6 +1084,13 @@ impl McpCache {
             // Persistent hit — build GraphView and load into memory cache
             let mut graph_view = GraphView::build(&result);
             graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
+            let initial_schedule = build_scheduler_metadata(&canonical, language, strict, None);
+            let scheduler = build_scheduler_metadata(
+                &canonical,
+                language,
+                strict,
+                scheduler_fingerprint(&initial_schedule),
+            );
 
             // Store in memory cache for future fast access
             self.insert_memory_entry(
@@ -1037,6 +1100,7 @@ impl McpCache {
                 file_mtimes.clone(),
                 &canonical,
                 duration_ms,
+                scheduler.clone(),
                 // Also persist manifest/docs hashes in the analyze_result for memory-layer checks
             );
 
@@ -1062,6 +1126,7 @@ impl McpCache {
                 "cacheLayer": "persistent",
                 "cacheKey": cache_key_str,
                 "analysisDurationMs": duration_ms,
+                "schedule": scheduler,
             });
             return Ok((graph_view, result, meta));
         }
@@ -1084,6 +1149,7 @@ impl McpCache {
         }
 
         let start = Instant::now();
+        let scheduler = build_scheduler_metadata(&canonical, language, strict, None);
         let result = run_analyze_subprocess(root, language, "json", strict)?;
         let duration_ms = start.elapsed().as_millis() as u64;
         let mut graph_view = GraphView::build(&result);
@@ -1120,6 +1186,7 @@ impl McpCache {
             CacheEntry {
                 analyze_result: result_with_meta.clone(),
                 graph_view: graph_view.clone_shallow(),
+                scheduler: scheduler.clone(),
                 created_at: Instant::now(),
                 last_used_at: Instant::now(),
                 hit_count: 0,
@@ -1147,6 +1214,7 @@ impl McpCache {
             "cacheLayer": "none",
             "cacheKey": cache_key_str,
             "analysisDurationMs": duration_ms,
+            "schedule": scheduler,
         });
         Ok((graph_view, result, meta))
     }
@@ -1160,12 +1228,14 @@ impl McpCache {
         file_mtimes: HashMap<String, u64>,
         canonical: &Path,
         duration_ms: u64,
+        scheduler: Value,
     ) {
         self.entries.insert(
             key,
             CacheEntry {
                 analyze_result,
                 graph_view,
+                scheduler,
                 created_at: Instant::now(),
                 last_used_at: Instant::now(),
                 hit_count: 0,
@@ -1203,6 +1273,7 @@ impl McpCache {
                 "hitCount": entry.hit_count,
                 "analysisDurationMs": entry.analysis_duration_ms,
                 "trackedFiles": entry.file_mtimes.len(),
+                "scheduler": entry.scheduler.clone(),
             }));
         }
 

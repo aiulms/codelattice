@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/analysis-scheduler",
     "crates/project-model",
     "crates/cli",
     "crates/cangjie",

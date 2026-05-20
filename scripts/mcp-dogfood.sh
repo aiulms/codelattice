@@ -436,7 +436,7 @@ check_tool "codelattice_cache" \
 echo "48. codelattice_workflow facade"
 check_tool "codelattice_workflow" \
     "{\"mode\":\"onboarding\",\"compact\":true}" \
-    "data.get('schemaVersion') == 'facade.v1' and data.get('tool') == 'codelattice_workflow' and 'codelattice_workflow_presets' in data.get('underlyingTools', [])"
+    "data.get('schemaVersion') == 'ai.workflow.v1' and data.get('tool') == 'codelattice_workflow' and data.get('mode') == 'onboarding' and isinstance(data.get('nextActions'), list) and len(data.get('nextActions')) > 0"
 
 
 echo ""
