@@ -5,7 +5,7 @@
   "projects": [
     {
       "id": "lodash-es",
-      "repoUrl": "https://github.com/lodash/lodash.git",
+      "repoUrl": "https://gitcode.com/gh_mirrors/lo/lodash.git",
       "subdir": "lodash",
       "cloneDepth": 1,
       "language": "javascript",
@@ -15,7 +15,7 @@
     },
     {
       "id": "uuid",
-      "repoUrl": "https://github.com/uuidjs/uuid.git",
+      "repoUrl": "https://gitcode.com/gh_mirrors/uu/uuid.git",
       "subdir": "uuid",
       "cloneDepth": 1,
       "language": "javascript",
@@ -25,7 +25,7 @@
     },
     {
       "id": "zod",
-      "repoUrl": "https://github.com/colinhacks/zod.git",
+      "repoUrl": "https://gitcode.com/gh_mirrors/zo/zod.git",
       "subdir": "zod",
       "cloneDepth": 1,
       "language": "typescript",
@@ -35,7 +35,7 @@
     },
     {
       "id": "tinybench",
-      "repoUrl": "https://github.com/tinylibs/tinybench.git",
+      "repoUrl": "https://gitcode.com/gh_mirrors/ti/tinybench.git",
       "subdir": "tinybench",
       "cloneDepth": 1,
       "language": "typescript",
@@ -45,7 +45,7 @@
     },
     {
       "id": "vite-plugin-react",
-      "repoUrl": "https://github.com/vitejs/vite-plugin-react.git",
+      "repoUrl": "https://gitcode.com/gh_mirrors/vi/vite-plugin-react.git",
       "subdir": "vite-plugin-react",
       "cloneDepth": 1,
       "language": "typescript",
@@ -55,7 +55,7 @@
     },
     {
       "id": "conf",
-      "repoUrl": "https://github.com/sindresorhus/conf.git",
+      "repoUrl": "https://gitcode.com/gh_mirrors/co/conf.git",
       "subdir": "conf",
       "cloneDepth": 1,
       "language": "typescript",
