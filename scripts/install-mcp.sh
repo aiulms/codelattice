@@ -213,7 +213,7 @@ JSON
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - This script never writes client config; it only prints snippets"
     echo "  - Supports Rust, Cangjie, ArkTS, TypeScript, C, C++, and Python when built with --build"
-    echo "  - 51 tools including facade tools, graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, root-cause evidence assistant, and process-local cache"
+    echo "  - 49 tools including facade tools, graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, root-cause evidence assistant, and process-local cache"
     echo "  - Read-only — never modifies source code"
     echo "  - After config change, restart your AI client session to reload MCP tools"
 fi
@@ -317,7 +317,7 @@ if [[ "$ACTION" == "doctor" ]]; then
             echo "PASS: tools/list returns $TOOL_COUNT tools"
             PASS=$((PASS + 1))
         else
-            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 51)"
+            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 49)"
             echo "      Fix: bash $0 --build"
             FAIL=$((FAIL + 1))
         fi

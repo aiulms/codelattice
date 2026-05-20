@@ -35,7 +35,7 @@ CODELATTICE_ROOT="${CODELATTICE_ROOT:-$DEFAULT_ROOT}"
 CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
 ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
-MIN_EXPECTED_TOOLS=51
+MIN_EXPECTED_TOOLS=49
 
 # --- Helper: get profile info from binary via MCP initialize ---
 # Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_JAVASCRIPT, _PROFILE_C, _PROFILE_CPP, _PROFILE_PYTHON, _PROFILE_TOOLS
@@ -99,8 +99,11 @@ _select_binary() {
         candidates+=("$CODELATTICE_ROOT/target/debug/gitnexus-rust-core-cli:debug-compat")
     fi
 
-    # Try candidates: prefer the freshest all-language binary. This prevents a
-    # stale release binary from hiding newer tools already present in debug.
+    # Try candidates in CodeLattice binary order before compatibility aliases.
+    # The old compatibility binary can still exist with a larger stale tool
+    # count because duplicate tool definitions used to be counted. Prefer the
+    # canonical `codelattice` binary once it has the expected all-language MCP
+    # surface.
     local best_bin=""
     local best_profile=""
     local best_tools="-1"
@@ -112,6 +115,11 @@ _select_binary() {
             local tools="0"
             if [[ "$_PROFILE_TOOLS" =~ ^[0-9]+$ ]]; then
                 tools="$_PROFILE_TOOLS"
+            fi
+            if [[ "$profile" != *compat && "$tools" -ge "$MIN_EXPECTED_TOOLS" ]]; then
+                SELECTED_BIN="$bin"
+                SELECTED_SOURCE="$profile (all-languages=true tools=$tools)"
+                return
             fi
             if (( tools > best_tools )); then
                 best_bin="$bin"

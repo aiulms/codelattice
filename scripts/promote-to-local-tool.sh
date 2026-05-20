@@ -250,7 +250,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
-assert int(s.get("toolCount", 0)) >= 51
+assert int(s.get("toolCount", 0)) >= 49
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
@@ -279,7 +279,7 @@ for line in sys.stdin:
     if d.get("id") == 2:
         print(len(d["result"]["tools"]))
         break')"
-    if [[ "$TOOL_COUNT" -lt 51 ]]; then
+    if [[ "$TOOL_COUNT" -lt 49 ]]; then
         echo "FAIL: tools/list returned $TOOL_COUNT tools" >&2
         exit 1
     fi

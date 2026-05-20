@@ -21,7 +21,7 @@
 
 **Permission-aware Root Cause Evidence Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-permission-aware-root-cause-preflight.md](2026-05-20-permission-aware-root-cause-preflight.md) — 为 MCP 工具增加权限元数据，并新增证据驱动根因分析助手，让 AI 在已有权限内自动规划最小取证动作。
-- ✅ [2026-05-20-permission-aware-root-cause-closure.md](2026-05-20-permission-aware-root-cause-closure.md) — closure：51-tool MCP 权限元数据、root cause evidence assistant、full-toolset doctor 修复、验证与 critical-risk 解释。
+- ✅ [2026-05-20-permission-aware-root-cause-closure.md](2026-05-20-permission-aware-root-cause-closure.md) — closure：49-tool MCP 权限元数据、root cause evidence assistant、full-toolset doctor 修复、验证与 critical-risk 解释。
 
 **Live Root Workspace Auto-Entry Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-live-root-workspace-auto-entry-preflight.md](2026-05-20-live-root-workspace-auto-entry-preflight.md) — 让大根目录成为自然入口：CLI/MCP/WebUI 在 `auto` 多项目根目录上自动进入 workspace 模式，protected live root 只放开 workspace 层只读图谱。

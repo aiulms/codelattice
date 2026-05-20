@@ -288,7 +288,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_fifty_one_tools() {
+fn mcp_tools_list_returns_forty_nine_tools() {
     let mut session = McpSession::start_with_toolset("full");
     session.initialize();
     session.send_notification_initialized();
@@ -305,9 +305,15 @@ fn mcp_tools_list_returns_fifty_one_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 51, "expected 51 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 49, "expected 49 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    let unique_names: std::collections::HashSet<&str> = names.iter().copied().collect();
+    assert_eq!(
+        unique_names.len(),
+        names.len(),
+        "tools/list must not contain duplicate tool names"
+    );
     // v0 tools
     assert!(
         names.contains(&"codelattice_analyze"),

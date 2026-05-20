@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 51 tools:
+//! Provides 49 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -8754,43 +8754,6 @@ fn tools_list() -> Value {
                         "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5, "description": "Maximum BFS depth" },
                         "compact": { "type": "boolean", "default": false, "description": "Omit paths and affectedAssets arrays" },
                         "redactRoot": { "type": "boolean", "default": true, "description": "Redact absolute path prefix in output" }
-                    },
-                    "required": ["root", "target"]
-                }
-            },
-            {
-                "name": "codelattice_workspace_graph",
-                "description": "Build a workspace-level dependency graph across multiple projects. Scans filesystem for projects (Cargo.toml, package.json, cjpm.toml), scripts, CI configs, Dockerfiles, Makefiles, and infers cross-project dependencies. No analysis cache required — works directly on filesystem. Returns nodes (projects, scripts, configs, workflows) and edges (depends_on, script_refs, config_refs, adjacent_to). Supported languages: Rust, Cangjie, TypeScript. Unsupported languages shown as boundary/risk only.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Absolute path to workspace root directory" },
-                        "redactRoot": { "type": "boolean", "default": true, "description": "Redact absolute paths to relative paths in output" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit nodes/edges, return summary only" }
-                    },
-                    "required": ["root"]
-                }
-            },
-            {
-                "name": "codelattice_cross_project_impact",
-                "description": "Analyze cross-project impact from a target (project, config, or script) in a workspace. Performs BFS traversal of the workspace graph to find affected projects, assets, and unsupported boundaries. Returns risk assessment, impact paths, and review checklist. Target can be specified by nodeId, projectId, path, or query. No analysis cache required.",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "root": { "type": "string", "description": "Absolute path to workspace root directory" },
-                        "target": {
-                            "type": "object",
-                            "description": "Target specification (at least one field required)",
-                            "properties": {
-                                "nodeId": { "type": "string", "description": "Exact node ID (e.g., 'project:rust-core')" },
-                                "projectId": { "type": "string", "description": "Project name or relative path" },
-                                "path": { "type": "string", "description": "File path (absolute or relative to root)" },
-                                "query": { "type": "string", "description": "Fuzzy search term" }
-                            }
-                        },
-                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both", "description": "Impact traversal direction" },
-                        "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5, "description": "Maximum BFS traversal depth" },
-                        "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit paths and affected items, return summary only" }
                     },
                     "required": ["root", "target"]
                 }
