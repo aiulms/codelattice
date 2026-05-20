@@ -436,10 +436,37 @@ fn collect_untracked_files(root: &Path) -> Vec<String> {
             .lines()
             .map(str::trim)
             .filter(|line| !line.is_empty())
+            // Agent-private state should not turn a clean code review into a
+            // workspace-wide high-risk change. These folders are local
+            // orchestration state, not project source.
+            .filter(|line| !is_agent_private_path(line))
             .map(ToString::to_string)
             .collect(),
         _ => Vec::new(),
     }
+}
+
+fn is_agent_private_path(path: &str) -> bool {
+    let trimmed = path.trim_start_matches("./");
+    trimmed == ".claude"
+        || trimmed.starts_with(".claude/")
+        || trimmed == ".arts"
+        || trimmed.starts_with(".arts/")
+        || trimmed == ".sisyphus"
+        || trimmed.starts_with(".sisyphus/")
+}
+
+fn workspace_file_node_id(owner_kind: &str, rel_path: &str) -> Option<String> {
+    if rel_path.is_empty() {
+        return None;
+    }
+    let node_kind = match owner_kind {
+        "config" if rel_path.contains(".github/workflows") => "workflow",
+        "config" => "config",
+        "script" => "script",
+        _ => return None,
+    };
+    Some(format!("{}:{}", node_kind, rel_path.replace('/', ":")))
 }
 
 // ============================================================
@@ -501,10 +528,13 @@ fn map_files_to_owners(changed_files: &[Value], root: &Path) -> Vec<Value> {
                 || basename.ends_with(".yml") && rel_path.contains(".github")
                 || basename.ends_with(".yaml") && rel_path.contains(".github");
             if is_config {
+                let node_id = workspace_file_node_id("config", rel_path)
+                    .unwrap_or_else(|| "workspace:config".to_string());
                 return Some(json!({
                     "file": file_path,
                     "relativePath": rel_path,
                     "projectId": "workspace:config",
+                    "ownerNodeId": node_id,
                     "projectLabel": basename,
                     "language": "",
                     "ownerKind": "config",
@@ -516,10 +546,13 @@ fn map_files_to_owners(changed_files: &[Value], root: &Path) -> Vec<Value> {
             // 检查 script 文件
             let is_script = script_extensions.iter().any(|ext| basename.ends_with(ext));
             if is_script {
+                let node_id = workspace_file_node_id("script", rel_path)
+                    .unwrap_or_else(|| "workspace:script".to_string());
                 return Some(json!({
                     "file": file_path,
                     "relativePath": rel_path,
                     "projectId": "workspace:script",
+                    "ownerNodeId": node_id,
                     "projectLabel": basename,
                     "language": "shell",
                     "ownerKind": "script",
@@ -539,6 +572,7 @@ fn map_files_to_owners(changed_files: &[Value], root: &Path) -> Vec<Value> {
                         "file": file_path,
                         "relativePath": rel_path,
                         "projectId": format!("project:{}", prefix.replace('/', ":")),
+                        "ownerNodeId": format!("project:{}", prefix.replace('/', ":")),
                         "projectLabel": label,
                         "language": lang,
                         "ownerKind": owner_kind,
@@ -630,17 +664,8 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
         .count();
 
     // 收集变更的 project node_id（去重）
-    let changed_project_ids: HashSet<String> = file_owners
-        .iter()
-        .filter_map(|o| {
-            let kind = o["ownerKind"].as_str().unwrap_or("");
-            if kind == "project" || kind == "unsupported" {
-                o["projectId"].as_str().map(|s| s.to_string())
-            } else {
-                None
-            }
-        })
-        .collect();
+    let mut changed_node_ids = HashSet::new();
+    let mut changed_project_ids = HashSet::new();
 
     // 检查是否有 config/script 变更
     let has_config_changes = file_owners
@@ -659,20 +684,88 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
     let mut unsupported_hits = Vec::new();
     let mut risk_reasons: Vec<String> = Vec::new();
     let mut followups: Vec<String> = Vec::new();
-    let mut seen_node_ids = HashSet::new();
+    let mut seen_project_ids = HashSet::new();
+    let mut seen_unsupported_ids = HashSet::new();
 
-    for project_id in &changed_project_ids {
-        let target = ImpactTarget {
-            node_id: Some(project_id.clone()),
-            project_id: Some(project_id.clone()),
-            path: None,
-            snapshot_id: None,
-            query: None,
+    for owner in file_owners {
+        let owner_kind = owner["ownerKind"].as_str().unwrap_or("");
+        let owner_node_id = owner["ownerNodeId"]
+            .as_str()
+            .or_else(|| owner["projectId"].as_str())
+            .unwrap_or("");
+        let rel_path = owner["relativePath"].as_str().unwrap_or("");
+
+        let target = match owner_kind {
+            "project" | "unsupported" if !owner_node_id.is_empty() => ImpactTarget {
+                node_id: Some(owner_node_id.to_string()),
+                project_id: Some(owner_node_id.to_string()),
+                path: None,
+                snapshot_id: None,
+                query: None,
+            },
+            "config" | "script" => ImpactTarget {
+                node_id: if owner_node_id.starts_with("config:")
+                    || owner_node_id.starts_with("workflow:")
+                    || owner_node_id.starts_with("script:")
+                {
+                    Some(owner_node_id.to_string())
+                } else {
+                    None
+                },
+                project_id: None,
+                path: if rel_path.is_empty() {
+                    None
+                } else {
+                    Some(rel_path.to_string())
+                },
+                snapshot_id: None,
+                query: None,
+            },
+            _ => continue,
         };
 
         let impact = cross_project_impact(&graph, &target, ImpactDirection::Downstream, 2);
+        if let Some(resolved_id) = impact.target.resolved_node_id.as_ref() {
+            changed_node_ids.insert(resolved_id.clone());
+
+            if let Some(node) = graph.nodes.iter().find(|n| n.id == *resolved_id) {
+                if node.kind == "project" {
+                    changed_project_ids.insert(node.id.clone());
+                    if seen_project_ids.insert(node.id.clone()) {
+                        affected_projects.push(json!({
+                            "nodeId": node.id,
+                            "kind": node.kind,
+                            "label": node.label,
+                            "path": node.path,
+                            "distance": 0,
+                            "confidence": 1.0,
+                            "changeType": "direct"
+                        }));
+                    }
+                    if !node.supported && seen_unsupported_ids.insert(node.id.clone()) {
+                        unsupported_hits.push(json!({
+                            "nodeId": node.id,
+                            "kind": node.kind,
+                            "label": node.label,
+                            "path": node.path,
+                            "language": node.language,
+                            "supported": false,
+                            "distance": 0,
+                            "reason": "changed file belongs to unsupported language project"
+                        }));
+                    }
+                }
+            }
+        }
+
         for proj in &impact.affected_projects {
-            if seen_node_ids.insert(proj.node_id.clone()) {
+            if seen_project_ids.insert(proj.node_id.clone()) {
+                let supported = graph
+                    .nodes
+                    .iter()
+                    .find(|n| n.id == proj.node_id)
+                    .map(|n| n.supported)
+                    .unwrap_or(true);
                 affected_projects.push(json!({
                     "nodeId": proj.node_id,
                     "kind": proj.kind,
@@ -682,11 +775,26 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
                     "confidence": proj.confidence,
                     "changeType": if proj.distance == 0 { "direct" } else { "indirect" }
                 }));
+                if !supported && seen_unsupported_ids.insert(proj.node_id.clone()) {
+                    unsupported_hits.push(json!({
+                        "nodeId": proj.node_id,
+                        "kind": proj.kind,
+                        "label": proj.label,
+                        "path": proj.path,
+                        "language": graph.nodes.iter()
+                            .find(|n| n.id == proj.node_id)
+                            .map(|n| n.language.clone())
+                            .unwrap_or_default(),
+                        "supported": false,
+                        "distance": proj.distance,
+                        "reason": "affected project uses unsupported language"
+                    }));
+                }
             }
         }
 
         for boundary in &impact.unsupported_boundaries {
-            if seen_node_ids.insert(boundary.node_id.clone()) {
+            if seen_unsupported_ids.insert(boundary.node_id.clone()) {
                 unsupported_hits.push(json!({
                     "nodeId": boundary.node_id,
                     "kind": boundary.kind,
@@ -717,7 +825,9 @@ fn compute_workspace_impact(root: &Path, file_owners: &[Value]) -> Value {
 
     // 从 graph edges 中收集与变更 project 相关的边
     for edge in &graph.edges {
-        let touches_changed = changed_project_ids.contains(&edge.source)
+        let touches_changed = changed_node_ids.contains(&edge.source)
+            || changed_node_ids.contains(&edge.target)
+            || changed_project_ids.contains(&edge.source)
             || changed_project_ids.contains(&edge.target);
         if touches_changed && edge.kind != "contains" {
             affected_edges.push(json!({
@@ -915,6 +1025,7 @@ fn build_detect_changes_report(
     assist: Value,
     untracked_files: Vec<String>,
     workspace_impact: Value,
+    file_owners: Vec<Value>,
 ) -> Value {
     let changed_file_count = changed
         .get("summary")
@@ -976,16 +1087,6 @@ fn build_detect_changes_report(
     let total_file_change_count = changed_file_count + untracked_file_count;
     let enhanced_risk_reasons = compute_enhanced_risk_reasons(&changed, &assist, &workspace_impact);
     let recommended_followups = compute_recommended_followups(&assist, &workspace_impact);
-
-    // workspace 相关字段：从 workspace_impact 提取
-    let file_owners = map_files_to_owners(
-        changed
-            .get("changedFiles")
-            .and_then(|v| v.as_array())
-            .map(|a| a.as_slice())
-            .unwrap_or(&[]),
-        root,
-    );
 
     let mut report = json!({
         "schemaVersion": "codelattice.detectChanges.v1",
@@ -3514,6 +3615,7 @@ pub fn run() {
                 assist,
                 untracked_files,
                 workspace_impact,
+                file_owners,
             );
 
             let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {

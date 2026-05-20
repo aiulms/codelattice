@@ -70,6 +70,9 @@ pub fn entry() -> i32 {
 }
 EOF
 echo 'pub fn new_helper() {}' >"$TMP/src/new_module.rs"
+mkdir -p "$TMP/.arts" "$TMP/.sisyphus/run-continuation"
+echo '{"private":true}' >"$TMP/.arts/settings.json"
+echo '{"session":"private"}' >"$TMP/.sisyphus/run-continuation/session.json"
 
 REPORT="$TMP/report.json"
 "$BIN" detect-changes \
@@ -105,6 +108,7 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 assert d['summary']['untrackedFileCount'] > 0
 assert 'src/new_module.rs' in d.get('untrackedFiles', [])
+assert not any(p.startswith('.arts/') or p.startswith('.sisyphus/') for p in d.get('untrackedFiles', []))
 PY"
 check "static-only generatedFrom" "python3 - '$REPORT' <<'PY'
 import json, sys
@@ -178,6 +182,36 @@ else
     FAIL=$((FAIL + 1))
   fi
 fi
+
+echo "3. Workspace config change has graph impact"
+WS="$TMP/workspace"
+mkdir -p "$WS"
+cp -R "$REPO_ROOT/fixtures/workspace/multi-project/." "$WS/"
+git -C "$WS" init >/dev/null
+git -C "$WS" config user.email "smoke@example.com"
+git -C "$WS" config user.name "Smoke"
+git -C "$WS" add .
+git -C "$WS" commit -m baseline >/dev/null
+printf '\n# smoke tweak\n' >>"$WS/.github/workflows/ci.yml"
+WS_REPORT="$TMP/workspace-report.json"
+"$BIN" detect-changes \
+  --root "$WS" \
+  --language rust \
+  --scope all \
+  --format json \
+  >"$WS_REPORT"
+check "workspace config owner resolves to graph node" "python3 - '$WS_REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+owners = d.get('fileOwners', [])
+assert any(o.get('ownerKind') == 'config' and o.get('ownerNodeId', '').startswith('workflow:') for o in owners), owners
+PY"
+check "workspace config change affects projects" "python3 - '$WS_REPORT' <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert len(d.get('affectedProjects', [])) > 0
+assert any(e.get('kind') == 'config_refs' for e in d.get('affectedWorkspaceEdges', []))
+PY"
 
 echo ""
 echo "PASS: $PASS"

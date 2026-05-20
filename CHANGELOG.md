@@ -30,6 +30,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **Native change intelligence ownership and workspace impact consistency**: agent-private untracked folders such as `.arts/` and `.sisyphus/` are now ignored by `detect-changes`; report-level `fileOwners` now uses the same changed+untracked input as workspace impact analysis; workflow/script/config nodes now resolve to actual workspace graph node IDs so CI/config changes can surface affected projects and `config_refs`/`script_refs` edges instead of silently reporting no impact.
+
 - **MCP facade/workspace self-check hardening**: development wrapper and installer doctor now prefer the freshest 50-tool binary instead of accepting a stale release binary; workspace graph/impact MCP outputs now include `schemaVersion` and static-only `generatedFrom` flags; dogfood now covers workspace tools and all 8 facade tools; local/source smoke thresholds were updated to the 50-tool profile.
 
 - **WebUI Workspace UX closure**: workspace bulk analysis now stays on the Workspace tab instead of auto-opening the first child snapshot. Workspace Insights recommendation rows and project-score rows can explicitly open related snapshots, failed project rows show next-step fix hints, unsupported modules are grouped into a future language-support backlog, workspace reports follow the current Chinese/English UI language, and users can copy a compact static-only workspace summary for AI-assisted planning.

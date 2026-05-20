@@ -525,8 +525,24 @@ pub fn build_workspace_graph(root: &Path, redact_root: bool) -> Result<Workspace
         redact_root,
     );
 
-    // 更新 all_node_ids（新增节点后）
+    // 更新 all_node_ids / abs path index（新增 config/script 节点后）。
+    // config_refs 需要解析 workflow -> script 这类文件节点引用，不能继续使用
+    // 只包含 project 节点的早期索引。
     let all_node_ids: HashSet<String> = nodes.iter().map(|n| n.id.clone()).collect();
+    let abs_path_to_node_id: HashMap<String, String> = {
+        let root_str = root.to_string_lossy().to_string();
+        nodes
+            .iter()
+            .map(|n| {
+                let abs = if n.path.starts_with('.') {
+                    format!("{}/{}", root_str, n.path.trim_start_matches("./"))
+                } else {
+                    n.path.clone()
+                };
+                (abs, n.id.clone())
+            })
+            .collect()
+    };
 
     // 为配置/脚本节点解析引用边（config_refs, script_refs）
     resolve_config_refs(
@@ -1204,17 +1220,44 @@ fn extract_local_refs(content: &str) -> Vec<String> {
             }
         }
 
-        // Makefile / scripts: 引用 ./scripts/xxx 或 ./path/to
+        // Makefile / scripts / CI: 引用 ./scripts/xxx、scripts/xxx 或 path/to。
         for word in line.split_whitespace() {
-            if word.starts_with("./") && word.contains('/') && word.len() > 3 {
-                // 去掉尾部特殊字符
-                let clean = word
+            let clean = word
+                .trim_end_matches(';')
+                .trim_end_matches('&')
+                .trim_end_matches('|')
+                .trim_end_matches('"')
+                .trim_end_matches('\'')
+                .trim_end_matches(',');
+            let is_local_path = clean.contains('/')
+                && !clean.starts_with('/')
+                && !clean.starts_with('-')
+                && !clean.contains(':')
+                && !clean.contains("${")
+                && clean.len() > 3;
+            if is_local_path && seen.insert(clean.to_string()) {
+                refs.push(clean.to_string());
+            }
+        }
+
+        // Shell snippets: cd rust-core / cd ../pkg / cd "ts-ui".
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        for pair in parts.windows(2) {
+            if pair[0] == "cd" {
+                let clean = pair[1]
+                    .trim_matches('"')
+                    .trim_matches('\'')
                     .trim_end_matches(';')
                     .trim_end_matches('&')
-                    .trim_end_matches('|')
-                    .trim_end_matches('"')
-                    .trim_end_matches('\'');
-                if seen.insert(clean.to_string()) {
+                    .trim_end_matches('|');
+                if !clean.is_empty()
+                    && clean != "."
+                    && clean != ".."
+                    && !clean.starts_with('/')
+                    && !clean.starts_with('-')
+                    && !clean.contains('$')
+                    && seen.insert(clean.to_string())
+                {
                     refs.push(clean.to_string());
                 }
             }
@@ -1380,9 +1423,11 @@ mod tests {
 
     #[test]
     fn test_extract_local_refs() {
-        let content = "COPY ./src /app\nRUN bash ./scripts/build.sh\n";
+        let content = "COPY ./src /app\nRUN bash ./scripts/build.sh\nrun: bash scripts/build-core.sh\ncd rust-core && cargo build\n";
         let refs = extract_local_refs(content);
         assert!(refs.contains(&"./src".to_string()));
         assert!(refs.contains(&"./scripts/build.sh".to_string()));
+        assert!(refs.contains(&"scripts/build-core.sh".to_string()));
+        assert!(refs.contains(&"rust-core".to_string()));
     }
 }
