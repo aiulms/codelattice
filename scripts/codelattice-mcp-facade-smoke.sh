@@ -30,15 +30,15 @@ echo "── Test 1: default AI toolset (small) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
 [ "$T" -le 12 ] && pass "default-ai-toolset-small ($T tools)" || fail "default-ai-toolset-small (got $T)"
 
-# ── Test 2: full toolset has 50 tools ────────────────────────────────
-echo "── Test 2: full toolset (50 tools) ──"
+# ── Test 2: full toolset has 51 tools ────────────────────────────────
+echo "── Test 2: full toolset (51 tools) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
-[ "$T" = "50" ] && pass "full-toolset-50" || fail "full-toolset-50 (got $T)"
+[ "$T" = "51" ] && pass "full-toolset-51" || fail "full-toolset-51 (got $T)"
 
 # ── Test 3: core toolset sits between AI and full ────────────────────
 echo "── Test 3: core toolset (middle) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | env CODELATTICE_MCP_TOOLSET=core "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
-[ "$T" -gt 12 ] && [ "$T" -lt 50 ] && pass "core-toolset-middle ($T tools)" || fail "core-toolset-middle (got $T)"
+[ "$T" -gt 12 ] && [ "$T" -lt 51 ] && pass "core-toolset-middle ($T tools)" || fail "core-toolset-middle (got $T)"
 
 # ── Test 4: codelattice_cache explain ────────────────────────────────
 echo "── Test 4: codelattice_cache explain ──"

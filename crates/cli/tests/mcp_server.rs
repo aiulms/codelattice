@@ -288,7 +288,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_fifty_tools() {
+fn mcp_tools_list_returns_fifty_one_tools() {
     let mut session = McpSession::start_with_toolset("full");
     session.initialize();
     session.send_notification_initialized();
@@ -305,7 +305,7 @@ fn mcp_tools_list_returns_fifty_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 50, "expected 50 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 51, "expected 51 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     // v0 tools
@@ -324,6 +324,10 @@ fn mcp_tools_list_returns_fifty_tools() {
     assert!(
         names.contains(&"codelattice_automation_graph"),
         "missing codelattice_automation_graph"
+    );
+    assert!(
+        names.contains(&"codelattice_root_cause_assistant"),
+        "missing codelattice_root_cause_assistant"
     );
     assert!(
         names.contains(&"codelattice_smoke"),
@@ -434,6 +438,102 @@ fn mcp_tools_list_returns_fifty_tools() {
 }
 
 #[test]
+fn mcp_tools_list_permission_annotations_describe_read_only_facades() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20010,
+        "method": "tools/list"
+    }));
+
+    let resp = session.recv();
+    let tools = resp["result"]["tools"].as_array().expect("tools array");
+    let change_review = tools
+        .iter()
+        .find(|tool| tool["name"].as_str() == Some("codelattice_change_review"))
+        .expect("change review tool should be exposed in AI toolset");
+
+    assert_eq!(
+        change_review["annotations"]["readOnlyHint"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        change_review["annotations"]["destructiveHint"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        change_review["annotations"]["openWorldHint"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        change_review["x-codelattice-permissionProfile"]["tier"].as_str(),
+        Some("read-only-static")
+    );
+    assert_eq!(
+        change_review["x-codelattice-permissionProfile"]["sourceWrites"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        change_review["x-codelattice-permissionProfile"]["executesProjectCode"].as_bool(),
+        Some(false)
+    );
+}
+
+#[test]
+fn mcp_tools_list_permission_annotations_classify_cache_and_tmp_writes() {
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 20011,
+        "method": "tools/list"
+    }));
+
+    let resp = session.recv();
+    let tools = resp["result"]["tools"].as_array().expect("tools array");
+    let cache_clear = tools
+        .iter()
+        .find(|tool| tool["name"].as_str() == Some("codelattice_cache_clear"))
+        .expect("cache_clear should be exposed in full toolset");
+    assert_eq!(
+        cache_clear["annotations"]["readOnlyHint"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        cache_clear["annotations"]["destructiveHint"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        cache_clear["x-codelattice-permissionProfile"]["writes"]
+            .as_array()
+            .and_then(|items| items.first())
+            .and_then(|item| item.as_str()),
+        Some("codelattice-cache")
+    );
+
+    let export_bridge = tools
+        .iter()
+        .find(|tool| tool["name"].as_str() == Some("codelattice_export_bridge"))
+        .expect("export_bridge should be exposed in full toolset");
+    assert_eq!(
+        export_bridge["annotations"]["readOnlyHint"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        export_bridge["x-codelattice-permissionProfile"]["writes"]
+            .as_array()
+            .and_then(|items| items.first())
+            .and_then(|item| item.as_str()),
+        Some("tmp-artifact")
+    );
+}
+
+#[test]
 fn mcp_tools_list_includes_shell_language() {
     let mut session = McpSession::start();
     session.initialize();
@@ -482,6 +582,7 @@ fn mcp_default_toolset_is_ai_friendly() {
         "codelattice_project",
         "codelattice_symbol",
         "codelattice_change_review",
+        "codelattice_root_cause_assistant",
         "codelattice_cleanup",
         "codelattice_workspace",
         "codelattice_release_check",
@@ -493,6 +594,136 @@ fn mcp_default_toolset_is_ai_friendly() {
     assert!(
         !names.contains(&"codelattice_project_overview"),
         "default AI toolset should hide low-level project_overview"
+    );
+}
+
+#[test]
+fn mcp_root_cause_assistant_static_mode_returns_evidence_plan() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 43001,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_root_cause_assistant",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "issue": "helper returns the wrong value after main calls it",
+                "availableCapabilities": ["read_code", "read_git_diff", "edit_code"],
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("rootCauseEvidence.v1"));
+    assert_eq!(
+        data["generatedFrom"]["runtimeVerified"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        data["permissionSummary"]["mode"].as_str(),
+        Some("capability-aware")
+    );
+    assert!(
+        data["rootCauseHypotheses"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "expected static root cause hypotheses: {data:?}"
+    );
+    assert!(
+        data["missingEvidence"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "expected missing evidence list: {data:?}"
+    );
+    assert_eq!(
+        data["nextBestAction"]["requiresAdditionalUserConfirmation"].as_bool(),
+        Some(false),
+        "existing AI capabilities should not be re-confirmed by CodeLattice: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_root_cause_assistant_runtime_evidence_raises_confidence() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 43002,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_root_cause_assistant",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "issue": "helper output is stale",
+                "runtimeEvidence": {
+                    "logExcerpt": "helper returned old value after update",
+                    "snapshot": { "before": 1, "after": 1 }
+                },
+                "availableCapabilities": ["read_code", "read_logs"],
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("rootCauseEvidence.v1"));
+    assert_eq!(
+        data["runtimeEvidenceAssessment"]["provided"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(data["confidence"].as_str(), Some("medium"));
+    assert!(
+        data["evidence"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "runtime evidence should be summarized: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_root_cause_routes_to_root_cause_assistant() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 43003,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "root_cause",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "issue": "helper returns wrong value",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["mode"].as_str(), Some("root_cause"));
+    let next = data["nextActions"].as_array().expect("nextActions array");
+    assert!(
+        next.iter()
+            .any(|a| a["tool"].as_str() == Some("codelattice_root_cause_assistant")),
+        "root_cause workflow should route to root cause assistant: {data:?}"
     );
 }
 
@@ -515,7 +746,7 @@ fn mcp_core_toolset_keeps_essential_low_level_tools_but_hides_diagnostics() {
         .as_array()
         .expect("tools should be array");
     assert!(
-        tools.len() > 12 && tools.len() < 50,
+        tools.len() > 12 && tools.len() < 51,
         "core toolset should sit between AI and full, got {} tools",
         tools.len()
     );

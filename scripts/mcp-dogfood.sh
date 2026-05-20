@@ -125,14 +125,14 @@ echo "2. tools/list"
 TL_REQ=$(printf '{"jsonrpc":"2.0","id":2,"method":"tools/list"}')
 TL_RESP=$(echo "$TL_REQ" | "$BIN" mcp 2>/dev/null | head -1)
 TOOL_COUNT=$(echo "$TL_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-if [ "$TOOL_COUNT" -ge 50 ]; then
+if [ "$TOOL_COUNT" -ge 51 ]; then
     PASS=$((PASS + 1))
     RESULTS+=("PASS: tools/list ($TOOL_COUNT tools)")
     echo "   → $TOOL_COUNT tools listed"
 else
     FAIL=$((FAIL + 1))
-    RESULTS+=("FAIL: tools/list (expected >= 50, got $TOOL_COUNT)")
-    echo "   → expected >= 50 tools, got $TOOL_COUNT"
+    RESULTS+=("FAIL: tools/list (expected >= 51, got $TOOL_COUNT)")
+    echo "   → expected >= 51 tools, got $TOOL_COUNT"
 fi
 ID=3
 
@@ -437,6 +437,11 @@ echo "48. codelattice_workflow facade"
 check_tool "codelattice_workflow" \
     "{\"mode\":\"onboarding\",\"compact\":true}" \
     "data.get('schemaVersion') == 'ai.workflow.v1' and data.get('tool') == 'codelattice_workflow' and data.get('mode') == 'onboarding' and isinstance(data.get('nextActions'), list) and len(data.get('nextActions')) > 0"
+
+echo "49. codelattice_root_cause_assistant"
+check_tool "codelattice_root_cause_assistant" \
+    "{\"root\":\"$FIXTURE_ABS\",\"language\":\"rust\",\"issue\":\"helper returns an unexpected value after a caller change\",\"availableCapabilities\":[\"read_code\",\"read_git_diff\",\"edit_code\"],\"compact\":true,\"limit\":5}" \
+    "data.get('schemaVersion') == 'rootCauseEvidence.v1' and data.get('permissionSummary', {}).get('mode') == 'capability-aware' and data.get('generatedFrom', {}).get('runtimeVerified') == False and isinstance(data.get('rootCauseHypotheses'), list) and isinstance(data.get('missingEvidence'), list)"
 
 
 echo ""

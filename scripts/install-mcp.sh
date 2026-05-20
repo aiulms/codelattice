@@ -213,7 +213,7 @@ JSON
     echo "  - CodeLattice MCP is a sidecar — it does NOT replace GitNexus-RC"
     echo "  - This script never writes client config; it only prints snippets"
     echo "  - Supports Rust, Cangjie, ArkTS, TypeScript, C, C++, and Python when built with --build"
-    echo "  - 50 tools including facade tools, graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, and process-local cache"
+    echo "  - 51 tools including facade tools, graph diagnostics, review gates, workflow presets, automation graph, workspace graph, cross-project impact, root-cause evidence assistant, and process-local cache"
     echo "  - Read-only — never modifies source code"
     echo "  - After config change, restart your AI client session to reload MCP tools"
 fi
@@ -308,11 +308,11 @@ if [[ "$ACTION" == "doctor" ]]; then
         # 4. tools/list count
         TOOLS_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | env CODELATTICE_MCP_TOOLSET=full "$BIN_PATH" mcp 2>/dev/null | tail -1)
         TOOL_COUNT=$(echo "$TOOLS_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-        if [[ "$TOOL_COUNT" -ge 50 ]]; then
+        if [[ "$TOOL_COUNT" -ge 51 ]]; then
             echo "PASS: tools/list returns $TOOL_COUNT tools"
             PASS=$((PASS + 1))
         else
-            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 50)"
+            echo "FAIL: tools/list returned $TOOL_COUNT tools (expected >= 51)"
             echo "      Fix: bash $0 --build"
             FAIL=$((FAIL + 1))
         fi
@@ -346,7 +346,7 @@ if [[ "$ACTION" == "doctor" ]]; then
         if [[ "$CANGJIE_SUPPORT" == "True" ]]; then
             CJGUI_PATH="$REPO_ROOT/fixtures/cangjie/portable-smoke"
             if [[ -d "$CJGUI_PATH" ]]; then
-                CJ_SEARCH=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codelattice_symbol_search","arguments":{"root":"%s","query":"init","language":"cangjie","limit":3}}}\n' "$CJGUI_PATH" | "$BIN_PATH" mcp 2>/dev/null)
+                CJ_SEARCH=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codelattice_symbol_search","arguments":{"root":"%s","query":"init","language":"cangjie","limit":3}}}\n' "$CJGUI_PATH" | env CODELATTICE_MCP_TOOLSET=full "$BIN_PATH" mcp 2>/dev/null)
                 CJ_COUNT=$(echo "$CJ_SEARCH" | python3 -c "
 import json, sys
 for line in sys.stdin:

@@ -218,10 +218,43 @@ Return:
 - recommended external test/build commands to run manually;
 - final go/no-go concerns.
 
-Do not call this GA proof. It is a static release review.
+Do not call the beta GA-ready just because static checks pass.
 ```
 
-## 10. Legacy Cleanup Plan
+## 10. Investigate A Runtime Bug With Evidence
+
+```text
+Use CodeLattice to move this bug from guessing toward an evidence-backed root
+cause hypothesis.
+
+Root: <repo-root>
+Language: <language or auto>
+Issue: <short bug description>
+Observed error/log/screenshot summary: <optional>
+Reproduction steps: <optional>
+Available AI capabilities: <read_code/read_git_diff/run_commands/read_logs/browser/local_http/edit_code/runtime_probe/trace_files>
+
+Call codelattice_workflow with mode=root_cause first. If it returns a
+codelattice_root_cause_assistant nextAction, run that action. If you already
+have permission to read logs, run commands, inspect local HTTP/debug endpoints,
+operate a browser, or edit temporary probes, use the returned nextBestAction
+instead of asking me to manually assemble evidence.
+
+Return:
+- the top rootCauseHypotheses with confidence;
+- evidence already supporting each hypothesis;
+- missingEvidence and why it matters;
+- the smallest next evidence action;
+- likelyFixArea;
+- what is probably a downstream symptom, not root cause;
+- nextVerification after a fix.
+
+Do not claim runtime proof unless runtime evidence was actually provided. Do
+not install probes or change source through CodeLattice; use the AI client's
+normal edit permissions and keep probes minimal/reversible.
+```
+
+## 11. Legacy Cleanup Plan
 
 ```text
 Help me plan cleanup for a large legacy codebase.
@@ -245,7 +278,7 @@ Return:
 Do not delete code automatically. Treat cleanup targets as candidates.
 ```
 
-## 11. Compact Prompt For Daily AI Coding
+## 12. Compact Prompt For Daily AI Coding
 
 ```text
 Use CodeLattice MCP before and after this edit.
@@ -270,7 +303,7 @@ Follow CodeLattice stop-lines:
 - CodeLattice does not execute project code.
 ```
 
-## 12. Prompt For Another Agent
+## 13. Prompt For Another Agent
 
 ```text
 You are working in a repository with CodeLattice MCP available.

@@ -35,7 +35,7 @@ CODELATTICE_ROOT="${CODELATTICE_ROOT:-$DEFAULT_ROOT}"
 CODELATTICE_MCP_BIN="${CODELATTICE_MCP_BIN:-}"
 CODELATTICE_LOG_LEVEL="${CODELATTICE_LOG_LEVEL:-}"
 ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
-MIN_EXPECTED_TOOLS=50
+MIN_EXPECTED_TOOLS=51
 
 # --- Helper: get profile info from binary via MCP initialize ---
 # Sets _PROFILE_VERSION, _PROFILE_CANGJIE, _PROFILE_ARKTS, _PROFILE_TYPESCRIPT, _PROFILE_C, _PROFILE_CPP, _PROFILE_PYTHON, _PROFILE_TOOLS

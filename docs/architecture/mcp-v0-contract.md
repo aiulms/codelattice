@@ -1447,7 +1447,7 @@ The `initialize` response now includes profile information:
     "arktsSupport": true,
     "typescriptSupport": true,
     "toolCount": 9,
-    "fullToolCount": 50,
+    "fullToolCount": 51,
     "toolset": "ai"
   }
 }
@@ -1457,6 +1457,32 @@ The `initialize` response now includes profile information:
 - `arktsSupport`: `true` if binary compiled with `--features tree-sitter-arkts`, `false` otherwise
 - `typescriptSupport`: `true` if binary compiled with `--features tree-sitter-typescript`, `false` otherwise
 - `toolCount`: number of tools exposed via `tools/list`
+
+### Tool Permission Metadata
+
+Every `tools/list` entry includes standard MCP `annotations` plus a CodeLattice-specific `x-codelattice-permissionProfile` object. These fields are hints for the AI client and orchestration layer; they do not bypass client-side approval policy.
+
+```json
+{
+  "annotations": {
+    "readOnlyHint": true,
+    "destructiveHint": false,
+    "idempotentHint": true,
+    "openWorldHint": false
+  },
+  "x-codelattice-permissionProfile": {
+    "tier": "read-only-static",
+    "sourceWrites": false,
+    "projectWrites": false,
+    "executesProjectCode": false,
+    "networkAccess": false,
+    "writes": [],
+    "requiresAdditionalUserConfirmation": false
+  }
+}
+```
+
+Cache-management tools mark `writes=["codelattice-cache"]`; bridge export marks `writes=["tmp-artifact"]`. CodeLattice MCP tools do not write user source files or execute target project build/test/package scripts.
 
 Scripts parse this output to detect the binary's capabilities and warn if optional language support is missing.
 
@@ -1670,7 +1696,7 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
 
 ## 九、AI Workflow Intent Router (`codelattice_workflow`)
 
-`codelattice_workflow` 是 AI-friendly toolset 的推荐第一入口。它不直接执行项目分析，而是把用户意图路由成可调用的下一步动作，避免 AI 在 50 个底层工具之间猜测。
+`codelattice_workflow` 是 AI-friendly toolset 的推荐第一入口。它不直接执行项目分析，而是把用户意图路由成可调用的下一步动作，避免 AI 在 51 个底层工具之间猜测。
 
 **典型输入：**
 

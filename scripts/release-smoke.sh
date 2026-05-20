@@ -143,7 +143,7 @@ for line in sys.stdin:
     if msg.get("id") == 2:
         print(len(msg["result"]["tools"]))
         break')"
-if [[ -z "$TOOLS_COUNT" || "$TOOLS_COUNT" -lt 50 ]]; then
+if [[ -z "$TOOLS_COUNT" || "$TOOLS_COUNT" -lt 51 ]]; then
     echo "ERROR: tools/list returned ${TOOLS_COUNT:-0} tools" >&2
     exit 1
 fi

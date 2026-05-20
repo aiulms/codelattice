@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 50 tools:
+//! Provides 51 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -19,6 +19,7 @@
 //!   v0.27: codelattice_automation_graph
 //!   v0.28: codelattice_workspace_graph, codelattice_cross_project_impact
 //!   v0.29: 8 facade tools (project, symbol, change_review, cleanup, workspace, release_check, cache, workflow)
+//!   v0.30: codelattice_root_cause_assistant
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -29,7 +30,7 @@
 //!        Persistent cache: ${TMPDIR}/codelattice-cache/ or CODELATTICE_CACHE_DIR.
 //!        Disable with CODELATTICE_CACHE=off.
 //! Safety: path deny list, output path restrictions (/tmp only for export).
-//!         All tools are read-only.
+//!         Tools advertise permission hints; source writes and project-code execution are not performed.
 
 use gitnexus_analysis_scheduler::{
     build_schedule, AnalysisRequest, AnalysisScope, CacheIntent, FileSnapshot,
@@ -8067,7 +8068,7 @@ fn handle_cache_prewarm(cache: &mut McpCache, params: &Value) -> Result<Value, V
 // ============================================================
 
 fn tools_list() -> Value {
-    json!({
+    let mut value = json!({
        "tools": [
            {
                "name": "codelattice_analyze",
@@ -8535,6 +8536,31 @@ fn tools_list() -> Value {
                 }
             },
             {
+                "name": "codelattice_root_cause_assistant",
+                "description": "Evidence-guided root cause assistant. Combines static code graph signals with already-granted AI capabilities and optional runtime evidence to produce hypotheses, missing evidence, and the smallest next evidence action. Advisory/read-only: it does not run project code or install probes.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "issue": { "type": "string", "description": "Bug report, symptom, or debugging question" },
+                        "observedError": { "type": "string", "description": "Optional error message, stack trace summary, or visible symptom" },
+                        "reproductionSteps": { "type": "array", "items": { "type": "string" }, "description": "Optional known reproduction steps" },
+                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Optional changed or suspected symbols" },
+                        "changedFiles": { "type": "array", "items": { "type": "string" }, "description": "Optional changed or suspected files" },
+                        "availableCapabilities": {
+                            "type": "array",
+                            "items": { "type": "string", "enum": ["read_code", "read_git_diff", "run_commands", "read_logs", "browser", "local_http", "edit_code", "runtime_probe", "trace_files"] },
+                            "description": "Capabilities already granted to the AI session. CodeLattice will not ask to reconfirm these."
+                        },
+                        "runtimeEvidence": { "type": "object", "description": "Optional pasted or collected runtime evidence such as logs, snapshots, traces, console output, or stack traces" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "limit": { "type": "integer", "default": 8, "minimum": 1, "maximum": 50, "description": "Max static matches/hypotheses to return" }
+                    },
+                    "required": ["root", "issue"]
+                }
+            },
+            {
                 "name": "codelattice_reachability_map",
                 "description": "Static graph reachability from detected entry point candidates. Identifies reachable and unreachable symbols/files via BFS traversal. Not runtime proof.",
                 "inputSchema": {
@@ -8879,7 +8905,7 @@ fn tools_list() -> Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "explain_symbol", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent" },
+                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "explain_symbol", "root_cause", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent" },
                         "intent": { "type": "string", "description": "Optional natural intent alias; when present it is treated like mode" },
                         "root": { "type": "string", "description": "Project or workspace root when a next action needs analysis" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
@@ -8906,7 +8932,79 @@ fn tools_list() -> Value {
 
 
         ]
-    })
+    });
+    annotate_tool_permissions(&mut value);
+    value
+}
+
+fn annotate_tool_permissions(tools_val: &mut Value) {
+    let Some(tools) = tools_val.get_mut("tools").and_then(|v| v.as_array_mut()) else {
+        return;
+    };
+    for tool in tools {
+        let name = tool["name"].as_str().unwrap_or("").to_string();
+        if let Some(obj) = tool.as_object_mut() {
+            let (read_only, idempotent, tier, writes, executes_codelattice_command) =
+                permission_profile_for_tool(&name);
+            obj.insert(
+                "annotations".to_string(),
+                json!({
+                    "readOnlyHint": read_only,
+                    "destructiveHint": false,
+                    "idempotentHint": idempotent,
+                    "openWorldHint": false
+                }),
+            );
+            obj.insert(
+                "x-codelattice-permissionProfile".to_string(),
+                json!({
+                    "tier": tier,
+                    "sourceWrites": false,
+                    "projectWrites": false,
+                    "executesProjectCode": false,
+                    "executesCodeLatticeCommand": executes_codelattice_command,
+                    "networkAccess": false,
+                    "reads": ["project-files", "git-metadata"],
+                    "writes": writes,
+                    "secretAccessExpected": false,
+                    "requiresAdditionalUserConfirmation": false,
+                    "notes": [
+                        "CodeLattice tools are local-only by default.",
+                        "These hints describe CodeLattice's own behavior; the MCP client may still enforce its own approval policy."
+                    ]
+                }),
+            );
+        }
+    }
+}
+
+fn permission_profile_for_tool(name: &str) -> (bool, bool, &'static str, Vec<&'static str>, bool) {
+    match name {
+        "codelattice_cache_clear" | "codelattice_cache" => (
+            false,
+            false,
+            "cache-management",
+            vec!["codelattice-cache"],
+            false,
+        ),
+        "codelattice_cache_prewarm" => (
+            false,
+            true,
+            "cache-management",
+            vec!["codelattice-cache"],
+            true,
+        ),
+        "codelattice_export_bridge" => (false, false, "tmp-artifact", vec!["tmp-artifact"], true),
+        "codelattice_smoke" => (false, false, "codelattice-smoke", Vec::new(), true),
+        "codelattice_compare_runs" => (
+            false,
+            true,
+            "analysis-cache-refresh",
+            vec!["memory-cache"],
+            true,
+        ),
+        _ => (true, true, "read-only-static", Vec::new(), true),
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -8951,6 +9049,7 @@ const AI_TOOLSET_TOOLS: &[&str] = &[
     "codelattice_project",
     "codelattice_symbol",
     "codelattice_change_review",
+    "codelattice_root_cause_assistant",
     "codelattice_cleanup",
     "codelattice_workspace",
     "codelattice_release_check",
@@ -12268,6 +12367,457 @@ fn handle_review_gate(cache: &mut McpCache, params: &Value) -> Result<Value, Val
 // ============================================================
 
 // ============================================================
+// Root Cause Evidence Assistant
+// ============================================================
+
+fn root_cause_string_array(params: &Value, key: &str) -> Vec<String> {
+    params[key]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|item| item.as_str().map(|s| s.trim().to_string()))
+                .filter(|s| !s.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn root_cause_keywords(
+    issue: &str,
+    changed_symbols: &[String],
+    changed_files: &[String],
+) -> Vec<String> {
+    let mut keywords: Vec<String> = Vec::new();
+    let mut push_word = |word: String| {
+        let word = word.to_ascii_lowercase();
+        if word.len() < 3 {
+            return;
+        }
+        let stop = [
+            "the", "and", "for", "with", "after", "before", "wrong", "value", "bug", "error",
+            "issue", "returns", "return", "when", "from", "into", "this", "that",
+        ];
+        if stop.contains(&word.as_str()) || keywords.contains(&word) {
+            return;
+        }
+        keywords.push(word);
+    };
+
+    for part in issue.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+        push_word(part.to_string());
+    }
+    for symbol in changed_symbols {
+        for part in symbol.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+            push_word(part.to_string());
+        }
+    }
+    for file in changed_files {
+        for part in file.split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')) {
+            push_word(part.to_string());
+        }
+    }
+    keywords.truncate(24);
+    keywords
+}
+
+fn capability_set(capabilities: &[String]) -> std::collections::BTreeSet<String> {
+    capabilities
+        .iter()
+        .map(|cap| cap.to_ascii_lowercase())
+        .collect()
+}
+
+fn runtime_evidence_keys(value: &Value) -> Vec<String> {
+    value
+        .as_object()
+        .map(|obj| obj.keys().cloned().collect())
+        .unwrap_or_default()
+}
+
+fn root_cause_static_matches(gv: &GraphView, keywords: &[String], limit: usize) -> Vec<Value> {
+    let mut matches: Vec<Value> = Vec::new();
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+        let name = node["properties"]["name"].as_str().unwrap_or("");
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+        let haystack = format!(
+            "{} {}",
+            name.to_ascii_lowercase(),
+            file.to_ascii_lowercase()
+        );
+        let mut reasons = Vec::new();
+        for kw in keywords {
+            if haystack.contains(kw) {
+                reasons.push(format!("matches issue keyword '{kw}'"));
+            }
+        }
+        if reasons.is_empty() {
+            continue;
+        }
+        let node_id = node["id"].as_str().unwrap_or("");
+        let caller_count = gv
+            .incoming
+            .get(node_id)
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|edge| edge["type"].as_str() == Some("CALLS"))
+                    .count()
+            })
+            .unwrap_or(0);
+        let callee_count = gv
+            .outgoing
+            .get(node_id)
+            .map(|edges| {
+                edges
+                    .iter()
+                    .filter(|edge| edge["type"].as_str() == Some("CALLS"))
+                    .count()
+            })
+            .unwrap_or(0);
+        matches.push(json!({
+            "id": node_id,
+            "name": name,
+            "kind": kind,
+            "file": file,
+            "line": node["properties"]["startLine"],
+            "callerCount": caller_count,
+            "calleeCount": callee_count,
+            "reasons": reasons
+        }));
+    }
+    matches.sort_by(|a, b| {
+        let ar = a["reasons"].as_array().map(Vec::len).unwrap_or(0);
+        let br = b["reasons"].as_array().map(Vec::len).unwrap_or(0);
+        br.cmp(&ar)
+            .then_with(|| b["callerCount"].as_u64().cmp(&a["callerCount"].as_u64()))
+            .then_with(|| {
+                a["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["name"].as_str().unwrap_or(""))
+            })
+    });
+    matches.truncate(limit);
+    matches
+}
+
+fn root_cause_hypotheses(
+    issue: &str,
+    matches: &[Value],
+    runtime_evidence_provided: bool,
+) -> Vec<Value> {
+    let lower = issue.to_ascii_lowercase();
+    let mut hypotheses = Vec::new();
+    if let Some(top) = matches.first() {
+        hypotheses.push(json!({
+            "kind": "code-path-state-divergence",
+            "hypothesis": format!(
+                "State or data may diverge around {} before downstream callers consume it.",
+                top["name"].as_str().unwrap_or("the matched symbol")
+            ),
+            "confidence": if runtime_evidence_provided { "medium" } else { "low" },
+            "staticSignals": top["reasons"],
+            "needsEvidence": ["function input/output snapshot", "nearest caller/callee boundary state"]
+        }));
+    }
+    if lower.contains("stale") || lower.contains("cache") || lower.contains("dirty") {
+        hypotheses.push(json!({
+            "kind": "stale-cache-or-dirty-flag",
+            "hypothesis": "A cache, memoized value, or dirty flag may not be invalidated before the output is consumed.",
+            "confidence": if runtime_evidence_provided { "medium" } else { "low" },
+            "staticSignals": ["issue mentions stale/cache/dirty behavior"],
+            "needsEvidence": ["cache key/value before and after change", "dirty flag transition", "consumer read timestamp/order"]
+        }));
+    }
+    if lower.contains("render")
+        || lower.contains("layout")
+        || lower.contains("drag")
+        || lower.contains("gui")
+        || lower.contains("cad")
+    {
+        hypotheses.push(json!({
+            "kind": "model-compute-render-boundary",
+            "hypothesis": "The model/compute result and the render or UI consumer may disagree at a boundary.",
+            "confidence": if runtime_evidence_provided { "medium" } else { "low" },
+            "staticSignals": ["issue looks like GUI/layout/render state mismatch"],
+            "needsEvidence": ["model state snapshot", "computed result", "render/input command consumed by UI"]
+        }));
+    }
+    if hypotheses.is_empty() {
+        hypotheses.push(json!({
+            "kind": "static-triage",
+            "hypothesis": "No specific runtime pattern was detected; start by validating the most relevant matched code path and recent changes.",
+            "confidence": "low",
+            "staticSignals": ["keyword-based graph triage"],
+            "needsEvidence": ["error log or stack trace", "single reproduction output", "function boundary input/output"]
+        }));
+    }
+    hypotheses
+}
+
+fn root_cause_next_action(
+    caps: &std::collections::BTreeSet<String>,
+    runtime_evidence_provided: bool,
+) -> Value {
+    if runtime_evidence_provided {
+        return json!({
+            "type": "map-runtime-evidence-to-code-path",
+            "reason": "Runtime evidence was provided; compare it with the static suspect path to separate root cause from downstream symptoms.",
+            "estimatedUserSteps": 0,
+            "autoExecutableWithCurrentCapabilities": true,
+            "requiresAdditionalUserConfirmation": false,
+            "reversible": true
+        });
+    }
+    if caps.contains("runtime_probe") || caps.contains("local_http") {
+        return json!({
+            "type": "query-existing-runtime-probe",
+            "reason": "The AI already has runtime probe or local HTTP access; collect one focused snapshot at the suspected boundary without asking the user to manually assemble data.",
+            "estimatedUserSteps": 0,
+            "autoExecutableWithCurrentCapabilities": true,
+            "requiresAdditionalUserConfirmation": false,
+            "reversible": true
+        });
+    }
+    if caps.contains("read_logs") || caps.contains("trace_files") {
+        return json!({
+            "type": "collect-existing-logs-or-traces",
+            "reason": "The AI can already read logs/traces; use existing evidence before requesting code instrumentation.",
+            "estimatedUserSteps": 0,
+            "autoExecutableWithCurrentCapabilities": true,
+            "requiresAdditionalUserConfirmation": false,
+            "reversible": true
+        });
+    }
+    if caps.contains("run_commands") {
+        return json!({
+            "type": "run-existing-repro-or-focused-test",
+            "reason": "The AI can already run commands; prefer an existing reproducer or focused test to capture stdout/stderr and stack traces.",
+            "estimatedUserSteps": 0,
+            "autoExecutableWithCurrentCapabilities": true,
+            "requiresAdditionalUserConfirmation": false,
+            "reversible": true
+        });
+    }
+    if caps.contains("edit_code") {
+        return json!({
+            "type": "generate-temporary-probe",
+            "reason": "The AI can already edit code; add the smallest reversible log/snapshot probe at the suspected boundary, then remove it after collecting evidence.",
+            "estimatedUserSteps": 1,
+            "autoExecutableWithCurrentCapabilities": true,
+            "requiresAdditionalUserConfirmation": false,
+            "reversible": true
+        });
+    }
+    json!({
+        "type": "static-triage-only",
+        "reason": "No runtime/log/command/edit capability was declared; stay within static analysis and report the evidence gap.",
+        "estimatedUserSteps": 0,
+        "autoExecutableWithCurrentCapabilities": true,
+        "requiresAdditionalUserConfirmation": false,
+        "reversible": true
+    })
+}
+
+fn root_cause_probe_options(caps: &std::collections::BTreeSet<String>) -> Vec<Value> {
+    let mut options = Vec::new();
+    if caps.contains("edit_code") {
+        options.push(json!({
+            "type": "temporary-boundary-probe",
+            "usesCurrentCapability": "edit_code",
+            "description": "Insert a reversible debug dump at the first suspected function boundary.",
+            "writesSource": "only-if-AI-chooses-to-apply",
+            "cleanup": "remove probe after trace is captured"
+        }));
+    }
+    if caps.contains("local_http") || caps.contains("runtime_probe") {
+        options.push(json!({
+            "type": "runtime-snapshot-query",
+            "usesCurrentCapability": if caps.contains("runtime_probe") { "runtime_probe" } else { "local_http" },
+            "description": "Query an existing local debug endpoint or runtime probe for one focused state snapshot.",
+            "writesSource": false
+        }));
+    }
+    if caps.contains("read_logs") || caps.contains("trace_files") {
+        options.push(json!({
+            "type": "existing-evidence-window",
+            "usesCurrentCapability": if caps.contains("trace_files") { "trace_files" } else { "read_logs" },
+            "description": "Read the smallest time window around the reproduced failure from logs or trace files.",
+            "writesSource": false
+        }));
+    }
+    if caps.contains("run_commands") {
+        options.push(json!({
+            "type": "focused-repro-command",
+            "usesCurrentCapability": "run_commands",
+            "description": "Run an existing repro/test command and capture stdout/stderr only.",
+            "writesSource": false
+        }));
+    }
+    options
+}
+
+fn handle_root_cause_assistant(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let issue = params["issue"]
+        .as_str()
+        .or_else(|| params["observedError"].as_str())
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: issue"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+    let limit = params["limit"].as_u64().unwrap_or(8).clamp(1, 50) as usize;
+    let compact = params["compact"].as_bool().unwrap_or(true);
+    let changed_symbols = root_cause_string_array(params, "changedSymbols");
+    let changed_files = root_cause_string_array(params, "changedFiles");
+    let capabilities = root_cause_string_array(params, "availableCapabilities");
+    let caps = capability_set(&capabilities);
+    let runtime_evidence = params.get("runtimeEvidence").unwrap_or(&Value::Null);
+    let runtime_keys = runtime_evidence_keys(runtime_evidence);
+    let runtime_evidence_provided = !runtime_keys.is_empty();
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let keywords = root_cause_keywords(issue, &changed_symbols, &changed_files);
+    let static_matches = root_cause_static_matches(&gv, &keywords, limit);
+    let hypotheses = root_cause_hypotheses(issue, &static_matches, runtime_evidence_provided);
+    let next_best_action = root_cause_next_action(&caps, runtime_evidence_provided);
+    let probe_options = root_cause_probe_options(&caps);
+
+    let likely_fix_areas: Vec<Value> = static_matches
+        .iter()
+        .filter_map(|item| item["file"].as_str())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .take(limit)
+        .map(|file| json!(file))
+        .collect();
+
+    let evidence = if runtime_evidence_provided {
+        runtime_keys
+            .iter()
+            .map(|key| {
+                json!({
+                    "kind": key,
+                    "source": "runtimeEvidence",
+                    "interpretation": "user/agent supplied runtime evidence; map it back to the static suspect path"
+                })
+            })
+            .collect::<Vec<Value>>()
+    } else {
+        static_matches
+            .iter()
+            .take(3)
+            .map(|item| {
+                json!({
+                    "kind": "static-graph-match",
+                    "symbol": item["name"],
+                    "file": item["file"],
+                    "interpretation": "candidate code path that should be checked with runtime evidence"
+                })
+            })
+            .collect::<Vec<Value>>()
+    };
+
+    let mut missing_evidence = vec![
+        json!({
+            "name": "first-divergent-state",
+            "why": "Root cause needs the first point where observed state diverges from expected state.",
+            "preferredCollection": "existing logs/probe if available; otherwise one temporary boundary probe"
+        }),
+        json!({
+            "name": "boundary-input-output",
+            "why": "Function input/output at the suspected boundary separates calculation bugs from downstream rendering/consumer bugs.",
+            "preferredCollection": "single snapshot around the top matched symbol"
+        }),
+    ];
+    if !runtime_evidence_provided {
+        missing_evidence.push(json!({
+            "name": "runtime-evidence",
+            "why": "Static graph analysis can rank hypotheses but cannot prove runtime behavior.",
+            "preferredCollection": next_best_action["type"]
+        }));
+    }
+
+    let result_data = json!({
+        "schemaVersion": "rootCauseEvidence.v1",
+        "language": language,
+        "root": root,
+        "issue": issue,
+        "permissionSummary": {
+            "mode": "capability-aware",
+            "availableCapabilities": capabilities,
+            "usedWithoutReconfirmation": capabilities,
+            "requiresConfirmationOnlyFor": [
+                "capabilities not already granted by the AI client",
+                "external network or production access",
+                "secret/customer data access",
+                "persistent daemon or watcher installation",
+                "destructive operations"
+            ]
+        },
+        "runtimeEvidenceAssessment": {
+            "provided": runtime_evidence_provided,
+            "kinds": runtime_keys,
+            "independentlyVerifiedByCodeLattice": false
+        },
+        "confidence": if runtime_evidence_provided { "medium" } else { "low" },
+        "staticFindings": {
+            "keywords": keywords,
+            "matchedSymbols": static_matches,
+            "changedSymbols": changed_symbols,
+            "changedFiles": changed_files
+        },
+        "rootCauseHypotheses": hypotheses,
+        "missingEvidence": missing_evidence,
+        "nextBestAction": next_best_action,
+        "probeOptions": probe_options,
+        "evidence": evidence,
+        "likelyFixArea": likely_fix_areas,
+        "notRootCauseYet": [
+            "downstream symptoms without first-divergent-state evidence",
+            "static reachability alone",
+            "generic large-file or hotspot suspicion without reproduction evidence"
+        ],
+        "nextVerification": [
+            "capture the nextBestAction evidence once",
+            "map the first divergent state back to the matched code path",
+            "add a focused regression test after the root cause is confirmed"
+        ],
+        "privacyWarnings": [
+            "do not include tokens, credentials, customer data, or full source dumps in runtime evidence",
+            "prefer minimal local trace snippets or redacted snapshots"
+        ],
+        "cautions": [
+            "static hypotheses are not root-cause proof",
+            "runtime evidence is user/agent supplied and not independently verified by CodeLattice",
+            "probe options are advisory and should only be applied within the AI client's existing permissions"
+        ],
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "runtimeEvidenceProvided": runtime_evidence_provided,
+            "scriptsExecuted": false,
+            "projectCodeExecuted": false,
+            "sourceModified": false,
+            "heuristic": true
+        },
+        "compact": compact
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
+// ============================================================
+
+// ============================================================
 // v0.20: Entry Point & Reachability Map
 // ============================================================
 
@@ -12889,6 +13439,9 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_architecture_drift" => handle_architecture_drift(cache, &arguments),
                 "codelattice_ai_context_pack" => handle_ai_context_pack(cache, &arguments),
                 "codelattice_review_gate" => handle_review_gate(cache, &arguments),
+                "codelattice_root_cause_assistant" => {
+                    handle_root_cause_assistant(cache, &arguments)
+                }
                 "codelattice_reachability_map" => handle_reachability_map(cache, &arguments),
                 "codelattice_external_api_surface" => {
                     handle_external_api_surface(cache, &arguments)
@@ -17587,6 +18140,11 @@ fn workflow_static_cautions(mode: &str) -> Vec<Value> {
             "workspace graph impact is heuristic and may include config/script adjacency"
         ));
     }
+    if mode == "root_cause" {
+        cautions.push(json!(
+            "root-cause hypotheses need runtime or reproduction evidence before being treated as confirmed"
+        ));
+    }
     cautions
 }
 
@@ -17636,6 +18194,7 @@ fn execute_workflow_action(cache: &mut McpCache, tool: &str, args: &Value) -> Re
         "codelattice_workspace" => handle_workspace(cache, args),
         "codelattice_release_check" => handle_release_check(cache, args),
         "codelattice_cache" => handle_cache(cache, args),
+        "codelattice_root_cause_assistant" => handle_root_cause_assistant(cache, args),
         _ => Err(mcp_error(
             "unsupported_workflow_action",
             &format!("Workflow executor cannot execute action tool '{tool}'"),
@@ -17787,6 +18346,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             "workspace_review",
             "cross_project_impact",
             "explain_symbol",
+            "root_cause",
             "docs_tests_sync",
             "config_examples_sync",
             "public_api_change",
@@ -18043,6 +18603,43 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
                     next_actions.push(workflow_action("codelattice_symbol", args, why, true));
                 }
             }
+        }
+        "root_cause" => {
+            let issue = params["issue"]
+                .as_str()
+                .or_else(|| params["observedError"].as_str())
+                .unwrap_or("");
+            risk_level = if issue.is_empty() {
+                "unknown"
+            } else {
+                "medium"
+            };
+            situation = if issue.is_empty() {
+                "Root-cause analysis needs a bug report or observed symptom. I will ask for the smallest useful issue description."
+            } else {
+                "Use static graph evidence plus already-granted AI capabilities to form root-cause hypotheses and the next evidence action."
+            };
+            if issue.is_empty() {
+                missing_inputs.push(workflow_missing(
+                    "issue",
+                    "Root-cause evidence planning needs the observed symptom, error, or debugging question.",
+                    "Pass issue or observedError with the failing behavior.",
+                ));
+            }
+            let mut args = workflow_base_args(root, language, "root_cause");
+            args["issue"] = json!(issue);
+            if let Some(caps) = params.get("availableCapabilities") {
+                args["availableCapabilities"] = caps.clone();
+            }
+            if let Some(evidence) = params.get("runtimeEvidence") {
+                args["runtimeEvidence"] = evidence.clone();
+            }
+            next_actions.push(workflow_action(
+                "codelattice_root_cause_assistant",
+                args,
+                "Create hypotheses, evidence gaps, and the smallest next evidence action without re-asking for already granted permissions.",
+                true,
+            ));
         }
         "docs_tests_sync" => {
             risk_level = "medium";
