@@ -24,7 +24,7 @@ REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BIN_NAME="codelattice"
 COMPAT_BIN_NAME="gitnexus-rust-core-cli"
 WRAPPER="$REPO_ROOT/scripts/codelattice-mcp.sh"
-ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
 INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
 
@@ -230,6 +230,7 @@ if [[ "$ACTION" == "doctor" ]]; then
     BIN_PATH=""
     BIN_PROFILE="unknown"
     BEST_TOOL_COUNT="-1"
+    BEST_JS_SUPPORT="False"
     for candidate in \
         "$REPO_ROOT/target/release/$BIN_NAME" \
         "$REPO_ROOT/target/debug/$BIN_NAME" \
@@ -238,11 +239,13 @@ if [[ "$ACTION" == "doctor" ]]; then
         if [[ -x "$candidate" ]]; then
             CANDIDATE_INIT=$(echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor-profile","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$candidate" mcp 2>/dev/null | head -1)
             CANDIDATE_TOOLS=$(echo "$CANDIDATE_INIT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount',0))" 2>/dev/null || echo "0")
+            CANDIDATE_JS_SUPPORT=$(echo "$CANDIDATE_INIT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('javascriptSupport','False'))" 2>/dev/null || echo "False")
             if ! [[ "$CANDIDATE_TOOLS" =~ ^[0-9]+$ ]]; then
                 CANDIDATE_TOOLS="0"
             fi
-            if (( CANDIDATE_TOOLS > BEST_TOOL_COUNT )); then
+            if [[ "$BEST_JS_SUPPORT" != "True" && "$CANDIDATE_JS_SUPPORT" == "True" ]] || { [[ "$BEST_JS_SUPPORT" == "$CANDIDATE_JS_SUPPORT" ]] && (( CANDIDATE_TOOLS > BEST_TOOL_COUNT )); }; then
                 BEST_TOOL_COUNT="$CANDIDATE_TOOLS"
+                BEST_JS_SUPPORT="$CANDIDATE_JS_SUPPORT"
                 BIN_PATH="$candidate"
                 if [[ "$candidate" == *"/release/"* ]]; then
                     BIN_PROFILE="release"
@@ -288,11 +291,12 @@ if [[ "$ACTION" == "doctor" ]]; then
             CANGJIE_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cangjieSupport','unknown'))" 2>/dev/null || echo "unknown")
             ARKTS_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('arktsSupport','unknown'))" 2>/dev/null || echo "unknown")
             TYPESCRIPT_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('typescriptSupport','unknown'))" 2>/dev/null || echo "unknown")
+            JAVASCRIPT_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('javascriptSupport','unknown'))" 2>/dev/null || echo "unknown")
             C_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cSupport','unknown'))" 2>/dev/null || echo "unknown")
             CPP_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('cppSupport','unknown'))" 2>/dev/null || echo "unknown")
             PYTHON_SUPPORT=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('pythonSupport','unknown'))" 2>/dev/null || echo "unknown")
             TOOL_COUNT_INFO=$(echo "$INIT_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['result']['serverInfo'].get('toolCount','unknown'))" 2>/dev/null || echo "unknown")
-            echo "PASS: MCP handshake (server v$SERVER_VER, cangjie=$CANGJIE_SUPPORT, arkts=$ARKTS_SUPPORT, typescript=$TYPESCRIPT_SUPPORT, c=$C_SUPPORT, cpp=$CPP_SUPPORT, python=$PYTHON_SUPPORT, tools=$TOOL_COUNT_INFO)"
+            echo "PASS: MCP handshake (server v$SERVER_VER, cangjie=$CANGJIE_SUPPORT, arkts=$ARKTS_SUPPORT, typescript=$TYPESCRIPT_SUPPORT, c=$C_SUPPORT, cpp=$CPP_SUPPORT, python=$PYTHON_SUPPORT, javascript=$JAVASCRIPT_SUPPORT, tools=$TOOL_COUNT_INFO)"
             PASS=$((PASS + 1))
         else
             echo "FAIL: MCP handshake failed"
@@ -303,6 +307,7 @@ if [[ "$ACTION" == "doctor" ]]; then
             C_SUPPORT="unknown"
             CPP_SUPPORT="unknown"
             PYTHON_SUPPORT="unknown"
+            JAVASCRIPT_SUPPORT="unknown"
         fi
 
         # 4. tools/list count
@@ -329,17 +334,17 @@ if [[ "$ACTION" == "doctor" ]]; then
         fi
 
         # 6. Language adapter support check
-        if [[ "$CANGJIE_SUPPORT" == "True" && "$ARKTS_SUPPORT" == "True" && "$TYPESCRIPT_SUPPORT" == "True" && "$C_SUPPORT" == "True" && "$CPP_SUPPORT" == "True" && "$PYTHON_SUPPORT" == "True" ]]; then
+        if [[ "$CANGJIE_SUPPORT" == "True" && "$ARKTS_SUPPORT" == "True" && "$TYPESCRIPT_SUPPORT" == "True" && "$JAVASCRIPT_SUPPORT" == "True" && "$C_SUPPORT" == "True" && "$CPP_SUPPORT" == "True" && "$PYTHON_SUPPORT" == "True" ]]; then
             echo "PASS: all optional language adapters compiled"
             PASS=$((PASS + 1))
-        elif [[ "$CANGJIE_SUPPORT" == "False" || "$ARKTS_SUPPORT" == "False" || "$TYPESCRIPT_SUPPORT" == "False" || "$C_SUPPORT" == "False" || "$CPP_SUPPORT" == "False" || "$PYTHON_SUPPORT" == "False" ]]; then
+        elif [[ "$CANGJIE_SUPPORT" == "False" || "$ARKTS_SUPPORT" == "False" || "$TYPESCRIPT_SUPPORT" == "False" || "$JAVASCRIPT_SUPPORT" == "False" || "$C_SUPPORT" == "False" || "$CPP_SUPPORT" == "False" || "$PYTHON_SUPPORT" == "False" ]]; then
             echo "FAIL: missing optional language adapter support"
-            echo "      cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT c=$C_SUPPORT cpp=$CPP_SUPPORT python=$PYTHON_SUPPORT"
+            echo "      cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT javascript=$JAVASCRIPT_SUPPORT c=$C_SUPPORT cpp=$CPP_SUPPORT python=$PYTHON_SUPPORT"
             echo "      Fix: bash $0 --build"
             echo "      Or: cargo build --release -p gitnexus-rust-core-cli --features $ALL_LANGUAGE_FEATURES --bins"
             FAIL=$((FAIL + 1))
         else
-            echo "WARN: language support could not be fully detected (cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT c=$C_SUPPORT cpp=$CPP_SUPPORT python=$PYTHON_SUPPORT)"
+            echo "WARN: language support could not be fully detected (cangjie=$CANGJIE_SUPPORT arkts=$ARKTS_SUPPORT typescript=$TYPESCRIPT_SUPPORT javascript=$JAVASCRIPT_SUPPORT c=$C_SUPPORT cpp=$CPP_SUPPORT python=$PYTHON_SUPPORT)"
         fi
 
         # 7. Cangjie smoke test (only if support is true)

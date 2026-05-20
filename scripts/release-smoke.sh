@@ -107,6 +107,7 @@ RUST_FIXTURE="$RELEASE_DIR/fixtures/rust/portable-smoke"
 CANGJIE_FIXTURE="$RELEASE_DIR/fixtures/cangjie/portable-smoke"
 ARKTS_FIXTURE="$RELEASE_DIR/fixtures/arkts/portable-smoke"
 TYPESCRIPT_FIXTURE="$RELEASE_DIR/fixtures/typescript/portable-smoke"
+JAVASCRIPT_FIXTURE="$RELEASE_DIR/fixtures/javascript/portable-smoke"
 C_FIXTURE="$RELEASE_DIR/fixtures/c/portable-smoke"
 CPP_FIXTURE="$RELEASE_DIR/fixtures/cpp/portable-smoke"
 PYTHON_FIXTURE="$RELEASE_DIR/fixtures/python/portable-smoke"
@@ -160,13 +161,15 @@ s=d["result"]["serverInfo"]
 assert s.get("cangjieSupport") is True, "cangjieSupport must be true in release artifact"
 assert s.get("arktsSupport") is True, "arktsSupport must be true in release artifact"
 assert s.get("typescriptSupport") is True, "typescriptSupport must be true in release artifact"
+assert s.get("javascriptSupport") is True, "javascriptSupport must be true in release artifact"
 assert s.get("cSupport") is True, "cSupport must be true in release artifact"
 assert s.get("cppSupport") is True, "cppSupport must be true in release artifact"
 assert s.get("pythonSupport") is True, "pythonSupport must be true in release artifact"
-print("language support: OK cangjie={} arkts={} typescript={} c={} cpp={} python={}".format(
+print("language support: OK cangjie={} arkts={} typescript={} javascript={} c={} cpp={} python={}".format(
     s.get("cangjieSupport"),
     s.get("arktsSupport"),
     s.get("typescriptSupport"),
+    s.get("javascriptSupport"),
     s.get("cSupport"),
     s.get("cppSupport"),
     s.get("pythonSupport"),
@@ -250,6 +253,27 @@ print("typescript: OK symbols={} files={} edges={}".format(
     d["summary"]["symbolCount"],
     d["summary"]["sourceFileCount"],
     d["summary"]["edgeCount"],
+))'
+
+echo ""
+echo "--- JavaScript fixture analyze ---"
+if [[ ! -d "$JAVASCRIPT_FIXTURE" ]]; then
+    echo "ERROR: missing packaged JavaScript fixture: $JAVASCRIPT_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$JAVASCRIPT_FIXTURE" --language javascript --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "javascript"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+assert d["summary"].get("callEdgeCount", 0) > 0
+print("javascript: OK symbols={} files={} edges={} calls={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+    d["summary"].get("callEdgeCount", 0),
 ))'
 
 echo ""

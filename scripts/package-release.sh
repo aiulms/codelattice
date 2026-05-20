@@ -142,7 +142,7 @@ echo "Platform: $PLATFORM"
 echo "Dist:     $DIST_DIR"
 echo ""
 
-RELEASE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+RELEASE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 
 if [[ "$SKIP_BUILD" != "true" ]]; then
     echo "--- Build release binaries (all language adapters) ---"
@@ -176,6 +176,7 @@ mkdir -p \
     "$STAGE_DIR/fixtures/cangjie" \
     "$STAGE_DIR/fixtures/arkts" \
     "$STAGE_DIR/fixtures/typescript" \
+    "$STAGE_DIR/fixtures/javascript" \
     "$STAGE_DIR/fixtures/c" \
     "$STAGE_DIR/fixtures/cpp" \
     "$STAGE_DIR/fixtures/python"
@@ -216,6 +217,7 @@ cp -R "$REPO_ROOT/fixtures/rust/portable-smoke" "$STAGE_DIR/fixtures/rust/portab
 cp -R "$REPO_ROOT/fixtures/cangjie/portable-smoke" "$STAGE_DIR/fixtures/cangjie/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/arkts/portable-smoke" "$STAGE_DIR/fixtures/arkts/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/typescript/portable-smoke" "$STAGE_DIR/fixtures/typescript/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/javascript/portable-smoke" "$STAGE_DIR/fixtures/javascript/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/c/portable-smoke" "$STAGE_DIR/fixtures/c/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/cpp/portable-smoke" "$STAGE_DIR/fixtures/cpp/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/python/portable-smoke" "$STAGE_DIR/fixtures/python/portable-smoke"
@@ -285,6 +287,7 @@ print("  serverVersion: {}".format(s.get("version", "unknown")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport", "unknown")))
 print("  arktsSupport: {}".format(s.get("arktsSupport", "unknown")))
 print("  typescriptSupport: {}".format(s.get("typescriptSupport", "unknown")))
+print("  javascriptSupport: {}".format(s.get("javascriptSupport", "unknown")))
 print("  cSupport: {}".format(s.get("cSupport", "unknown")))
 print("  cppSupport: {}".format(s.get("cppSupport", "unknown")))
 print("  pythonSupport: {}".format(s.get("pythonSupport", "unknown")))
@@ -305,6 +308,7 @@ assert int(s.get("toolCount", 0)) >= 51
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
+assert s.get("javascriptSupport") is True
 assert s.get("cSupport") is True
 assert s.get("cppSupport") is True
 assert s.get("pythonSupport") is True
@@ -313,6 +317,7 @@ print("  toolCount: {}".format(s.get("toolCount")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
 print("  arktsSupport: {}".format(s.get("arktsSupport")))
 print("  typescriptSupport: {}".format(s.get("typescriptSupport")))
+print("  javascriptSupport: {}".format(s.get("javascriptSupport")))
 print("  cSupport: {}".format(s.get("cSupport")))
 print("  cppSupport: {}".format(s.get("cppSupport")))
 print("  pythonSupport: {}".format(s.get("pythonSupport")))'
@@ -345,6 +350,7 @@ SERVER_VERSION="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(json
 CANGJIE_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport", False)).lower())')"
 ARKTS_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport", False)).lower())')"
 TYPESCRIPT_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport", False)).lower())')"
+JAVASCRIPT_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("javascriptSupport", False)).lower())')"
 C_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cSupport", False)).lower())')"
 CPP_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cppSupport", False)).lower())')"
 PYTHON_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("pythonSupport", False)).lower())')"
@@ -372,6 +378,7 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "cangjieFixture": "fixtures/cangjie/portable-smoke",
     "arktsFixture": "fixtures/arkts/portable-smoke",
     "typescriptFixture": "fixtures/typescript/portable-smoke",
+    "javascriptFixture": "fixtures/javascript/portable-smoke",
     "cFixture": "fixtures/c/portable-smoke",
     "cppFixture": "fixtures/cpp/portable-smoke",
     "pythonFixture": "fixtures/python/portable-smoke"
@@ -385,6 +392,7 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "cangjieSupport": $CANGJIE_SUPPORT,
     "arktsSupport": $ARKTS_SUPPORT,
     "typescriptSupport": $TYPESCRIPT_SUPPORT,
+    "javascriptSupport": $JAVASCRIPT_SUPPORT,
     "cSupport": $C_SUPPORT,
     "cppSupport": $CPP_SUPPORT,
     "pythonSupport": $PYTHON_SUPPORT,

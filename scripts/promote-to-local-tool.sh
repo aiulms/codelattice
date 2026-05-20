@@ -18,7 +18,7 @@ REPO_ROOT="${CODELATTICE_ROOT:-$DEFAULT_REPO_ROOT}"
 REPO_ROOT="$(cd "$REPO_ROOT" && pwd)"
 BIN_NAME="codelattice"
 COMPAT_BIN_NAME="gitnexus-rust-core-cli"
-ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 DEFAULT_INSTALL_DIR="${HOME}/Desktop/CodeLattice-Tool"
 INSTALL_DIR="${CODELATTICE_TOOL_DIR:-$DEFAULT_INSTALL_DIR}"
 DRY_RUN=false
@@ -232,6 +232,7 @@ print("  serverVersion: {}".format(s.get("version", "unknown")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport", "unknown")))
 print("  arktsSupport: {}".format(s.get("arktsSupport", "unknown")))
 print("  typescriptSupport: {}".format(s.get("typescriptSupport", "unknown")))
+print("  javascriptSupport: {}".format(s.get("javascriptSupport", "unknown")))
 print("  cSupport: {}".format(s.get("cSupport", "unknown")))
 print("  cppSupport: {}".format(s.get("cppSupport", "unknown")))
 print("  pythonSupport: {}".format(s.get("pythonSupport", "unknown")))
@@ -253,6 +254,7 @@ assert int(s.get("toolCount", 0)) >= 51
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
+assert s.get("javascriptSupport") is True
 assert s.get("cSupport") is True
 assert s.get("cppSupport") is True
 assert s.get("pythonSupport") is True
@@ -262,6 +264,7 @@ print("  toolCount: {}".format(s.get("toolCount")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
 print("  arktsSupport: {}".format(s.get("arktsSupport")))
 print("  typescriptSupport: {}".format(s.get("typescriptSupport")))
+print("  javascriptSupport: {}".format(s.get("javascriptSupport")))
 print("  cSupport: {}".format(s.get("cSupport")))
 print("  cppSupport: {}".format(s.get("cppSupport")))
 print("  pythonSupport: {}".format(s.get("pythonSupport")))
@@ -309,6 +312,7 @@ for line in sys.stdin:
     CANGJIE_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport", False)).lower())' 2>/dev/null || echo false)"
     ARKTS_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport", False)).lower())' 2>/dev/null || echo false)"
     TYPESCRIPT_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport", False)).lower())' 2>/dev/null || echo false)"
+    JAVASCRIPT_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("javascriptSupport", False)).lower())' 2>/dev/null || echo false)"
     C_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cSupport", False)).lower())' 2>/dev/null || echo false)"
     CPP_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cppSupport", False)).lower())' 2>/dev/null || echo false)"
     PYTHON_SUPPORT="$(echo "$INIT_RESP" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("pythonSupport", False)).lower())' 2>/dev/null || echo false)"
@@ -339,6 +343,7 @@ for line in sys.stdin:
     "cangjieSupport": $CANGJIE_SUPPORT,
     "arktsSupport": $ARKTS_SUPPORT,
     "typescriptSupport": $TYPESCRIPT_SUPPORT,
+    "javascriptSupport": $JAVASCRIPT_SUPPORT,
     "cSupport": $C_SUPPORT,
     "cppSupport": $CPP_SUPPORT,
     "pythonSupport": $PYTHON_SUPPORT,

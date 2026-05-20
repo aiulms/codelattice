@@ -33,7 +33,7 @@ if [[ ! -f "$WRAPPER" ]]; then
 fi
 
 echo "0. build full MCP profile"
-if cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet >/dev/null 2>&1; then
+if cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet >/dev/null 2>&1; then
     echo "   → full-profile debug binary ready"
 else
     echo "   → build failed"

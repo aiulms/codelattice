@@ -20,10 +20,13 @@ if [[ ! -x "$SS" ]]; then
 fi
 echo "  [OK] script"
 CB=""
-for c in "$WS/target/release/codelattice" "$WS/target/debug/codelattice"; do [[ -x "$c" ]] && CB="$c" && break; done
+for c in "$WS/target/debug/codelattice" "$WS/target/release/codelattice"; do [[ -x "$c" ]] && CB="$c" && break; done
 [[ -z "$CB" ]] && echo "  [FAIL] no codelattice binary" && exit 1 || echo "  [OK] binary: $CB"
 command -v python3 >/dev/null 2>&1 || { echo "  [FAIL] no python3"; exit 1; }; echo "  [OK] python3"
 GP="$SD/codelattice-snapshot-gen.py"; [[ -f "$GP" ]] && echo "  [OK] gen.py" || { echo "  [FAIL] gen.py missing"; exit 1; }
+FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+echo "  [INFO] ensuring full-language debug binary"
+cargo build -p gitnexus-rust-core-cli --features "$FEATURES" --bin codelattice --quiet >/dev/null 2>&1 || { echo "  [FAIL] full-language build failed"; exit 1; }
 REQ=(rust typescript javascript c cpp python shell)
 SL=""
 for L in "${REQ[@]}"; do
@@ -33,7 +36,7 @@ for L in "${REQ[@]}"; do
   O="$TD/$L.json"
   [[ -d "$FX" ]] || { FA=$((FA+1)); P=$((P+1)); echo "  [SKIP] no fixture: $FX"; continue; }
   if bash "$SS" --root "$FX" --language "$L" --output "$O" --redact-root ${FLAG:---full} >/dev/null 2>&1; then
-    SZ=$(wc -c < "$O" | tr -d ' '); echo "  [OK] $L ($SZ bytes)"; SL="$SL $L:$O"
+    P=$((P+1)); SZ=$(wc -c < "$O" | tr -d ' '); echo "  [OK] $L ($SZ bytes)"; SL="$SL $L:$O"
   else
     FA=$((FA+1)); echo "  [FAIL] $L generate failed"
   fi
@@ -43,7 +46,7 @@ if [[ -z "$LF" || "$LF" == "arkts-auto" ]]; then
   FX="$WS/fixtures/arkts/portable-smoke"
   O="$TD/arkts_auto.json"
   if [[ -d "$FX" ]] && bash "$SS" --root "$FX" --language auto --output "$O" --redact-root ${FLAG:---full} >/dev/null 2>&1; then
-    SZ=$(wc -c < "$O" | tr -d ' '); echo "  [OK] arkts-auto ($SZ bytes)"; SL="$SL arkts_auto:$O"
+    P=$((P+1)); SZ=$(wc -c < "$O" | tr -d ' '); echo "  [OK] arkts-auto ($SZ bytes)"; SL="$SL arkts_auto:$O"
   else
     FA=$((FA+1)); echo "  [FAIL] arkts-auto generate failed"
   fi
@@ -100,4 +103,7 @@ python3 "$PYV"
 RC=$?
 T=$((P+FA))
 echo ""; echo "=== Gen: $P generated, $FA failed, $T total ==="
+if [[ "$FA" -gt 0 ]]; then
+  exit 1
+fi
 exit $RC

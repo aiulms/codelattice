@@ -25,7 +25,7 @@ DEFAULT_CONFIG = REPO_ROOT / "docs" / "real-project-corpus.json"
 DEFAULT_BASELINE = REPO_ROOT / "docs" / "real-project-corpus-baseline.json"
 ALL_LANGUAGE_FEATURES = (
     "tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,"
-    "tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+    "tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 )
 COUNT_METRICS = ("nodeCount", "edgeCount", "symbolCount", "sourceFileCount")
 QUALITY_RATE_METRICS = ("lowConfidenceCallRate", "lowConfidenceEdgeRate", "unknownConfidenceEdgeRate")

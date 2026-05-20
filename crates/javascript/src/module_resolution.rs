@@ -3,21 +3,13 @@
 //! Resolves relative imports and package.json-based entry points.
 //! External packages are marked as external (not indexed).
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 /// Extension variants to try when resolving modules.
-const JS_EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs", "ts", "tsx"];
+const JS_EXTENSIONS: &[&str] = &["js", "jsx", "mjs", "cjs"];
 
 /// Index file names to try.
-const INDEX_FILES: &[&str] = &[
-    "index.js",
-    "index.mjs",
-    "index.cjs",
-    "index.jsx",
-    "index.ts",
-    "index.tsx",
-];
+const INDEX_FILES: &[&str] = &["index.js", "index.mjs", "index.cjs", "index.jsx"];
 
 /// Resolution result kind.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -43,22 +35,12 @@ pub struct ResolvedJsImport {
 #[derive(Debug, Clone)]
 pub struct JsModuleResolver {
     root: PathBuf,
-    package_json_dir: Option<PathBuf>,
 }
 
 impl JsModuleResolver {
     /// Create a new resolver for the given project root.
     pub fn new(root: PathBuf) -> Self {
-        let package_json_dir = root.join("package.json");
-        let package_json_dir = if package_json_dir.is_file() {
-            Some(root.clone())
-        } else {
-            None
-        };
-        Self {
-            root,
-            package_json_dir,
-        }
+        Self { root }
     }
 
     /// Resolve an import specifier from a given source file.
@@ -120,7 +102,7 @@ impl JsModuleResolver {
         }
     }
 
-    fn resolve_external_package(&self, specifier: &str) -> ResolvedJsImport {
+    fn resolve_external_package(&self, _specifier: &str) -> ResolvedJsImport {
         ResolvedJsImport {
             kind: JsResolutionKind::External,
             target_file: None,

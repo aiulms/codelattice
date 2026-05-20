@@ -14,7 +14,7 @@ WORKSPACE_FIXTURE_ABS="$(cd "$(dirname "$0")/.." && pwd)/fixtures/workspace"
 
 # Build the binary first with all optional language adapters for full profile coverage.
 echo "--- Building ---"
-cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet 2>/dev/null
+cargo build -p gitnexus-rust-core-cli --features tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python --bins --quiet 2>/dev/null
 BIN="$(cd "$(dirname "$0")/.." && pwd)/target/debug/codelattice"
 export CODELATTICE_MCP_TOOLSET=full
 

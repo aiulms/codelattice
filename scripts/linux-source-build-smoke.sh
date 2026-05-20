@@ -45,7 +45,7 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --all-language-features)
-            FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
+            FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
             shift
             ;;
         --target-dir)

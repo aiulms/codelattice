@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 use crate::extractors::imports::JsImport;
-use crate::extractors::references::JsReference;
+use crate::extractors::references::{JsReference, JsReferenceKind};
 use crate::extractors::symbol::JsSymbol;
 use crate::module_resolution::JsModuleResolver;
 use crate::project::JsProject;
@@ -119,6 +119,9 @@ pub fn build_js_graph(
 
     let mut file_ids: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     let mut canonical_to_file_id: BTreeMap<PathBuf, String> = BTreeMap::new();
+    let mut symbol_ids_by_name: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut symbol_ids_by_file_name: BTreeMap<(PathBuf, String), Vec<String>> = BTreeMap::new();
+    let mut symbol_ranges_by_file: BTreeMap<PathBuf, Vec<(usize, usize, String)>> = BTreeMap::new();
 
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
@@ -171,6 +174,18 @@ pub fn build_js_graph(
                         "isDefaultExport": sym.is_default_export,
                     }),
                 });
+                symbol_ids_by_name
+                    .entry(sym.name.clone())
+                    .or_default()
+                    .push(sym_id.clone());
+                symbol_ids_by_file_name
+                    .entry((file.clone(), sym.name.clone()))
+                    .or_default()
+                    .push(sym_id.clone());
+                symbol_ranges_by_file
+                    .entry(file.clone())
+                    .or_default()
+                    .push((sym.start_line, sym.end_line, sym_id.clone()));
                 edges.push(JsGraphEdge {
                     kind: JsEdgeKind::Defines,
                     source: Some(file_id.clone()),
@@ -179,10 +194,19 @@ pub fn build_js_graph(
                 });
 
                 if sym.is_export {
+                    let Some(package_id) = &pkg_id else {
+                        diagnostics.push(serde_json::json!({
+                            "kind": "javascript-export-without-package",
+                            "severity": "info",
+                            "source": sym_id,
+                            "reason": "package-manifest-missing",
+                        }));
+                        continue;
+                    };
                     edges.push(JsGraphEdge {
                         kind: JsEdgeKind::Exports,
                         source: Some(sym_id),
-                        target: pkg_id.clone().unwrap_or_default(),
+                        target: package_id.clone(),
                         properties: None,
                     });
                 }
@@ -190,6 +214,8 @@ pub fn build_js_graph(
         }
     }
 
+    let mut emitted_call_edges: std::collections::BTreeSet<(String, String, usize)> =
+        std::collections::BTreeSet::new();
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
         if let Some(imps) = imports.get(file) {
@@ -257,10 +283,20 @@ pub fn build_js_graph(
                     }
                     crate::extractors::imports::JsImportKind::CommonJsModuleExports
                     | crate::extractors::imports::JsImportKind::CommonJsExportsAccess => {
+                        let Some(package_id) = &pkg_id else {
+                            diagnostics.push(serde_json::json!({
+                                "kind": "javascript-commonjs-export-without-package",
+                                "severity": "info",
+                                "source": file_id,
+                                "line": imp.line,
+                                "reason": "package-manifest-missing",
+                            }));
+                            continue;
+                        };
                         edges.push(JsGraphEdge {
                             kind: JsEdgeKind::Exports,
                             source: Some(file_id.clone()),
-                            target: pkg_id.clone().unwrap_or_default(),
+                            target: package_id.clone(),
                             properties: Some(serde_json::json!({
                                 "line": imp.line,
                                 "kind": "commonjs",
@@ -320,6 +356,63 @@ pub fn build_js_graph(
                 }
             }
         }
+
+        if let Some(refs) = references.get(file) {
+            // JS Phase A 不做类型推断；CALLS 只用同文件/项目唯一名称做保守启发式连边。
+            for reference in refs {
+                if reference.kind != JsReferenceKind::Call {
+                    continue;
+                }
+                let Some(source_id) =
+                    source_symbol_for_call(file, reference.line, &symbol_ranges_by_file)
+                else {
+                    continue;
+                };
+                let target = resolve_call_target(
+                    file,
+                    &reference.name,
+                    &symbol_ids_by_file_name,
+                    &symbol_ids_by_name,
+                );
+                match target {
+                    CallTargetResolution::Resolved {
+                        target_id,
+                        confidence,
+                        reason,
+                    } => {
+                        if emitted_call_edges.insert((
+                            source_id.clone(),
+                            target_id.clone(),
+                            reference.line,
+                        )) {
+                            edges.push(JsGraphEdge {
+                                kind: JsEdgeKind::Calls,
+                                source: Some(source_id),
+                                target: target_id,
+                                properties: Some(serde_json::json!({
+                                    "line": reference.line,
+                                    "callee": reference.name,
+                                    "confidence": confidence,
+                                    "reason": reason,
+                                })),
+                            });
+                        }
+                    }
+                    CallTargetResolution::Ambiguous { candidates } => {
+                        diagnostics.push(serde_json::json!({
+                            "kind": "javascript-call-ambiguous",
+                            "severity": "info",
+                            "source": file_id,
+                            "callee": reference.name,
+                            "line": reference.line,
+                            "candidateCount": candidates,
+                            "reason": "multiple-symbols-match-callee",
+                        }));
+                    }
+                    CallTargetResolution::Unresolved => {}
+                }
+            }
+        }
     }
 
     JsGraphOutput {
@@ -327,4 +420,80 @@ pub fn build_js_graph(
         edges,
         diagnostics,
     }
+}
+
+enum CallTargetResolution {
+    Resolved {
+        target_id: String,
+        confidence: f64,
+        reason: &'static str,
+    },
+    Ambiguous {
+        candidates: usize,
+    },
+    Unresolved,
+}
+
+fn source_symbol_for_call(
+    file: &PathBuf,
+    line: usize,
+    symbol_ranges_by_file: &BTreeMap<PathBuf, Vec<(usize, usize, String)>>,
+) -> Option<String> {
+    symbol_ranges_by_file.get(file).and_then(|ranges| {
+        ranges
+            .iter()
+            .filter(|(start, end, _)| *start <= line && line <= *end)
+            .min_by_key(|(start, end, _)| end.saturating_sub(*start))
+            .map(|(_, _, id)| id.clone())
+    })
+}
+
+fn resolve_call_target(
+    file: &PathBuf,
+    callee: &str,
+    symbol_ids_by_file_name: &BTreeMap<(PathBuf, String), Vec<String>>,
+    symbol_ids_by_name: &BTreeMap<String, Vec<String>>,
+) -> CallTargetResolution {
+    let mut candidate_names = vec![callee.to_string()];
+    if let Some(last) = callee.rsplit('.').next() {
+        if last != callee {
+            candidate_names.push(last.to_string());
+        }
+    }
+
+    for name in &candidate_names {
+        if let Some(ids) = symbol_ids_by_file_name.get(&(file.clone(), name.clone())) {
+            if ids.len() == 1 {
+                return CallTargetResolution::Resolved {
+                    target_id: ids[0].clone(),
+                    confidence: 0.85,
+                    reason: "same-file-callee-name",
+                };
+            }
+            if !ids.is_empty() {
+                return CallTargetResolution::Ambiguous {
+                    candidates: ids.len(),
+                };
+            }
+        }
+    }
+
+    for name in &candidate_names {
+        if let Some(ids) = symbol_ids_by_name.get(name) {
+            if ids.len() == 1 {
+                return CallTargetResolution::Resolved {
+                    target_id: ids[0].clone(),
+                    confidence: 0.55,
+                    reason: "project-unique-callee-name",
+                };
+            }
+            if !ids.is_empty() {
+                return CallTargetResolution::Ambiguous {
+                    candidates: ids.len(),
+                };
+            }
+        }
+    }
+
+    CallTargetResolution::Unresolved
 }

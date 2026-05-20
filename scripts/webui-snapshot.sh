@@ -80,7 +80,7 @@ if [[ "$OUTPUT" != "-" ]] && [[ ! -d "$(dirname "$OUTPUT")" ]]; then echo "Error
 # ── Discover codelattice binary ──────────────────────────────────────────────
 
 CODELATTICE=""
-for candidate in "${WORKSPACE_ROOT}/target/release/codelattice" "${WORKSPACE_ROOT}/target/debug/codelattice" "$(command -v codelattice 2>/dev/null)"; do
+for candidate in "${CODELATTICE_BIN:-}" "${WORKSPACE_ROOT}/target/debug/codelattice" "${WORKSPACE_ROOT}/target/release/codelattice" "$(command -v codelattice 2>/dev/null)"; do
   if [[ -n "${candidate:-}" && -x "${candidate}" ]]; then CODELATTICE="$candidate"; break; fi
 done
 if [[ -z "$CODELATTICE" ]]; then
@@ -89,7 +89,7 @@ fi
 
 # ── Validate language ────────────────────────────────────────────────────────
 
-VALID_LANGUAGES=("rust" "cangjie" "arkts" "typescript" "c" "cpp" "python" "shell" "auto")
+VALID_LANGUAGES=("rust" "cangjie" "arkts" "typescript" "javascript" "c" "cpp" "python" "shell" "auto")
 LANG_VALID=0; for vl in "${VALID_LANGUAGES[@]}"; do [[ "$LANGUAGE" == "$vl" ]] && LANG_VALID=1 && break; done
 if [[ $LANG_VALID -eq 0 ]]; then echo "Error: unsupported language: $LANGUAGE" >&2; exit 1; fi
 
