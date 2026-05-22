@@ -13,7 +13,7 @@ runtime is a Rust CLI plus shell wrappers.
 |------|--------|
 | Linux source build | Expected compatible, source-build path documented |
 | openEuler source build | Expected compatible, not yet certified by a native openEuler smoke |
-| Published binary artifacts | macOS Apple Silicon only for `v0.14.0-beta.1` |
+| Published binary artifacts | macOS Apple Silicon only for `v0.16.0-beta.1` |
 | HarmonyOS NEXT source projects | Supported through ArkTS, TypeScript, and Cangjie analysis |
 | Running CodeLattice on HarmonyOS NEXT | Not certified |
 
@@ -119,7 +119,7 @@ bash scripts/release-smoke.sh --tarball dist/codelattice-*-linux-*.tar.gz
 
 ## Known Caveats
 
-- `v0.14.0-beta.1` publishes a macOS Apple Silicon tarball. Linux users should
+- `v0.16.0-beta.1` publishes a macOS Apple Silicon tarball. Linux users should
   use source build until Linux release artifacts are published.
 - Shell tools can differ between GNU/Linux and macOS. The project scripts avoid
   relying on macOS-only behavior where possible, but openEuler still needs a

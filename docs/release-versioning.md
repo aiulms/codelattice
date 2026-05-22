@@ -104,7 +104,7 @@ For a version bump:
 Current product status: **External Beta / daily-use candidate**.
 
 - Local production trial has passed for Rust and Cangjie projects.
-- ArkTS, TypeScript, C, C++, and Python are included in the full-language beta artifact and release smoke.
+- ArkTS, TypeScript, JavaScript, C, C++, Python, and Shell are included in the full-language beta artifact and release smoke.
 - This is not a GA release. Breaking changes to CLI output, MCP contract, or quality gates may occur in minor versions during beta.
 - Users should pin to a specific version and verify after upgrades.
 
@@ -116,9 +116,11 @@ Current product status: **External Beta / daily-use candidate**.
 | Cangjie / 仓颉 | `tree-sitter-cangjie` | **Stable** | Symbol extraction, import/call reference, diagnostics runner, quality gates |
 | ArkTS / HarmonyOS | `tree-sitter-arkts` | **Production Trial** | Component/buildMethod extraction, import edges, no @Builder/@Extend, struct→ERROR workaround |
 | TypeScript | `tree-sitter-typescript` | **Beta Hardened** | Symbol extraction, imports, calls, tsconfig path alias, workspace package imports |
+| JavaScript | `tree-sitter-javascript` | **Phase A Hardened** | JS/JSX/MJS/CJS symbol extraction, ESM/CommonJS imports, package entry points, framework hints |
 | C | `tree-sitter-c` | **Phase A Hardened** | Symbol extraction, include edges, compile_commands include path resolution |
 | C++ | `tree-sitter-cpp` | **Phase A Hardened** | Symbol extraction, include edges, calls, compile_commands include path resolution |
 | Python | `tree-sitter-python` | **Phase A Hardened** | Symbol extraction, calls, package-aware import resolution, simple re-exports |
+| Shell | built-in static scanner | **Phase A Hardened** | Shell script files, functions, source edges, command calls, environment variables, risky-script diagnostics |
 
 Status definitions:
 - **Stable**: Used in production, tested with real projects, quality gates pass.

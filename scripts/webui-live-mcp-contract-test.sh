@@ -19,8 +19,9 @@ B="http://127.0.0.1:$PORT"; FIX="$WS/fixtures/rust/portable-smoke"
 # Status schema
 curl -s "$B/api/mcp/status"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'];dd=d['data'];assert dd['staticOnly']==True;assert 'available' in dd;assert 'toolCount' in dd;assert 'lastError' in dd" 2>/dev/null && pass "status schema"||fail "status schema"
 
-# Tools
-curl -s "$B/api/mcp/tools"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'];tools=d['data'];assert len(tools)>=37,f'tools={len(tools)}'" 2>/dev/null && pass "tools>=37"||fail "tools>=37"
+# Tools: runner exposes the AI-friendly default facade surface unless a job
+# explicitly opts into a low-level workflow internally.
+curl -s "$B/api/mcp/tools"|python3 -c "import json,sys;d=json.load(sys.stdin);assert d['success'];tools=d['data'];names={t.get('name') for t in tools};assert len(tools)==6,f'tools={len(tools)}';assert 'codelattice_workflow' in names;assert 'codelattice_project' in names" 2>/dev/null && pass "tools default facade surface"||fail "tools default facade surface"
 
 # Create + poll job
 JOB=$(curl -s -X POST "$B/api/mcp/jobs" -H "Content-Type: application/json" -d '{"root":"'"$FIX"'","language":"rust","workflow":"project_overview"}')

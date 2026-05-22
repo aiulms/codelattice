@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-22（MCP Six-Tool AI Surface）
+最后更新：2026-05-22（CodeLattice 0.16.0-beta.1 Release Refresh）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**CodeLattice 0.16.0-beta.1 Release Refresh（2026-05-22，已完成）：**
+- 📝 [2026-05-22-release-0.16.0-beta.1-preflight.md](2026-05-22-release-0.16.0-beta.1-preflight.md) — 刷新 beta 发行版到 `0.16.0-beta.1`，补齐 JavaScript/Shell、6-tool AI 默认 MCP、WebUI/workspace/native governance 的发布包与文档。
+- ✅ [2026-05-22-release-0.16.0-beta.1-closure.md](2026-05-22-release-0.16.0-beta.1-closure.md) — closure：发布元数据、MCP/WebUI/workspace/release smoke 全量通过；native detect-changes critical 风险已解释为发布脚本/文档横切影响。
 
 **MCP Six-Tool AI Surface（2026-05-22，已完成）：**
 - 📝 [2026-05-22-mcp-six-tool-ai-surface-preflight.md](2026-05-22-mcp-six-tool-ai-surface-preflight.md) — 默认对外 MCP 收敛到 6 个 AI 入口工具，隐藏工具能力通过 facade modes 保留，补充 AI 使用手册并同步 CodeLattice-Tool。

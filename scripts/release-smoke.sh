@@ -111,6 +111,7 @@ JAVASCRIPT_FIXTURE="$RELEASE_DIR/fixtures/javascript/portable-smoke"
 C_FIXTURE="$RELEASE_DIR/fixtures/c/portable-smoke"
 CPP_FIXTURE="$RELEASE_DIR/fixtures/cpp/portable-smoke"
 PYTHON_FIXTURE="$RELEASE_DIR/fixtures/python/portable-smoke"
+SHELL_FIXTURE="$RELEASE_DIR/fixtures/shell/portable-smoke"
 
 for path in "$BIN" "$COMPAT_BIN" "$WRAPPER" "$MANIFEST" "$CHANGELOG" "$RELEASE_POLICY" "$RELEASE_INSTALL"; do
     if [[ ! -e "$path" ]]; then
@@ -165,7 +166,8 @@ assert s.get("javascriptSupport") is True, "javascriptSupport must be true in re
 assert s.get("cSupport") is True, "cSupport must be true in release artifact"
 assert s.get("cppSupport") is True, "cppSupport must be true in release artifact"
 assert s.get("pythonSupport") is True, "pythonSupport must be true in release artifact"
-print("language support: OK cangjie={} arkts={} typescript={} javascript={} c={} cpp={} python={}".format(
+assert s.get("shellSupport") is True, "shellSupport must be true in release artifact"
+print("language support: OK cangjie={} arkts={} typescript={} javascript={} c={} cpp={} python={} shell={}".format(
     s.get("cangjieSupport"),
     s.get("arktsSupport"),
     s.get("typescriptSupport"),
@@ -173,6 +175,7 @@ print("language support: OK cangjie={} arkts={} typescript={} javascript={} c={}
     s.get("cSupport"),
     s.get("cppSupport"),
     s.get("pythonSupport"),
+    s.get("shellSupport"),
 ))'
 
 echo ""
@@ -328,6 +331,25 @@ assert d["summary"]["symbolCount"] > 0
 assert d["summary"]["sourceFileCount"] > 0
 assert d["summary"]["edgeCount"] > 0
 print("python: OK symbols={} files={} edges={}".format(
+    d["summary"]["symbolCount"],
+    d["summary"]["sourceFileCount"],
+    d["summary"]["edgeCount"],
+))'
+
+echo ""
+echo "--- Shell fixture analyze ---"
+if [[ ! -d "$SHELL_FIXTURE" ]]; then
+    echo "ERROR: missing packaged Shell fixture: $SHELL_FIXTURE" >&2
+    exit 1
+fi
+"$BIN" analyze --root "$SHELL_FIXTURE" --language shell --format json \
+    | python3 -c 'import json,sys
+d=json.load(sys.stdin)
+assert d["language"] == "shell"
+assert d["summary"]["symbolCount"] > 0
+assert d["summary"]["sourceFileCount"] > 0
+assert d["summary"]["edgeCount"] > 0
+print("shell: OK symbols={} files={} edges={}".format(
     d["summary"]["symbolCount"],
     d["summary"]["sourceFileCount"],
     d["summary"]["edgeCount"],

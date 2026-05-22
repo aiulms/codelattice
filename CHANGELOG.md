@@ -6,6 +6,10 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [0.16.0-beta.1] - 2026-05-22
+
 ### Added
 
 - **MCP Tool Surface Consolidation Pack**: consolidates 42 individual MCP tools into 8 facade-first entry points (`codelattice_project`, `codelattice_symbol`, `codelattice_workspace`, `codelattice_change_review`, `codelattice_release_check`, `codelattice_cleanup`, `codelattice_root_cause_assistant`, `codelattice_workflow`). Full toolset (49 tools) available in `full` mode; default `ai` mode exposes only facade entries to reduce AI tool-selection noise. All 10/10 facade smoke tests pass.
@@ -21,6 +25,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - **Permission-aware Root Cause Evidence Pack**: adds machine-readable MCP permission metadata to every `tools/list` entry via standard `annotations` plus `x-codelattice-permissionProfile`, so high-permission AI sessions can distinguish read-only static analysis from cache writes, `/tmp` artifact writes, and smoke/debug tools without asking users to restate permissions. Adds `codelattice_root_cause_assistant`, an advisory read-only tool for evidence-guided root-cause analysis. It accepts a bug report, current AI capabilities, optional runtime evidence, changed files/symbols, and reproduction context, then returns static hypotheses, missing evidence, the smallest next evidence action, optional probe ideas, likely fix areas, non-root-cause cautions, and verification advice. It does not execute project code, call local HTTP, operate browsers, edit source, or install probes. `codelattice_workflow mode=root_cause` now routes to this assistant. Full MCP toolset count is now 49.
 
 ### Fixed
+
+- **Release artifact refresh**: packages current JavaScript and Shell support into the published beta artifact, updates release metadata and smoke scripts to the eight-language fixture matrix, and refreshes GitCode-facing install/homepage docs for `v0.16.0-beta.1`.
 
 - **MCP Six-Tool AI Surface Pack**: reduces the default external `ai` MCP toolset to exactly 6 entry tools: `codelattice_workflow`, `codelattice_project`, `codelattice_symbol`, `codelattice_change_review`, `codelattice_workspace`, and `codelattice_cache`. Lower-level and specialist capabilities remain available through `CODELATTICE_MCP_TOOLSET=core/full`, while hidden cleanup, release, root-cause, and AI-context paths are routed through visible facade modes. Adds `docs/guides/ai-mcp-tool-guide.md` so AI agents know which entry tool and mode to choose.
 

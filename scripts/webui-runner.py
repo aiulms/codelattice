@@ -2310,7 +2310,7 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
                 snapshot["automationGraph"] = {"status":"not_collected","reason":"mcp_unavailable","staticOnly":True}
                 return snapshot
             ag = self._call_mcp_tool("codelattice_automation_graph",
-                {"root":root,"language":lang,"compact":False,"limit":80}, timeout=60)
+                {"root":root,"language":lang,"compact":False,"limit":80}, timeout=60, toolset="full")
             if redact_root and isinstance(ag, dict):
                 raw = json.dumps(ag, ensure_ascii=False)
                 raw = raw.replace(root, "<project-root>")
@@ -2460,10 +2460,13 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         except: pass
         return []
 
-    def _call_mcp_tool(self, tool, params, timeout=120):
+    def _call_mcp_tool(self, tool, params, timeout=120, toolset=None):
         bin = self._find_mcp_bin()
         if not bin: raise Exception("MCP binary not found")
-        p = subprocess.Popen([bin,"mcp"], stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        env = os.environ.copy()
+        if toolset:
+            env["CODELATTICE_MCP_TOOLSET"] = toolset
+        p = subprocess.Popen([bin,"mcp"], stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True,env=env)
         p.stdin.write('{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"runner","version":"1.0"}}}\n')
         p.stdin.flush()
         _t0=time.time()
@@ -2517,7 +2520,8 @@ class Workbench(http.server.SimpleHTTPRequestHandler):
         if not job: return
         job["status"]="running"; job["startedAt"]=self._now(); self._save_jobs(lst)
         try:
-            result=self._call_mcp_tool(tool,params)
+            toolset = "full" if workflow == "automation_graph" else None
+            result=self._call_mcp_tool(tool,params,toolset=toolset)
             job["status"]="succeeded"; job["finishedAt"]=self._now()
             # redact if needed
             if rd and isinstance(result,dict):

@@ -3,7 +3,7 @@
 
 set -euo pipefail
 
-DEFAULT_VERSION="v0.14.0-beta.1"
+DEFAULT_VERSION="v0.16.0-beta.1"
 DEFAULT_BASE_URL="https://gitcode.com/aiulms/codelattice/releases/download"
 
 VERSION="${CODELATTICE_VERSION:-$DEFAULT_VERSION}"
@@ -22,7 +22,7 @@ Usage:
   bash scripts/install-release.sh [options]
 
 Options:
-  --version <tag>       Release tag or version (default: v0.14.0-beta.1)
+  --version <tag>       Release tag or version (default: v0.16.0-beta.1)
   --platform <name>     Platform artifact tag (default: uname-derived)
   --install-dir <path>  Install directory (default: ~/.local/share/codelattice-tool)
   --base-url <url>      Release download base URL
@@ -180,7 +180,7 @@ download_file() {
     local out="$2"
     if ! curl -fL --retry 3 --connect-timeout 20 -o "$out" "$url"; then
         echo "ERROR: failed to download: $url" >&2
-        echo "This release may not provide platform '$PLATFORM'. Current v0.14.0-beta.1 ships darwin-arm64; other platforms can clone and build from source." >&2
+        echo "This release may not provide platform '$PLATFORM'. Current v0.16.0-beta.1 ships darwin-arm64; other platforms can clone and build from source." >&2
         exit 1
     fi
 }

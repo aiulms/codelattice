@@ -14,14 +14,14 @@ CodeLattice runs locally and does not upload source code.
 
 ## Install from GitCode Release
 
-The current published GitCode Release is `v0.14.0-beta.1` and targets macOS Apple Silicon (`darwin-arm64`):
+The current published GitCode Release is `v0.16.0-beta.1` and targets macOS Apple Silicon (`darwin-arm64`):
 
 ```bash
 export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.14.0-beta.1 \
+  --version v0.16.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
@@ -120,7 +120,7 @@ This command only prints templates. It does not write Codex, opencode, Claude, o
 ```bash
 bash scripts/check-release-metadata.sh
 bash scripts/package-release.sh
-bash scripts/release-smoke.sh --tarball dist/codelattice-0.15.0-beta.1-darwin-arm64.tar.gz
+bash scripts/release-smoke.sh --tarball dist/codelattice-0.16.0-beta.1-darwin-arm64.tar.gz
 ```
 
 The tarball contains:
@@ -131,7 +131,7 @@ The tarball contains:
 - `manifest.json`
 - `CHANGELOG.md`
 - selected docs
-- portable Rust/Cangjie/ArkTS/TypeScript/C/C++/Python fixtures for smoke
+- portable Rust/Cangjie/ArkTS/TypeScript/JavaScript/C/C++/Python/Shell fixtures for smoke
 
 See [release-versioning.md](release-versioning.md) and [release-packaging.md](release-packaging.md) for release rules and artifact details.
 

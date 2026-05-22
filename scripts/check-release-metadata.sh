@@ -61,6 +61,7 @@ require_file "scripts/install-release.sh" "release installer script"
 require_grep '^## \[Unreleased\]' "CHANGELOG.md" "CHANGELOG has an Unreleased section"
 if [[ -n "$VERSION" ]]; then
     require_grep "^## \\[$VERSION\\] - [0-9]{4}-[0-9]{2}-[0-9]{2}$" "CHANGELOG.md" "CHANGELOG has a dated section for $VERSION"
+    require_file "docs/release/$VERSION-notes.md" "release notes for $VERSION"
 fi
 
 require_grep 'workspace\.package\.version' "docs/release-versioning.md" "policy names the Cargo workspace version source"
@@ -73,6 +74,7 @@ require_grep 'install-release\.sh' "docs/release-packaging.md" "release packagin
 require_grep 'CHANGELOG\.md' "scripts/package-release.sh" "package-release includes CHANGELOG.md"
 require_grep 'docs/release-install\.md' "scripts/package-release.sh" "package-release includes release-install.md"
 require_grep 'docs/release-versioning\.md' "scripts/package-release.sh" "package-release includes release-versioning.md"
+require_grep 'docs/release/\$VERSION-notes\.md' "scripts/package-release.sh" "package-release includes current release notes"
 require_grep 'CHANGELOG\.md' "scripts/release-smoke.sh" "release smoke checks CHANGELOG.md"
 require_grep 'docs/release-install\.md' "scripts/release-smoke.sh" "release smoke checks release-install.md"
 require_grep 'docs/release-versioning\.md' "scripts/release-smoke.sh" "release smoke checks release-versioning.md"

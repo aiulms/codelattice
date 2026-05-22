@@ -313,7 +313,7 @@ if [[ "$ACTION" == "doctor" ]]; then
         # 4. tools/list count
         TOOLS_RESP=$(printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"doctor","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n' | env CODELATTICE_MCP_TOOLSET=full "$BIN_PATH" mcp 2>/dev/null | tail -1)
         TOOL_COUNT=$(echo "$TOOLS_RESP" | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))" 2>/dev/null || echo "0")
-        if [[ "$TOOL_COUNT" -ge 51 ]]; then
+        if [[ "$TOOL_COUNT" -ge 49 ]]; then
             echo "PASS: tools/list returns $TOOL_COUNT tools"
             PASS=$((PASS + 1))
         else

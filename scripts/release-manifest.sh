@@ -116,9 +116,11 @@ if [[ -n "$BINARY" ]]; then
     CANGJIE_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cangjieSupport",False)).lower())' 2>/dev/null || echo "false")"
     ARKTS_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("arktsSupport",False)).lower())' 2>/dev/null || echo "false")"
     TYPESCRIPT_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("typescriptSupport",False)).lower())' 2>/dev/null || echo "false")"
+    JAVASCRIPT_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("javascriptSupport",False)).lower())' 2>/dev/null || echo "false")"
     C_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cSupport",False)).lower())' 2>/dev/null || echo "false")"
     CPP_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cppSupport",False)).lower())' 2>/dev/null || echo "false")"
     PYTHON_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("pythonSupport",False)).lower())' 2>/dev/null || echo "false")"
+    SHELL_SUPPORT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("shellSupport",False)).lower())' 2>/dev/null || echo "false")"
     TOOL_COUNT="$(echo "$_PROFILE" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))' 2>/dev/null || echo "0")"
     BINARY_SHA256="$(shasum -a 256 "$BINARY" | awk '{print $1}')"
     if [[ "$CANGJIE_SUPPORT" == "true" ]]; then
@@ -129,6 +131,9 @@ if [[ -n "$BINARY" ]]; then
     fi
     if [[ "$TYPESCRIPT_SUPPORT" == "true" ]]; then
         FEATURES_ENABLED="$FEATURES_ENABLED,tree-sitter-typescript"
+    fi
+    if [[ "$JAVASCRIPT_SUPPORT" == "true" ]]; then
+        FEATURES_ENABLED="$FEATURES_ENABLED,tree-sitter-javascript"
     fi
     if [[ "$C_SUPPORT" == "true" ]]; then
         FEATURES_ENABLED="$FEATURES_ENABLED,tree-sitter-c"
@@ -144,9 +149,11 @@ else
     CANGJIE_SUPPORT="unknown"
     ARKTS_SUPPORT="unknown"
     TYPESCRIPT_SUPPORT="unknown"
+    JAVASCRIPT_SUPPORT="unknown"
     C_SUPPORT="unknown"
     CPP_SUPPORT="unknown"
     PYTHON_SUPPORT="unknown"
+    SHELL_SUPPORT="unknown"
     TOOL_COUNT="unknown"
     BINARY_SHA256="unknown"
 fi
@@ -175,18 +182,22 @@ MANIFEST=$(cat <<JSON
     "cangjieSupport": $CANGJIE_SUPPORT,
     "arktsSupport": $ARKTS_SUPPORT,
     "typescriptSupport": $TYPESCRIPT_SUPPORT,
+    "javascriptSupport": $JAVASCRIPT_SUPPORT,
     "cSupport": $C_SUPPORT,
     "cppSupport": $CPP_SUPPORT,
-    "pythonSupport": $PYTHON_SUPPORT
+    "pythonSupport": $PYTHON_SUPPORT,
+    "shellSupport": $SHELL_SUPPORT
   },
   "supportedLanguages": {
     "rust": "stable",
     "cangjie": "stable",
     "arkts": "production-trial",
-    "typescript": "phase-a",
+    "typescript": "beta-hardened",
+    "javascript": "phase-a",
     "c": "phase-a",
     "cpp": "phase-a",
-    "python": "phase-a"
+    "python": "phase-a",
+    "shell": "phase-a"
   },
   "knownLimitationsDoc": "CHANGELOG.md",
   "releaseStatus": "external-beta"

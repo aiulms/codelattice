@@ -40,7 +40,7 @@ The package includes:
   CHANGELOG.md
   docs/getting-started.md, release docs, and selected MCP architecture docs when present
   docs/platforms/linux-openeuler.md and scripts/linux-source-build-smoke.sh when present
-  portable Rust/Cangjie/ArkTS/TypeScript/C/C++/Python fixtures for release smoke
+  portable Rust/Cangjie/ArkTS/TypeScript/JavaScript/C/C++/Python/Shell fixtures for release smoke
 HELP
 }
 
@@ -179,7 +179,8 @@ mkdir -p \
     "$STAGE_DIR/fixtures/javascript" \
     "$STAGE_DIR/fixtures/c" \
     "$STAGE_DIR/fixtures/cpp" \
-    "$STAGE_DIR/fixtures/python"
+    "$STAGE_DIR/fixtures/python" \
+    "$STAGE_DIR/fixtures/shell"
 cp "$BIN_CODELATTICE" "$STAGE_DIR/bin/codelattice"
 cp "$BIN_COMPAT" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
 chmod +x "$STAGE_DIR/bin/codelattice" "$STAGE_DIR/bin/gitnexus-rust-core-cli"
@@ -194,6 +195,7 @@ for doc in \
     docs/release-install.md \
     docs/release-versioning.md \
     docs/release-packaging.md \
+    "docs/release/$VERSION-notes.md" \
     docs/release/upgrade.md \
     docs/release/smoke-matrix.md \
     docs/platforms/linux-openeuler.md \
@@ -221,6 +223,7 @@ cp -R "$REPO_ROOT/fixtures/javascript/portable-smoke" "$STAGE_DIR/fixtures/javas
 cp -R "$REPO_ROOT/fixtures/c/portable-smoke" "$STAGE_DIR/fixtures/c/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/cpp/portable-smoke" "$STAGE_DIR/fixtures/cpp/portable-smoke"
 cp -R "$REPO_ROOT/fixtures/python/portable-smoke" "$STAGE_DIR/fixtures/python/portable-smoke"
+cp -R "$REPO_ROOT/fixtures/shell/portable-smoke" "$STAGE_DIR/fixtures/shell/portable-smoke"
 
 cat > "$STAGE_DIR/codelattice-mcp.sh" <<'WRAPPER'
 #!/usr/bin/env bash
@@ -291,6 +294,7 @@ print("  javascriptSupport: {}".format(s.get("javascriptSupport", "unknown")))
 print("  cSupport: {}".format(s.get("cSupport", "unknown")))
 print("  cppSupport: {}".format(s.get("cppSupport", "unknown")))
 print("  pythonSupport: {}".format(s.get("pythonSupport", "unknown")))
+print("  shellSupport: {}".format(s.get("shellSupport", "unknown")))
 print("  toolCount: {}".format(s.get("toolCount", "unknown")))'
     exit 0
 fi
@@ -312,6 +316,7 @@ assert s.get("javascriptSupport") is True
 assert s.get("cSupport") is True
 assert s.get("cppSupport") is True
 assert s.get("pythonSupport") is True
+assert s.get("shellSupport") is True
 print("  serverVersion: {}".format(s.get("version")))
 print("  toolCount: {}".format(s.get("toolCount")))
 print("  cangjieSupport: {}".format(s.get("cangjieSupport")))
@@ -320,7 +325,8 @@ print("  typescriptSupport: {}".format(s.get("typescriptSupport")))
 print("  javascriptSupport: {}".format(s.get("javascriptSupport")))
 print("  cSupport: {}".format(s.get("cSupport")))
 print("  cppSupport: {}".format(s.get("cppSupport")))
-print("  pythonSupport: {}".format(s.get("pythonSupport")))'
+print("  pythonSupport: {}".format(s.get("pythonSupport")))
+print("  shellSupport: {}".format(s.get("shellSupport")))'
     echo "Self-test passed."
     exit 0
 fi
@@ -354,6 +360,7 @@ JAVASCRIPT_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(
 C_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cSupport", False)).lower())')"
 CPP_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("cppSupport", False)).lower())')"
 PYTHON_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("pythonSupport", False)).lower())')"
+SHELL_SUPPORT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(str(json.load(sys.stdin)["result"]["serverInfo"].get("shellSupport", False)).lower())')"
 TOOL_COUNT="$(echo "$PROFILE_JSON" | python3 -c 'import json,sys; print(json.load(sys.stdin)["result"]["serverInfo"].get("toolCount",0))')"
 
 cat > "$STAGE_DIR/manifest.json" <<JSON
@@ -381,7 +388,8 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "javascriptFixture": "fixtures/javascript/portable-smoke",
     "cFixture": "fixtures/c/portable-smoke",
     "cppFixture": "fixtures/cpp/portable-smoke",
-    "pythonFixture": "fixtures/python/portable-smoke"
+    "pythonFixture": "fixtures/python/portable-smoke",
+    "shellFixture": "fixtures/shell/portable-smoke"
   },
   "checksums": {
     "binarySha256": "$BINARY_SHA256",
@@ -396,6 +404,7 @@ cat > "$STAGE_DIR/manifest.json" <<JSON
     "cSupport": $C_SUPPORT,
     "cppSupport": $CPP_SUPPORT,
     "pythonSupport": $PYTHON_SUPPORT,
+    "shellSupport": $SHELL_SUPPORT,
     "toolCount": $TOOL_COUNT
   }
 }
