@@ -577,10 +577,10 @@ fn mcp_default_toolset_is_ai_friendly() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert!(
-        tools.len() <= 12,
-        "default AI toolset should be small, got {} tools",
-        tools.len()
+    assert_eq!(
+        tools.len(),
+        6,
+        "default AI toolset should expose exactly six facade entry tools"
     );
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
@@ -588,10 +588,7 @@ fn mcp_default_toolset_is_ai_friendly() {
         "codelattice_project",
         "codelattice_symbol",
         "codelattice_change_review",
-        "codelattice_root_cause_assistant",
-        "codelattice_cleanup",
         "codelattice_workspace",
-        "codelattice_release_check",
         "codelattice_cache",
         "codelattice_workflow",
     ] {
@@ -601,11 +598,22 @@ fn mcp_default_toolset_is_ai_friendly() {
         !names.contains(&"codelattice_project_overview"),
         "default AI toolset should hide low-level project_overview"
     );
+    for hidden in [
+        "codelattice_cleanup",
+        "codelattice_release_check",
+        "codelattice_root_cause_assistant",
+        "codelattice_ai_context_pack",
+    ] {
+        assert!(
+            !names.contains(&hidden),
+            "default AI toolset should hide {hidden}"
+        );
+    }
 }
 
 #[test]
 fn mcp_root_cause_assistant_static_mode_returns_evidence_plan() {
-    let mut session = McpSession::start_default_toolset();
+    let mut session = McpSession::start_with_toolset("full");
     session.initialize();
     session.send_notification_initialized();
 
@@ -659,7 +667,7 @@ fn mcp_root_cause_assistant_static_mode_returns_evidence_plan() {
 
 #[test]
 fn mcp_root_cause_assistant_runtime_evidence_raises_confidence() {
-    let mut session = McpSession::start_default_toolset();
+    let mut session = McpSession::start_with_toolset("full");
     session.initialize();
     session.send_notification_initialized();
 
@@ -728,8 +736,9 @@ fn mcp_workflow_root_cause_routes_to_root_cause_assistant() {
     let next = data["nextActions"].as_array().expect("nextActions array");
     assert!(
         next.iter()
-            .any(|a| a["tool"].as_str() == Some("codelattice_root_cause_assistant")),
-        "root_cause workflow should route to root cause assistant: {data:?}"
+            .any(|a| a["tool"].as_str() == Some("codelattice_change_review")
+                && a["arguments"]["mode"].as_str() == Some("root_cause")),
+        "root_cause workflow should route through the visible change_review facade: {data:?}"
     );
 }
 
@@ -752,7 +761,7 @@ fn mcp_core_toolset_keeps_essential_low_level_tools_but_hides_diagnostics() {
         .as_array()
         .expect("tools should be array");
     assert!(
-        tools.len() > 12 && tools.len() < 51,
+        tools.len() > 6 && tools.len() < 50,
         "core toolset should sit between AI and full, got {} tools",
         tools.len()
     );

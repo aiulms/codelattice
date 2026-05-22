@@ -234,8 +234,9 @@ Observed error/log/screenshot summary: <optional>
 Reproduction steps: <optional>
 Available AI capabilities: <read_code/read_git_diff/run_commands/read_logs/browser/local_http/edit_code/runtime_probe/trace_files>
 
-Call codelattice_workflow with mode=root_cause first. If it returns a
-codelattice_root_cause_assistant nextAction, run that action. If you already
+Call codelattice_workflow with mode=root_cause first. It should route through
+codelattice_change_review mode=root_cause in the default six-tool MCP surface.
+If you already
 have permission to read logs, run commands, inspect local HTTP/debug endpoints,
 operate a browser, or edit temporary probes, use the returned nextBestAction
 instead of asking me to manually assemble evidence.

@@ -25,10 +25,10 @@ if [ ! -f "$BIN" ]; then
     cargo build --bin codelattice 2>&1 | tail -3
 fi
 
-# ── Test 1: default AI toolset is small ──────────────────────────────
-echo "── Test 1: default AI toolset (small) ──"
+# ── Test 1: default AI toolset is six facade entries ────────────────
+echo "── Test 1: default AI toolset (six entries) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
-[ "$T" -le 12 ] && pass "default-ai-toolset-small ($T tools)" || fail "default-ai-toolset-small (got $T)"
+[ "$T" = "6" ] && pass "default-ai-toolset-six ($T tools)" || fail "default-ai-toolset-six (got $T)"
 
 # ── Test 2: full toolset has 49 unique tools ─────────────────────────
 echo "── Test 2: full toolset (49 unique tools) ──"
@@ -38,7 +38,7 @@ T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | env CODE
 # ── Test 3: core toolset sits between AI and full ────────────────────
 echo "── Test 3: core toolset (middle) ──"
 T=$(echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | env CODELATTICE_MCP_TOOLSET=core "$BIN" mcp 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(len(d['result']['tools']))")
-[ "$T" -gt 12 ] && [ "$T" -lt 49 ] && pass "core-toolset-middle ($T tools)" || fail "core-toolset-middle (got $T)"
+[ "$T" -gt 6 ] && [ "$T" -lt 49 ] && pass "core-toolset-middle ($T tools)" || fail "core-toolset-middle (got $T)"
 
 # ── Test 4: codelattice_cache explain ────────────────────────────────
 echo "── Test 4: codelattice_cache explain ──"

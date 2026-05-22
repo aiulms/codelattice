@@ -5,13 +5,13 @@ Status: Completed
 
 ## Summary
 
-CodeLattice MCP now defaults to an AI-friendly facade-first toolset instead of exposing the full 50-tool surface to every client.
+CodeLattice MCP now defaults to an AI-friendly facade-first toolset instead of exposing the full diagnostic surface to every client.
 
 Profiles:
 
-- `ai` (default): 9 tools, focused on facade workflows and AI context.
+- `ai` (default): 6 tools, focused on intent-oriented facade entries.
 - `core`: 30 tools, facades plus common low-level tools for advanced agents.
-- `full`: 50 tools, complete regression/debug surface.
+- `full`: complete regression/debug surface.
 
 The full tool surface is preserved. The change only adjusts the default exposure and adds clearer guidance when a hidden tool is called.
 
@@ -19,7 +19,7 @@ The full tool surface is preserved. The change only adjusts the default exposure
 
 - Unset or unknown `CODELATTICE_MCP_TOOLSET` maps to `ai`.
 - `CODELATTICE_MCP_TOOLSET=core` exposes facade tools plus common query/review/cache/workspace tools.
-- `CODELATTICE_MCP_TOOLSET=full` exposes all 50 tools.
+- `CODELATTICE_MCP_TOOLSET=full` exposes the complete low-level tool surface.
 - `initialize.serverInfo` includes:
   - `toolset`
   - visible `toolCount`
@@ -52,7 +52,7 @@ Low-level tools remain available by setting `CODELATTICE_MCP_TOOLSET=core` or `C
 - `bash scripts/codelattice-mcp-facade-smoke.sh`: PASS, 11/11
 - `bash scripts/mcp-real-client-dry-run.sh`: PASS, 11/11
 - `bash scripts/codelattice-mcp-workspace-smoke.sh`: PASS, 14/14
-- `bash scripts/codelattice-mcp.sh --self-test`: PASS, 50 full tools
+- `bash scripts/codelattice-mcp.sh --self-test`: PASS
 - `bash scripts/codelattice-precommit-check.sh`: PASS; native detect-changes reported `critical` because the change touches central MCP dispatch, release/promote/smoke scripts, and workspace graph impact fans out to supported projects plus fixture-only unsupported C# boundaries. This was reviewed as expected static-governance sensitivity rather than a failing gate.
 
 ## Script Compatibility

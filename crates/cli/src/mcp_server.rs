@@ -8765,7 +8765,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root" },
-                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "full"], "default": "overview", "description": "Analysis mode" },
+                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "ai_context", "full"], "default": "overview", "description": "Analysis mode. Use ai_context when preparing context for an AI coding task." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false }
                     },
@@ -8793,12 +8793,12 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_change_review",
-                "description": "Change review: changed symbols, impact preview, production readiness, breaking changes, consistency, native workspace-aware review. Use before/after editing.",
+                "description": "Change review and safety facade: changed symbols, impact preview, production readiness, breaking changes, consistency, cleanup review, release checks, root-cause evidence, and native workspace-aware review. Use before/after editing.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root" },
-                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review"], "default": "impact", "description": "Review mode. native_review orchestrates changed_symbols + production_assist; for full workspace intelligence (fileOwners, crossProjectRisk, affectedProjects), use CLI detect-changes." },
+                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review", "safe_cleanup_review", "dead_code", "reachability", "external_api", "framework_entries", "release_check", "docs_tests", "config_examples", "root_cause"], "default": "impact", "description": "Review mode. native_review orchestrates changed_symbols + production_assist; safe_cleanup_review replaces the hidden cleanup facade in default AI mode; release_check/docs_tests/config_examples replace the hidden release facade; root_cause routes to evidence planning." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "symbol": { "type": "string", "description": "Target symbol (for impact mode)" },
@@ -9020,16 +9020,12 @@ impl McpToolset {
 }
 
 const AI_TOOLSET_TOOLS: &[&str] = &[
+    "codelattice_workflow",
     "codelattice_project",
     "codelattice_symbol",
     "codelattice_change_review",
-    "codelattice_root_cause_assistant",
-    "codelattice_cleanup",
     "codelattice_workspace",
-    "codelattice_release_check",
     "codelattice_cache",
-    "codelattice_workflow",
-    "codelattice_ai_context_pack",
 ];
 
 const CORE_EXTRA_TOOLS: &[&str] = &[
@@ -9089,6 +9085,15 @@ fn tool_exists(name: &str) -> bool {
 fn filter_tools_by_toolset(tools_val: &mut Value, toolset: McpToolset) {
     if let Some(tools) = tools_val.get_mut("tools").and_then(|t| t.as_array_mut()) {
         tools.retain(|t| is_tool_allowed_in_toolset(t["name"].as_str().unwrap_or(""), toolset));
+        if toolset == McpToolset::Ai {
+            tools.sort_by_key(|t| {
+                let name = t["name"].as_str().unwrap_or("");
+                AI_TOOLSET_TOOLS
+                    .iter()
+                    .position(|candidate| *candidate == name)
+                    .unwrap_or(usize::MAX)
+            });
+        }
     }
 }
 
@@ -9105,7 +9110,7 @@ fn tool_count_for_toolset(toolset: McpToolset) -> usize {
 fn hidden_toolset_error(tool_name: &str, toolset: McpToolset) -> Value {
     let (entry, upgrade) = match toolset {
         McpToolset::Ai => (
-            "Use facade tools such as codelattice_project, codelattice_symbol, codelattice_change_review, codelattice_workspace, or codelattice_workflow.",
+            "Use the six default facade tools: codelattice_workflow, codelattice_project, codelattice_symbol, codelattice_change_review, codelattice_workspace, or codelattice_cache.",
             "Set CODELATTICE_MCP_TOOLSET=core for common low-level tools, or CODELATTICE_MCP_TOOLSET=full for all tools.",
         ),
         McpToolset::Core => (
@@ -13362,8 +13367,10 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                         "recommendedEntryTools": [
                             "codelattice_workflow",
                             "codelattice_project",
+                            "codelattice_symbol",
                             "codelattice_change_review",
-                            "codelattice_workspace"
+                            "codelattice_workspace",
+                            "codelattice_cache"
                         ]
                     }
                 }),
@@ -17435,7 +17442,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     let language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
-        &["overview", "quality", "insights", "full"],
+        &["overview", "quality", "insights", "ai_context", "full"],
         "codelattice_project",
     )?;
     if language == "auto" {
@@ -17460,6 +17467,10 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             let r = handle_project_insights(cache, params)?;
             (unwrap_tool_result(&r), vec!["codelattice_project_insights"])
         }
+        "ai_context" => {
+            let r = handle_ai_context_pack(cache, params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_ai_context_pack"])
+        }
         "full" => {
             let mut merged = json!({});
             let mut errors = Vec::new();
@@ -17471,6 +17482,9 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             });
             safe_insert_tool(&mut merged, &mut errors, "insights", "insights", || {
                 Ok(unwrap_tool_result(&handle_project_insights(cache, params)?))
+            });
+            safe_insert_tool(&mut merged, &mut errors, "aiContext", "ai_context", || {
+                Ok(unwrap_tool_result(&handle_ai_context_pack(cache, params)?))
             });
             if let Some(obj) = merged.as_object_mut() {
                 if !errors.is_empty() {
@@ -17489,6 +17503,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                     "codelattice_project_overview",
                     "codelattice_quality",
                     "codelattice_project_insights",
+                    "codelattice_ai_context_pack",
                 ],
                 compact,
             )));
@@ -17590,6 +17605,15 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "consistency",
             "full_review",
             "native_review",
+            "safe_cleanup_review",
+            "dead_code",
+            "reachability",
+            "external_api",
+            "framework_entries",
+            "release_check",
+            "docs_tests",
+            "config_examples",
+            "root_cause",
         ],
         "codelattice_change_review",
     )?;
@@ -17621,6 +17645,41 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_consistency_review"],
+            )
+        }
+        "safe_cleanup_review"
+        | "dead_code"
+        | "reachability"
+        | "external_api"
+        | "framework_entries" => {
+            let mut cleanup_params = params.clone();
+            cleanup_params["mode"] = json!(mode);
+            let r = handle_cleanup(cache, &cleanup_params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_cleanup"])
+        }
+        "release_check" => {
+            let mut release_params = params.clone();
+            release_params["mode"] = json!("full");
+            let r = handle_release_check(cache, &release_params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_release_check"])
+        }
+        "docs_tests" => {
+            let mut release_params = params.clone();
+            release_params["mode"] = json!("docs_tests");
+            let r = handle_release_check(cache, &release_params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_release_check"])
+        }
+        "config_examples" => {
+            let mut release_params = params.clone();
+            release_params["mode"] = json!("config");
+            let r = handle_release_check(cache, &release_params)?;
+            (unwrap_tool_result(&r), vec!["codelattice_release_check"])
+        }
+        "root_cause" => {
+            let r = handle_root_cause_assistant(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_root_cause_assistant"],
             )
         }
         "full_review" => {
@@ -18434,14 +18493,14 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
                 true,
             ));
             next_actions.push(workflow_action(
-                "codelattice_release_check",
+                "codelattice_change_review",
                 workflow_base_args(root, language, "docs_tests"),
                 "Check whether docs and tests appear stale or missing.",
                 false,
             ));
             next_actions.push(workflow_action(
-                "codelattice_release_check",
-                workflow_base_args(root, language, "config"),
+                "codelattice_change_review",
+                workflow_base_args(root, language, "config_examples"),
                 "Check configs/examples for stale references after the edit.",
                 false,
             ));
@@ -18450,7 +18509,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             risk_level = "high";
             situation = "Deletion requires conservative review: dead-code signals are investigation leads, not deletion proof.";
             next_actions.push(workflow_action(
-                "codelattice_cleanup",
+                "codelattice_change_review",
                 workflow_base_args(root, language, "safe_cleanup_review"),
                 "Combine dead code, reachability, public API, and framework entry signals.",
                 true,
@@ -18476,8 +18535,8 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             risk_level = "medium";
             situation = "Release check should combine quality, compatibility, docs/tests, and config/example consistency.";
             next_actions.push(workflow_action(
-                "codelattice_release_check",
-                workflow_base_args(root, language, "full"),
+                "codelattice_change_review",
+                workflow_base_args(root, language, "release_check"),
                 "Run the consolidated release review.",
                 true,
             ));
@@ -18498,7 +18557,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
                 true,
             ));
             next_actions.push(workflow_action(
-                "codelattice_cleanup",
+                "codelattice_change_review",
                 workflow_base_args(root, language, "safe_cleanup_review"),
                 "Review cleanup candidates without treating them as safe-to-delete proof.",
                 true,
@@ -18620,7 +18679,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
                 args["runtimeEvidence"] = evidence.clone();
             }
             next_actions.push(workflow_action(
-                "codelattice_root_cause_assistant",
+                "codelattice_change_review",
                 args,
                 "Create hypotheses, evidence gaps, and the smallest next evidence action without re-asking for already granted permissions.",
                 true,
@@ -18630,7 +18689,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             risk_level = "medium";
             situation = "Check whether documentation and tests appear synchronized with the current change.";
             next_actions.push(workflow_action(
-                "codelattice_release_check",
+                "codelattice_change_review",
                 workflow_base_args(root, language, "docs_tests"),
                 "Review stale/missing docs and related tests.",
                 true,
@@ -18640,8 +18699,8 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             risk_level = "medium";
             situation = "Check whether configs and examples still point at existing files/symbols.";
             next_actions.push(workflow_action(
-                "codelattice_release_check",
-                workflow_base_args(root, language, "config"),
+                "codelattice_change_review",
+                workflow_base_args(root, language, "config_examples"),
                 "Review package/tsconfig/examples/CI/Docker references.",
                 true,
             ));
@@ -18650,7 +18709,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             risk_level = "high";
             situation = "Public API changes need compatibility and release-note review.";
             next_actions.push(workflow_action(
-                "codelattice_cleanup",
+                "codelattice_change_review",
                 workflow_base_args(root, language, "external_api"),
                 "Identify public/external API surface signals.",
                 true,
@@ -18676,7 +18735,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             risk_level = "high";
             situation = "Framework routes/callbacks are often called implicitly, so static reachability can under-report them.";
             next_actions.push(workflow_action(
-                "codelattice_cleanup",
+                "codelattice_change_review",
                 workflow_base_args(root, language, "framework_entries"),
                 "Find route/callback/lifecycle entry hints.",
                 true,

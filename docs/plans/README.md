@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-20（CodeLattice Native Governance Migration）
+最后更新：2026-05-22（MCP Six-Tool AI Surface）
 
 ## 用途
 
@@ -19,6 +19,10 @@
 
 ## 当前状态总结
 
+**MCP Six-Tool AI Surface（2026-05-22，已完成）：**
+- 📝 [2026-05-22-mcp-six-tool-ai-surface-preflight.md](2026-05-22-mcp-six-tool-ai-surface-preflight.md) — 默认对外 MCP 收敛到 6 个 AI 入口工具，隐藏工具能力通过 facade modes 保留，补充 AI 使用手册并同步 CodeLattice-Tool。
+- ✅ [2026-05-22-mcp-six-tool-ai-surface-closure.md](2026-05-22-mcp-six-tool-ai-surface-closure.md) — closure：默认 `ai` toolset 6 tools、`core` 25、`full` 49，workflow nextActions 不再指向隐藏工具，CodeLattice-Tool 已同步验证。
+
 **Permission-aware Root Cause Evidence Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-permission-aware-root-cause-preflight.md](2026-05-20-permission-aware-root-cause-preflight.md) — 为 MCP 工具增加权限元数据，并新增证据驱动根因分析助手，让 AI 在已有权限内自动规划最小取证动作。
 - ✅ [2026-05-20-permission-aware-root-cause-closure.md](2026-05-20-permission-aware-root-cause-closure.md) — closure：49-tool MCP 权限元数据、root cause evidence assistant、full-toolset doctor 修复、验证与 critical-risk 解释。
@@ -36,8 +40,8 @@
 - ✅ [2026-05-20-ai-tool-experience-closure.md](2026-05-20-ai-tool-experience-closure.md) — closure：before_edit / cross_project_impact / explain_symbol 等意图路由、缺参引导和 smoke/regression 记录。
 
 **MCP AI Toolset Default Pack（2026-05-20，已完成）：**
-- 📝 [2026-05-20-mcp-ai-toolset-default-preflight.md](2026-05-20-mcp-ai-toolset-default-preflight.md) — MCP 默认工具面从 full 50-tool 调整为 AI facade-first 入口，`core/full` 作为显式扩展模式保留，降低 AI 工具选择负担。
-- ✅ [2026-05-20-mcp-ai-toolset-default-closure.md](2026-05-20-mcp-ai-toolset-default-closure.md) — closure：默认 AI 9 tools、core 30、full 50，隐藏工具结构化错误、脚本 full-compat 更新和验证记录。
+- 📝 [2026-05-20-mcp-ai-toolset-default-preflight.md](2026-05-20-mcp-ai-toolset-default-preflight.md) — MCP 默认工具面从 full 工具面调整为 AI facade-first 入口，`core/full` 作为显式扩展模式保留，降低 AI 工具选择负担。
+- ✅ [2026-05-20-mcp-ai-toolset-default-closure.md](2026-05-20-mcp-ai-toolset-default-closure.md) — closure：默认 AI toolset、core/full 显式扩展模式、隐藏工具结构化错误、脚本 full-compat 更新和验证记录。
 
 **Workspace Impact Precision Pack（2026-05-20，已完成）：**
 - 📝 [2026-05-20-workspace-impact-precision-preflight.md](2026-05-20-workspace-impact-precision-preflight.md) — native `detect-changes` workspace impact 降噪：fixture/test/adjacency-only 影响摘要化、`--include-fixtures` / `--strict-workspace` 深度审计开关、分组 followups。

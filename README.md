@@ -8,7 +8,7 @@ CodeLattice 是一个 **本地代码智能引擎**：面向大型、遗留、复
 
 一句话概括：**先把代码地图画出来，再让 AI 下手。**
 
-CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 在 `full` 模式保留 51 个 MCP 工具；默认 `ai` 模式只暴露少量 facade-first 入口，避免 AI 被底层工具选择题淹没。能力已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查、AI 工作流预设、工作区图谱、跨项目影响分析、证据驱动根因分析，以及面向增量分析的底层调度器基础。
+CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、C、C++、Python、Shell 八条本地图谱分析路径，并提供 CLI 与 MCP sidecar 两种使用方式。当前 master 在 `full` 模式保留 49 个 MCP 工具；默认 `ai` 模式只暴露 6 个 facade-first 入口，避免 AI 被底层工具选择题淹没。能力已经从“图谱查询”扩展到死代码候选、影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置/自动化一致性审查、AI 工作流预设、工作区图谱、跨项目影响分析、证据驱动根因分析，以及面向增量分析的底层调度器基础。
 
 **当前状态：外部 Beta / daily-use candidate（当前 master 为 `v0.15.0-beta.1` 后续增强分支，最新已发布 GitCode Release 为 `v0.15.0-beta.1`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
@@ -380,49 +380,29 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
 
-常用 MCP 工具：
+默认 MCP 工具面：
 
-| 工具 | 说明 |
-|------|------|
-| `codelattice_project_overview` | 项目级概览，适合 AI 快速建模 |
-| `codelattice_symbol_context` | 符号上下文、调用关系摘要和源码片段 |
-| `codelattice_calls_from` | 查询某个符号向外调用了什么 |
-| `codelattice_calls_to` | 查询哪些符号调用目标符号 |
-| `codelattice_impact_preview` | 只读影响预览，返回风险级别、风险理由、影响指标、置信度摘要和 review focus |
-| `codelattice_changed_symbols` | 从 git diff 自动识别变更涉及的符号 |
-| `codelattice_production_assist` | 一站式摘要：quality gates、unresolved calls、diagnostics、change risk、review checklist |
-| `codelattice_project_insights` | 大项目洞察地图：入口点、热点文件/符号、风险区域、低置信度聚集区、先读/先审建议 |
-| `codelattice_review_plan` | AI 工程审查清单：4 模式（onboarding/before_edit/after_edit/release_check），将洞察、影响分析、变更符号、文档关联转化为可操作的行动计划 |
-| `codelattice_dead_code_candidates` | 静态死代码候选识别：找出无调用/不可达的符号和文件，返回置信度、风险提示和验证建议（不是删除证明） |
-| `codelattice_impact_analysis` | 变更影响分析：直接/间接调用方、依赖路径、入口可达性、风险评分、先读/先审建议 |
-| `codelattice_risk_hotspots` | 风险热点检测：高 fan-in/fan-out 符号和文件、跨模块依赖、公开 API 暴露 |
-| `codelattice_architecture_drift` | 架构偏移检测：循环依赖候选、跨层调用、反向依赖、过度耦合模块 |
-| `codelattice_ai_context_pack` | AI 编辑上下文：关键词匹配符号/文件、调用链、依赖说明、建议阅读顺序 |
-| `codelattice_review_gate` | 变更审查门：基于 git diff 或文件列表，输出触碰符号、影响面、风险等级、审查清单 |
-| `codelattice_root_cause_assistant` | 证据驱动根因分析：从 bug 描述生成静态假设、缺失证据、最小取证/探针建议、可能修复区域和验证路径，不直接修 bug |
-| `codelattice_reachability_map` | 入口点检测 + 静态 BFS 可达性分析：返回入口点、可达符号、不可达候选（带置信度和注意事项） |
-| `codelattice_external_api_surface` | 外部 API Surface / Public API 风险提示：识别可能被外部消费者使用的公开 API 符号，输出注意事项和推荐验证步骤 |
-| `codelattice_workflow` | AI 意图路由器：返回 `ai.workflow.v1`，包含 `missingInputs`、可直接调用的 `nextActions`、风险等级、cautions 和 `safeToProceed` |
-| `codelattice_workflow_presets` | 低层预设工具：返回 10 个常见场景的工具链和 stop-line，主要供 `codelattice_workflow` 和高级调试使用 |
-| `codelattice_config_examples_review` | 配置与示例一致性审查：扫描 package.json/tsconfig/Cargo/CI/Docker/examples 中的 stale 引用，不执行脚本/构建 |
-| `codelattice_automation_graph` | 自动化图谱：静态扫描 CI workflow、package scripts、Makefile、Dockerfile 和 shell 脚本，串联工作流/步骤/脚本引用并标记高风险命令，不执行脚本 |
-| `codelattice_consistency_review` | 文档与测试一致性审查：将变更符号与文档/测试文件交叉对比，标记 stale docs、缺失 docs、related tests、missing tests 和 stale tests |
-| `codelattice_breaking_change_review` | 破坏性变更审查：将变更符号与 public API / framework entry / 文档交叉对比，评估兼容风险并生成审查清单和 release note 提示 |
-| `codelattice_framework_entry_hints` | 框架入口提示 / 回调入口警示：识别可能由框架路由/装饰器/回调注册/CLI 命令调用的符号，降低 dead-code/reachability 误判 |
-| `codelattice_cache_status` | 查看 memory + persistent 两层缓存状态 |
-| `codelattice_cache_clear` | 清理 memory / persistent / both 缓存层 |
+| 工具 | 什么时候用 |
+|------|------------|
+| `codelattice_workflow` | 不确定该用哪个工具时先用它；它会把意图路由成下一步可调用动作 |
+| `codelattice_project` | 项目概览、质量门、热点、阅读路径、AI 上下文 |
+| `codelattice_symbol` | 找符号、看上下文、查 callers/callees、局部图 |
+| `codelattice_change_review` | 改动前后影响、删代码、发布检查、文档/测试/配置一致性、根因分析 |
+| `codelattice_workspace` | 多项目/大仓根目录、跨项目图、跨项目影响 |
+| `codelattice_cache` | 查看、解释、清理 CodeLattice 缓存 |
 
 ### AI 工作流指南
 
-CodeLattice MCP 默认使用 `ai` toolset，只暴露 facade-first 入口；执行 AI 通常从 `codelattice_workflow`、`codelattice_project`、`codelattice_change_review`、`codelattice_workspace` 进入即可。需要更多底层工具时再显式设置：
+CodeLattice MCP 默认使用 `ai` toolset，只暴露上面 6 个入口工具。底层 49 个工具没有删除，只在显式调试模式中开放：
 
 ```bash
 CODELATTICE_MCP_TOOLSET=core   # 常用底层工具 + facade
-CODELATTICE_MCP_TOOLSET=full   # 全部 51 个工具，适合调试/回归 smoke
+CODELATTICE_MCP_TOOLSET=full   # 全部 49 个工具，适合调试/回归 smoke
 ```
 
 外部用户和执行 AI 可以直接使用这些指南：
 
+- [AI MCP Tool Guide](docs/guides/ai-mcp-tool-guide.md)：默认 6 个 MCP 的选择规则、模式表和示例调用。
 - [AI Prompt Cookbook](docs/guides/ai-prompt-cookbook.md)：接手项目、改代码前后、删代码前、发布前、遗留代码清理等可复制提示词。
 - [Workflow Presets](docs/guides/workflow-presets.md)：10 个场景对应的 MCP 工具链、关注字段和 stop-line。
 
@@ -450,11 +430,11 @@ AI 编程助手推荐先调用 `codelattice_workflow`。它现在是意图路由
 AI 编程助手也可以使用这条 facade-first 链路完成“接手项目 → 改代码 → 看影响 → 审查 → 提交”的闭环：
 
 1. `codelattice_workflow(mode=onboarding)`：选择接手项目的阅读路径和 stop-line
-2. `codelattice_project(mode=overview|insights|full, root=...)`：快速理解项目规模、热点、质量信号
+2. `codelattice_project(mode=overview|insights|ai_context|full, root=...)`：快速理解项目规模、热点、质量信号和 AI 编辑上下文
 3. `codelattice_symbol(mode=search|context|callers|callees, root=..., name=...)`：定位符号、上下文和调用关系
-4. `codelattice_change_review(mode=native_review|impact|full_review, root=...)`：改动前后做影响审查
+4. `codelattice_change_review(mode=native_review|impact|full_review|safe_cleanup_review|release_check|root_cause, root=...)`：改动前后、删除、发布和根因路径统一走这个审查入口
 5. `codelattice_workspace(mode=graph|impact, root=...)`：多项目仓库看跨项目关系和影响
-6. `codelattice_release_check(mode=quick|full, root=...)`：提交/发布前收敛质量、配置、文档和兼容风险
+6. `codelattice_cache(mode=status|explain, root=...)`：需要判断缓存复用或清理时使用
 
 ## Rust 支持范围
 
@@ -609,7 +589,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - Python CLI 分析（Phase A）
 - JavaScript CLI 分析（Phase A）
 - Shell CLI 分析（Phase A）
-- MCP sidecar 默认 AI toolset 暴露 facade-first 入口；`CODELATTICE_MCP_TOOLSET=full` 暴露 51 个工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱、跨项目影响分析和证据驱动根因分析
+- MCP sidecar 默认 AI toolset 只暴露 6 个入口工具；`CODELATTICE_MCP_TOOLSET=full` 暴露 49 个底层/专家工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱、跨项目影响分析和证据驱动根因分析
 - 两层持久化缓存
 - stable runtime promote
 - release tarball packaging + release smoke

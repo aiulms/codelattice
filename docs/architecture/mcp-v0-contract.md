@@ -1446,8 +1446,8 @@ The `initialize` response now includes profile information:
     "cangjieSupport": true,
     "arktsSupport": true,
     "typescriptSupport": true,
-    "toolCount": 9,
-    "fullToolCount": 51,
+    "toolCount": 6,
+    "fullToolCount": 49,
     "toolset": "ai"
   }
 }
@@ -1696,7 +1696,7 @@ TypeScript 支持 (`.ts`/`.tsx`) 已进入 Alpha / production trial 阶段。可
 
 ## 九、AI Workflow Intent Router (`codelattice_workflow`)
 
-`codelattice_workflow` 是 AI-friendly toolset 的推荐第一入口。它不直接执行项目分析，而是把用户意图路由成可调用的下一步动作，避免 AI 在 51 个底层工具之间猜测。
+`codelattice_workflow` 是 AI-friendly toolset 的推荐第一入口。它不直接执行项目分析，而是把用户意图路由成可调用的下一步动作，避免 AI 在 49 个底层工具之间猜测。默认 `ai` toolset 只暴露 6 个入口工具；底层工具通过 `core` / `full` 显式开启。
 
 **典型输入：**
 
