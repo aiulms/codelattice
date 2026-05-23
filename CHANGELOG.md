@@ -410,3 +410,12 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 - The Cargo package and compatibility binary name `gitnexus-rust-core-cli` remain available for existing scripts.
 - The public command surface should prefer `codelattice` for new usage.
+
+### Analysis Engine 1.3 MCP Job Runtime Acceptance
+
+- **Installed MCP Job Runtime verified**: `codelattice_project`/`codelattice_workspace`/`codelattice_symbol`/`codelattice_change_review` all support `job`/`job_status`/`job_detail` modes via installed CodeLattice-Tool MCP wrapper.
+- **open-nwe read-only acceptance**: 50-project workspace analyzed in 16ms via job mode; paged detail (page/pageSize/total/hasMore) verified; no MCP crash or file modification.
+- **Paging detail**: real pagination with `totalItems`, `totalPages`, `hasMore`, `hasPrev`, `items`, `nextActions`.
+- **Concurrency guard**: MCP returns structured `mcp_server_busy` for concurrent calls, server stays alive.
+- **AI usability fields**: `analysisSemantics.staticAnalysisExecuted=true`, `targetCodeExecuted=false`, `generatedFrom.staticAnalysis=true`, `compactResult`, `detailPageHint` present in all job outputs.
+- **Smoke script**: `scripts/codelattice-installed-mcp-job-smoke.sh` added.
