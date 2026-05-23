@@ -8789,7 +8789,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_symbol",
-                "description": "Symbol-level queries (search, context, callers, callees) for a SINGLE project root. root MUST be one project directory — NOT a workspace root. If you only have a workspace/monorepo root, use codelattice_workspace (mode=graph) first to discover sub-project roots, then pass one sub-project root here.",
+                "description": "Symbol-level queries (search, context, callers, callees) for a SINGLE project root. For large projects, use mode=job to submit an engine-backed analysis job with progress tracking, then mode=job_status to check status, and mode=job_detail for paged results.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -17687,7 +17687,44 @@ where
 
 // ═══ Analysis Engine 1.3 Job Runtime helpers ═══
 
-fn handle_project_job(root: &str, language: &str, mode: &str, params: &Value, _compact: bool) -> Result<Value, Value> {
+// ═══ Generic job runtime dispatch for all facades ═══
+
+fn handle_facade_job(root: &str, language: &str, mode: &str, _facade: &str, params: &Value, _compact: bool) -> Result<Value, Value> {
+    match mode {
+        "job" => {
+            let parallel = params["parallel"].as_bool().unwrap_or(false);
+            let engine_mode = if parallel { "parallel" } else { "serial" };
+            let (result, wf) = if language == "auto" {
+                (crate::mcp_job::submit_workspace_job(root, engine_mode), "workspace")
+            } else {
+                (crate::mcp_job::submit_project_job(root, language, engine_mode), "project")
+            };
+            match result {
+                Ok(job) => Ok(tool_result(&job)),
+                Err(e) => Err(mcp_error("job_failed", &e)),
+            }
+        }
+        "job_status" => {
+            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
+            match crate::mcp_job::MCP_JOBS.get(job_id) {
+                Some(handle) => Ok(tool_result(&crate::mcp_job::MCP_JOBS.to_response(&handle))),
+                None => Ok(tool_result(&json!({"error": "job_not_found", "jobId": job_id}))),
+            }
+        }
+        "job_detail" => {
+            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
+            let page = params["page"].as_u64().unwrap_or(0) as usize;
+            let page_size = params["pageSize"].as_u64().unwrap_or(50).min(200) as usize;
+            match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
+                Some(page_result) => Ok(tool_result(&page_result)),
+                None => Ok(tool_result(&json!({"error": "job_not_found_or_no_details", "jobId": job_id}))),
+            }
+        }
+        _ => Err(mcp_error("invalid_mode", &format!("Unknown job mode: {}", mode))),
+    }
+}
+
+fn handle_project_job(root: &str, language: &str, mode: &str, params: &Value, compact: bool) -> Result<Value, Value> {
     match mode {
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
@@ -17705,17 +17742,10 @@ fn handle_project_job(root: &str, language: &str, mode: &str, params: &Value, _c
         "job_detail" => {
             let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required for job_detail mode"))?;
             let page = params["page"].as_u64().unwrap_or(0) as usize;
-            let page_size = params["pageSize"].as_u64().unwrap_or(50) as usize;
-            match crate::mcp_job::get_job_status(job_id) {
-                Some(job) => {
-                    let mut result = job;
-                    if let Some(obj) = result.as_object_mut() {
-                        obj.insert("detailPage".into(), json!({"page": page, "pageSize": page_size}));
-                        obj.insert("compactResult".into(), json!(false));
-                    }
-                    Ok(tool_result(&result))
-                }
-                None => Ok(tool_result(&json!({"error": "job_not_found", "jobId": job_id}))),
+            let page_size = params["pageSize"].as_u64().unwrap_or(50).min(200) as usize;
+            match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
+                Some(page_result) => Ok(tool_result(&page_result)),
+                None => Ok(tool_result(&json!({"error": "job_not_found_or_no_details", "jobId": job_id}))),
             }
         }
         _ => Err(mcp_error("invalid_mode", &format!("Unknown job mode: {}", mode))),
@@ -17848,9 +17878,13 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
-        &["search", "context", "callers", "callees", "graph"],
+        &["search", "context", "callers", "callees", "graph", "job", "job_status", "job_detail"],
         "codelattice_symbol",
     )?;
+
+    if matches!(mode, "job" | "job_status" | "job_detail") {
+        return handle_facade_job(root, language, mode, "codelattice_symbol", params, compact);
+    }
 
     // 预诊 root：如果是 workspace root，提前收集推荐子项目供 fallback 使用
     let root_diag = diagnose_root(root, language);
@@ -18007,9 +18041,16 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "docs_tests",
             "config_examples",
             "root_cause",
+            "job", "job_status", "job_detail",
         ],
         "codelattice_change_review",
     )?;
+
+    // ═══ Engine 1.3 job runtime ═══
+    if matches!(mode, "job" | "job_status" | "job_detail") {
+        return handle_facade_job(root, language, mode, "codelattice_change_review", params, compact);
+    }
+
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "changed_symbols" => {
             let r = handle_changed_symbols(cache, params)?;
@@ -18324,9 +18365,15 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
     let language = "auto";
     validate_facade_mode(
         mode,
-        &["graph", "impact", "overview", "full"],
+        &["graph", "impact", "overview", "full", "job", "job_status", "job_detail"],
         "codelattice_workspace",
     )?;
+
+    // ═══ Engine 1.3 job runtime ═══
+    if matches!(mode, "job" | "job_status" | "job_detail") {
+        return handle_facade_job(root, "auto", mode, "codelattice_workspace", params, compact);
+    }
+
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "graph" => {
             let r = handle_workspace_graph(cache, params)?;

@@ -52,6 +52,7 @@ pub struct McpJobProgress {
 pub struct McpJobRegistry {
     jobs: Mutex<HashMap<String, McpJobHandle>>,
     results: Mutex<HashMap<String, SerializableResult>>,
+    detail_pages: Mutex<HashMap<String, Vec<Value>>>, // job_id → paginated items
     next_id: AtomicU64,
 }
 
@@ -60,6 +61,7 @@ impl McpJobRegistry {
         Self {
             jobs: Mutex::new(HashMap::new()),
             results: Mutex::new(HashMap::new()),
+            detail_pages: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
         }
     }
@@ -158,10 +160,53 @@ impl McpJobRegistry {
         self.jobs.lock().ok()?.get(job_id).cloned()
     }
 
-    /// Get job result detail page.
-    pub fn get_detail_page(&self, _job_id: &str, _page: usize, _page_size: usize) -> Option<Value> {
-        // For now, return summary from job handle
-        self.get(_job_id).and_then(|j| j.summary.clone())
+    /// Store paginated detail data for a job.
+    pub fn store_detail(&self, job_id: &str, items: Vec<Value>) {
+        if let Ok(mut dp) = self.detail_pages.lock() {
+            dp.insert(job_id.to_string(), items);
+        }
+    }
+
+    /// Get a paged detail response for a job.
+    pub fn get_detail_page(&self, job_id: &str, page: usize, page_size: usize) -> Option<Value> {
+        let handle = self.get(job_id)?;
+        let dp = self.detail_pages.lock().ok()?;
+        let items = dp.get(job_id)?;
+        let total = items.len();
+        let total_pages = if total == 0 { 1 } else { (total + page_size - 1) / page_size };
+        let start = page.saturating_mul(page_size);
+        let end = (start + page_size).min(total);
+        let page_items: Vec<&Value> = items[start..end].iter().collect();
+
+        Some(serde_json::json!({
+            "schemaVersion": "codelattice.pagedDetail.v1",
+            "jobId": job_id,
+            "page": page,
+            "pageSize": page_size,
+            "totalItems": total,
+            "totalPages": total_pages,
+            "hasMore": page + 1 < total_pages,
+            "hasPrev": page > 0,
+            "items": page_items,
+            "summary": handle.summary,
+            "generatedFrom": {
+                "staticAnalysis": true,
+                "runtimeVerified": false,
+                "targetCodeExecuted": false,
+                "coverageVerified": false
+            },
+            "analysisSemantics": {
+                "staticAnalysisExecuted": true,
+                "targetCodeExecuted": false,
+                "targetScriptsExecuted": false,
+                "runtimeProof": false
+            },
+            "nextActions": if page + 1 < total_pages {
+                vec![format!("Fetch page {} with page={}&pageSize={}", page + 1, page + 1, page_size)]
+            } else {
+                vec!["All pages fetched".to_string()]
+            },
+        }))
     }
 
     /// Serialize a job handle to MCP response JSON.
@@ -223,7 +268,7 @@ impl McpJobRegistry {
 }
 
 /// Global MCP job registry (lazy init).
-static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> = std::sync::LazyLock::new(McpJobRegistry::new);
+pub static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> = std::sync::LazyLock::new(McpJobRegistry::new);
 
 /// Run engine-backed project analysis via job runtime.
 /// Returns job handle immediately. Analysis runs synchronously for now
@@ -306,6 +351,14 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
         "file_count": nf,
     });
 
+    // Store paged detail from artifact data
+    let detail_items: Vec<Value> = result.artifacts.iter().map(|a| serde_json::json!({
+        "taskId": a.task_id, "stage": a.stage.name(), "unitId": a.unit_id,
+        "error": a.error, "durationMs": a.duration_ms,
+        "symbolCount": a.data.get("symbols").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0) as u64,
+    })).collect();
+    MCP_JOBS.store_detail(&handle.job_id, detail_items);
+
     MCP_JOBS.set_summary(&handle.job_id, summary);
     let final_handle = MCP_JOBS.get(&handle.job_id).unwrap();
     Ok(MCP_JOBS.to_response(&final_handle))
@@ -321,23 +374,28 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     let handle = MCP_JOBS.submit(root, "auto", mode);
     MCP_JOBS.update_status(&handle.job_id, JobStatus::Running);
 
-    // Scan workspace inventory
     let inventory = gitnexus_workspace_model::scan_workspace_inventory(Path::new(root), true)
         .map_err(|e| format!("Workspace scan: {}", e))?;
 
     let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
+    let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
 
     let summary = serde_json::json!({
         "workspace": true,
         "root": root,
-        "total_projects": supported.len(),
-        "supported_projects": supported.iter().map(|p| serde_json::json!({
-            "name": p.name,
-            "path": p.path,
-            "language": p.language,
-            "manifest": p.manifest_file,
+        "total_projects": inventory.len(),
+        "supported_count": supported.len(),
+        "unsupported_count": unsupported.len(),
+        "supported_projects": supported.iter().take(20).map(|p| serde_json::json!({
+            "name": p.name, "path": p.path, "language": p.language, "manifest": p.manifest_file,
         })).collect::<Vec<_>>(),
     });
+
+    let detail_items: Vec<Value> = supported.iter().map(|p| serde_json::json!({
+        "name": p.name, "path": p.path, "language": p.language,
+        "supported": true, "manifestFile": p.manifest_file,
+    })).collect();
+    MCP_JOBS.store_detail(&handle.job_id, detail_items);
 
     MCP_JOBS.set_summary(&handle.job_id, summary);
     let final_handle = MCP_JOBS.get(&handle.job_id).unwrap();
