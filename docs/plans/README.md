@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-23（MCP Concurrency Hardening）
+最后更新：2026-05-23（Analysis Engine Parallelism Roadmap）
 
 ## 用途
 
@@ -18,6 +18,9 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**Analysis Engine Parallelism Roadmap（2026-05-23，路线规划）：**
+- 📝 [2026-05-23-analysis-engine-parallelism-roadmap.md](2026-05-23-analysis-engine-parallelism-roadmap.md) — 规划 CodeLattice 1.2/1.3 大项目真并发分析内核：Analysis DAG、deterministic graph reducer、file-level worker pool、intermediate cache、language adapter concurrency contract、MCP job runtime。
 
 **MCP Concurrency Hardening（2026-05-23，已完成）：**
 - 📝 [2026-05-23-mcp-concurrency-hardening-preflight.md](2026-05-23-mcp-concurrency-hardening-preflight.md) — 解决 AI 客户端并行调用 CodeLattice MCP 时 stdio session 断连的问题，采用结构化 busy 响应而非排队到客户端超时。
