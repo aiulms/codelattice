@@ -4,3 +4,6 @@
 .gitnexus
 __pycache__/
 .codelattice-webui/
+.arts/
+.hvigor/
+.sisyphus/
