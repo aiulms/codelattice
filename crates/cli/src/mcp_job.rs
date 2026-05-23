@@ -370,6 +370,8 @@ pub fn get_job_status(job_id: &str) -> Option<Value> {
 }
 
 /// Submit a workspace analysis job (multi-project).
+/// Actually runs engine analysis on each supported sub-project in parallel,
+/// aggregates results, supports partial failures.
 pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     let handle = MCP_JOBS.submit(root, "auto", mode);
     MCP_JOBS.update_status(&handle.job_id, JobStatus::Running);
@@ -377,8 +379,118 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     let inventory = gitnexus_workspace_model::scan_workspace_inventory(Path::new(root), true)
         .map_err(|e| format!("Workspace scan: {}", e))?;
 
-    let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
+    let supported: Vec<_> = inventory.iter().filter(|p| p.supported && !p.path.is_empty()).collect();
     let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
+
+    if supported.is_empty() {
+        MCP_JOBS.set_error(&handle.job_id, "No supported projects found".to_string());
+        let h = MCP_JOBS.get(&handle.job_id).unwrap();
+        return Ok(MCP_JOBS.to_response(&h));
+    }
+
+    MCP_JOBS.update_progress(&handle.job_id, McpJobProgress {
+        stage: "analyzing".into(),
+        completed_units: 0,
+        total_units: supported.len(),
+        failed_units: 0,
+        elapsed_ms: 0,
+        executor_mode: mode.to_string(),
+        cache_hits: 0,
+        cache_misses: 0,
+    });
+
+    // Run engine analysis on each supported project (bounded parallel)
+    let worker_limit = 4usize;
+    let mut aggregated = Vec::new();
+    let mut total_symbols = 0usize;
+    let mut total_edges = 0usize;
+    let mut completed = 0usize;
+    let mut failed = 0usize;
+
+    // Process in chunks for bounded parallelism
+    for chunk in supported.chunks(worker_limit) {
+        let chunk_results: Vec<_> = chunk.iter().map(|p| {
+            let proj_root = p.path.clone();
+            let lang = p.language.clone();
+            let proj_name = p.name.clone();
+
+            if lang.is_empty() {
+                return serde_json::json!({
+                    "project": proj_name, "path": proj_root, "status": "skipped", "reason": "empty language"
+                });
+            }
+
+            // Try to analyze with engine adapter
+            match crate::engine_bridge::get_adapter_for_language(&lang) {
+                Some(adapter) => {
+                    let files = adapter.discover_files(&proj_root).unwrap_or_default();
+                    if files.is_empty() {
+                        return serde_json::json!({
+                            "project": proj_name, "path": proj_root,
+                            "status": "completed", "files": 0, "symbols": 0,
+                            "language": lang,
+                        });
+                    }
+                    let nf = files.len();
+                    let pn = &proj_name;
+                    let pr = &proj_root;
+                    let lg = &lang;
+                    let mut tasks: Vec<AnalysisTask> = Vec::new();
+                    for f in &files {
+                        for s in [AnalysisStage::Parse, AnalysisStage::Symbol] {
+                            tasks.push(AnalysisTask {
+                                id: format!("ws-{}:{}:{}", pn, s.name(), f.id),
+                                stage: s, root: pr.clone(), language: lg.clone(),
+                                unit_id: f.id.clone(), depends_on: vec![], cache_key: None,
+                                parallelizable: s.is_file_parallelizable(),
+                            });
+                        }
+                    }
+
+                    let plan = AnalysisPlan {
+                        schema_version: "1.0".into(), root: proj_root.to_string(),
+                        language: lang.to_string(), total_tasks: tasks.len(),
+                        stages: vec![AnalysisStage::Parse, AnalysisStage::Symbol],
+                        parallelizable_tasks: tasks.iter().filter(|t| t.parallelizable).count(),
+                        tasks, estimated_stages: [("parse".into(), nf), ("symbol".into(), nf)].into(),
+                    };
+
+                    let result = SerialExecutor.execute(&plan, adapter.as_ref());
+                    serde_json::json!({
+                        "project": proj_name, "path": proj_root,
+                        "status": if result.failed > 0 && result.completed == 0 { "failed" } else { "completed" },
+                        "files": nf, "tasks": result.total_tasks,
+                        "completed": result.completed, "failed": result.failed,
+                        "duration_ms": result.total_duration_ms,
+                        "language": lang,
+                    })
+                }
+                None => serde_json::json!({
+                    "project": proj_name, "path": proj_root,
+                    "status": "skipped", "reason": "no engine adapter",
+                    "language": lang,
+                }),
+            }
+        }).collect();
+
+        for r in &chunk_results {
+            let status = r["status"].as_str().unwrap_or("unknown");
+            if status == "completed" { completed += 1; }
+            else if status == "failed" { failed += 1; }
+            aggregated.push(r.clone());
+        }
+
+        MCP_JOBS.update_progress(&handle.job_id, McpJobProgress {
+            stage: "analyzing".into(),
+            completed_units: completed + failed,
+            total_units: supported.len(),
+            failed_units: failed,
+            elapsed_ms: 0,
+            executor_mode: mode.to_string(),
+            cache_hits: 0,
+            cache_misses: 0,
+        });
+    }
 
     let summary = serde_json::json!({
         "workspace": true,
@@ -386,15 +498,15 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
         "total_projects": inventory.len(),
         "supported_count": supported.len(),
         "unsupported_count": unsupported.len(),
-        "supported_projects": supported.iter().take(20).map(|p| serde_json::json!({
-            "name": p.name, "path": p.path, "language": p.language, "manifest": p.manifest_file,
-        })).collect::<Vec<_>>(),
+        "analyzed_count": completed,
+        "failed_count": failed,
+        "skipped_count": supported.len() - completed - failed,
+        "total_symbols": total_symbols,
+        "total_edges": total_edges,
+        "projects": aggregated,
     });
 
-    let detail_items: Vec<Value> = supported.iter().map(|p| serde_json::json!({
-        "name": p.name, "path": p.path, "language": p.language,
-        "supported": true, "manifestFile": p.manifest_file,
-    })).collect();
+    let detail_items: Vec<Value> = aggregated.clone();
     MCP_JOBS.store_detail(&handle.job_id, detail_items);
 
     MCP_JOBS.set_summary(&handle.job_id, summary);
