@@ -410,7 +410,11 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     // Process in chunks for bounded parallelism
     for chunk in supported.chunks(worker_limit) {
         let chunk_results: Vec<_> = chunk.iter().map(|p| {
-            let proj_root = p.path.clone();
+            let proj_root = if p.path.starts_with('.') {
+                Path::new(root).join(&p.path).to_string_lossy().to_string()
+            } else {
+                p.path.clone()
+            };
             let lang = p.language.clone();
             let proj_name = p.name.clone();
 
