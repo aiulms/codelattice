@@ -38,6 +38,7 @@ gitnexus-cpp = { path = "../cpp", optional = true }
 gitnexus-python = { path = "../python", optional = true }
 gitnexus-shell = { path = "../shell" }
 gitnexus-workspace-model = { path = "../workspace-model" }
+gitnexus-analysis-engine = { path = "../analysis-engine" }
 
 [dev-dependencies]
 assert_cmd = "2"

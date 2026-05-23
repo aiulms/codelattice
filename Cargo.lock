@@ -336,6 +336,7 @@ version = "0.16.0-beta.1"
 dependencies = [
  "assert_cmd",
  "clap",
+ "gitnexus-analysis-engine",
  "gitnexus-analysis-scheduler",
  "gitnexus-arkts",
  "gitnexus-c",

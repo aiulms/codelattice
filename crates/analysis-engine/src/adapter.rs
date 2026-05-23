@@ -62,8 +62,8 @@ pub struct SymbolOutput {
 pub struct SymbolEntry {
     pub name: String,
     pub kind: String,
-    pub start_line: usize,
-    pub end_line: usize,
+    pub start_line: Option<usize>,
+    pub end_line: Option<usize>,
     pub signature: Option<String>,
 }
 

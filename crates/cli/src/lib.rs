@@ -10,6 +10,7 @@
 //!
 //! JSON stdout，human logs stderr。
 
+mod engine_bridge;
 mod arkts_bridge;
 mod bridge_format;
 mod c_bridge;
@@ -64,18 +65,16 @@ enum Commands {
     },
     /// 统一分析入口：自动检测语言或按指定语言分析项目，输出完整 graph JSON
     Analyze {
-        /// 项目根目录路径
         #[arg(long)]
         root: String,
-        /// 语言：rust / cangjie / auto（自动检测）
         #[arg(long, default_value = "auto")]
         language: String,
-        /// 输出格式（MVP 仅支持 json）
         #[arg(long, default_value = "json")]
         format: String,
-        /// 严格模式：质量门失败时 exit code 非零
         #[arg(long, default_value = "false")]
         strict: bool,
+        #[arg(long, default_value = "off")]
+        engine: String,
     },
     /// 质量门检查：对指定项目运行质量门，输出 JSON，退出码反映结果
     Quality {
@@ -3118,6 +3117,7 @@ pub fn run() {
             language,
             format,
             strict,
+            engine,
         } => {
             if format != "json" && format != "gitnexus-rc" {
                 eprintln!("错误：支持的格式：json, gitnexus-rc");
@@ -3146,6 +3146,33 @@ pub fn run() {
                 }
             }
 
+            // ═══ Analysis Engine 1.3 path (--engine serial|parallel|parity) ═══
+            if engine != "off" {
+                let result = match engine.as_str() {
+                    "serial" | "parallel" | "parity" => {
+                        crate::engine_bridge::run_engine_analysis(root_path, &language, engine == "parallel")
+                    }
+                    _ => {
+                        eprintln!("Unknown engine mode: {}. Use serial, parallel, or off.", engine);
+                        std::process::exit(1);
+                    }
+                };
+                match result {
+                    Ok(output) => {
+                        let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
+                            eprintln!("Engine serialization error: {e}");
+                            std::process::exit(1);
+                        });
+                        println!("{json}");
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Engine analysis error: {e}");
+                        std::process::exit(1);
+                    }
+                }
+            }
+
             let lang = match resolve_language(&language, root_path) {
                 Ok(l) => l,
                 Err(e) => {
@@ -3153,6 +3180,14 @@ pub fn run() {
                     std::process::exit(1);
                 }
             };
+
+            if engine != "off" {
+                let parallel = engine == "parallel";
+                match engine_bridge::run_engine_analysis(root_path, &lang, parallel) {
+                    Ok(result) => { println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default()); return; }
+                    Err(e) => { eprintln!("Engine analysis failed: {e}, falling back to standard path"); }
+                }
+            }
 
             #[cfg(debug_assertions)]
             eprintln!("分析中... language={lang}, root={root}");
