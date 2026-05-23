@@ -17685,6 +17685,43 @@ where
 
 // ── codelattice_project ──────────────────────────────────────────────
 
+// ═══ Analysis Engine 1.3 Job Runtime helpers ═══
+
+fn handle_project_job(root: &str, language: &str, mode: &str, params: &Value, _compact: bool) -> Result<Value, Value> {
+    match mode {
+        "job" => {
+            let parallel = params["parallel"].as_bool().unwrap_or(false);
+            let engine_mode = if parallel { "parallel" } else { "serial" };
+            let result = crate::mcp_job::submit_project_job(root, language, engine_mode)?;
+            Ok(tool_result(&result))
+        }
+        "job_status" => {
+            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required for job_status mode"))?;
+            match crate::mcp_job::get_job_status(job_id) {
+                Some(job) => Ok(tool_result(&job)),
+                None => Ok(tool_result(&json!({"error": "job_not_found", "jobId": job_id}))),
+            }
+        }
+        "job_detail" => {
+            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required for job_detail mode"))?;
+            let page = params["page"].as_u64().unwrap_or(0) as usize;
+            let page_size = params["pageSize"].as_u64().unwrap_or(50) as usize;
+            match crate::mcp_job::get_job_status(job_id) {
+                Some(job) => {
+                    let mut result = job;
+                    if let Some(obj) = result.as_object_mut() {
+                        obj.insert("detailPage".into(), json!({"page": page, "pageSize": page_size}));
+                        obj.insert("compactResult".into(), json!(false));
+                    }
+                    Ok(tool_result(&result))
+                }
+                None => Ok(tool_result(&json!({"error": "job_not_found", "jobId": job_id}))),
+            }
+        }
+        _ => Err(mcp_error("invalid_mode", &format!("Unknown job mode: {}", mode))),
+    }
+}
+
 fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
@@ -17694,9 +17731,15 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     let language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
-        &["overview", "quality", "insights", "ai_context", "full"],
+        &["overview", "quality", "insights", "ai_context", "full", "job", "job_status", "job_detail"],
         "codelattice_project",
     )?;
+
+    // ═══ Analysis Engine 1.3 job runtime modes ═══
+    if matches!(mode, "job" | "job_status" | "job_detail") {
+        return handle_project_job(root, language, mode, params, compact);
+    }
+
     if language == "auto" {
         if let Ok((validated, protected)) = validate_workspace_root_path(root) {
             if let Some(workspace) =

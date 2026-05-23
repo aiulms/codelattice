@@ -11,6 +11,7 @@
 //! JSON stdout，human logs stderr。
 
 mod engine_bridge;
+mod mcp_job;
 mod arkts_bridge;
 mod bridge_format;
 mod c_bridge;
