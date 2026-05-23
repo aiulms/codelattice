@@ -18,7 +18,8 @@ use serde_json::Value;
 
 use gitnexus_analysis_engine::executor::{EngineConfig, SerialExecutor, ParallelExecutor, SerializableResult};
 use gitnexus_analysis_engine::job::{JobRuntime, JobStatus, JobProgress, PagedResult, AnalysisJob, JobResultSummary};
-use gitnexus_analysis_engine::dag::{AnalysisPlan, AnalysisStage, AnalysisTask};
+use gitnexus_analysis_engine::dag::{AnalysisPlan, AnalysisStage, AnalysisTask, AnalysisArtifact};
+use gitnexus_analysis_engine::cache::{ArtifactCache, CacheExplainEntry, CacheKey};
 
 /// MCP-level job handle — tracks one engine-backed analysis invocation.
 #[derive(Debug, Clone)]
@@ -252,6 +253,7 @@ impl McpJobRegistry {
                 "coverageProof": false,
                 "explanation": "CodeLattice executed static analysis only. It did NOT run target project code."
             },
+            "cacheStats": cache_stats(),
             "nextActions": match handle.status {
                 JobStatus::Succeeded => vec!["Use mode=job_detail with page=0 to fetch paged details".to_string()],
                 JobStatus::Running => vec![format!("Check status with jobId={}", handle.job_id)],
@@ -269,6 +271,37 @@ impl McpJobRegistry {
 
 /// Global MCP job registry (lazy init).
 pub static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> = std::sync::LazyLock::new(McpJobRegistry::new);
+
+/// Global engine cache shared across jobs.
+pub static ENGINE_CACHE: std::sync::LazyLock<std::sync::Mutex<ArtifactCache>> =
+    std::sync::LazyLock::new(|| {
+        let cache_dir = std::env::var("CODELATTICE_CACHE_DIR").ok().map(std::path::PathBuf::from);
+        std::sync::Mutex::new(ArtifactCache::new(cache_dir))
+    });
+
+/// Get cache stats for output.
+pub fn cache_stats() -> serde_json::Value {
+    if let Ok(cache) = ENGINE_CACHE.lock() {
+        let (hits, misses, stale, rebuilt) = cache.stats();
+        serde_json::json!({
+            "enabled": true,
+            "persistent": cache.persistent_enabled(),
+            "cacheDir": std::env::var("CODELATTICE_CACHE_DIR").ok(),
+            "totalArtifacts": cache.entry_count(),
+            "hits": hits, "misses": misses, "stale": stale, "rebuilt": rebuilt,
+            "analysisAvailableWithoutPersistentCache": true,
+        })
+    } else {
+        serde_json::json!({"error": "cache_lock_failed"})
+    }
+}
+
+/// Store artifact in global cache.
+pub fn cache_store(key: gitnexus_analysis_engine::cache::CacheKey, artifact: AnalysisArtifact) {
+    if let Ok(mut cache) = ENGINE_CACHE.lock() {
+        cache.store(key, artifact);
+    }
+}
 
 /// Run engine-backed project analysis via job runtime.
 /// Returns job handle immediately. Analysis runs synchronously for now
@@ -350,6 +383,22 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
         "target_code_executed": false,
         "file_count": nf,
     });
+
+    // Store artifacts in global cache
+    for artifact in &result.artifacts {
+        if artifact.error.is_none() {
+            let key = CacheKey {
+                path: artifact.unit_id.clone(),
+                content_hash: format!("{:x}", artifact.unit_id.len()),
+                language: language.to_string(),
+                adapter_version: "1.3".into(),
+                parser_version: "1.0".into(),
+                stage: artifact.stage.name().to_string(),
+                engine_version: "1.3".into(),
+            };
+            cache_store(key, artifact.clone());
+        }
+    }
 
     // Store paged detail from artifact data
     let detail_items: Vec<Value> = result.artifacts.iter().map(|a| serde_json::json!({

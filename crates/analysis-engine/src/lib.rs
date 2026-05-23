@@ -19,6 +19,6 @@ pub mod adapter;
 pub use dag::{AnalysisPlan, AnalysisTask, AnalysisStage, AnalysisArtifact};
 pub use executor::{EngineConfig, SerialExecutor, ParallelExecutor, ProgressEvent, SerializableResult};
 pub use reducer::{GraphReducer, MergeResult};
-pub use cache::{ArtifactCache, CacheKey, CacheStatus, CacheExplain};
+pub use cache::{ArtifactCache, CacheKey, CacheStatus, CacheExplain, CacheExplainEntry, FileSnapshot, IncrementalPlan};
 pub use job::{AnalysisJob, JobStatus, JobProgress, PagedResult};
 pub use adapter::{LanguageAdapter, FileUnit, ParseOutput, SymbolOutput, AdapterCapabilities};
