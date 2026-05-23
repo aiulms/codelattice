@@ -36,7 +36,7 @@ use gitnexus_analysis_scheduler::{
     build_schedule, AnalysisRequest, AnalysisScope, CacheIntent, FileSnapshot,
 };
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
-use gitnexus_workspace_model::{build_workspace_graph, scan_workspace_inventory};
+use gitnexus_workspace_model::{build_workspace_graph, scan_workspace_inventory, ProjectInfo};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
@@ -184,12 +184,19 @@ fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
     let path = PathBuf::from(root).canonicalize().ok()?;
     let inventory = scan_workspace_inventory(&path, true).ok()?;
     let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
-    let root_is_project = supported.iter().any(|p| p.relative_path == ".");
-    let manifest_project_count = supported
+    let supported_manifest_projects: Vec<_> = supported
         .iter()
         .filter(|p| !p.manifest_file.is_empty())
+        .copied()
+        .collect();
+    let root_is_project = supported_manifest_projects
+        .iter()
+        .any(|p| p.relative_path == ".");
+    let manifest_project_count = supported_manifest_projects.len();
+    let child_project_count = supported_manifest_projects
+        .iter()
+        .filter(|p| p.relative_path != ".")
         .count();
-    let child_project_count = supported.iter().filter(|p| p.relative_path != ".").count();
     if manifest_project_count < 2 && (root_is_project || child_project_count < 2) && !protected {
         return None;
     }
@@ -202,17 +209,20 @@ fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
 
     Some(json!({
         "schemaVersion": "codelattice.workspaceAutoEntry.v1",
-        "status": if supported.is_empty() { "needs_selection" } else { "workspace_analyzed" },
+        "status": if supported_manifest_projects.is_empty() { "needs_selection" } else { "workspace_analyzed" },
         "rootKind": if protected { "protected_live_workspace" } else { "workspace" },
         "root": path.to_string_lossy(),
+        "rootDiagnosis": diagnose_root(&path.to_string_lossy(), "auto"),
+        "analysisSemantics": build_analysis_semantics(),
         "summary": {
-            "supportedProjectCount": supported.len(),
+            "supportedProjectCount": supported_manifest_projects.len(),
+            "sourceOnlyEntryCount": supported.len().saturating_sub(supported_manifest_projects.len()),
             "unsupportedModuleCount": unsupported.len(),
-            "recommendedProjectCount": supported.len(),
+            "recommendedProjectCount": supported_manifest_projects.len(),
             "workspaceGraphAvailable": workspace_graph_available,
             "liveRootProtected": protected
         },
-        "supportedProjects": supported.iter().map(|p| json!({
+        "supportedProjects": supported_manifest_projects.iter().map(|p| json!({
             "path": p.path,
             "relativePath": p.relative_path,
             "name": p.name,
@@ -17382,62 +17392,113 @@ fn diagnose_root(root: &str, language: &str) -> Value {
 
     let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
     let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
-    let manifest_count = supported
+    let supported_manifest_projects: Vec<_> = supported
         .iter()
         .filter(|p| !p.manifest_file.is_empty())
+        .copied()
+        .collect();
+    let manifest_count = supported_manifest_projects.len();
+    let source_only_count = supported.len().saturating_sub(manifest_count);
+    let root_project = supported_manifest_projects
+        .iter()
+        .find(|p| p.relative_path == ".");
+    let root_source_project = supported
+        .iter()
+        .find(|p| p.relative_path == "." && p.manifest_file.is_empty());
+    let child_manifest_count = supported_manifest_projects
+        .iter()
+        .filter(|p| p.relative_path != ".")
         .count();
-    let root_project = supported.iter().find(|p| p.relative_path == ".");
 
     // 判断 root 类型
-    let (kind, explanation) = if supported.len() == 1 && root_project.is_some() {
-        ("single_project", "Root contains a single detected project with a manifest.".to_string())
-    } else if supported.len() >= 2 && manifest_count >= 2 {
+    let (kind, explanation) = if root_project.is_some() && child_manifest_count == 0 {
+        (
+            "single_project",
+            "Root contains a single detected project with a manifest.".to_string(),
+        )
+    } else if root_project.is_some() && child_manifest_count >= 1 {
         ("workspace", format!(
-            "Root contains {} supported projects across subdirectories ({} with manifests).",
-            supported.len(), manifest_count
+            "Root contains a manifest-backed project at the root plus {} child manifest-backed project(s). Treat it as a workspace root.",
+            child_manifest_count
         ))
-    } else if supported.len() >= 3 && manifest_count >= 1 {
-        ("workspace", format!(
-            "Root contains {} supported projects. Treat as a workspace root for cross-project analysis.",
-            supported.len()
-        ))
+    } else if child_manifest_count >= 2 || (root_project.is_none() && manifest_count >= 2) {
+        (
+            "workspace",
+            format!(
+                "Root contains {} manifest-backed supported projects across subdirectories.",
+                manifest_count
+            ),
+        )
     } else if supported.is_empty() && !unsupported.is_empty() {
+        (
+            "unsupported_or_mixed_workspace",
+            format!(
+                "Root contains {} unsupported modules and no supported projects.",
+                unsupported.len()
+            ),
+        )
+    } else if manifest_count == 1 && root_project.is_none() {
+        (
+            "single_project",
+            "Root contains one project in a subdirectory.".to_string(),
+        )
+    } else if manifest_count == 0 && supported.len() == 1 && root_source_project.is_some() {
+        (
+            "single_project",
+            "Root contains one source-only project without a manifest.".to_string(),
+        )
+    } else if manifest_count == 0 && supported.len() >= 2 {
         ("unsupported_or_mixed_workspace",
-         format!("Root contains {} unsupported modules and no supported projects.", unsupported.len()))
-    } else if supported.len() == 1 && root_project.is_none() && manifest_count == 1 {
-        ("single_project", "Root contains one project in a subdirectory.".to_string())
-    } else if supported.len() >= 2 && manifest_count < 2 {
-        ("unsupported_or_mixed_workspace",
-         format!("Root has {} entries but few detected manifests. Some may not be analyzable projects.", supported.len()))
+         format!("Root has {} source-only entries and no detected manifests. Some may be internal source directories rather than analyzable project roots.", supported.len()))
     } else {
-        ("unknown",
-         format!("Found {} supported entries, {} with manifests. Cannot confidently classify root.", supported.len(), manifest_count))
+        (
+            "unknown",
+            format!(
+                "Found {} supported entries, {} with manifests. Cannot confidently classify root.",
+                supported.len(),
+                manifest_count
+            ),
+        )
     };
 
     // 收集推荐的项目 roots
-    let recommended_project_roots: Vec<_> = supported
+    let mut recommended_candidates: Vec<&ProjectInfo> = supported_manifest_projects
         .iter()
+        .copied()
         .filter(|p| p.relative_path != "." || kind == "single_project")
-        .map(|p| json!({
-            "path": p.path,
-            "relativePath": p.relative_path,
-            "name": p.name,
-            "language": p.language,
-            "manifestFile": p.manifest_file,
-            "recommended": true
-        }))
+        .collect();
+    if recommended_candidates.is_empty() && kind == "single_project" {
+        if let Some(p) = root_source_project {
+            recommended_candidates.push(*p);
+        }
+    }
+    let recommended_project_roots: Vec<_> = recommended_candidates
+        .iter()
+        .map(|p| {
+            json!({
+                "path": p.path,
+                "relativePath": p.relative_path,
+                "name": p.name,
+                "language": p.language,
+                "manifestFile": p.manifest_file,
+                "recommended": true
+            })
+        })
         .collect();
 
     let detected_projects: Vec<_> = inventory
         .iter()
-        .map(|p| json!({
-            "path": p.path,
-            "relativePath": p.relative_path,
-            "name": p.name,
-            "language": p.language,
-            "manifestFile": p.manifest_file,
-            "supported": p.supported
-        }))
+        .filter(|p| !p.manifest_file.is_empty() || !p.supported || p.relative_path == ".")
+        .map(|p| {
+            json!({
+                "path": p.path,
+                "relativePath": p.relative_path,
+                "name": p.name,
+                "language": p.language,
+                "manifestFile": p.manifest_file,
+                "supported": p.supported
+            })
+        })
         .collect();
 
     // 根据 root 类型推荐合适的工具
@@ -17450,7 +17511,9 @@ fn diagnose_root(root: &str, language: &str) -> Value {
     let mut cautions: Vec<Value> = Vec::new();
     if kind == "workspace" || kind == "unsupported_or_mixed_workspace" {
         cautions.push(json!("Do not pass workspace root to codelattice_symbol or codelattice_project — use a specific project root from recommendedProjectRoots."));
-        cautions.push(json!("Use codelattice_workspace for cross-project analysis and graph overview."));
+        cautions.push(json!(
+            "Use codelattice_workspace for cross-project analysis and graph overview."
+        ));
     }
     if !unsupported.is_empty() {
         cautions.push(json!(format!(
@@ -17466,6 +17529,11 @@ fn diagnose_root(root: &str, language: &str) -> Value {
         "recommendedTool": recommended_tool,
         "recommendedProjectRoots": recommended_project_roots,
         "detectedProjects": detected_projects,
+        "counts": {
+            "manifestBackedSupportedProjects": manifest_count,
+            "sourceOnlySupportedEntries": source_only_count,
+            "unsupportedEntries": unsupported.len()
+        },
         "cautions": cautions,
         "explanation": explanation
     })
@@ -17667,11 +17735,12 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     // workspace root 检测：project 收到 workspace root 时给出建议
     let diag = diagnose_root(root, language);
     let diag_kind = diag.get("kind").and_then(|v| v.as_str()).unwrap_or("");
-    if diag_kind == "workspace" && !diag
-        .get("recommendedProjectRoots")
-        .and_then(|v| v.as_array())
-        .map(|a| a.is_empty())
-        .unwrap_or(true)
+    if diag_kind == "workspace"
+        && !diag
+            .get("recommendedProjectRoots")
+            .and_then(|v| v.as_array())
+            .map(|a| a.is_empty())
+            .unwrap_or(true)
     {
         let mut new_next_actions: Vec<&str> = Vec::new();
         new_next_actions.push("This root appears to be a workspace. For single-project analysis, use a sub-project root from the recommendedProjectRoots list in rootDiagnosis.");
@@ -17747,7 +17816,10 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     };
 
     // workspace root 误用检测: 如果 root 是 workspace 且搜索返回 0 结果
-    let root_kind = root_diag.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let root_kind = root_diag
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
     let workspace_misuse = matches!(root_kind, "workspace" | "unsupported_or_mixed_workspace");
 
     // ⬇ check for empty search results
@@ -18369,7 +18441,11 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         }
         "clear" => {
             let r = handle_cache_clear(cache, params)?;
-            (unwrap_tool_result(&r), vec!["codelattice_cache_clear"], false)
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_cache_clear"],
+                false,
+            )
         }
         "explain" => (
             json!({"layers":["memory","persistent"],"disable":"CODELATTICE_CACHE=off","clear":"Use mode=clear","prewarm":"Use codelattice_cache_prewarm"}),
@@ -18638,6 +18714,16 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         .as_str()
         .or_else(|| params["name"].as_str())
         .unwrap_or("");
+    let root_diagnosis = if root.is_empty() {
+        json!({"kind": "not_applicable", "explanation": "No root path provided."})
+    } else {
+        diagnose_root(root, language)
+    };
+    let root_kind = root_diagnosis
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .unwrap_or("unknown");
+    let root_is_workspace = matches!(root_kind, "workspace" | "unsupported_or_mixed_workspace");
     validate_facade_mode(
         mode,
         &[
@@ -19020,6 +19106,47 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         _ => unreachable!(),
     }
 
+    let symbol_project_workflow = matches!(
+        mode,
+        "before_edit"
+            | "explain_symbol"
+            | "delete_code"
+            | "root_cause"
+            | "public_api_change"
+            | "framework_route_change"
+            | "docs_tests_sync"
+            | "config_examples_sync"
+    );
+    if root_is_workspace && symbol_project_workflow {
+        findings.push(json!(
+            "The provided root is a workspace root. Symbol-level actions need a specific project root; workspace actions remain available."
+        ));
+        missing_inputs.push(workflow_missing(
+            "projectRoot",
+            "This workflow needs a single project root before using codelattice_symbol or project-level change review.",
+            "Choose one entry from rootDiagnosis.recommendedProjectRoots, or run codelattice_workspace mode=graph first.",
+        ));
+        let mut workspace_actions = vec![workflow_action(
+            "codelattice_workspace",
+            json!({"mode":"graph","root":root,"compact":true}),
+            "Inspect the workspace graph and choose the concrete project root before symbol-level analysis.",
+            true,
+        )];
+        if !symbol.is_empty() {
+            workspace_actions.push(workflow_action(
+                "codelattice_workspace",
+                json!({"mode":"impact","root":root,"target":{"query":symbol},"direction":"both","maxDepth":3,"compact":true}),
+                "Optional: estimate cross-project impact from a workspace-level query while choosing the project root.",
+                false,
+            ));
+        }
+        next_actions = workspace_actions;
+        risk_level = "unknown";
+        if !underlying.contains(&"codelattice_workspace_graph") {
+            underlying.push("codelattice_workspace_graph");
+        }
+    }
+
     if missing_inputs.is_empty() {
         findings.push(json!(
             "All required routing inputs for this intent are present."
@@ -19039,6 +19166,8 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         "mode": mode,
         "language": language,
         "root": if root.is_empty() { Value::Null } else { json!(root) },
+        "rootDiagnosis": root_diagnosis,
+        "analysisSemantics": build_analysis_semantics(),
         "situation": situation,
         "riskLevel": risk_level,
         "confidence": "medium",

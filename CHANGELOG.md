@@ -6,7 +6,9 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- **MCP AI usability runtime hardening**: root diagnosis now treats manifest-backed directories as project boundaries, so large single projects no longer expose internal source folders as misleading project candidates. `codelattice_project` workspace auto-entry and `codelattice_workflow` now include `rootDiagnosis` and `analysisSemantics`; workflow routes symbol-level intents away from workspace roots and asks for a concrete project root first. Workspace inventory skips generated dogfood/WebUI output directories. The AI usability smoke now uses real MCP JSON-RPC stdio calls instead of stale CLI shortcuts, and the local-tool promotion script fails fast if the promoted `bin/codelattice` is not a full-language runtime.
 
 ## [0.16.0-beta.1] - 2026-05-22
 

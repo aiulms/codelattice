@@ -113,6 +113,9 @@ const SKIP_DIRS: &[&str] = &[
     ".tox",
     ".mypy_cache",
     ".pytest_cache",
+    ".codelattice-webui",
+    "dogfood-output",
+    "playwright-runtime",
     "bazel-out",
     "bazel-bin",
 ];

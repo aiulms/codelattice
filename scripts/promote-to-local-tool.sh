@@ -129,6 +129,63 @@ json_escape() {
     python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n"))[1:-1])'
 }
 
+profile_response_for_bin() {
+    local bin="$1"
+    printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"promote-profile","version":"1.0"}}}' \
+        | env CODELATTICE_MCP_TOOLSET=full "$bin" mcp 2>/dev/null \
+        | python3 -c 'import json, sys
+for line in sys.stdin:
+    text=line.strip()
+    if not text:
+        continue
+    try:
+        doc=json.loads(text)
+    except Exception:
+        continue
+    if doc.get("id") == 1:
+        print(json.dumps(doc, separators=(",", ":")))
+        break'
+}
+
+require_full_language_profile() {
+    local bin="$1"
+    local label="$2"
+    local resp
+    resp="$(profile_response_for_bin "$bin")"
+    PROFILE_RESP="$resp" python3 - "$label" <<'PY'
+import json
+import os
+import sys
+
+label = sys.argv[1]
+try:
+    doc = json.loads(os.environ.get("PROFILE_RESP", ""))
+    info = doc["result"]["serverInfo"]
+except Exception as exc:
+    raise SystemExit(f"ERROR: cannot read MCP profile for {label}: {exc}")
+
+required = [
+    "cangjieSupport",
+    "arktsSupport",
+    "typescriptSupport",
+    "javascriptSupport",
+    "cSupport",
+    "cppSupport",
+    "pythonSupport",
+    "shellSupport",
+]
+missing = [key for key in required if info.get(key) is not True]
+tool_count = int(info.get("toolCount", 0) or 0)
+if missing or tool_count < 49:
+    details = ", ".join(f"{key}={info.get(key)!r}" for key in required)
+    raise SystemExit(
+        f"ERROR: {label} is not a full-language CodeLattice MCP runtime "
+        f"(toolCount={tool_count}; {details})"
+    )
+print(f"  profile OK: {label} (toolCount={tool_count})")
+PY
+}
+
 echo "=== CodeLattice Local Tool Promotion ==="
 echo "Repo:        $REPO_ROOT"
 echo "Install dir: $INSTALL_DIR"
@@ -151,6 +208,11 @@ if [[ "$DRY_RUN" != "true" && ! -x "$RELEASE_COMPAT_BIN" ]]; then
     echo "Run without --skip-build first." >&2
     exit 1
 fi
+if [[ "$DRY_RUN" != "true" ]]; then
+    echo ""
+    echo "--- Verifying release runtime profile ---"
+    require_full_language_profile "$RELEASE_BIN" "release bin/codelattice"
+fi
 
 echo ""
 echo "--- Installing stable runtime ---"
@@ -158,6 +220,11 @@ run mkdir -p "$INSTALL_BIN_DIR"
 install_executable "$RELEASE_BIN" "$INSTALL_BIN"
 install_executable "$RELEASE_BIN" "$INSTALL_LEGACY_ALIAS_BIN"
 install_executable "$RELEASE_COMPAT_BIN" "$INSTALL_COMPAT_BIN"
+if [[ "$DRY_RUN" != "true" ]]; then
+    echo ""
+    echo "--- Verifying installed runtime profile ---"
+    require_full_language_profile "$INSTALL_BIN" "installed bin/codelattice"
+fi
 
 if [[ "$DRY_RUN" == "true" ]]; then
     echo "DRY-RUN: write $INSTALL_WRAPPER"
