@@ -8760,7 +8760,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_project",
-                "description": "Project-level understanding: overview, quality gates, insights. Use this as the default entry point for single-project analysis.",
+                "description": "Project-level analysis for a SINGLE project root: overview, quality gates, insights. root MUST be one project directory (e.g. /path/to/my-project). For monorepo/workspace roots, use codelattice_workspace first, then switch to codelattice_project with a sub-project root.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -8774,7 +8774,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_symbol",
-                "description": "Symbol-level query: search, context, callers, callees, graph query.",
+                "description": "Symbol-level queries (search, context, callers, callees) for a SINGLE project root. root MUST be one project directory — NOT a workspace root. If you only have a workspace/monorepo root, use codelattice_workspace (mode=graph) first to discover sub-project roots, then pass one sub-project root here.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -8793,11 +8793,11 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_change_review",
-                "description": "Change review and safety facade: changed symbols, impact preview, production readiness, breaking changes, consistency, cleanup review, release checks, root-cause evidence, and native workspace-aware review. Use before/after editing.",
+                "description": "Pre-commit change review for a SINGLE project root: detect changed symbols, assess impact, check safety, breaking changes, consistency, cleanup review, release checks, root-cause evidence. root MUST be one project directory. For workspace-level change impact, use codelattice_workspace mode=impact.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "root": { "type": "string", "description": "Absolute path to project root" },
+                        "root": { "type": "string", "description": "Absolute path to project root — must be a single project directory, not a workspace root" },
                         "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review", "safe_cleanup_review", "dead_code", "reachability", "external_api", "framework_entries", "release_check", "docs_tests", "config_examples", "root_cause"], "default": "impact", "description": "Review mode. native_review orchestrates changed_symbols + production_assist; safe_cleanup_review replaces the hidden cleanup facade in default AI mode; release_check/docs_tests/config_examples replace the hidden release facade; root_cause routes to evidence planning." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
@@ -8825,7 +8825,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_workspace",
-                "description": "Workspace-level multi-project analysis: dependency graph, cross-project impact, overview. Use for mono-repo or multi-project workspaces.",
+                "description": "Workspace/monorepo multi-project analysis: dependency graph, cross-project impact, overview. root SHOULD be a workspace root (parent of multiple projects). For single-project work, prefer codelattice_project or codelattice_symbol with a sub-project root.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -8864,7 +8864,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_cache",
-                "description": "Cache management: status, clear, explain the two-layer analysis cache.",
+                "description": "Cache management (optional performance layer, NOT availability gate): status, clear, explain. Disabled persistent cache does NOT prevent fresh static analysis — CodeLattice works fine without it. Use mode=status to check memory and persistent cache state.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -8875,7 +8875,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_workflow",
-                "description": "AI intent router and workflow guidance. Use this as the first MCP call when an AI agent is unsure which CodeLattice tool to use. Returns an action envelope with missingInputs, cautions, and directly callable nextActions.",
+                "description": "AI intent router. Use this FIRST when unsure which CodeLattice tool to call. Returns a routing decision based on root type (workspace vs project), intent mode, and missing inputs. Accepts either a single project root or workspace root — the router will detect and route correctly.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -17353,7 +17353,149 @@ fn unwrap_tool_result(result: &Value) -> Value {
         .unwrap_or(json!({}))
 }
 
+// ── AI Usability Hardening: root diagnosis ──────────────────────────
+
+/// 判断 root 更像 single_project / workspace / unsupported / unknown
+/// 使用 scan_workspace_inventory 扫描目录结构
+fn diagnose_root(root: &str, language: &str) -> Value {
+    let path = match PathBuf::from(root).canonicalize() {
+        Ok(p) => p,
+        Err(_) => {
+            return json!({
+                "kind": "unknown",
+                "inputRoot": root,
+                "explanation": "Cannot canonicalize root path. Verify the path exists and is accessible."
+            })
+        }
+    };
+
+    let inventory = match scan_workspace_inventory(&path, true) {
+        Ok(inv) => inv,
+        Err(e) => {
+            return json!({
+                "kind": "unknown",
+                "inputRoot": root,
+                "explanation": format!("Workspace inventory scan failed: {}", e)
+            })
+        }
+    };
+
+    let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
+    let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
+    let manifest_count = supported
+        .iter()
+        .filter(|p| !p.manifest_file.is_empty())
+        .count();
+    let root_project = supported.iter().find(|p| p.relative_path == ".");
+
+    // 判断 root 类型
+    let (kind, explanation) = if supported.len() == 1 && root_project.is_some() {
+        ("single_project", "Root contains a single detected project with a manifest.".to_string())
+    } else if supported.len() >= 2 && manifest_count >= 2 {
+        ("workspace", format!(
+            "Root contains {} supported projects across subdirectories ({} with manifests).",
+            supported.len(), manifest_count
+        ))
+    } else if supported.len() >= 3 && manifest_count >= 1 {
+        ("workspace", format!(
+            "Root contains {} supported projects. Treat as a workspace root for cross-project analysis.",
+            supported.len()
+        ))
+    } else if supported.is_empty() && !unsupported.is_empty() {
+        ("unsupported_or_mixed_workspace",
+         format!("Root contains {} unsupported modules and no supported projects.", unsupported.len()))
+    } else if supported.len() == 1 && root_project.is_none() && manifest_count == 1 {
+        ("single_project", "Root contains one project in a subdirectory.".to_string())
+    } else if supported.len() >= 2 && manifest_count < 2 {
+        ("unsupported_or_mixed_workspace",
+         format!("Root has {} entries but few detected manifests. Some may not be analyzable projects.", supported.len()))
+    } else {
+        ("unknown",
+         format!("Found {} supported entries, {} with manifests. Cannot confidently classify root.", supported.len(), manifest_count))
+    };
+
+    // 收集推荐的项目 roots
+    let recommended_project_roots: Vec<_> = supported
+        .iter()
+        .filter(|p| p.relative_path != "." || kind == "single_project")
+        .map(|p| json!({
+            "path": p.path,
+            "relativePath": p.relative_path,
+            "name": p.name,
+            "language": p.language,
+            "manifestFile": p.manifest_file,
+            "recommended": true
+        }))
+        .collect();
+
+    let detected_projects: Vec<_> = inventory
+        .iter()
+        .map(|p| json!({
+            "path": p.path,
+            "relativePath": p.relative_path,
+            "name": p.name,
+            "language": p.language,
+            "manifestFile": p.manifest_file,
+            "supported": p.supported
+        }))
+        .collect();
+
+    // 根据 root 类型推荐合适的工具
+    let recommended_tool = match kind {
+        "single_project" => json!("codelattice_project"),
+        "workspace" => json!("codelattice_workspace"),
+        _ => Value::Null,
+    };
+
+    let mut cautions: Vec<Value> = Vec::new();
+    if kind == "workspace" || kind == "unsupported_or_mixed_workspace" {
+        cautions.push(json!("Do not pass workspace root to codelattice_symbol or codelattice_project — use a specific project root from recommendedProjectRoots."));
+        cautions.push(json!("Use codelattice_workspace for cross-project analysis and graph overview."));
+    }
+    if !unsupported.is_empty() {
+        cautions.push(json!(format!(
+            "{} unsupported entries detected. These will not be analyzed.",
+            unsupported.len()
+        )));
+    }
+
+    json!({
+        "kind": kind,
+        "inputRoot": root,
+        "canonicalRoot": path.to_string_lossy(),
+        "recommendedTool": recommended_tool,
+        "recommendedProjectRoots": recommended_project_roots,
+        "detectedProjects": detected_projects,
+        "cautions": cautions,
+        "explanation": explanation
+    })
+}
+
+/// 构建 analysisSemantics 对象，明确说明分析已执行但目标代码未运行
+fn build_analysis_semantics() -> Value {
+    json!({
+        "staticAnalysisExecuted": true,
+        "targetCodeExecuted": false,
+        "targetScriptsExecuted": false,
+        "runtimeProof": false,
+        "coverageProof": false,
+        "explanation": "CodeLattice executed static parsing and graph analysis only. It did NOT run or execute the target project's code, build scripts, or package manager. runtimeExecuted=false means the target project was NOT run — it does NOT mean CodeLattice failed to analyze."
+    })
+}
+
+/// 构建 cacheSemantics 对象，防止 AI 误判 persistent cache disabled 为 CodeLattice 不可用
+fn build_cache_semantics(has_persistent: bool) -> Value {
+    json!({
+        "memoryCacheAvailable": true,
+        "persistentCacheAvailable": has_persistent,
+        "analysisAvailableWithoutPersistentCache": true,
+        "explanation": "Persistent cache is an optional performance layer. Disabled persistent cache does NOT prevent fresh static analysis — CodeLattice will still run analysis and cache results in memory for the current session.",
+        "enableHint": "Set CODELATTICE_CACHE_DIR=<writable-dir> to enable cross-session persistent cache."
+    })
+}
+
 /// 将子工具结果包装为统一 facade 输出
+/// rootDiagnosis: 如果提供，直接使用；否则如果 root 非空且非 "n/a"，自动计算
 fn wrap_facade_output(
     inner: Value,
     tool: &str,
@@ -17365,12 +17507,21 @@ fn wrap_facade_output(
     underlying: Vec<&str>,
     compact: bool,
 ) -> Value {
+    // 自动计算 root diagnosis（如果 root 有效）
+    let root_diagnosis = if root.is_empty() || root == "n/a" {
+        json!({"kind": "not_applicable", "explanation": "No root path provided."})
+    } else {
+        diagnose_root(root, language)
+    };
+
     let mut out = json!({
         "schemaVersion": "facade.v1",
         "tool": tool,
         "mode": mode,
         "language": language,
         "root": root,
+        "rootDiagnosis": root_diagnosis,
+        "analysisSemantics": build_analysis_semantics(),
         "summary": summary,
         "result": inner,
         "nextActions": next_actions,
@@ -17511,6 +17662,23 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         _ => unreachable!(),
     };
     let summary = json!({"riskLevel":"low","mode":mode});
+    let mut next_actions: Vec<&str> = vec!["Use codelattice_symbol search to explore symbols"];
+
+    // workspace root 检测：project 收到 workspace root 时给出建议
+    let diag = diagnose_root(root, language);
+    let diag_kind = diag.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+    if diag_kind == "workspace" && !diag
+        .get("recommendedProjectRoots")
+        .and_then(|v| v.as_array())
+        .map(|a| a.is_empty())
+        .unwrap_or(true)
+    {
+        let mut new_next_actions: Vec<&str> = Vec::new();
+        new_next_actions.push("This root appears to be a workspace. For single-project analysis, use a sub-project root from the recommendedProjectRoots list in rootDiagnosis.");
+        new_next_actions.push("Or use codelattice_workspace for cross-project analysis.");
+        next_actions = new_next_actions;
+    }
+
     Ok(tool_result(&wrap_facade_output(
         inner,
         "codelattice_project",
@@ -17518,7 +17686,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         language,
         root,
         summary,
-        vec!["Use codelattice_symbol search to explore symbols"],
+        next_actions,
         underlying,
         compact,
     )))
@@ -17538,6 +17706,10 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         &["search", "context", "callers", "callees", "graph"],
         "codelattice_symbol",
     )?;
+
+    // 预诊 root：如果是 workspace root，提前收集推荐子项目供 fallback 使用
+    let root_diag = diagnose_root(root, language);
+
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "search" => {
             let r = handle_symbol_search(cache, params)?;
@@ -17573,6 +17745,79 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         }
         _ => unreachable!(),
     };
+
+    // workspace root 误用检测: 如果 root 是 workspace 且搜索返回 0 结果
+    let root_kind = root_diag.get("kind").and_then(|v| v.as_str()).unwrap_or("unknown");
+    let workspace_misuse = matches!(root_kind, "workspace" | "unsupported_or_mixed_workspace");
+
+    // ⬇ check for empty search results
+    let has_symbols = inner
+        .get("symbols")
+        .or_else(|| inner.get("results"))
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(true);
+    let has_edges = inner
+        .get("edges")
+        .and_then(|v| v.as_array())
+        .map(|a| !a.is_empty())
+        .unwrap_or(true);
+
+    let mut next_actions = vec!["Use context mode for full symbol details"];
+
+    if workspace_misuse && !has_symbols && !has_edges {
+        // 构建 workspace misuse help 输出
+        let recommendations = root_diag
+            .get("recommendedProjectRoots")
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+        let explanation = root_diag
+            .get("explanation")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let cautions = root_diag
+            .get("cautions")
+            .cloned()
+            .unwrap_or_else(|| json!([]));
+
+        let help_output = json!({
+            "mode": mode,
+            "rootDiagnosis": {
+                "kind": root_kind,
+                "inputRoot": root,
+                "explanation": explanation,
+                "cautions": cautions
+            },
+            "workspaceRootMisuse": {
+                "detected": true,
+                "diagnosis": format!(
+                    "The root '{}' is a {} root. codelattice_symbol expects a single project root, not a workspace root.",
+                    root, root_kind
+                ),
+                "fix": "Use one of the recommendedProjectRoots as the root parameter for codelattice_symbol.",
+                "recommendedProjectRoots": recommendations,
+                "recommendedTool": "codelattice_workspace"
+            },
+            "result": inner
+        });
+
+        next_actions = vec![
+            "Use codelattice_workspace mode=graph to see project structure",
+            "Re-run codelattice_symbol with a specific project root from recommendedProjectRoots",
+        ];
+        return Ok(tool_result(&wrap_facade_output(
+            help_output,
+            "codelattice_symbol",
+            mode,
+            language,
+            root,
+            json!({"riskLevel":"low","mode":mode,"workspaceRootMisuse":true}),
+            next_actions,
+            underlying,
+            compact,
+        )));
+    }
+
     Ok(tool_result(&wrap_facade_output(
         inner,
         "codelattice_symbol",
@@ -17580,7 +17825,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         language,
         root,
         json!({"riskLevel":"low","mode":mode}),
-        vec!["Use context mode for full symbol details"],
+        next_actions,
         underlying,
         compact,
     )))
@@ -18111,22 +18356,29 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("status");
     let compact = params["compact"].as_bool().unwrap_or(false);
     validate_facade_mode(mode, &["status", "clear", "explain"], "codelattice_cache")?;
-    let (inner, underlying): (Value, Vec<&str>) = match mode {
+    let (inner, underlying, persistent_enabled): (Value, Vec<&str>, bool) = match mode {
         "status" => {
             let r = handle_cache_status(cache, params)?;
-            (unwrap_tool_result(&r), vec!["codelattice_cache_status"])
+            let raw = unwrap_tool_result(&r);
+            let has_persistent = raw
+                .get("persistent")
+                .and_then(|p| p.get("enabled"))
+                .and_then(|e| e.as_bool())
+                .unwrap_or(false);
+            (raw, vec!["codelattice_cache_status"], has_persistent)
         }
         "clear" => {
             let r = handle_cache_clear(cache, params)?;
-            (unwrap_tool_result(&r), vec!["codelattice_cache_clear"])
+            (unwrap_tool_result(&r), vec!["codelattice_cache_clear"], false)
         }
         "explain" => (
             json!({"layers":["memory","persistent"],"disable":"CODELATTICE_CACHE=off","clear":"Use mode=clear","prewarm":"Use codelattice_cache_prewarm"}),
             vec!["codelattice_cache_status"],
+            false,
         ),
         _ => unreachable!(),
     };
-    Ok(tool_result(&wrap_facade_output(
+    let mut output = wrap_facade_output(
         inner,
         "codelattice_cache",
         mode,
@@ -18136,7 +18388,15 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         vec!["Use clear to reset cache"],
         underlying,
         compact,
-    )))
+    );
+    // 添加 cacheSemantics
+    if let Some(obj) = output.as_object_mut() {
+        obj.insert(
+            "cacheSemantics".to_string(),
+            build_cache_semantics(persistent_enabled),
+        );
+    }
+    Ok(tool_result(&output))
 }
 
 // ── codelattice_workflow ─────────────────────────────────────────────
