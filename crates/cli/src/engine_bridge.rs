@@ -19,60 +19,44 @@ use gitnexus_analysis_engine::adapter::{
 
 type AnalysisResult = (serde_json::Value, Vec<serde_json::Value>, Vec<serde_json::Value>);
 
-fn get_rust_project_files(root: &Path) -> Vec<String> {
+// ── File discovery with recursion ────────────────────────────────
+
+fn find_files_recursive(root: &Path, extensions: &[&str], max_depth: usize) -> Vec<String> {
     let mut files = Vec::new();
+    if max_depth == 0 { return files; }
     if let Ok(entries) = std::fs::read_dir(root) {
         for e in entries.flatten() {
             let p = e.path();
-            if p.extension().map(|ext| ext == "rs").unwrap_or(false) {
-                files.push(p.to_string_lossy().to_string());
+            let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            // skip hidden dirs and node_modules/target
+            if p.is_dir() && !fname.starts_with('.') && fname != "node_modules" && fname != "target" {
+                files.extend(find_files_recursive(&p, extensions, max_depth - 1));
+            } else if p.is_file() {
+                if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                    if extensions.contains(&ext) {
+                        files.push(p.to_string_lossy().to_string());
+                    }
+                }
             }
         }
     }
     files
+}
+
+fn get_rust_project_files(root: &Path) -> Vec<String> {
+    find_files_recursive(root, &["rs"], 4)
 }
 
 fn get_ts_project_files(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if let Some(ext) = p.extension() {
-                if ext == "ts" || ext == "tsx" {
-                    files.push(p.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-    files
+    find_files_recursive(root, &["ts", "tsx"], 4)
 }
 
 fn get_js_project_files(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if let Some(ext) = p.extension() {
-                if ext == "js" || ext == "jsx" || ext == "mjs" || ext == "cjs" {
-                    files.push(p.to_string_lossy().to_string());
-                }
-            }
-        }
-    }
-    files
+    find_files_recursive(root, &["js", "jsx", "mjs", "cjs"], 4)
 }
 
 fn get_py_project_files(root: &Path) -> Vec<String> {
-    let mut files = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root) {
-        for e in entries.flatten() {
-            let p = e.path();
-            if p.extension().map(|ext| ext == "py").unwrap_or(false) {
-                files.push(p.to_string_lossy().to_string());
-            }
-        }
-    }
-    files
+    find_files_recursive(root, &["py"], 4)
 }
 
 // ═══════════════════════════════════════════════════════════════
