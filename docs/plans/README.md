@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-22（CodeLattice 0.16.0-beta.1 Release Refresh）
+最后更新：2026-05-23（MCP Concurrency Hardening）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**MCP Concurrency Hardening（2026-05-23，已完成）：**
+- 📝 [2026-05-23-mcp-concurrency-hardening-preflight.md](2026-05-23-mcp-concurrency-hardening-preflight.md) — 解决 AI 客户端并行调用 CodeLattice MCP 时 stdio session 断连的问题，采用结构化 busy 响应而非排队到客户端超时。
+- ✅ [2026-05-23-mcp-concurrency-hardening-closure.md](2026-05-23-mcp-concurrency-hardening-closure.md) — closure：新增 MCP 并发 smoke，验证 busy 后同一 MCP 进程可恢复，已接入 native precommit。
 
 **CodeLattice 0.16.0-beta.1 Release Refresh（2026-05-22，已完成）：**
 - 📝 [2026-05-22-release-0.16.0-beta.1-preflight.md](2026-05-22-release-0.16.0-beta.1-preflight.md) — 刷新 beta 发行版到 `0.16.0-beta.1`，补齐 JavaScript/Shell、6-tool AI 默认 MCP、WebUI/workspace/native governance 的发布包与文档。

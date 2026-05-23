@@ -42,6 +42,11 @@ use std::collections::HashMap;
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::{
+    atomic::{AtomicUsize, Ordering},
+    mpsc, Arc, Mutex,
+};
+use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 // ============================================================
@@ -13258,6 +13263,34 @@ fn make_error_response(id: &Value, code: i64, message: &str) -> Value {
     })
 }
 
+fn make_busy_response(id: &Value, tool_name: &str) -> Value {
+    let body = json!({
+        "schemaVersion": "codelattice.mcpBusy.v1",
+        "error": "mcp_server_busy",
+        "tool": tool_name,
+        "message": "Another CodeLattice tools/call is still running in this MCP session. This server intentionally rejects concurrent tool calls instead of queuing them until the client times out.",
+        "retry": "Retry this tool call after the current CodeLattice call finishes.",
+        "aiGuidance": [
+            "Do not issue parallel CodeLattice MCP tool calls in the same session.",
+            "Use codelattice_workflow with execute=true when you want CodeLattice to orchestrate multiple steps.",
+            "For large workspaces, start with codelattice_project or codelattice_workspace, then drill into a specific project root."
+        ],
+        "generatedFrom": {
+            "staticAnalysis": false,
+            "targetCodeExecuted": false,
+            "scriptsExecuted": false
+        }
+    });
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "result": {
+            "content": [{ "type": "text", "text": serde_json::to_string(&body).unwrap_or_default() }],
+            "isError": true
+        }
+    })
+}
+
 fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
     let method = request["method"].as_str().unwrap_or("");
     let id = request.get("id").cloned().unwrap_or(Value::Null);
@@ -19200,24 +19233,63 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
 pub fn run_mcp_server() -> Result<(), String> {
     eprintln!("[mcp] CodeLattice MCP v0.8 server starting on stdin/stdout");
 
-    let mut cache = McpCache::new();
-    let stdin = std::io::stdin();
+    let cache = Arc::new(Mutex::new(McpCache::new()));
+    let active_tool_calls = Arc::new(AtomicUsize::new(0));
+    let (request_tx, request_rx) = mpsc::channel::<Option<String>>();
+    let (response_tx, response_rx) = mpsc::channel::<Value>();
+
+    thread::spawn(move || {
+        let stdin = std::io::stdin();
+        let mut stdin = stdin.lock();
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match stdin.read_line(&mut line) {
+                Ok(0) => {
+                    let _ = request_tx.send(None);
+                    break;
+                }
+                Ok(_) => {
+                    if request_tx.send(Some(line.clone())).is_err() {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[mcp] stdin read error: {e}");
+                    let _ = request_tx.send(None);
+                    break;
+                }
+            }
+        }
+    });
+
     let mut stdout = std::io::stdout();
-    let mut line = String::new();
+    let mut stdin_eof = false;
 
     loop {
-        line.clear();
-        let bytes_read = stdin
-            .lock()
-            .read_line(&mut line)
-            .map_err(|e| format!("stdin read error: {e}"))?;
+        while let Ok(response) = response_rx.try_recv() {
+            let response_str = serde_json::to_string(&response).unwrap_or_default();
+            let _ = writeln!(stdout, "{}", response_str);
+            let _ = stdout.flush();
+        }
 
-        if bytes_read == 0 {
-            // EOF — client disconnected
+        if stdin_eof && active_tool_calls.load(Ordering::SeqCst) == 0 {
             eprintln!("[mcp] stdin EOF, shutting down");
             break;
         }
 
+        let line = match request_rx.recv_timeout(Duration::from_millis(25)) {
+            Ok(Some(line)) => line,
+            Ok(None) => {
+                stdin_eof = true;
+                continue;
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => continue,
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                stdin_eof = true;
+                continue;
+            }
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
@@ -19245,7 +19317,58 @@ pub fn run_mcp_server() -> Result<(), String> {
 
         eprintln!("[mcp] -> {}", request["method"].as_str().unwrap_or("?"));
 
-        if let Some(response) = handle_request(&request, &mut cache) {
+        if request["method"].as_str() == Some("tools/call") {
+            let id = request.get("id").cloned().unwrap_or(Value::Null);
+            let tool_name = request["params"]["name"].as_str().unwrap_or("");
+            if active_tool_calls.load(Ordering::SeqCst) > 0 {
+                // CodeLattice 的 MCP 工具调用共享进程内 cache。客户端并行
+                // 发起 tools/call 时直接返回 busy，避免旧实现的 stdio 断连。
+                let response = make_busy_response(&id, tool_name);
+                let response_str = serde_json::to_string(&response).unwrap_or_default();
+                let _ = writeln!(stdout, "{}", response_str);
+                let _ = stdout.flush();
+                continue;
+            }
+
+            active_tool_calls.fetch_add(1, Ordering::SeqCst);
+            let request_for_worker = request.clone();
+            let cache_for_worker = Arc::clone(&cache);
+            let response_tx_for_worker = response_tx.clone();
+            let active_for_worker = Arc::clone(&active_tool_calls);
+            thread::spawn(move || {
+                let response =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                        || match cache_for_worker.lock() {
+                            Ok(mut cache) => handle_request(&request_for_worker, &mut cache),
+                            Err(_) => {
+                                let id =
+                                    request_for_worker.get("id").cloned().unwrap_or(Value::Null);
+                                Some(make_error_response(
+                                    &id,
+                                    -32000,
+                                    "Internal MCP cache lock is poisoned",
+                                ))
+                            }
+                        },
+                    ))
+                    .unwrap_or_else(|_| {
+                        let id = request_for_worker.get("id").cloned().unwrap_or(Value::Null);
+                        Some(make_error_response(
+                            &id,
+                            -32000,
+                            "Internal MCP tool call panicked",
+                        ))
+                    });
+                if let Some(response) = response {
+                    let _ = response_tx_for_worker.send(response);
+                }
+                active_for_worker.fetch_sub(1, Ordering::SeqCst);
+            });
+            continue;
+        }
+
+        let mut direct_cache = McpCache::new();
+        if let Some(response) = handle_request(&request, &mut direct_cache) {
             let response_str = serde_json::to_string(&response).unwrap_or_default();
             let _ = writeln!(stdout, "{}", response_str);
             let _ = stdout.flush();

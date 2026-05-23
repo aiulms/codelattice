@@ -39,8 +39,9 @@ This script runs:
   2. git diff --check
   3. cargo test --test productization_commands
   4. cargo test --test mcp_server
-  5. scripts/codelattice-detect-changes-smoke.sh
-  6. codelattice detect-changes --scope <scope>
+  5. scripts/codelattice-mcp-concurrency-smoke.sh
+  6. scripts/codelattice-detect-changes-smoke.sh
+  7. codelattice detect-changes --scope <scope>
 
 It does not call GitNexus-Tool by default.
 Set CODELATTICE_PRECOMMIT_REPORT to override the output report path.
@@ -105,6 +106,9 @@ cargo test --test productization_commands
 
 step "cargo test --test mcp_server"
 cargo test --test mcp_server
+
+step "CodeLattice MCP concurrency smoke"
+bash "$REPO_ROOT/scripts/codelattice-mcp-concurrency-smoke.sh"
 
 step "CodeLattice detect-changes smoke"
 bash "$REPO_ROOT/scripts/codelattice-detect-changes-smoke.sh"
