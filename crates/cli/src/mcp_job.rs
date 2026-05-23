@@ -404,9 +404,10 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
 
 /// Check if a root is likely a large project (should use job runtime).
 pub fn is_large_project(root: &str, language: &str) -> bool {
-    if let Ok(adapter) = crate::engine_bridge::get_adapter_for_language(language) {
-        let files: Vec<_> = adapter.discover_files(root).unwrap_or_default();
-        return !files.is_empty() || files.len() > 10;
+    if let Some(adapter) = crate::engine_bridge::get_adapter_for_language(language) {
+        if let Ok(files) = adapter.discover_files(root) {
+            return files.len() > 10;
+        }
     }
     false
 }
