@@ -509,6 +509,18 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
                     };
 
                     let result = SerialExecutor.execute(&plan, adapter.as_ref());
+                    // Store artifacts in persistent cache
+                    for art in &result.artifacts {
+                        if art.error.is_none() {
+                            cache_store(CacheKey {
+                                path: art.unit_id.clone(),
+                                content_hash: format!("{:x}", art.unit_id.len()),
+                                language: lang.clone(), adapter_version: "1.3".into(),
+                                parser_version: "1.0".into(), stage: art.stage.name().to_string(),
+                                engine_version: "1.3".into(),
+                            }, art.clone());
+                        }
+                    }
                     serde_json::json!({
                         "project": proj_name, "path": proj_root,
                         "status": if result.failed > 0 && result.completed == 0 { "failed" } else { "completed" },
