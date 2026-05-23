@@ -1,0 +1,12 @@
+[package]
+name = "gitnexus-analysis-engine"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+gitnexus-analysis-scheduler = { path = "../analysis-scheduler" }
+gitnexus-workspace-model = { path = "../workspace-model" }
+gitnexus-project-model = { path = "../project-model" }
+num_cpus = "1.16"
