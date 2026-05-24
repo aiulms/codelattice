@@ -610,7 +610,11 @@ fn build_workspace_auto_entry(root: &str, protected: bool, compact: bool) -> Opt
         "status": if supported_manifest_projects.is_empty() { "needs_selection" } else { "workspace_analyzed" },
         "rootKind": if protected { "protected_live_workspace" } else { "workspace" },
         "root": path.to_string_lossy(),
-        "rootDiagnosis": diagnose_root(&path.to_string_lossy(), "auto"),
+        "rootDiagnosis": if compact {
+            diagnose_root_compact(&path.to_string_lossy(), "auto")
+        } else {
+            diagnose_root(&path.to_string_lossy(), "auto")
+        },
         "analysisSemantics": build_analysis_semantics(),
         "summary": {
             "supportedProjectCount": supported_manifest_projects.len(),
@@ -18551,9 +18555,21 @@ fn unwrap_tool_result(result: &Value) -> Value {
 
 // ── AI Usability Hardening: root diagnosis ──────────────────────────
 
+fn diagnose_root(root: &str, language: &str) -> Value {
+    diagnose_root_with_source_only_limit(root, language, 50)
+}
+
+fn diagnose_root_compact(root: &str, language: &str) -> Value {
+    diagnose_root_with_source_only_limit(root, language, 5)
+}
+
 /// 判断 root 更像 single_project / workspace / unsupported / unknown
 /// 使用 scan_workspace_inventory 扫描目录结构
-fn diagnose_root(root: &str, language: &str) -> Value {
+fn diagnose_root_with_source_only_limit(
+    root: &str,
+    _language: &str,
+    source_only_limit: usize,
+) -> Value {
     let path = match PathBuf::from(root).canonicalize() {
         Ok(p) => p,
         Err(_) => {
@@ -18585,7 +18601,8 @@ fn diagnose_root(root: &str, language: &str) -> Value {
         .collect();
     let manifest_count = supported_manifest_projects.len();
     let source_only_count = supported.len().saturating_sub(manifest_count);
-    let source_only_entries = source_only_entries_json(supported.iter().copied(), 50);
+    let source_only_entries =
+        source_only_entries_json(supported.iter().copied(), source_only_limit);
     let source_only_summary = source_only_summary_json(&source_only_entries, source_only_count);
     let root_project = supported_manifest_projects
         .iter()
@@ -18756,6 +18773,8 @@ fn wrap_facade_output(
     // 自动计算 root diagnosis（如果 root 有效）
     let root_diagnosis = if root.is_empty() || root == "n/a" {
         json!({"kind": "not_applicable", "explanation": "No root path provided."})
+    } else if compact {
+        diagnose_root_compact(root, language)
     } else {
         diagnose_root(root, language)
     };

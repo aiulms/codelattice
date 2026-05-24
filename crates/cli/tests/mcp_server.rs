@@ -72,6 +72,36 @@ fn create_multi_project_workspace() -> tempfile::TempDir {
     dir
 }
 
+fn create_source_heavy_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create source-heavy project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"source-heavy\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(root.join("src/main.rs"), "fn main() {}\n").unwrap();
+
+    for idx in 0..8 {
+        let module_dir = root.join("src").join(format!("feature_{idx}"));
+        std::fs::create_dir_all(&module_dir).unwrap();
+        std::fs::write(
+            module_dir.join("a.rs"),
+            format!("pub fn feature_{idx}_a() {{}}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            module_dir.join("b.rs"),
+            format!("pub fn feature_{idx}_b() {{}}\n"),
+        )
+        .unwrap();
+    }
+
+    dir
+}
+
 #[allow(dead_code)]
 fn cangjie_portable_smoke_dir() -> std::path::PathBuf {
     workspace_root()
@@ -1374,6 +1404,63 @@ fn mcp_project_workspace_auto_entry_prioritizes_main_projects() {
     assert!(
         data["progressiveExploration"]["recommendedFirstStep"].is_string(),
         "workspace auto-entry should guide AI's first step: {data:?}"
+    );
+    assert!(
+        data["sourceOnlyEntries"]
+            .as_array()
+            .map(|items| items.len() <= 5)
+            .unwrap_or(false),
+        "compact workspace auto-entry should limit top-level source-only entries: {data:?}"
+    );
+    assert!(
+        data["rootDiagnosis"]["sourceOnlyEntries"]
+            .as_array()
+            .map(|items| items.len() <= 5)
+            .unwrap_or(false),
+        "compact workspace auto-entry should also limit nested rootDiagnosis source-only entries: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_compact_limits_root_diagnosis_source_only_entries() {
+    let dir = create_source_heavy_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "overview",
+                "root": dir.path(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    let entries = data["rootDiagnosis"]["sourceOnlyEntries"]
+        .as_array()
+        .expect("rootDiagnosis should expose sourceOnlyEntries");
+    assert!(
+        entries.len() <= 5,
+        "compact rootDiagnosis should cap source-only entries, got {}: {data:?}",
+        entries.len()
+    );
+    assert!(
+        data["rootDiagnosis"]["sourceOnlySummary"]["total"]
+            .as_u64()
+            .unwrap_or(0)
+            > data["rootDiagnosis"]["sourceOnlySummary"]["reported"]
+                .as_u64()
+                .unwrap_or(0),
+        "compact rootDiagnosis should preserve full total while reporting a capped subset: {data:?}"
     );
 }
 
