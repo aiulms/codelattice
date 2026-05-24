@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-23（Analysis Engine Parallelism Roadmap）
+最后更新：2026-05-24（AI Progressive Exploration Pack）
 
 ## 用途
 
@@ -18,6 +18,10 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**AI Progressive Exploration Pack（2026-05-24，已完成）：**
+- 📝 [2026-05-24-ai-progressive-exploration-pack-preflight.md](2026-05-24-ai-progressive-exploration-pack-preflight.md) — 让 AI 默认从 quick/standard/deep 渐进式理解项目，避免首次调用就收到大块静态分析 dump。
+- ✅ [2026-05-24-ai-progressive-exploration-pack-closure.md](2026-05-24-ai-progressive-exploration-pack-closure.md) — closure：新增 `codelattice_project` quick/standard/deep、`codelattice_workflow(mode=explore)`、workspace primaryProjectRoots 排序和 compact digest 保留。
 
 **Analysis Engine 1.3 Parallelism Roadmap（2026-05-23，路线规划）：**
 - 📝 [2026-05-23-analysis-engine-parallelism-roadmap.md](2026-05-23-analysis-engine-parallelism-roadmap.md) — 直接瞄准 CodeLattice 1.3 大项目真并发分析内核；Pack 是实施切片，全部服务于同一个 1.3 目标。范围包括 Analysis DAG、deterministic graph reducer、file-level worker pool、intermediate cache、language adapter concurrency contract、MCP job runtime。

@@ -1211,6 +1211,61 @@ fn mcp_workflow_diagnose_issue_execute_returns_investigation_report() {
 }
 
 #[test]
+fn mcp_workflow_explore_routes_progressive_project_map() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "explore",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "depth": 1,
+                "execute": true,
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
+    assert_eq!(data["mode"].as_str(), Some("explore"));
+    assert_eq!(data["explorationPlan"]["depth"].as_u64(), Some(1));
+    assert!(
+        data["explorationPlan"]["readFirst"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "explore should give read-first guidance: {data:?}"
+    );
+    assert!(
+        data["explorationPlan"]["drillDownOptions"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "explore should provide next drill-down choices: {data:?}"
+    );
+    assert!(
+        data["completedActions"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .any(|item| item["tool"].as_str() == Some("codelattice_project"))
+            })
+            .unwrap_or(false),
+        "execute=true explore should run the project quick map: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_project_auto_enters_workspace_for_multi_project_root() {
     let dir = create_multi_project_workspace();
     let mut session = McpSession::start_default_toolset();
@@ -1273,6 +1328,99 @@ fn mcp_project_auto_enters_workspace_for_multi_project_root() {
     assert_eq!(data["generatedFrom"]["staticAnalysis"], true);
     assert_eq!(data["generatedFrom"]["scriptsExecuted"], false);
     assert_eq!(data["generatedFrom"]["projectContentRead"], false);
+}
+
+#[test]
+fn mcp_project_workspace_auto_entry_prioritizes_main_projects() {
+    let dir = create_multi_project_workspace();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42008,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "overview",
+                "root": dir.path(),
+                "language": "auto",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.workspaceAutoEntry.v1")
+    );
+    assert!(
+        data["primaryProjectRoots"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "workspace auto-entry should rank likely main projects: {data:?}"
+    );
+    let first = &data["primaryProjectRoots"][0];
+    assert!(
+        first["rank"].as_u64().unwrap_or(0) >= 1
+            && first["whyRecommended"].is_array()
+            && first["nextAction"].is_string(),
+        "ranked project roots should explain why/what next: {first:?}"
+    );
+    assert!(
+        data["progressiveExploration"]["recommendedFirstStep"].is_string(),
+        "workspace auto-entry should guide AI's first step: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_quick_returns_compact_ai_digest() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42009,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "quick",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    assert_eq!(data["mode"].as_str(), Some("quick"));
+    assert!(
+        data.get("result").is_none(),
+        "compact project quick should not include full result payload: {data:?}"
+    );
+    assert_eq!(data["summary"]["analysisDepth"].as_str(), Some("quick"));
+    assert!(
+        data["summary"]["aiDigest"]["readFirst"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "quick digest should include read-first guidance: {data:?}"
+    );
+    assert!(
+        data["summary"]["aiDigest"]["drillDownOptions"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "quick digest should tell AI how to go deeper: {data:?}"
+    );
 }
 
 #[test]

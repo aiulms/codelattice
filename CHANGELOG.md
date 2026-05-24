@@ -8,6 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **AI Progressive Exploration Pack**: adds a lighter AI-first exploration path without increasing MCP tool count. `codelattice_project` now supports `quick`, `standard`, and `deep` modes, while `codelattice_workflow(mode=explore)` gives a depth-based plan with `readFirst`, `drillDownOptions`, and next queries. Workspace auto-entry now ranks `primaryProjectRoots` with reasons and next actions, and compact facade responses preserve useful summaries/digests while omitting full result payloads.
+
 - **AI Workflow Execution Report Pack**: enriches `codelattice_workflow(..., execute=true)` with an AI-readable investigation report. Workflow execution now returns `investigationPlan`, `aiDecisionTrace`, `evidenceFound`, `evidenceMissing`, and `humanVerificationNeeded` so agents can see what was checked, what remains unproven, and which file/symbol/tool action to inspect next. `diagnose_issue` execution preserves `readFirst` and `likelyAreas` from project diagnosis instead of hiding them behind compact facade output. No new MCP tools are added.
 
 - **Project Insight Navigation Pack**: strengthens `codelattice_project_insights` for AI issue triage and project orientation. Adds `architectureMap` component grouping, `suspiciousAreas` with static reasons/actions, and `missingEvidence` so agents understand what CodeLattice did not prove (runtime, coverage, type inference, entry-point proof, sparse graph evidence). These sections pass through `codelattice_project(mode=insights)` without increasing MCP tool count.
