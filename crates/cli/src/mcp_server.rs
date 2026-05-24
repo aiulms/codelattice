@@ -19704,19 +19704,6 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             let (candidates, call_chains, chain_read_first, chain_missing, chain_next) =
                 build_call_chains_result(&root_path, language, &query, direction, max_depth, limit);
 
-            let mut content = vec![json!({
-                "type": "text",
-                "text": format!("Call chains for '{}': {} chains found, {} candidates",
-                    query, call_chains.len(), candidates.len())
-            })];
-
-            if compact {
-                content.push(json!({
-                    "type": "text",
-                    "text": "Use compact=false for full chain details."
-                }));
-            }
-
             let chain_count = call_chains.len();
             let chains_output = if compact {
                 call_chains.into_iter().take(5).collect::<Vec<_>>()
@@ -19724,8 +19711,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                 call_chains
             };
 
-            return Ok(json!({
-                "content": content,
+            let result_body = json!({
                 "schemaVersion": "codelattice.callChains.v1",
                 "target": query,
                 "candidates": candidates,
@@ -19742,6 +19728,13 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                 },
                 "nextActions": chain_next,
                 "detailHint": if compact && chain_count > 5 { "Use compact=false or increase limit for more chains" } else { "" }
+            });
+
+            let content_text = serde_json::to_string_pretty(&result_body)
+                .unwrap_or_else(|_| result_body.to_string());
+
+            return Ok(json!({
+                "content": [{"type": "text", "text": content_text}],
             }));
         }
         _ => unreachable!(),
@@ -21223,6 +21216,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         let (
             intent,
             answer_summary,
+            target_query,
             evidence,
             call_chains,
             read_first,
@@ -21231,11 +21225,11 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             ai_guidance,
         ) = route_ask_intent(root, language, &question, ask_compact, ask_execute);
 
-        return Ok(json!({
-            "content": [{"type": "text", "text": &answer_summary}],
+        let ask_result = json!({
             "schemaVersion": "codelattice.ask.v1",
             "intent": intent,
             "question": question,
+            "targetQuery": target_query,
             "answerSummary": answer_summary,
             "evidence": evidence,
             "callChains": call_chains,
@@ -21250,6 +21244,11 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
                 "runtimeVerified": false,
                 "scriptsExecuted": false
             }
+        });
+        let ask_text =
+            serde_json::to_string_pretty(&ask_result).unwrap_or_else(|_| ask_result.to_string());
+        return Ok(json!({
+            "content": [{"type": "text", "text": ask_text}],
         }));
     }
 
@@ -22046,27 +22045,49 @@ fn build_call_chains_result(
 
             let query_lower = query.to_lowercase();
             for node in &nodes {
-                if node.get("kind").and_then(|k| k.as_str()) == Some("symbol") {
-                    let name = node
-                        .get("properties")
-                        .and_then(|p| p.get("name"))
-                        .and_then(|n| n.as_str())
-                        .unwrap_or("");
-                    if name.to_lowercase().contains(&query_lower) {
-                        candidates.push(json!({
-                            "name": name,
-                            "file": node["properties"]["sourcePath"].as_str().unwrap_or(""),
-                            "line": node["properties"]["lineStart"].as_u64().unwrap_or(0),
-                            "kind": node["properties"]["symbolKind"].as_str().unwrap_or("unknown"),
-                            "id": node["id"]
-                        }));
-                    }
+                let is_symbol = node
+                    .get("label")
+                    .and_then(|l| l.as_str())
+                    .map(|l| l == "symbol")
+                    .unwrap_or(false)
+                    || node
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .map(|k| k == "symbol")
+                        .unwrap_or(false);
+                if !is_symbol {
+                    continue;
+                }
+                let name = node
+                    .get("properties")
+                    .and_then(|p| p.get("name"))
+                    .and_then(|n| n.as_str())
+                    .unwrap_or("");
+                if name.to_lowercase().contains(&query_lower) {
+                    candidates.push(json!({
+                        "name": name,
+                        "file": node["properties"]["sourcePath"].as_str().unwrap_or(""),
+                        "line": node["properties"]["lineStart"].as_u64().unwrap_or(0),
+                        "kind": node["properties"]["symbolKind"].as_str().unwrap_or("unknown"),
+                        "id": node["id"]
+                    }));
                 }
             }
 
             let calls_edges: Vec<_> = edges
                 .iter()
-                .filter(|e| e.get("type").and_then(|t| t.as_str()) == Some("CALLS"))
+                .filter(|e| {
+                    let has_calls_type = e
+                        .get("type")
+                        .and_then(|t| t.as_str())
+                        .map(|t| t == "CALLS")
+                        .unwrap_or(false);
+                    let has_call_kind = e
+                        .get("properties")
+                        .and_then(|p| p.get("callKind"))
+                        .is_some();
+                    has_calls_type || has_call_kind
+                })
                 .collect();
 
             for candidate in candidates.iter().take(limit) {
@@ -22074,6 +22095,7 @@ fn build_call_chains_result(
 
                 if direction == "upstream" || direction == "both" {
                     let mut chain = Vec::new();
+                    let mut chain_ids = Vec::new();
                     let mut files = BTreeSet::new();
                     let mut edge_kinds = Vec::new();
                     let mut current = id.to_string();
@@ -22092,6 +22114,7 @@ fn build_call_chains_result(
                                     .and_then(|n| n["properties"]["name"].as_str())
                                     .unwrap_or(source_id);
                                 chain.push(source_name.to_string());
+                                chain_ids.push(source_id.to_string());
                                 edge_kinds.push("CALLS");
                                 if let Some(f) = nodes
                                     .iter()
@@ -22108,13 +22131,22 @@ fn build_call_chains_result(
                     chain.push(candidate["name"].as_str().unwrap_or(query).to_string());
 
                     if chain.len() > 1 {
+                        let entry_file = nodes
+                            .iter()
+                            .find(|n| {
+                                n["id"].as_str()
+                                    == Some(chain_ids.first().map(|s| s.as_str()).unwrap_or(""))
+                            })
+                            .and_then(|n| n["properties"]["sourcePath"].as_str())
+                            .unwrap_or("")
+                            .to_string();
                         call_chains.push(json!({
-                            "chain": chain.join(" -> "),
+                            "chain": chain,
                             "depth": chain.len() - 1,
                             "direction": "upstream",
                             "confidence": 0.70,
                             "confidenceReason": "static-call-graph-heuristic",
-                            "entryFile": chain.first().map(|_| "").unwrap_or(""),
+                            "entryFile": entry_file,
                             "exitFile": candidate["file"].as_str().unwrap_or(""),
                             "files": files,
                             "edgeKinds": edge_kinds
@@ -22124,6 +22156,7 @@ fn build_call_chains_result(
 
                 if direction == "downstream" || direction == "both" {
                     let mut chain = vec![candidate["name"].as_str().unwrap_or(query).to_string()];
+                    let mut chain_ids = vec![id.to_string()];
                     let mut files = BTreeSet::new();
                     let mut edge_kinds = Vec::new();
                     let mut current = id.to_string();
@@ -22158,14 +22191,23 @@ fn build_call_chains_result(
                     }
 
                     if chain.len() > 1 {
+                        let exit_file = nodes
+                            .iter()
+                            .find(|n| {
+                                n["id"].as_str()
+                                    == Some(chain_ids.last().map(|s| s.as_str()).unwrap_or(""))
+                            })
+                            .and_then(|n| n["properties"]["sourcePath"].as_str())
+                            .unwrap_or("")
+                            .to_string();
                         call_chains.push(json!({
-                            "chain": chain.join(" -> "),
+                            "chain": chain,
                             "depth": chain.len() - 1,
                             "direction": "downstream",
                             "confidence": 0.70,
                             "confidenceReason": "static-call-graph-heuristic",
                             "entryFile": candidate["file"].as_str().unwrap_or(""),
-                            "exitFile": chain.last().map(|_| "").unwrap_or(""),
+                            "exitFile": exit_file,
                             "files": files,
                             "edgeKinds": edge_kinds
                         }));
@@ -22219,6 +22261,7 @@ fn route_ask_intent(
     compact: bool,
     execute: bool,
 ) -> (
+    String,
     String,
     String,
     Vec<Value>,
@@ -22285,10 +22328,12 @@ fn route_ask_intent(
     let mut missing_evidence = Vec::new();
     let mut next_actions = Vec::new();
     let mut ai_guidance = String::new();
+    let mut target_query = String::new();
 
     if flow_keywords.iter().any(|k| q.contains(k)) {
         intent = "explain_flow".to_string();
         let query = extract_symbol_from_question(question);
+        target_query = query.clone();
         if !root.is_empty() && !query.is_empty() {
             let root_path = Path::new(root);
             let (candidates, chains, rf, me, na) =
@@ -22328,6 +22373,7 @@ fn route_ask_intent(
     } else if find_keywords.iter().any(|k| q.contains(k)) {
         intent = "find_symbol".to_string();
         let query = extract_symbol_from_question(question);
+        target_query = query.clone();
         answer_summary = if query.is_empty() {
             "Please specify which symbol you're looking for.".to_string()
         } else {
@@ -22363,6 +22409,7 @@ fn route_ask_intent(
     } else if edit_keywords.iter().any(|k| q.contains(k)) {
         intent = "before_edit".to_string();
         let query = extract_symbol_from_question(question);
+        target_query = query.clone();
         answer_summary = format!(
             "Risk assessment for editing '{}'. This is a static heuristic, not a runtime proof.",
             query
@@ -22397,6 +22444,7 @@ fn route_ask_intent(
     (
         intent,
         answer_summary,
+        target_query,
         evidence,
         call_chains,
         read_first,
@@ -22412,23 +22460,33 @@ fn extract_symbol_from_question(question: &str) -> String {
             return question[start + 1..start + 1 + end].to_string();
         }
     }
+    let re_pattern = |c: char| !c.is_alphanumeric() && c != '_';
     for word in question.split_whitespace() {
-        let w = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        let w = word.trim_matches(&re_pattern as &dyn Fn(char) -> bool);
         if w.contains('(') {
             if let Some(idx) = w.find('(') {
                 let name = &w[..idx];
-                if name.len() >= 2 {
+                if name.len() >= 2 && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                     return name.to_string();
                 }
             }
         }
     }
-    let words: Vec<&str> = question.split_whitespace().collect();
-    for word in words.iter().rev() {
-        let w = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
-        if w.len() >= 2 && w.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
-            return w.to_string();
+    let mut ascii_identifiers: Vec<&str> = Vec::new();
+    for word in question.split_whitespace() {
+        let w = word.trim_matches(&re_pattern as &dyn Fn(char) -> bool);
+        if w.len() >= 2
+            && w.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && w.chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic() || c == '_')
+                .unwrap_or(false)
+        {
+            ascii_identifiers.push(w);
         }
+    }
+    if let Some(&last) = ascii_identifiers.last() {
+        return last.to_string();
     }
     String::new()
 }

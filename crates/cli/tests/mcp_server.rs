@@ -13936,3 +13936,270 @@ fn mcp_automation_graph_compact_omits_step_edges() {
         "compact mode should omit full edge list"
     );
 }
+
+#[test]
+fn mcp_default_ai_toolset_is_six_and_includes_cache() {
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":99001,"method":"tools/list","params":{}}));
+    let resp = s.recv();
+    let tools = resp["result"]["tools"]
+        .as_array()
+        .expect("tools should be array");
+    assert_eq!(
+        tools.len(),
+        6,
+        "default AI toolset must be exactly 6, got {}",
+        tools.len()
+    );
+    let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+    assert!(
+        names.contains(&"codelattice_cache"),
+        "must include codelattice_cache, got {:?}",
+        names
+    );
+    assert!(
+        !names.contains(&"codelattice_cleanup"),
+        "must NOT include codelattice_cleanup in default, got {:?}",
+        names
+    );
+    assert!(
+        names.contains(&"codelattice_workflow"),
+        "must include codelattice_workflow"
+    );
+    assert!(
+        names.contains(&"codelattice_project"),
+        "must include codelattice_project"
+    );
+    assert!(
+        names.contains(&"codelattice_symbol"),
+        "must include codelattice_symbol"
+    );
+    assert!(
+        names.contains(&"codelattice_change_review"),
+        "must include codelattice_change_review"
+    );
+    assert!(
+        names.contains(&"codelattice_workspace"),
+        "must include codelattice_workspace"
+    );
+}
+
+#[test]
+fn mcp_symbol_call_chains_finds_helper() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99010,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "call_chains",
+            "query": "helper",
+            "direction": "both",
+            "compact": true
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.callChains.v1"),
+        "schema version mismatch: {:?}",
+        data
+    );
+    assert_eq!(
+        data["target"].as_str(),
+        Some("helper"),
+        "target should be helper: {:?}",
+        data["target"]
+    );
+    let candidates = data["candidates"]
+        .as_array()
+        .expect("candidates should be array");
+    assert!(
+        !candidates.is_empty(),
+        "candidates should not be empty for helper"
+    );
+    let found = candidates.iter().any(|c| {
+        c["name"]
+            .as_str()
+            .map(|n| n.contains("helper"))
+            .unwrap_or(false)
+    });
+    assert!(
+        found,
+        "at least one candidate should contain helper: {:?}",
+        candidates
+    );
+}
+
+#[test]
+fn mcp_symbol_call_chains_missing_symbol_returns_empty() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99011,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "call_chains",
+            "query": "definitely_missing_symbol_xyz"
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.callChains.v1")
+    );
+    assert!(data["candidates"]
+        .as_array()
+        .map(|a| a.is_empty())
+        .unwrap_or(true));
+    assert!(data["callChains"]
+        .as_array()
+        .map(|a| a.is_empty())
+        .unwrap_or(true));
+    let missing = data["missingEvidence"]
+        .as_array()
+        .expect("missingEvidence should be array");
+    let has_not_found = missing
+        .iter()
+        .any(|m| m["kind"].as_str() == Some("symbol_not_found"));
+    assert!(
+        has_not_found,
+        "missingEvidence should contain symbol_not_found: {:?}",
+        missing
+    );
+    assert!(!data["nextActions"]
+        .as_array()
+        .map(|a| a.is_empty())
+        .unwrap_or(true));
+}
+
+#[test]
+fn mcp_workflow_ask_explain_flow_extracts_helper() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99012,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 的执行流程是什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v1"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("explain_flow"),
+        "intent should be explain_flow: {:?}",
+        data["intent"]
+    );
+    assert_eq!(
+        data["targetQuery"].as_str(),
+        Some("helper"),
+        "targetQuery should be helper: {:?}",
+        data["targetQuery"]
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_inspect_project() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99013,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "了解这个项目"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v1"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("inspect_project"),
+        "intent should be inspect_project: {:?}",
+        data["intent"]
+    );
+    let next = data["nextActions"]
+        .as_array()
+        .expect("nextActions should be array");
+    let has_project = next
+        .iter()
+        .any(|a| a["tool"].as_str() == Some("codelattice_project"));
+    assert!(
+        has_project,
+        "nextActions should include codelattice_project: {:?}",
+        next
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_before_edit() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99014,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "如果删除 helper 会影响什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v1"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("before_edit"),
+        "intent should be before_edit: {:?}",
+        data["intent"]
+    );
+    assert_eq!(
+        data["targetQuery"].as_str(),
+        Some("helper"),
+        "targetQuery should be helper: {:?}",
+        data["targetQuery"]
+    );
+    let next = data["nextActions"]
+        .as_array()
+        .expect("nextActions should be array");
+    let has_symbol = next
+        .iter()
+        .any(|a| a["tool"].as_str() == Some("codelattice_symbol"));
+    let has_review = next
+        .iter()
+        .any(|a| a["tool"].as_str() == Some("codelattice_change_review"));
+    assert!(
+        has_symbol,
+        "nextActions should include codelattice_symbol: {:?}",
+        next
+    );
+    assert!(
+        has_review,
+        "nextActions should include codelattice_change_review: {:?}",
+        next
+    );
+    assert_eq!(data["analysisSemantics"]["runtimeVerified"], false);
+}
