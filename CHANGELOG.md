@@ -8,6 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **AI Workflow Execution Report Pack**: enriches `codelattice_workflow(..., execute=true)` with an AI-readable investigation report. Workflow execution now returns `investigationPlan`, `aiDecisionTrace`, `evidenceFound`, `evidenceMissing`, and `humanVerificationNeeded` so agents can see what was checked, what remains unproven, and which file/symbol/tool action to inspect next. `diagnose_issue` execution preserves `readFirst` and `likelyAreas` from project diagnosis instead of hiding them behind compact facade output. No new MCP tools are added.
+
 - **Project Insight Navigation Pack**: strengthens `codelattice_project_insights` for AI issue triage and project orientation. Adds `architectureMap` component grouping, `suspiciousAreas` with static reasons/actions, and `missingEvidence` so agents understand what CodeLattice did not prove (runtime, coverage, type inference, entry-point proof, sparse graph evidence). These sections pass through `codelattice_project(mode=insights)` without increasing MCP tool count.
 
 - **Diagnose / Locate Pack**: adds `codelattice_project(mode=diagnose)` and `codelattice_workflow(mode=diagnose_issue)` so AI agents can locate likely files/symbols from a symptom, error text, query, or changed path without adding new MCP tools. Diagnose output includes ranked `likelyAreas`, concrete `readFirst` ordering, relevant `entryPoints`, `impactHints`, confidence/reason/nextAction fields, and static-only cautions. The workflow router now asks for missing symptom input instead of failing and routes valid issue reports to project diagnose.

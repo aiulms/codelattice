@@ -20216,6 +20216,26 @@ fn workflow_evidence(tool: &str, args: &Value, result: &Value) -> Value {
         if let Some(metrics) = result.get("impactMetrics") {
             obj.insert("impactMetrics".to_string(), metrics.clone());
         }
+        let likely_areas =
+            workflow_take_array(result, &[&["result", "likelyAreas"], &["likelyAreas"]], 5);
+        if !likely_areas.is_empty() {
+            obj.insert("likelyAreas".to_string(), json!(likely_areas));
+        }
+        let read_first =
+            workflow_take_array(result, &[&["result", "readFirst"], &["readFirst"]], 5);
+        if !read_first.is_empty() {
+            obj.insert("readFirst".to_string(), json!(read_first));
+        }
+        let entry_points =
+            workflow_take_array(result, &[&["result", "entryPoints"], &["entryPoints"]], 5);
+        if !entry_points.is_empty() {
+            obj.insert("entryPoints".to_string(), json!(entry_points));
+        }
+        let impact_hints =
+            workflow_take_array(result, &[&["result", "impactHints"], &["impactHints"]], 5);
+        if !impact_hints.is_empty() {
+            obj.insert("impactHints".to_string(), json!(impact_hints));
+        }
     }
     item
 }
@@ -20264,6 +20284,371 @@ fn workflow_missing_summary(mode: &str, missing_inputs: &[Value]) -> String {
     format!("{mode}: execution paused because required input is missing ({names}). Follow nextActions to discover it.")
 }
 
+fn workflow_array_at<'a>(value: &'a Value, paths: &[&[&str]]) -> Option<&'a Vec<Value>> {
+    for path in paths {
+        let mut cur = value;
+        let mut found = true;
+        for segment in *path {
+            match cur.get(*segment) {
+                Some(next) => cur = next,
+                None => {
+                    found = false;
+                    break;
+                }
+            }
+        }
+        if found {
+            if let Some(items) = cur.as_array() {
+                return Some(items);
+            }
+        }
+    }
+    None
+}
+
+fn workflow_take_array(value: &Value, paths: &[&[&str]], limit: usize) -> Vec<Value> {
+    workflow_array_at(value, paths)
+        .map(|items| items.iter().take(limit).cloned().collect())
+        .unwrap_or_default()
+}
+
+fn workflow_execution_args(tool: &str, args: &Value) -> Value {
+    let mut exec_args = args.clone();
+    // Diagnosis is intentionally small and benefits from returning readFirst/likelyAreas.
+    // Keeping the action compact would hide the exact evidence the workflow report needs.
+    if tool == "codelattice_project" && args["mode"].as_str() == Some("diagnose") {
+        exec_args["compact"] = json!(false);
+    }
+    exec_args
+}
+
+fn workflow_evidence_found(evidence: &[Value], completed: &[Value]) -> Vec<Value> {
+    let mut found = Vec::new();
+    for item in evidence {
+        let tool = item["tool"].as_str().unwrap_or("unknown");
+        let mode = item["mode"].as_str().unwrap_or("default");
+        let likely_areas = workflow_take_array(item, &[&["likelyAreas"]], 3);
+        let read_first = workflow_take_array(item, &[&["readFirst"]], 3);
+        let entry_points = workflow_take_array(item, &[&["entryPoints"]], 3);
+        let mut evidence_item = json!({
+            "tool": tool,
+            "mode": mode,
+            "kind": "static_action_result",
+            "summary": item.get("summary").cloned().unwrap_or_else(|| json!({})),
+            "interpretation": "CodeLattice completed this static facade action. Treat it as an investigation lead, not runtime proof."
+        });
+        if let Some(obj) = evidence_item.as_object_mut() {
+            if !likely_areas.is_empty() {
+                obj.insert("likelyAreas".to_string(), json!(likely_areas));
+            }
+            if !read_first.is_empty() {
+                obj.insert("readFirst".to_string(), json!(read_first));
+            }
+            if !entry_points.is_empty() {
+                obj.insert("entryPoints".to_string(), json!(entry_points));
+            }
+            if let Some(metrics) = item.get("impactMetrics") {
+                obj.insert("impactMetrics".to_string(), metrics.clone());
+            }
+        }
+        found.push(evidence_item);
+    }
+
+    if found.is_empty() {
+        for action in completed {
+            found.push(json!({
+                "tool": action["tool"].as_str().unwrap_or("unknown"),
+                "mode": action["mode"].as_str().unwrap_or("default"),
+                "kind": "static_action_completed",
+                "interpretation": "The action completed, but no compact evidence fields were exposed."
+            }));
+        }
+    }
+    found
+}
+
+fn workflow_hypotheses(mode: &str, evidence: &[Value], completed: &[Value]) -> Vec<Value> {
+    let mut hypotheses = Vec::new();
+    for item in evidence {
+        let tool = item["tool"].as_str().unwrap_or("unknown");
+        let action_mode = item["mode"].as_str().unwrap_or("default");
+        for area in workflow_take_array(item, &[&["likelyAreas"]], 5) {
+            hypotheses.push(json!({
+                "sourceTool": tool,
+                "sourceMode": action_mode,
+                "candidate": area.get("name").cloned().unwrap_or_else(|| json!("unknown")),
+                "file": area.get("file").cloned().unwrap_or(Value::Null),
+                "line": area.get("line").cloned().unwrap_or(Value::Null),
+                "confidence": area.get("confidence").cloned().unwrap_or(Value::Null),
+                "reason": area.get("reason").cloned().unwrap_or_else(|| json!("static ranking signal")),
+                "nextAction": area.get("nextAction").cloned().unwrap_or_else(|| json!("Read this candidate and confirm with targeted tests."))
+            }));
+        }
+    }
+
+    if hypotheses.is_empty() && !completed.is_empty() {
+        hypotheses.push(json!({
+            "sourceMode": mode,
+            "candidate": "static workflow result",
+            "confidence": "medium",
+            "reason": "Workflow actions completed; inspect evidenceFound before editing.",
+            "nextAction": "Read returned evidence and run targeted verification outside CodeLattice."
+        }));
+    }
+    hypotheses
+}
+
+fn workflow_read_first(evidence: &[Value], next_actions: &[Value]) -> Vec<Value> {
+    let mut read_first = Vec::new();
+    for item in evidence {
+        let tool = item["tool"].as_str().unwrap_or("unknown");
+        let mode = item["mode"].as_str().unwrap_or("default");
+        for entry in workflow_take_array(item, &[&["readFirst"]], 8) {
+            let mut enriched = entry;
+            if let Some(obj) = enriched.as_object_mut() {
+                obj.insert("sourceTool".to_string(), json!(tool));
+                obj.insert("sourceMode".to_string(), json!(mode));
+            }
+            read_first.push(enriched);
+            if read_first.len() >= 8 {
+                return read_first;
+            }
+        }
+    }
+
+    for (idx, action) in next_actions.iter().enumerate().take(5) {
+        read_first.push(json!({
+            "priority": idx + 1,
+            "kind": "tool_action",
+            "tool": action["tool"].as_str().unwrap_or("unknown"),
+            "mode": action["arguments"]["mode"].as_str().unwrap_or("default"),
+            "reason": action["why"].as_str().unwrap_or("Follow this workflow action."),
+            "nextAction": "Run or inspect this action before making code changes."
+        }));
+    }
+    read_first
+}
+
+fn workflow_evidence_missing(
+    mode: &str,
+    execute: bool,
+    missing_inputs: &[Value],
+    failed: &[Value],
+    skipped: &[Value],
+) -> Vec<Value> {
+    let mut missing = vec![
+        json!({
+            "kind": "runtime_reproduction",
+            "status": "not_checked",
+            "reason": "CodeLattice does not execute target project code.",
+            "nextAction": "Run the smallest reproduction, test, or command outside CodeLattice."
+        }),
+        json!({
+            "kind": "targeted_tests",
+            "status": "not_checked",
+            "reason": "Static graph analysis is not test or coverage proof.",
+            "nextAction": "Run targeted tests for the selected file/symbol before committing."
+        }),
+        json!({
+            "kind": "coverage",
+            "status": "not_checked",
+            "reason": "Coverage was not measured.",
+            "nextAction": "Use coverage/runtime tools if the risk depends on exercised paths."
+        }),
+    ];
+
+    if !execute {
+        missing.push(json!({
+            "kind": "workflow_execution",
+            "status": "not_requested",
+            "reason": "execute=true was not set.",
+            "nextAction": "Run codelattice_workflow with execute=true or execute nextActions manually."
+        }));
+    }
+    for item in missing_inputs {
+        missing.push(json!({
+            "kind": "required_input",
+            "status": "missing",
+            "name": item["name"].as_str().unwrap_or("unknown"),
+            "reason": item["reason"].as_str().unwrap_or("required input missing"),
+            "nextAction": item["suggestion"].as_str().unwrap_or("Provide the missing input.")
+        }));
+    }
+    for item in failed {
+        missing.push(json!({
+            "kind": "failed_action",
+            "status": "failed",
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "reason": item.get("error").cloned().unwrap_or_else(|| json!("workflow action failed")),
+            "nextAction": "Retry this action directly after checking parameters and root selection."
+        }));
+    }
+    for item in skipped {
+        missing.push(json!({
+            "kind": "skipped_action",
+            "status": "skipped",
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "reason": item["reason"].as_str().unwrap_or("action skipped by workflow executor"),
+            "nextAction": "Run this action manually if it is needed for the decision."
+        }));
+    }
+    if mode == "delete_code" {
+        missing.push(json!({
+            "kind": "deletion_safety",
+            "status": "not_proven",
+            "reason": "Static dead-code or reachability hints are not deletion proof.",
+            "nextAction": "Confirm public API, framework entries, runtime paths, and tests before deleting."
+        }));
+    }
+    missing
+}
+
+fn workflow_human_verification_needed(mode: &str) -> Vec<Value> {
+    let mut items = vec![
+        json!({
+            "check": "Read the suggested files/symbols before editing.",
+            "why": "Static ranking can point to likely areas but cannot understand intent by itself."
+        }),
+        json!({
+            "check": "Run targeted tests or a reproduction outside CodeLattice.",
+            "why": "CodeLattice did not execute target project code."
+        }),
+        json!({
+            "check": "Review graph gaps and low-confidence hints before treating impact as complete.",
+            "why": "Framework, dynamic dispatch, generated code, and runtime config may hide edges."
+        }),
+    ];
+    if mode == "before_edit" || mode == "diagnose_issue" {
+        items.push(json!({
+            "check": "After choosing the likely symbol, run before_edit or impact review on that concrete symbol.",
+            "why": "The first workflow pass narrows the area; the second pass estimates blast radius."
+        }));
+    }
+    items
+}
+
+fn workflow_next_tool_calls(
+    failed: &[Value],
+    skipped: &[Value],
+    next_actions: &[Value],
+) -> Vec<Value> {
+    let mut calls = Vec::new();
+    for item in failed {
+        calls.push(json!({
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "reason": "Retry failed workflow action after checking parameters."
+        }));
+    }
+    for item in skipped {
+        calls.push(json!({
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "reason": item["reason"].as_str().unwrap_or("action skipped by workflow executor")
+        }));
+    }
+    if calls.is_empty() {
+        for action in next_actions
+            .iter()
+            .filter(|a| !a["required"].as_bool().unwrap_or(false))
+            .take(3)
+        {
+            calls.push(json!({
+                "tool": action["tool"].as_str().unwrap_or("unknown"),
+                "mode": action["arguments"]["mode"].as_str().unwrap_or("default"),
+                "reason": action["why"].as_str().unwrap_or("Optional follow-up action.")
+            }));
+        }
+    }
+    calls
+}
+
+fn workflow_ai_decision_trace(
+    mode: &str,
+    execute: bool,
+    missing_inputs: &[Value],
+    next_actions: &[Value],
+    completed: &[Value],
+    failed: &[Value],
+    skipped: &[Value],
+) -> Vec<Value> {
+    let mut trace = vec![json!({
+        "event": "workflow_routed",
+        "mode": mode,
+        "reason": "Matched user intent to a CodeLattice workflow."
+    })];
+    trace.push(json!({
+        "event": if execute { "execution_requested" } else { "execution_not_requested" },
+        "actionCount": next_actions.len(),
+        "reason": if execute { "execute=true was set." } else { "Caller should follow nextActions manually." }
+    }));
+    if !missing_inputs.is_empty() {
+        trace.push(json!({
+            "event": "execution_paused",
+            "reason": "Required input is missing.",
+            "missingInputs": missing_inputs
+        }));
+    }
+    for item in completed {
+        trace.push(json!({
+            "event": "action_completed",
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "required": item["required"].as_bool().unwrap_or(false)
+        }));
+    }
+    for item in failed {
+        trace.push(json!({
+            "event": "action_failed",
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "error": item.get("error").cloned().unwrap_or_else(|| json!("unknown error"))
+        }));
+    }
+    for item in skipped {
+        trace.push(json!({
+            "event": "action_skipped",
+            "tool": item["tool"].as_str().unwrap_or("unknown"),
+            "mode": item["mode"].as_str().unwrap_or("default"),
+            "reason": item["reason"].as_str().unwrap_or("skipped")
+        }));
+    }
+    trace.push(json!({
+        "event": "static_gaps_recorded",
+        "reason": "Runtime, targeted tests, and coverage remain outside CodeLattice static analysis."
+    }));
+    trace
+}
+
+fn workflow_investigation_plan(
+    mode: &str,
+    execution: &Value,
+    evidence: &[Value],
+    completed: &[Value],
+    failed: &[Value],
+    skipped: &[Value],
+    next_actions: &[Value],
+    evidence_found: &[Value],
+    evidence_missing: &[Value],
+    human_verification: &[Value],
+) -> Value {
+    json!({
+        "schemaVersion": "codelattice.workflowInvestigation.v1",
+        "mode": mode,
+        "status": execution["status"].as_str().unwrap_or("unknown"),
+        "hypotheses": workflow_hypotheses(mode, evidence, completed),
+        "readFirst": workflow_read_first(evidence, next_actions),
+        "evidenceFound": evidence_found,
+        "evidenceMissing": evidence_missing,
+        "humanVerificationNeeded": human_verification,
+        "nextToolCalls": workflow_next_tool_calls(failed, skipped, next_actions),
+        "staticOnly": true,
+        "targetCodeExecuted": false
+    })
+}
+
 fn workflow_execute_next_actions(
     cache: &mut McpCache,
     mode: &str,
@@ -20306,7 +20691,7 @@ fn workflow_execute_next_actions(
 
     for action in next_actions {
         let tool = action["tool"].as_str().unwrap_or("");
-        let args = action["arguments"].clone();
+        let args = workflow_execution_args(tool, &action["arguments"]);
         if tool.is_empty() || tool == "codelattice_workflow" {
             skipped.push(json!({
                 "tool": tool,
@@ -20867,6 +21252,36 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
 
     let (execution, completed_actions, failed_actions, skipped_actions, evidence, answer_summary) =
         workflow_execute_next_actions(_cache, mode, execute, &missing_inputs, &next_actions);
+    let evidence_found = workflow_evidence_found(&evidence, &completed_actions);
+    let evidence_missing = workflow_evidence_missing(
+        mode,
+        execute,
+        &missing_inputs,
+        &failed_actions,
+        &skipped_actions,
+    );
+    let human_verification_needed = workflow_human_verification_needed(mode);
+    let investigation_plan = workflow_investigation_plan(
+        mode,
+        &execution,
+        &evidence,
+        &completed_actions,
+        &failed_actions,
+        &skipped_actions,
+        &next_actions,
+        &evidence_found,
+        &evidence_missing,
+        &human_verification_needed,
+    );
+    let ai_decision_trace = workflow_ai_decision_trace(
+        mode,
+        execute,
+        &missing_inputs,
+        &next_actions,
+        &completed_actions,
+        &failed_actions,
+        &skipped_actions,
+    );
 
     let out = json!({
         "schemaVersion": "ai.workflow.v1",
@@ -20887,6 +21302,11 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         "failedActions": failed_actions,
         "skippedActions": skipped_actions,
         "evidence": evidence,
+        "evidenceFound": evidence_found,
+        "evidenceMissing": evidence_missing,
+        "humanVerificationNeeded": human_verification_needed,
+        "investigationPlan": investigation_plan,
+        "aiDecisionTrace": ai_decision_trace,
         "answerSummary": answer_summary,
         "cautions": workflow_static_cautions(mode),
         "humanReviewNeeded": human_review_needed,

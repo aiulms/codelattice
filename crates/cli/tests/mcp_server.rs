@@ -1013,6 +1013,41 @@ fn mcp_workflow_before_edit_execute_runs_next_actions() {
             .unwrap_or(false),
         "executor should expose compact evidence for completed actions: {data:?}"
     );
+    let plan = &data["investigationPlan"];
+    assert_eq!(plan["mode"].as_str(), Some("before_edit"));
+    assert!(
+        plan["evidenceFound"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "execute=true should return evidenceFound for AI decision making: {data:?}"
+    );
+    assert!(
+        plan["evidenceMissing"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "investigationPlan should name static-analysis gaps: {data:?}"
+    );
+    assert!(
+        plan["humanVerificationNeeded"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "investigationPlan should tell AI what still needs human/runtime verification: {data:?}"
+    );
+    assert!(
+        data["aiDecisionTrace"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["event"].as_str() == Some("action_completed")
+                        && item["tool"].as_str() == Some("codelattice_symbol")
+                })
+            })
+            .unwrap_or(false),
+        "aiDecisionTrace should explain which facade actions ran: {data:?}"
+    );
 }
 
 #[test]
@@ -1099,6 +1134,79 @@ fn mcp_workflow_diagnose_issue_routes_to_project_diagnose() {
                 && a["arguments"]["symptom"].as_str() == Some("multiply returns the wrong result")
         }),
         "diagnose_issue should route AI to project diagnose: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_diagnose_issue_execute_returns_investigation_report() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42007,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "diagnose_issue",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symptom": "multiply returns the wrong result",
+                "execute": true,
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
+    assert_eq!(data["mode"].as_str(), Some("diagnose_issue"));
+    assert_eq!(data["execution"]["requested"].as_bool(), Some(true));
+    assert_eq!(data["execution"]["status"].as_str(), Some("completed"));
+    let plan = &data["investigationPlan"];
+    assert_eq!(plan["mode"].as_str(), Some("diagnose_issue"));
+    assert!(
+        plan["hypotheses"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "diagnose workflow should return static hypotheses: {data:?}"
+    );
+    assert!(
+        plan["readFirst"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "diagnose workflow should return read-first guidance: {data:?}"
+    );
+    assert!(
+        data["evidenceFound"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "diagnose workflow should expose top-level evidenceFound: {data:?}"
+    );
+    assert!(
+        data["evidenceMissing"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "diagnose workflow should expose unproven evidence gaps: {data:?}"
+    );
+    assert!(
+        data["aiDecisionTrace"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["event"].as_str() == Some("action_completed")
+                        && item["tool"].as_str() == Some("codelattice_project")
+                })
+            })
+            .unwrap_or(false),
+        "diagnose workflow should trace the project diagnose action: {data:?}"
     );
 }
 
