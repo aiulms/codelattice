@@ -19701,8 +19701,18 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                 .to_string();
             let root_path = PathBuf::from(root);
 
-            let (candidates, call_chains, chain_read_first, chain_missing, chain_next) =
-                build_call_chains_result(&root_path, language, &query, direction, max_depth, limit);
+            let (
+                candidates,
+                call_chains,
+                chain_read_first,
+                chain_missing,
+                chain_next,
+                read_order,
+                files_involved,
+                entry_points,
+                exit_points,
+                chain_summary,
+            ) = build_call_chains_result(&root_path, language, &query, direction, max_depth, limit);
 
             let chain_count = call_chains.len();
             let chains_output = if compact {
@@ -19717,6 +19727,11 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                 "candidates": candidates,
                 "callChains": chains_output,
                 "readFirst": chain_read_first,
+                "readOrder": read_order,
+                "filesInvolved": files_involved,
+                "entryPoints": entry_points,
+                "exitPoints": exit_points,
+                "chainSummary": chain_summary,
                 "ambiguity": if candidates.len() > 5 { "multiple candidates found, consider narrowing query" } else { "" },
                 "missingEvidence": chain_missing,
                 "generatedFrom": "static-call-graph",
@@ -21196,20 +21211,25 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
         let ask_execute = execute;
 
         if question.is_empty() {
-            return Ok(json!({
-                "content": [{"type": "text", "text": "Please provide a question parameter."}],
-                "schemaVersion": "codelattice.ask.v1",
+            let empty_result = json!({
+                "schemaVersion": "codelattice.ask.v2",
                 "intent": "unknown",
                 "question": "",
+                "targetQuery": null,
                 "answerSummary": "No question provided.",
-                "evidence": [],
+                "orchestration": {"stepsAttempted": [], "stepsSkipped": []},
                 "callChains": [],
-                "readFirst": [],
+                "readOrder": [],
+                "filesInvolved": [],
                 "missingEvidence": [{"kind": "missing_input", "explanation": "question parameter is required"}],
-                "nextActions": [{"tool": "codelattice_workflow", "mode": "ask", "why": "Retry with a question", "arguments": {"question": "your question here"}}],
-                "aiGuidance": "Ask a specific question about the codebase, such as: 'What is the call flow of helper()?' or 'What does this project do?'",
-                "generatedFrom": "intent-router",
-                "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false, "scriptsExecuted": false}
+                "recommendedNextCalls": [{"tool": "codelattice_workflow", "mode": "ask", "why": "Retry with a question", "arguments": {"question": "your question here"}}],
+                "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false, "scriptsExecuted": false},
+                "generatedFrom": {"engine": "intent-router", "version": "v2"}
+            });
+            let empty_text = serde_json::to_string_pretty(&empty_result)
+                .unwrap_or_else(|_| empty_result.to_string());
+            return Ok(json!({
+                "content": [{"type": "text", "text": empty_text}],
             }));
         }
 
@@ -21221,28 +21241,34 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             call_chains,
             read_first,
             missing_evidence,
+            files_involved,
+            read_order,
+            orchestration,
             next_actions,
             ai_guidance,
         ) = route_ask_intent(root, language, &question, ask_compact, ask_execute);
 
         let ask_result = json!({
-            "schemaVersion": "codelattice.ask.v1",
+            "schemaVersion": "codelattice.ask.v2",
             "intent": intent,
             "question": question,
             "targetQuery": target_query,
             "answerSummary": answer_summary,
-            "evidence": evidence,
+            "orchestration": orchestration,
             "callChains": call_chains,
-            "readFirst": read_first,
+            "readOrder": read_order,
+            "filesInvolved": files_involved,
             "missingEvidence": missing_evidence,
-            "nextActions": next_actions,
-            "aiGuidance": ai_guidance,
-            "generatedFrom": "intent-router",
+            "recommendedNextCalls": next_actions,
             "analysisSemantics": {
                 "staticAnalysis": true,
                 "targetCodeExecuted": false,
                 "runtimeVerified": false,
                 "scriptsExecuted": false
+            },
+            "generatedFrom": {
+                "engine": "intent-router",
+                "version": "v2"
             }
         });
         let ask_text =
@@ -22021,12 +22047,28 @@ fn build_call_chains_result(
     direction: &str,
     max_depth: usize,
     limit: usize,
-) -> (Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>) {
+) -> (
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    String,
+) {
     let mut candidates = Vec::new();
     let mut call_chains = Vec::new();
     let mut read_first = Vec::new();
     let mut missing = Vec::new();
     let mut next_actions = Vec::new();
+    let mut read_order = Vec::new();
+    let mut files_involved = Vec::new();
+    let mut entry_points = Vec::new();
+    let mut exit_points = Vec::new();
+    let mut chain_summary = String::new();
 
     let analyze_result = run_rust_analysis_if_available(root, language);
     match analyze_result {
@@ -22251,7 +22293,122 @@ fn build_call_chains_result(
         "arguments": { "name": query }
     }));
 
-    (candidates, call_chains, read_first, missing, next_actions)
+    if !candidates.is_empty() {
+        read_order.push(json!({
+            "order": 1,
+            "kind": "source",
+            "path": candidates[0]["file"],
+            "symbol": candidates[0]["name"],
+            "reason": "Primary candidate definition"
+        }));
+    }
+    for chain in &call_chains {
+        if let Some(arr) = chain["chain"].as_array() {
+            if let Some(first) = arr.first() {
+                let name = first.as_str().unwrap_or("");
+                if !entry_points
+                    .iter()
+                    .any(|e: &Value| e["name"].as_str() == Some(name))
+                {
+                    entry_points.push(json!({
+                        "name": name,
+                        "file": chain["entryFile"].as_str().unwrap_or(""),
+                        "reason": "chain entry (caller)"
+                    }));
+                }
+            }
+            if let Some(last) = arr.last() {
+                let name = last.as_str().unwrap_or("");
+                if !exit_points
+                    .iter()
+                    .any(|e: &Value| e["name"].as_str() == Some(name))
+                {
+                    exit_points.push(json!({
+                        "name": name,
+                        "file": chain["exitFile"].as_str().unwrap_or(""),
+                        "reason": "chain exit (callee)"
+                    }));
+                }
+            }
+        }
+        if let Some(files) = chain["files"].as_array() {
+            for f in files {
+                let fp = f.as_str().unwrap_or("");
+                if !fp.is_empty()
+                    && !files_involved
+                        .iter()
+                        .any(|fi: &Value| fi.as_str() == Some(fp))
+                {
+                    files_involved.push(Value::String(fp.to_string()));
+                }
+            }
+        }
+    }
+    let mut all_files_set: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for c in &candidates {
+        if let Some(f) = c["file"].as_str() {
+            if !f.is_empty() {
+                all_files_set.insert(f.to_string());
+            }
+        }
+    }
+    for f in &files_involved {
+        if let Some(fp) = f.as_str() {
+            all_files_set.insert(fp.to_string());
+        }
+    }
+    files_involved = all_files_set.into_iter().map(Value::String).collect();
+    if call_chains.is_empty() {
+        chain_summary = format!(
+            "0 chains found for '{}'. {}",
+            query,
+            if candidates.is_empty() {
+                "No matching symbols found in the graph."
+            } else {
+                "Symbol found but no CALLS edges traced."
+            }
+        );
+    } else {
+        let summaries: Vec<String> = call_chains
+            .iter()
+            .map(|c| {
+                let dir = c["direction"].as_str().unwrap_or("?");
+                let depth = c["depth"].as_u64().unwrap_or(0);
+                if let Some(arr) = c["chain"].as_array() {
+                    format!(
+                        "{} (depth={}, {})",
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" -> "),
+                        depth,
+                        dir
+                    )
+                } else {
+                    format!("chain (depth={}, {})", depth, dir)
+                }
+            })
+            .collect();
+        chain_summary = format!(
+            "{} chain(s) for '{}': {}",
+            call_chains.len(),
+            query,
+            summaries.join("; ")
+        );
+    }
+
+    (
+        candidates,
+        call_chains,
+        read_first,
+        missing,
+        next_actions,
+        read_order,
+        files_involved,
+        entry_points,
+        exit_points,
+        chain_summary,
+    )
 }
 
 fn route_ask_intent(
@@ -22263,11 +22420,14 @@ fn route_ask_intent(
 ) -> (
     String,
     String,
-    String,
+    Option<String>,
     Vec<Value>,
     Vec<Value>,
     Vec<Value>,
     Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    serde_json::Value,
     Vec<Value>,
     String,
 ) {
@@ -22319,6 +22479,10 @@ fn route_ask_intent(
         "如果删除",
         "如果修改",
     ];
+    let issue_keywords = [
+        "bug", "error", "fail", "crash", "异常", "报错", "问题", "定位", "locate", "issue",
+        "debug", "调试",
+    ];
 
     let intent;
     let mut answer_summary = String::new();
@@ -22328,20 +22492,32 @@ fn route_ask_intent(
     let mut missing_evidence = Vec::new();
     let mut next_actions = Vec::new();
     let mut ai_guidance = String::new();
-    let mut target_query = String::new();
+    let mut target_query: Option<String> = None;
+    let mut files_involved = Vec::new();
+    let mut read_order_out = Vec::new();
+    let mut orchestration = json!({"stepsAttempted": [], "stepsSkipped": []});
 
     if flow_keywords.iter().any(|k| q.contains(k)) {
         intent = "explain_flow".to_string();
         let query = extract_symbol_from_question(question);
-        target_query = query.clone();
+        target_query = if query.is_empty() {
+            None
+        } else {
+            Some(query.clone())
+        };
+        orchestration["stepsAttempted"] = json!(["intent-classification:explain_flow"]);
         if !root.is_empty() && !query.is_empty() {
             let root_path = Path::new(root);
-            let (candidates, chains, rf, me, na) =
+            let (candidates, chains, rf, me, na, ro, fi, _, _, _) =
                 build_call_chains_result(root_path, language, &query, "both", 4, 8);
             call_chains = chains;
             read_first = rf;
             missing_evidence = me;
             next_actions = na;
+            read_order_out = ro;
+            files_involved = fi;
+            orchestration["stepsAttempted"] =
+                json!(["intent-classification:explain_flow", "call_chains:executed"]);
             if !candidates.is_empty() {
                 answer_summary = format!(
                     "Found {} candidates and {} call chains for '{}'.",
@@ -22373,7 +22549,11 @@ fn route_ask_intent(
     } else if find_keywords.iter().any(|k| q.contains(k)) {
         intent = "find_symbol".to_string();
         let query = extract_symbol_from_question(question);
-        target_query = query.clone();
+        target_query = if query.is_empty() {
+            None
+        } else {
+            Some(query.clone())
+        };
         answer_summary = if query.is_empty() {
             "Please specify which symbol you're looking for.".to_string()
         } else {
@@ -22409,7 +22589,11 @@ fn route_ask_intent(
     } else if edit_keywords.iter().any(|k| q.contains(k)) {
         intent = "before_edit".to_string();
         let query = extract_symbol_from_question(question);
-        target_query = query.clone();
+        target_query = if query.is_empty() {
+            None
+        } else {
+            Some(query.clone())
+        };
         answer_summary = format!(
             "Risk assessment for editing '{}'. This is a static heuristic, not a runtime proof.",
             query
@@ -22427,8 +22611,70 @@ fn route_ask_intent(
             "arguments": {"symbol": query, "language": language, "root": root}
         }));
         ai_guidance = "Impact analysis is static-only. Review test coverage and runtime behavior manually before making changes.".to_string();
+    } else if issue_keywords.iter().any(|k| q.contains(k)) {
+        intent = "locate_issue".to_string();
+        let query = extract_symbol_from_question(question);
+        target_query = if query.is_empty() {
+            None
+        } else {
+            Some(query.clone())
+        };
+        orchestration["stepsAttempted"] = json!(["intent-classification:locate_issue"]);
+        if !root.is_empty() && !query.is_empty() {
+            let root_path = Path::new(root);
+            let (_, chains, _, me, _, ro, fi, _, _, _) =
+                build_call_chains_result(root_path, language, &query, "both", 4, 8);
+            if !chains.is_empty() {
+                answer_summary = format!(
+                    "Located {} call chains involving '{}' for issue triage.",
+                    chains.len(),
+                    query
+                );
+                orchestration["stepsAttempted"] =
+                    json!(["intent-classification:locate_issue", "call_chains:found"]);
+            } else {
+                answer_summary = format!(
+                    "Symbol '{}' found but no call chains traced. Checking project context.",
+                    query
+                );
+                orchestration["stepsAttempted"] =
+                    json!(["intent-classification:locate_issue", "call_chains:empty"]);
+                missing_evidence.extend(me);
+            }
+            read_order_out = ro;
+            files_involved = fi;
+        } else {
+            answer_summary =
+                "Issue triage: provide a symbol or path to locate the problem.".to_string();
+            orchestration["stepsAttempted"] = json!(["intent-classification:locate_issue"]);
+            orchestration["stepsSkipped"] = json!(["call_chains:no_symbol"]);
+        }
+        next_actions.push(json!({
+            "tool": "codelattice_project",
+            "mode": "quick",
+            "why": "Get project overview for issue context",
+            "arguments": {"root": root, "language": language}
+        }));
+        if let Some(ref tq) = target_query {
+            if !tq.is_empty() {
+                next_actions.push(json!({
+                    "tool": "codelattice_symbol",
+                    "mode": "call_chains",
+                    "why": format!("Trace call chains for '{}'", tq),
+                    "arguments": {"query": tq, "language": language, "root": root}
+                }));
+            }
+        }
+        next_actions.push(json!({
+            "tool": "codelattice_workflow",
+            "mode": "diagnose_issue",
+            "why": "Run structured diagnosis",
+            "arguments": {"root": root, "language": language, "symptom": question}
+        }));
+        ai_guidance = "Issue location is static-only. Check logs, runtime behavior, and test failures to confirm root cause.".to_string();
     } else {
         intent = "general".to_string();
+        target_query = None;
         answer_summary = format!("Question: '{}'. I can help with: explain_flow, find_symbol, inspect_project, before_edit. Try asking about a specific symbol's call flow, where a function is, the project structure, or what happens if you change something.", question);
         next_actions.push(json!({
             "tool": "codelattice_workflow",
@@ -22449,6 +22695,9 @@ fn route_ask_intent(
         call_chains,
         read_first,
         missing_evidence,
+        files_involved,
+        read_order_out,
+        orchestration,
         next_actions,
         ai_guidance,
     )

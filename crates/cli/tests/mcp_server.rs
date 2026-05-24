@@ -14100,7 +14100,7 @@ fn mcp_workflow_ask_explain_flow_extracts_helper() {
             "question": "helper 的执行流程是什么"
         }),
     );
-    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v1"));
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
     assert_eq!(
         data["intent"].as_str(),
         Some("explain_flow"),
@@ -14132,16 +14132,16 @@ fn mcp_workflow_ask_inspect_project() {
             "question": "了解这个项目"
         }),
     );
-    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v1"));
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
     assert_eq!(
         data["intent"].as_str(),
         Some("inspect_project"),
         "intent should be inspect_project: {:?}",
         data["intent"]
     );
-    let next = data["nextActions"]
+    let next = data["recommendedNextCalls"]
         .as_array()
-        .expect("nextActions should be array");
+        .expect("recommendedNextCalls should be array");
     let has_project = next
         .iter()
         .any(|a| a["tool"].as_str() == Some("codelattice_project"));
@@ -14169,7 +14169,7 @@ fn mcp_workflow_ask_before_edit() {
             "question": "如果删除 helper 会影响什么"
         }),
     );
-    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v1"));
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
     assert_eq!(
         data["intent"].as_str(),
         Some("before_edit"),
@@ -14182,9 +14182,9 @@ fn mcp_workflow_ask_before_edit() {
         "targetQuery should be helper: {:?}",
         data["targetQuery"]
     );
-    let next = data["nextActions"]
+    let next = data["recommendedNextCalls"]
         .as_array()
-        .expect("nextActions should be array");
+        .expect("recommendedNextCalls should be array");
     let has_symbol = next
         .iter()
         .any(|a| a["tool"].as_str() == Some("codelattice_symbol"));
@@ -14202,4 +14202,192 @@ fn mcp_workflow_ask_before_edit() {
         next
     );
     assert_eq!(data["analysisSemantics"]["runtimeVerified"], false);
+}
+
+#[test]
+fn mcp_symbol_call_chains_returns_read_order_and_files() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99020,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "call_chains",
+            "query": "helper",
+            "direction": "both",
+            "compact": true
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.callChains.v1")
+    );
+    let read_order = data["readOrder"].as_array();
+    assert!(
+        read_order.is_some(),
+        "readOrder should exist: {:?}",
+        data.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+    let files = data["filesInvolved"].as_array();
+    assert!(files.is_some(), "filesInvolved should exist");
+    let chain_summary = data["chainSummary"].as_str();
+    assert!(
+        chain_summary.is_some() && !chain_summary.unwrap().is_empty(),
+        "chainSummary should exist and be non-empty"
+    );
+}
+
+#[test]
+fn mcp_symbol_call_chains_missing_symbol_explains_missing_evidence() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99021,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "call_chains",
+            "query": "nonexistent_symbol_xyz"
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.callChains.v1")
+    );
+    let missing = data["missingEvidence"]
+        .as_array()
+        .expect("missingEvidence should exist");
+    let has_explanation = missing.iter().any(|m| {
+        m["kind"].as_str() == Some("symbol_not_found") && m["explanation"].as_str().is_some()
+    });
+    assert!(
+        has_explanation,
+        "missingEvidence should have symbol_not_found with explanation"
+    );
+    let chain_summary = data["chainSummary"].as_str().unwrap_or("");
+    assert!(
+        chain_summary.contains("0 chains")
+            || chain_summary.contains("no chains")
+            || chain_summary.contains("No chains"),
+        "chainSummary should indicate no chains: {:?}",
+        chain_summary
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_v2_explain_flow_orchestrates_call_chains() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99022,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 的执行流程是什么"
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.ask.v2"),
+        "schema should be v2: {:?}",
+        data["schemaVersion"]
+    );
+    assert_eq!(data["intent"].as_str(), Some("explain_flow"));
+    assert_eq!(data["targetQuery"].as_str(), Some("helper"));
+    let orch = data["orchestration"].as_object();
+    assert!(orch.is_some(), "orchestration should exist");
+    let steps = orch
+        .unwrap()
+        .get("stepsAttempted")
+        .and_then(|s| s.as_array());
+    assert!(
+        steps.is_some_and(|s| !s.is_empty()),
+        "stepsAttempted should be non-empty"
+    );
+    let files = data["filesInvolved"].as_array();
+    assert!(files.is_some(), "filesInvolved should exist");
+    let read_order = data["readOrder"].as_array();
+    assert!(read_order.is_some(), "readOrder should exist");
+}
+
+#[test]
+fn mcp_workflow_ask_v2_does_not_extract_chinese_tail_as_symbol() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99023,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目的架构是什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("inspect_project"),
+        "intent should be inspect_project: {:?}",
+        data["intent"]
+    );
+    assert_eq!(
+        data["targetQuery"],
+        serde_json::Value::Null,
+        "targetQuery should be null when no ASCII symbol: {:?}",
+        data["targetQuery"]
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_v2_locate_issue_returns_triage_plan() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99024,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 函数报错了怎么定位问题"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("locate_issue"),
+        "intent should be locate_issue: {:?}",
+        data["intent"]
+    );
+    assert_eq!(
+        data["targetQuery"].as_str(),
+        Some("helper"),
+        "targetQuery should be helper: {:?}",
+        data["targetQuery"]
+    );
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls should exist");
+    assert!(!next.is_empty(), "recommendedNextCalls should not be empty");
 }
