@@ -151,12 +151,35 @@ if [ "$DEV_ONLY" = false ] && [ "$INSTALLED_ONLY" = false ] || [ "$DEV_ONLY" = t
             fail "call_chains returned empty"
         else
             assert_json_field "call_chains schemaVersion" "$CC_JSON" "['schemaVersion']" "codelattice.callChains.v1"
+            CC_BYTES=$(printf '%s' "$CC_JSON" | wc -c | tr -d ' ')
+            if [ "$CC_BYTES" -le 12000 ]; then
+                ok "call_chains compact payload <= 12KB"
+            else
+                fail "call_chains compact payload too large: ${CC_BYTES} bytes"
+            fi
             CC_CHAINS=$(echo "$CC_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); c=d.get('callChains',[]); print('has_chains' if c and isinstance(c[0]['chain'], list) else 'no_chains')" 2>/dev/null || echo "parse_error")
             assert_eq "call_chains has chain array" "has_chains" "$CC_CHAINS"
             CC_HAS_RO=$(echo "$CC_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'readOrder' in d else 'no')" 2>/dev/null || echo "PARSE_ERROR")
             assert_eq "call_chains has readOrder" "yes" "$CC_HAS_RO"
             CC_HAS_FI=$(echo "$CC_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'filesInvolved' in d else 'no')" 2>/dev/null || echo "PARSE_ERROR")
             assert_eq "call_chains has filesInvolved" "yes" "$CC_HAS_FI"
+        fi
+
+        section "Dev: compact root diagnosis hygiene"
+        HYGIENE_JSON=$(mcp_call "$DEV_BINARY" "tools/call" "{\"name\":\"codelattice_project\",\"arguments\":{\"root\":\"$ROOT/fixtures/workspace\",\"language\":\"auto\",\"mode\":\"overview\",\"compact\":true}}")
+        if [ -z "$HYGIENE_JSON" ]; then
+            fail "compact project hygiene returned empty"
+        else
+            HYGIENE_BYTES=$(printf '%s' "$HYGIENE_JSON" | wc -c | tr -d ' ')
+            if [ "$HYGIENE_BYTES" -le 12000 ]; then
+                ok "compact project payload <= 12KB"
+            else
+                fail "compact project payload too large: ${HYGIENE_BYTES} bytes"
+            fi
+            HYGIENE_HAS_FULL=$(echo "$HYGIENE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print('yes' if 'sourceOnlyEntries' in d.get('rootDiagnosis',{}) else 'no')" 2>/dev/null || echo "parse_error")
+            assert_eq "compact rootDiagnosis omits sourceOnlyEntries" "no" "$HYGIENE_HAS_FULL"
+            HYGIENE_HAS_PREVIEW=$(echo "$HYGIENE_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); preview=d.get('rootDiagnosis',{}).get('sourceOnlyEntryPreview',[]); print('yes' if isinstance(preview, list) and len(preview) <= 5 else 'no')" 2>/dev/null || echo "parse_error")
+            assert_eq "compact rootDiagnosis has bounded preview" "yes" "$HYGIENE_HAS_PREVIEW"
         fi
 
         section "Dev: ask v2 smoke"

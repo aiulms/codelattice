@@ -251,6 +251,30 @@ where
         .collect()
 }
 
+fn source_only_entry_preview_json(p: &ProjectInfo) -> Value {
+    let (category, _, _) = source_only_entry_category(p);
+    json!({
+        "path": p.path,
+        "relativePath": p.relative_path,
+        "name": p.name,
+        "language": p.language,
+        "category": category,
+        "recommendedAsProjectRoot": category == "manifestless_source_directory"
+    })
+}
+
+fn source_only_entry_previews_json<'a, I>(items: I, limit: usize) -> Vec<Value>
+where
+    I: IntoIterator<Item = &'a ProjectInfo>,
+{
+    items
+        .into_iter()
+        .filter(|p| p.supported && p.manifest_file.is_empty())
+        .take(limit)
+        .map(source_only_entry_preview_json)
+        .collect()
+}
+
 fn source_only_summary_json(entries: &[Value], total_count: usize) -> Value {
     let mut by_category: HashMap<String, usize> = HashMap::new();
     for entry in entries {
@@ -271,6 +295,40 @@ fn source_only_summary_json(entries: &[Value], total_count: usize) -> Value {
     json!({
         "total": total_count,
         "reported": entries.len(),
+        "byCategory": by_category_json,
+        "explanation": "sourceOnly entries are directories with supported source files but no supported project manifest. They may be scripts, tests, nested source directories, or manifestless project roots."
+    })
+}
+
+fn source_only_summary_from_projects<'a, I>(
+    items: I,
+    total_count: usize,
+    reported_count: usize,
+) -> Value
+where
+    I: IntoIterator<Item = &'a ProjectInfo>,
+{
+    let mut by_category: HashMap<String, usize> = HashMap::new();
+    for p in items
+        .into_iter()
+        .filter(|p| p.supported && p.manifest_file.is_empty())
+    {
+        let (category, _, _) = source_only_entry_category(p);
+        *by_category.entry(category.to_string()).or_insert(0) += 1;
+    }
+
+    let by_category_json: Vec<Value> = {
+        let mut pairs: Vec<_> = by_category.into_iter().collect();
+        pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        pairs
+            .into_iter()
+            .map(|(category, count)| json!({"category": category, "count": count}))
+            .collect()
+    };
+
+    json!({
+        "total": total_count,
+        "reported": reported_count,
         "byCategory": by_category_json,
         "explanation": "sourceOnly entries are directories with supported source files but no supported project manifest. They may be scripts, tests, nested source directories, or manifestless project roots."
     })
@@ -18560,7 +18618,7 @@ fn diagnose_root(root: &str, language: &str) -> Value {
 }
 
 fn diagnose_root_compact(root: &str, language: &str) -> Value {
-    diagnose_root_with_source_only_limit(root, language, 5)
+    diagnose_root_with_source_only_limit(root, language, 0)
 }
 
 /// 判断 root 更像 single_project / workspace / unsupported / unknown
@@ -18601,9 +18659,26 @@ fn diagnose_root_with_source_only_limit(
         .collect();
     let manifest_count = supported_manifest_projects.len();
     let source_only_count = supported.len().saturating_sub(manifest_count);
-    let source_only_entries =
-        source_only_entries_json(supported.iter().copied(), source_only_limit);
-    let source_only_summary = source_only_summary_json(&source_only_entries, source_only_count);
+    let source_only_entries = if source_only_limit == 0 {
+        Vec::new()
+    } else {
+        source_only_entries_json(supported.iter().copied(), source_only_limit)
+    };
+    let source_only_preview = if source_only_limit == 0 {
+        source_only_entry_previews_json(supported.iter().copied(), 5)
+    } else {
+        Vec::new()
+    };
+    let source_only_reported = if source_only_limit == 0 {
+        source_only_preview.len()
+    } else {
+        source_only_entries.len()
+    };
+    let source_only_summary = source_only_summary_from_projects(
+        supported.iter().copied(),
+        source_only_count,
+        source_only_reported,
+    );
     let root_project = supported_manifest_projects
         .iter()
         .find(|p| p.relative_path == ".");
@@ -18715,7 +18790,7 @@ fn diagnose_root_with_source_only_limit(
         )));
     }
 
-    json!({
+    let mut diagnosis = json!({
         "kind": kind,
         "inputRoot": root,
         "canonicalRoot": path.to_string_lossy(),
@@ -18728,10 +18803,26 @@ fn diagnose_root_with_source_only_limit(
             "unsupportedEntries": unsupported.len()
         },
         "sourceOnlySummary": source_only_summary,
-        "sourceOnlyEntries": source_only_entries,
         "cautions": cautions,
         "explanation": explanation
-    })
+    });
+
+    if let Some(obj) = diagnosis.as_object_mut() {
+        if source_only_limit == 0 {
+            obj.insert(
+                "sourceOnlyEntryPreview".to_string(),
+                json!(source_only_preview),
+            );
+            obj.insert(
+                "sourceOnlyDetailHint".to_string(),
+                json!("Re-run with compact=false to include full sourceOnlyEntries."),
+            );
+        } else {
+            obj.insert("sourceOnlyEntries".to_string(), json!(source_only_entries));
+        }
+    }
+
+    diagnosis
 }
 
 /// 构建 analysisSemantics 对象，明确说明分析已执行但目标代码未运行

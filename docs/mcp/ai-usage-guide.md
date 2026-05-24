@@ -73,6 +73,12 @@ or directly:
 codelattice_symbol(mode=call_chains, query="helper", direction="both")
 ```
 
+### Compact Payloads
+
+Use `compact=true` by default when asking for orientation, call chains, or issue triage. Compact facade responses intentionally keep `rootDiagnosis` small: they include `sourceOnlySummary` and at most five `sourceOnlyEntryPreview` items, but omit full `sourceOnlyEntries`.
+
+Use `compact=false` only when you explicitly need full source-only directory diagnostics or full result payloads.
+
 ### Before Editing Code
 
 ```

@@ -1413,16 +1413,20 @@ fn mcp_project_workspace_auto_entry_prioritizes_main_projects() {
         "compact workspace auto-entry should limit top-level source-only entries: {data:?}"
     );
     assert!(
-        data["rootDiagnosis"]["sourceOnlyEntries"]
+        data["rootDiagnosis"].get("sourceOnlyEntries").is_none(),
+        "compact workspace auto-entry rootDiagnosis should omit full source-only entries: {data:?}"
+    );
+    assert!(
+        data["rootDiagnosis"]["sourceOnlyEntryPreview"]
             .as_array()
             .map(|items| items.len() <= 5)
             .unwrap_or(false),
-        "compact workspace auto-entry should also limit nested rootDiagnosis source-only entries: {data:?}"
+        "compact workspace auto-entry rootDiagnosis should expose only a short source-only preview: {data:?}"
     );
 }
 
 #[test]
-fn mcp_project_compact_limits_root_diagnosis_source_only_entries() {
+fn mcp_project_compact_omits_root_diagnosis_source_only_entries() {
     let dir = create_source_heavy_rust_project();
     let mut session = McpSession::start_default_toolset();
     session.initialize();
@@ -1445,13 +1449,17 @@ fn mcp_project_compact_limits_root_diagnosis_source_only_entries() {
 
     let data = extract_tool_data(&session.recv());
     assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
-    let entries = data["rootDiagnosis"]["sourceOnlyEntries"]
-        .as_array()
-        .expect("rootDiagnosis should expose sourceOnlyEntries");
     assert!(
-        entries.len() <= 5,
-        "compact rootDiagnosis should cap source-only entries, got {}: {data:?}",
-        entries.len()
+        data["rootDiagnosis"].get("sourceOnlyEntries").is_none(),
+        "compact rootDiagnosis should omit full source-only entries: {data:?}"
+    );
+    let preview = data["rootDiagnosis"]["sourceOnlyEntryPreview"]
+        .as_array()
+        .expect("rootDiagnosis should expose sourceOnlyEntryPreview");
+    assert!(
+        preview.len() <= 5,
+        "compact rootDiagnosis should cap source-only preview, got {}: {data:?}",
+        preview.len()
     );
     assert!(
         data["rootDiagnosis"]["sourceOnlySummary"]["total"]
@@ -1461,6 +1469,39 @@ fn mcp_project_compact_limits_root_diagnosis_source_only_entries() {
                 .as_u64()
                 .unwrap_or(0),
         "compact rootDiagnosis should preserve full total while reporting a capped subset: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_full_keeps_root_diagnosis_source_only_entries() {
+    let dir = create_source_heavy_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42012,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "overview",
+                "root": dir.path(),
+                "language": "rust",
+                "compact": false
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    let entries = data["rootDiagnosis"]["sourceOnlyEntries"]
+        .as_array()
+        .expect("full rootDiagnosis should keep sourceOnlyEntries");
+    assert!(
+        entries.len() > 5,
+        "full rootDiagnosis should keep detailed source-only entries: {data:?}"
     );
 }
 
