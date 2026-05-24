@@ -276,6 +276,137 @@ fn source_only_summary_json(entries: &[Value], total_count: usize) -> Value {
     })
 }
 
+fn diagnose_stop_word(term: &str) -> bool {
+    matches!(
+        term,
+        "the"
+            | "and"
+            | "for"
+            | "with"
+            | "from"
+            | "that"
+            | "this"
+            | "when"
+            | "where"
+            | "before"
+            | "after"
+            | "into"
+            | "returns"
+            | "wrong"
+            | "result"
+            | "error"
+            | "failed"
+            | "fails"
+            | "failure"
+            | "issue"
+            | "problem"
+            | "bug"
+            | "panic"
+            | "null"
+            | "none"
+            | "undefined"
+    )
+}
+
+fn diagnose_terms_from_text(text: &str) -> Vec<String> {
+    let mut terms: Vec<String> = Vec::new();
+    let mut current = String::new();
+
+    for ch in text.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            current.push(ch.to_ascii_lowercase());
+        } else if !current.is_empty() {
+            if current.len() >= 3 && !diagnose_stop_word(&current) && !terms.contains(&current) {
+                terms.push(current.clone());
+            }
+            current.clear();
+        }
+    }
+    if !current.is_empty()
+        && current.len() >= 3
+        && !diagnose_stop_word(&current)
+        && !terms.contains(&current)
+    {
+        terms.push(current);
+    }
+
+    terms
+}
+
+fn diagnose_input_text(params: &Value) -> String {
+    [
+        "symptom",
+        "errorText",
+        "query",
+        "changedPath",
+        "symbol",
+        "name",
+        "issue",
+        "observedError",
+    ]
+    .iter()
+    .filter_map(|key| params[*key].as_str())
+    .filter(|s| !s.trim().is_empty())
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn node_display_name(node: &Value) -> String {
+    node["properties"]["name"]
+        .as_str()
+        .or_else(|| node["label"].as_str())
+        .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+        .unwrap_or("unknown")
+        .to_string()
+}
+
+fn node_symbol_kind(node: &Value) -> String {
+    node["properties"]["symbolKind"]
+        .as_str()
+        .or_else(|| node["properties"]["kind"].as_str())
+        .or_else(|| node["kind"].as_str())
+        .or_else(|| node["label"].as_str())
+        .unwrap_or("symbol")
+        .to_string()
+}
+
+fn node_source_path(node: &Value) -> String {
+    node["properties"]["sourcePath"]
+        .as_str()
+        .or_else(|| node["properties"]["file"].as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+fn node_line_start(node: &Value) -> u64 {
+    node["properties"]["lineStart"]
+        .as_u64()
+        .or_else(|| node["properties"]["line"].as_u64())
+        .unwrap_or(0)
+}
+
+fn edge_source_id(edge: &Value) -> Option<&str> {
+    edge["source"]
+        .as_str()
+        .or_else(|| edge["sourceId"].as_str())
+        .or_else(|| edge["properties"]["sourceId"].as_str())
+}
+
+fn edge_target_id(edge: &Value) -> Option<&str> {
+    edge["target"]
+        .as_str()
+        .or_else(|| edge["targetId"].as_str())
+        .or_else(|| edge["properties"]["targetId"].as_str())
+}
+
+fn edge_type_name(edge: &Value) -> String {
+    edge["type"]
+        .as_str()
+        .or_else(|| edge["kind"].as_str())
+        .unwrap_or("unknown")
+        .to_string()
+}
+
 fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
     let path = PathBuf::from(root).canonicalize().ok()?;
     let inventory = scan_workspace_inventory(&path, true).ok()?;
@@ -9395,14 +9526,18 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_project",
-                "description": "Project-level analysis for a SINGLE project root: overview, quality gates, insights, or engine-backed job mode. root is required for analysis/job modes; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize. For monorepo/workspace roots, use codelattice_workspace first, then switch to codelattice_project with a sub-project root.",
+                "description": "Project-level analysis for a SINGLE project root: overview, quality gates, insights, diagnose issue location, or engine-backed job mode. root is required for analysis/job modes; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize. For monorepo/workspace roots, use codelattice_workspace first, then switch to codelattice_project with a sub-project root.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "root": { "type": "string", "description": "Absolute path to project root. Required for overview/quality/insights/ai_context/full/job; not needed for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "ai_context", "full", "job", "job_status", "job_detail"], "default": "overview", "description": "Analysis mode. Use job for large projects, then job_status/job_detail with the returned jobId." },
+                        "root": { "type": "string", "description": "Absolute path to project root. Required for overview/quality/insights/diagnose/ai_context/full/job; not needed for job_status/job_detail." },
+                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail"], "default": "overview", "description": "Analysis mode. Use diagnose when an AI has a symptom/error/query and needs likely files/symbols to read first. Use job for large projects, then job_status/job_detail with the returned jobId." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
+                        "symptom": { "type": "string", "description": "Bug symptom or user report for diagnose mode" },
+                        "errorText": { "type": "string", "description": "Observed error text/log excerpt for diagnose mode" },
+                        "query": { "type": "string", "description": "Keyword query for diagnose mode" },
+                        "changedPath": { "type": "string", "description": "Known changed or suspicious file path for diagnose mode" },
                         "parallel": { "type": "boolean", "default": false, "description": "Use parallel engine execution for job mode when available" },
                         "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
                         "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
@@ -9527,11 +9662,15 @@ fn tools_list() -> Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "explain_symbol", "root_cause", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent" },
+                        "mode": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "diagnose_issue", "explain_symbol", "root_cause", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent" },
                         "intent": { "type": "string", "description": "Optional natural intent alias; when present it is treated like mode" },
                         "root": { "type": "string", "description": "Project or workspace root when a next action needs analysis" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "symbol": { "type": "string", "description": "Target symbol for before_edit, delete_code, explain_symbol, or impact flows" },
+                        "symptom": { "type": "string", "description": "Bug symptom or user report for diagnose_issue" },
+                        "errorText": { "type": "string", "description": "Observed error text/log excerpt for diagnose_issue" },
+                        "query": { "type": "string", "description": "Keyword query for diagnose_issue" },
+                        "changedPath": { "type": "string", "description": "Known changed or suspicious file path for diagnose_issue" },
                         "name": { "type": "string", "description": "Alias for symbol in explain_symbol flows" },
                         "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Changed symbol names for after_edit flows" },
                         "target": {
@@ -18324,6 +18463,369 @@ where
     }
 }
 
+#[derive(Clone, Debug)]
+struct DiagnoseCandidate {
+    id: String,
+    name: String,
+    kind: String,
+    file: String,
+    line: u64,
+    score: f64,
+    confidence: f64,
+    reasons: Vec<String>,
+    next_action: String,
+    fan_in: usize,
+    fan_out: usize,
+    entry_kind: String,
+    is_test_entry: bool,
+}
+
+fn diagnose_candidate_json(candidate: &DiagnoseCandidate) -> Value {
+    json!({
+        "id": candidate.id,
+        "name": candidate.name,
+        "kind": candidate.kind,
+        "file": candidate.file,
+        "line": candidate.line,
+        "score": (candidate.score * 10.0).round() / 10.0,
+        "confidence": (candidate.confidence * 100.0).round() / 100.0,
+        "reason": candidate.reasons.join("; "),
+        "reasons": candidate.reasons,
+        "nextAction": candidate.next_action,
+        "fanIn": candidate.fan_in,
+        "fanOut": candidate.fan_out,
+        "entryKind": candidate.entry_kind,
+        "isTestEntry": candidate.is_test_entry,
+    })
+}
+
+fn diagnose_file_read_item(file: &str, reason: &str, priority: usize) -> Value {
+    json!({
+        "kind": "file",
+        "file": file,
+        "priority": priority,
+        "reason": reason,
+        "nextAction": "Read this file before editing; confirm with targeted tests or runtime evidence outside CodeLattice."
+    })
+}
+
+fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    let limit = params["limit"].as_u64().unwrap_or(10).clamp(1, 50) as usize;
+    check_language_feature(language)?;
+
+    let input_text = diagnose_input_text(params);
+    let mut terms = diagnose_terms_from_text(&input_text);
+    let changed_path = params["changedPath"]
+        .as_str()
+        .unwrap_or("")
+        .replace('\\', "/");
+    if !changed_path.is_empty() {
+        for term in diagnose_terms_from_text(&changed_path.replace(['/', '.', '-'], " ")) {
+            if !terms.contains(&term) {
+                terms.push(term);
+            }
+        }
+    }
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let mut candidates: Vec<DiagnoseCandidate> = Vec::new();
+    let mut file_scores: HashMap<String, (f64, Vec<String>)> = HashMap::new();
+
+    for (id, node) in &gv.nodes_by_id {
+        let node_kind = node_symbol_kind(node);
+        let is_symbol = node["label"].as_str() == Some("symbol")
+            || node["kind"].as_str() == Some("symbol")
+            || node["properties"]["symbolKind"].as_str().is_some();
+        if !is_symbol {
+            continue;
+        }
+
+        let name = node_display_name(node);
+        let file = node_source_path(node);
+        let file_lower = file.to_lowercase().replace('\\', "/");
+        let name_lower = name.to_lowercase();
+        let id_lower = id.to_lowercase();
+        let fan_out = gv.edges_from(id, Some("CALLS")).len();
+        let fan_in = gv.edges_to(id, Some("CALLS")).len();
+        let entry_signal =
+            classify_entry_signal(&name, &node_kind, &file, &gv.language, fan_out, fan_in);
+
+        let mut score: f64 = 0.0;
+        let mut reasons: Vec<String> = Vec::new();
+
+        for term in &terms {
+            if name_lower.contains(term) {
+                score += 6.0;
+                reasons.push(format!("symbol name matches '{term}'"));
+            }
+            if file_lower.contains(term) {
+                score += 3.0;
+                reasons.push(format!("file path matches '{term}'"));
+            }
+            if id_lower.contains(term) {
+                score += 1.5;
+            }
+        }
+
+        if !changed_path.is_empty() {
+            let changed_lower = changed_path.to_lowercase();
+            if file_lower.contains(&changed_lower) || changed_lower.contains(&file_lower) {
+                score += 8.0;
+                reasons.push("changedPath points at this file".to_string());
+            }
+        }
+
+        if entry_signal.primary_candidate {
+            score += 1.5 + entry_signal.confidence;
+            reasons.push(format!(
+                "architecture entry signal: {}",
+                entry_signal.category
+            ));
+        }
+        if fan_in > 0 {
+            score += (fan_in as f64).min(8.0) * 0.35;
+        }
+        if fan_out > 0 {
+            score += (fan_out as f64).min(8.0) * 0.25;
+        }
+        let diag_count = gv.diagnostics_for(id).len();
+        if diag_count > 0 {
+            score += diag_count as f64;
+            reasons.push(format!("{diag_count} diagnostic(s) nearby"));
+        }
+
+        if score <= 0.0 {
+            continue;
+        }
+        if is_test_symbol(&name, &file) {
+            score *= 0.35;
+            reasons.push("test-like symbol downweighted".to_string());
+        }
+
+        if !file.is_empty() {
+            let entry = file_scores.entry(file.clone()).or_insert((0.0, Vec::new()));
+            entry.0 += score;
+            entry.1.extend(reasons.iter().take(3).cloned());
+        }
+
+        let confidence = (score / 12.0).min(0.95).max(0.20);
+        let next_action = if fan_in > 0 || fan_out > 0 {
+            "Inspect callers/callees and confirm with targeted tests; this is a static hypothesis."
+        } else {
+            "Read this symbol and nearby file context; static graph has limited impact evidence here."
+        }
+        .to_string();
+
+        candidates.push(DiagnoseCandidate {
+            id: id.clone(),
+            name,
+            kind: node_kind,
+            file,
+            line: node_line_start(node),
+            score,
+            confidence,
+            reasons,
+            next_action,
+            fan_in,
+            fan_out,
+            entry_kind: entry_signal.category,
+            is_test_entry: entry_signal.is_test_entry,
+        });
+    }
+
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+    candidates.truncate(limit);
+
+    let likely_areas: Vec<Value> = candidates.iter().map(diagnose_candidate_json).collect();
+
+    let mut read_first: Vec<Value> = Vec::new();
+    let mut seen_files: Vec<String> = Vec::new();
+    for candidate in &candidates {
+        if candidate.file.is_empty() || seen_files.contains(&candidate.file) {
+            continue;
+        }
+        seen_files.push(candidate.file.clone());
+        read_first.push(diagnose_file_read_item(
+            &candidate.file,
+            &format!(
+                "contains likely symbol '{}': {}",
+                candidate.name,
+                candidate.reasons.join("; ")
+            ),
+            read_first.len() + 1,
+        ));
+        if read_first.len() >= limit.min(8) {
+            break;
+        }
+    }
+
+    let mut file_rank: Vec<(String, f64, Vec<String>)> = file_scores
+        .into_iter()
+        .map(|(file, (score, reasons))| {
+            let mut deduped = Vec::new();
+            for r in reasons {
+                if !deduped.contains(&r) {
+                    deduped.push(r);
+                }
+            }
+            (file, score, deduped)
+        })
+        .collect();
+    file_rank.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    for (file, _score, reasons) in file_rank.iter().take(limit) {
+        if seen_files.contains(file) {
+            continue;
+        }
+        read_first.push(diagnose_file_read_item(
+            file,
+            &format!("file-level symptom match: {}", reasons.join("; ")),
+            read_first.len() + 1,
+        ));
+        seen_files.push(file.clone());
+    }
+
+    let mut entry_points: Vec<Value> = gv
+        .nodes_by_id
+        .iter()
+        .filter_map(|(id, node)| {
+            let name = node_display_name(node);
+            let kind = node_symbol_kind(node);
+            let file = node_source_path(node);
+            let fan_out = gv.edges_from(id, Some("CALLS")).len();
+            let fan_in = gv.edges_to(id, Some("CALLS")).len();
+            let signal = classify_entry_signal(&name, &kind, &file, &gv.language, fan_out, fan_in);
+            if !signal.primary_candidate {
+                return None;
+            }
+            Some(json!({
+                "id": id,
+                "name": name,
+                "kind": kind,
+                "file": file,
+                "line": node_line_start(node),
+                "entryKind": signal.category,
+                "confidence": signal.confidence,
+                "evidence": signal.evidence,
+                "nextAction": signal.next_action,
+                "fanIn": fan_in,
+                "fanOut": fan_out
+            }))
+        })
+        .collect();
+    entry_points.sort_by(|a, b| {
+        b["confidence"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .partial_cmp(&a["confidence"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    entry_points.truncate(limit.min(8));
+
+    let mut impact_hints: Vec<Value> = Vec::new();
+    for candidate in candidates.iter().take(5) {
+        for edge in gv
+            .edges_to(&candidate.id, Some("CALLS"))
+            .iter()
+            .take(3)
+            .chain(gv.edges_from(&candidate.id, Some("CALLS")).iter().take(3))
+        {
+            let source = edge_source_id(edge).unwrap_or("");
+            let target = edge_target_id(edge).unwrap_or("");
+            let other_id = if source == candidate.id {
+                target
+            } else {
+                source
+            };
+            let other = gv.nodes_by_id.get(other_id);
+            impact_hints.push(json!({
+                "target": candidate.name,
+                "direction": if source == candidate.id { "outgoing" } else { "incoming" },
+                "edgeKind": edge_type_name(edge),
+                "relatedSymbol": other.map(node_display_name).unwrap_or_else(|| other_id.to_string()),
+                "relatedFile": other.map(node_source_path).unwrap_or_default(),
+                "confidence": edge["properties"]["confidence"].as_f64().unwrap_or(1.0),
+                "reason": edge["properties"]["reason"].as_str().unwrap_or("static graph edge")
+            }));
+        }
+    }
+    impact_hints.truncate(limit);
+
+    let top_confidence = candidates.first().map(|c| c.confidence).unwrap_or(0.0);
+    let risk_level = if candidates.is_empty() {
+        "unknown"
+    } else if top_confidence >= 0.75 {
+        "medium"
+    } else {
+        "low"
+    };
+    let answer_summary = if candidates.is_empty() {
+        "No strong static match found. Use broader query terms, project_insights, or targeted source search."
+            .to_string()
+    } else {
+        format!(
+            "Static diagnosis found {} likely area(s); start with {}.",
+            candidates.len(),
+            candidates
+                .first()
+                .map(|c| c.name.as_str())
+                .unwrap_or("the first likely area")
+        )
+    };
+
+    let mut result = json!({
+        "schemaVersion": "codelattice.projectDiagnose.v1",
+        "summary": {
+            "riskLevel": risk_level,
+            "likelyAreaCount": likely_areas.len(),
+            "readFirstCount": read_first.len(),
+            "impactHintCount": impact_hints.len(),
+            "topConfidence": (top_confidence * 100.0).round() / 100.0
+        },
+        "inputSignals": {
+            "symptom": params["symptom"].as_str().unwrap_or(""),
+            "errorText": params["errorText"].as_str().unwrap_or(""),
+            "query": params["query"].as_str().unwrap_or(""),
+            "changedPath": params["changedPath"].as_str().unwrap_or(""),
+            "terms": terms
+        },
+        "likelyAreas": likely_areas,
+        "readFirst": read_first,
+        "entryPoints": entry_points,
+        "impactHints": impact_hints,
+        "answerSummary": answer_summary,
+        "recommendedNextActions": [
+            "Read readFirst in order before editing.",
+            "Use codelattice_symbol mode=context/callers/callees for the top likelyArea.",
+            "Use codelattice_change_review mode=impact before modifying a likelyArea.",
+            "Confirm hypotheses with targeted tests or runtime reproduction outside CodeLattice."
+        ],
+        "cautions": [
+            "static diagnosis only — not root-cause proof",
+            "target project code was not executed",
+            "missing graph edges can hide runtime/framework behavior"
+        ],
+        "generatedFrom": {
+            "graphBased": true,
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false
+        }
+    });
+    result = merge_cache_and_result(&result, &cache_meta);
+    Ok(result)
+}
+
 // ── codelattice_project ──────────────────────────────────────────────
 
 // ═══ Analysis Engine 1.3 Job Runtime helpers ═══
@@ -18448,6 +18950,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             "overview",
             "quality",
             "insights",
+            "diagnose",
             "ai_context",
             "full",
             "job",
@@ -18489,6 +18992,17 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         "insights" => {
             let r = handle_project_insights(cache, params)?;
             (unwrap_tool_result(&r), vec!["codelattice_project_insights"])
+        }
+        "diagnose" => {
+            let r = build_project_diagnose(cache, params)?;
+            (
+                unwrap_tool_result(&r),
+                vec![
+                    "codelattice_project_insights",
+                    "codelattice_symbol",
+                    "codelattice_change_review",
+                ],
+            )
         }
         "ai_context" => {
             let r = handle_ai_context_pack(cache, params)?;
@@ -18533,8 +19047,29 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         }
         _ => unreachable!(),
     };
-    let summary = json!({"riskLevel":"low","mode":mode});
-    let mut next_actions: Vec<&str> = vec!["Use codelattice_symbol search to explore symbols"];
+    let summary = if mode == "diagnose" {
+        let diagnose_summary = inner
+            .get("summary")
+            .cloned()
+            .unwrap_or_else(|| json!({"riskLevel":"unknown"}));
+        json!({
+            "riskLevel": diagnose_summary["riskLevel"].as_str().unwrap_or("unknown"),
+            "mode": mode,
+            "likelyAreaCount": diagnose_summary["likelyAreaCount"],
+            "topConfidence": diagnose_summary["topConfidence"]
+        })
+    } else {
+        json!({"riskLevel":"low","mode":mode})
+    };
+    let mut next_actions: Vec<&str> = if mode == "diagnose" {
+        vec![
+            "Read result.readFirst in order before editing.",
+            "Use codelattice_symbol context/callers/callees for the top likelyArea.",
+            "Use codelattice_change_review mode=impact before changing a likelyArea.",
+        ]
+    } else {
+        vec!["Use codelattice_symbol search to explore symbols"]
+    };
 
     // workspace root 检测：project 收到 workspace root 时给出建议
     let diag = diagnose_root(root, language);
@@ -19383,9 +19918,9 @@ fn workflow_static_cautions(mode: &str) -> Vec<Value> {
             "workspace graph impact is heuristic and may include config/script adjacency"
         ));
     }
-    if mode == "root_cause" {
+    if mode == "root_cause" || mode == "diagnose_issue" {
         cautions.push(json!(
-            "root-cause hypotheses need runtime or reproduction evidence before being treated as confirmed"
+            "diagnosis/root-cause hypotheses need runtime or reproduction evidence before being treated as confirmed"
         ));
     }
     cautions
@@ -19598,6 +20133,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             "legacy_cleanup",
             "workspace_review",
             "cross_project_impact",
+            "diagnose_issue",
             "explain_symbol",
             "root_cause",
             "docs_tests_sync",
@@ -19824,6 +20360,57 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
                 ));
             }
         }
+        "diagnose_issue" => {
+            let symptom = params["symptom"]
+                .as_str()
+                .or_else(|| params["errorText"].as_str())
+                .or_else(|| params["query"].as_str())
+                .or_else(|| params["issue"].as_str())
+                .or_else(|| params["observedError"].as_str())
+                .unwrap_or("");
+            risk_level = if symptom.is_empty() {
+                "unknown"
+            } else {
+                "medium"
+            };
+            situation = if symptom.is_empty() {
+                "Issue diagnosis needs a symptom, errorText, query, or changedPath. I will ask for the smallest useful clue instead of guessing."
+            } else {
+                "Diagnose likely files/symbols to read first from the static graph, then confirm hypotheses outside CodeLattice."
+            };
+            if symptom.is_empty() && params["changedPath"].as_str().unwrap_or("").is_empty() {
+                missing_inputs.push(workflow_missing(
+                    "symptom",
+                    "Diagnosis needs at least a symptom, errorText, query, changedPath, issue, or observedError.",
+                    "Pass symptom/errorText/query or changedPath, then retry diagnose_issue.",
+                ));
+            }
+            let mut args = workflow_base_args(root, language, "diagnose");
+            if !symptom.is_empty() {
+                args["symptom"] = json!(symptom);
+            }
+            if let Some(error_text) = params["errorText"].as_str() {
+                args["errorText"] = json!(error_text);
+            }
+            if let Some(query) = params["query"].as_str() {
+                args["query"] = json!(query);
+            }
+            if let Some(changed_path) = params["changedPath"].as_str() {
+                args["changedPath"] = json!(changed_path);
+            }
+            next_actions.push(workflow_action(
+                "codelattice_project",
+                args,
+                "Rank likely files/symbols, read-first order, entry points, and static impact hints for this issue.",
+                true,
+            ));
+            next_actions.push(workflow_action(
+                "codelattice_workflow",
+                json!({"mode":"before_edit","root":root,"language":language,"compact":true}),
+                "After choosing a likely symbol/file, run before_edit with a concrete symbol before modifying code.",
+                false,
+            ));
+        }
         "explain_symbol" => {
             risk_level = "low";
             situation = if symbol.is_empty() {
@@ -19972,6 +20559,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
     let symbol_project_workflow = matches!(
         mode,
         "before_edit"
+            | "diagnose_issue"
             | "explain_symbol"
             | "delete_code"
             | "root_cause"

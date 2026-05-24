@@ -1058,6 +1058,51 @@ fn mcp_workflow_execute_with_missing_inputs_does_not_run_actions() {
 }
 
 #[test]
+fn mcp_workflow_diagnose_issue_routes_to_project_diagnose() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42006,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "diagnose_issue",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symptom": "multiply returns the wrong result",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
+    assert_eq!(data["mode"].as_str(), Some("diagnose_issue"));
+    assert_eq!(data["riskLevel"].as_str(), Some("medium"));
+    assert!(
+        data["missingInputs"]
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(false),
+        "symptom was provided, so diagnose_issue should not ask again: {data:?}"
+    );
+    let next = data["nextActions"].as_array().expect("nextActions array");
+    assert!(
+        next.iter().any(|a| {
+            a["tool"].as_str() == Some("codelattice_project")
+                && a["arguments"]["mode"].as_str() == Some("diagnose")
+                && a["arguments"]["symptom"].as_str() == Some("multiply returns the wrong result")
+        }),
+        "diagnose_issue should route AI to project diagnose: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_project_auto_enters_workspace_for_multi_project_root() {
     let dir = create_multi_project_workspace();
     let mut session = McpSession::start_default_toolset();
@@ -7775,6 +7820,71 @@ fn mcp_project_insights_entry_candidates_are_classified() {
             "primary entry candidates should not be test entries: {entry:?}"
         );
     }
+}
+
+#[test]
+fn mcp_project_diagnose_returns_ranked_likely_areas() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9013,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "diagnose",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "symptom": "multiply returns the wrong result",
+                "compact": false
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    assert_eq!(data["mode"].as_str(), Some("diagnose"));
+    let result = &data["result"];
+    assert_eq!(
+        result["schemaVersion"].as_str(),
+        Some("codelattice.projectDiagnose.v1")
+    );
+    assert!(
+        result["inputSignals"]["terms"]
+            .as_array()
+            .map(|terms| terms.iter().any(|t| t.as_str() == Some("multiply")))
+            .unwrap_or(false),
+        "diagnose should extract meaningful symptom terms: {result:?}"
+    );
+    assert!(
+        result["likelyAreas"]
+            .as_array()
+            .map(|items| {
+                !items.is_empty()
+                    && items.iter().all(|item| {
+                        item["confidence"].is_number()
+                            && item["reason"].is_string()
+                            && item["nextAction"].is_string()
+                    })
+            })
+            .unwrap_or(false),
+        "diagnose should return ranked likely areas with confidence/reason/nextAction: {result:?}"
+    );
+    assert!(
+        result["readFirst"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
+        "diagnose should give AI a concrete reading order: {result:?}"
+    );
+    assert!(
+        result["impactHints"].is_array(),
+        "diagnose should expose impactHints even if sparse: {result:?}"
+    );
 }
 
 #[test]
