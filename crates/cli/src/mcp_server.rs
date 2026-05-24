@@ -407,6 +407,64 @@ fn edge_type_name(edge: &Value) -> String {
         .to_string()
 }
 
+fn project_component_key(file: &str, language: &str) -> String {
+    let normalized = file.replace('\\', "/");
+    let parts: Vec<&str> = normalized
+        .split('/')
+        .filter(|part| !part.is_empty())
+        .collect();
+
+    if parts.is_empty() {
+        return "root".to_string();
+    }
+
+    if parts[0] == "src" {
+        if parts.len() >= 3 {
+            return format!("src/{}", parts[1]);
+        }
+        return "src".to_string();
+    }
+
+    if matches!(language, "typescript" | "javascript" | "arkts") {
+        for prefix in ["pages", "routes", "app", "components", "store", "api"] {
+            if parts[0] == prefix {
+                return parts[0].to_string();
+            }
+        }
+    }
+
+    if matches!(language, "python") && parts[0] == "tests" {
+        return "tests".to_string();
+    }
+
+    parts[0].to_string()
+}
+
+fn project_component_role(component: &str) -> &'static str {
+    let lower = component.to_lowercase();
+    if lower.contains("test") || lower.contains("fixture") || lower.contains("spec") {
+        "validation"
+    } else if lower.contains("api") || lower.contains("route") || lower.contains("controller") {
+        "interface"
+    } else if lower.contains("service")
+        || lower.contains("core")
+        || lower.contains("domain")
+        || lower.contains("model")
+    {
+        "domain_logic"
+    } else if lower.contains("component")
+        || lower.contains("page")
+        || lower.contains("view")
+        || lower.contains("ui")
+    {
+        "presentation"
+    } else if lower.contains("config") || lower.contains("script") || lower.contains("bin") {
+        "operations"
+    } else {
+        "module"
+    }
+}
+
 fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
     let path = PathBuf::from(root).canonicalize().ok()?;
     let inventory = scan_workspace_inventory(&path, true).ok()?;
@@ -7846,6 +7904,193 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
         ]
     });
 
+    #[derive(Default)]
+    struct ComponentMetrics {
+        file_count: usize,
+        symbol_count: usize,
+        edge_count: usize,
+        call_in_count: usize,
+        call_out_count: usize,
+        diagnostic_count: usize,
+        max_risk_score: f64,
+        risk_reasons: Vec<String>,
+        representative_files: Vec<String>,
+    }
+
+    let file_risk_lookup: HashMap<String, (f64, Vec<String>)> = file_risk
+        .iter()
+        .map(|(file, score, reasons)| (file.clone(), (*score, reasons.clone())))
+        .collect();
+    let mut component_metrics: HashMap<String, ComponentMetrics> = HashMap::new();
+
+    for (file, fm) in &file_metrics {
+        let component = project_component_key(file, &gv.language);
+        let entry = component_metrics.entry(component).or_default();
+        entry.file_count += 1;
+        entry.symbol_count += fm.symbol_count;
+        entry.edge_count += fm.edge_count;
+        entry.call_in_count += fm.call_in_count;
+        entry.call_out_count += fm.call_out_count;
+        entry.diagnostic_count += fm.diagnostic_count;
+
+        if let Some((score, reasons)) = file_risk_lookup.get(file) {
+            if *score > entry.max_risk_score {
+                entry.max_risk_score = *score;
+            }
+            for reason in reasons {
+                if !entry.risk_reasons.contains(reason) {
+                    entry.risk_reasons.push(reason.clone());
+                }
+            }
+        }
+        if entry.representative_files.len() < 3 {
+            entry.representative_files.push(file.clone());
+        }
+    }
+
+    let mut component_items: Vec<(String, ComponentMetrics)> =
+        component_metrics.into_iter().collect();
+    component_items.sort_by(|a, b| {
+        b.1.max_risk_score
+            .partial_cmp(&a.1.max_risk_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.1.symbol_count.cmp(&a.1.symbol_count))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+
+    let architecture_components: Vec<Value> = component_items
+        .iter()
+        .take(limit)
+        .map(|(component, cm)| {
+            let risk_level = if cm.max_risk_score >= 8.0 || cm.diagnostic_count > 10 {
+                "high"
+            } else if cm.max_risk_score >= 3.0
+                || cm.diagnostic_count > 0
+                || cm.call_in_count + cm.call_out_count > 12
+            {
+                "medium"
+            } else {
+                "low"
+            };
+            let reason = if cm.risk_reasons.is_empty() {
+                format!(
+                    "{} files, {} symbols, {} graph edges",
+                    cm.file_count, cm.symbol_count, cm.edge_count
+                )
+            } else {
+                cm.risk_reasons.join("; ")
+            };
+            json!({
+                "component": component,
+                "role": project_component_role(component),
+                "fileCount": cm.file_count,
+                "symbolCount": cm.symbol_count,
+                "edgeCount": cm.edge_count,
+                "callInCount": cm.call_in_count,
+                "callOutCount": cm.call_out_count,
+                "diagnosticCount": cm.diagnostic_count,
+                "riskLevel": risk_level,
+                "riskScore": (cm.max_risk_score * 10.0).round() / 10.0,
+                "reason": reason,
+                "readFirstFiles": cm.representative_files,
+                "recommendedAction": match risk_level {
+                    "high" => "inspect this component before broad edits",
+                    "medium" => "read representative files before changing adjacent code",
+                    _ => "use as orientation map",
+                },
+            })
+        })
+        .collect();
+    let architecture_map = json!({
+        "componentCount": component_items.len(),
+        "reportedComponentCount": architecture_components.len(),
+        "grouping": "static file-path component grouping",
+        "components": architecture_components,
+        "interpretation": "This is an AI navigation map derived from file paths and graph metrics, not an authoritative module boundary."
+    });
+
+    let suspicious_areas: Vec<Value> = risk_items
+        .iter()
+        .take(limit)
+        .map(|item| {
+            let reasons: Vec<String> = item["reasons"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let score = item["riskScore"].as_f64().unwrap_or(0.0);
+            let risk_level = if score >= 8.0 {
+                "high"
+            } else if score >= 3.0 {
+                "medium"
+            } else {
+                "low"
+            };
+            let why = if reasons.is_empty() {
+                if score > 0.0 {
+                    "highest available static signal in this project".to_string()
+                } else {
+                    "included as navigation baseline; no strong risk signal detected".to_string()
+                }
+            } else {
+                reasons.join("; ")
+            };
+            json!({
+                "id": item["id"],
+                "name": item["name"],
+                "kind": item["kind"],
+                "file": item["file"],
+                "line": item["line"],
+                "riskLevel": risk_level,
+                "riskScore": score,
+                "whySuspicious": why,
+                "recommendedAction": item["suggestedReviewAction"].as_str().unwrap_or("inspect before editing"),
+                "staticOnly": true,
+            })
+        })
+        .collect();
+
+    let mut missing_evidence = vec![
+        json!({
+            "evidenceType": "runtime",
+            "available": false,
+            "reason": "CodeLattice did not run the target project or reproduce the issue.",
+            "recommendedAction": "Ask for reproduction steps or run targeted tests outside CodeLattice."
+        }),
+        json!({
+            "evidenceType": "coverage",
+            "available": false,
+            "reason": "No coverage data is used by this static insight map.",
+            "recommendedAction": "Use coverage or test results to confirm whether highlighted areas are exercised."
+        }),
+        json!({
+            "evidenceType": "typeInference",
+            "available": false,
+            "reason": "Method dispatch and unresolved edges remain bounded static heuristics.",
+            "recommendedAction": "Confirm low-confidence calls with source reads or compiler/language-server evidence."
+        }),
+    ];
+    if best_entry_confidence < 0.75 {
+        missing_evidence.push(json!({
+            "evidenceType": "entryPointProof",
+            "available": false,
+            "reason": "Top entry point confidence is below 0.75, so startup/architecture entry ranking is heuristic.",
+            "recommendedAction": "Prefer manifest/runtime docs or known CLI/server startup files when available."
+        }));
+    }
+    if graph_density < 2.0 {
+        missing_evidence.push(json!({
+            "evidenceType": "graphDensity",
+            "available": false,
+            "reason": format!("Graph density is {:.2} edges per source file.", graph_density),
+            "recommendedAction": "Use symbol search and source reads to supplement sparse graph evidence."
+        }));
+    }
+
     let result_data = if compact {
         json!({
             "summary": {
@@ -7859,12 +8104,18 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "lowConfidenceZoneCount": low_confidence_zone_count,
                 "architectureRiskLevel": architecture_risk_level,
                 "architectureRiskScore": total_dimension_score,
+                "architectureComponentCount": component_items.len(),
+                "suspiciousAreaCount": suspicious_areas.len(),
+                "missingEvidenceCount": missing_evidence.len(),
             },
             "entryPointCandidates": entry_candidates,
             "hotspotFiles": hotspot_files,
             "hotspotSymbols": hotspot_symbols,
             "riskMap": risk_items,
             "architectureRisk": architecture_risk,
+            "architectureMap": architecture_map,
+            "suspiciousAreas": suspicious_areas,
+            "missingEvidence": missing_evidence,
             "lowConfidenceZones": low_confidence_zones,
             "readFirst": read_first,
             "reviewFirst": review_first,
@@ -7907,12 +8158,18 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "nodeCount": node_count,
                 "diagnosticsCount": gv.diagnostics.len(),
                 "documentationCoverageHint": if gv.doc_scanner().is_some() { "docs scanned" } else { "no doc scanner" },
+                "architectureComponentCount": component_items.len(),
+                "suspiciousAreaCount": suspicious_areas.len(),
+                "missingEvidenceCount": missing_evidence.len(),
             },
             "entryPointCandidates": entry_candidates,
             "hotspotFiles": hotspot_files,
             "hotspotSymbols": hotspot_symbols,
             "riskMap": risk_items,
             "architectureRisk": architecture_risk,
+            "architectureMap": architecture_map,
+            "suspiciousAreas": suspicious_areas,
+            "missingEvidence": missing_evidence,
             "lowConfidenceZones": low_confidence_zones,
             "readFirst": read_first,
             "reviewFirst": review_first,

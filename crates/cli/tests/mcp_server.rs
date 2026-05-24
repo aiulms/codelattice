@@ -7823,6 +7823,113 @@ fn mcp_project_insights_entry_candidates_are_classified() {
 }
 
 #[test]
+fn mcp_project_insights_returns_ai_navigation_sections() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9014,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert!(
+        data["architectureMap"]["components"].is_array(),
+        "architectureMap.components should help AI understand project structure: {data:?}"
+    );
+    assert!(
+        data["architectureMap"]["components"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "architectureMap should include at least one component: {data:?}"
+    );
+    assert!(
+        data["suspiciousAreas"].is_array(),
+        "suspiciousAreas should rank areas worth inspecting: {data:?}"
+    );
+    assert!(
+        data["suspiciousAreas"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| {
+                item["whySuspicious"].is_string()
+                    && item["recommendedAction"].is_string()
+                    && item["staticOnly"].as_bool() == Some(true)
+            }),
+        "suspiciousAreas should explain static reasons/actions: {data:?}"
+    );
+    assert!(
+        data["missingEvidence"].is_array(),
+        "missingEvidence should tell AI what this static analysis did not prove: {data:?}"
+    );
+    assert!(
+        data["missingEvidence"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| {
+                item["evidenceType"].as_str() == Some("runtime")
+                    && item["available"].as_bool() == Some(false)
+            }),
+        "missingEvidence should explicitly say runtime evidence is unavailable: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_facade_insights_preserves_ai_navigation_sections() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9015,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "insights",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": false
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    assert_eq!(data["tool"].as_str(), Some("codelattice_project"));
+    assert_eq!(data["mode"].as_str(), Some("insights"));
+    let result = &data["result"];
+    assert!(
+        result["architectureMap"]["components"].is_array(),
+        "facade insights should preserve architectureMap: {data:?}"
+    );
+    assert!(
+        result["suspiciousAreas"].is_array(),
+        "facade insights should preserve suspiciousAreas: {data:?}"
+    );
+    assert!(
+        result["missingEvidence"].is_array(),
+        "facade insights should preserve missingEvidence: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_project_diagnose_returns_ranked_likely_areas() {
     let mut session = McpSession::start_default_toolset();
     session.initialize();
