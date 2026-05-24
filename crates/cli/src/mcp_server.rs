@@ -38,7 +38,7 @@ use gitnexus_analysis_scheduler::{
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
 use gitnexus_workspace_model::{build_workspace_graph, scan_workspace_inventory, ProjectInfo};
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -19636,6 +19636,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             "callers",
             "callees",
             "graph",
+            "call_chains",
             "job",
             "job_status",
             "job_detail",
@@ -19688,6 +19689,60 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         "graph" => {
             let r = handle_query_graph(cache, params)?;
             (unwrap_tool_result(&r), vec!["codelattice_query_graph"])
+        }
+        "call_chains" => {
+            let direction = params["direction"].as_str().unwrap_or("both");
+            let max_depth = params["maxDepth"].as_u64().unwrap_or(4).min(6) as usize;
+            let limit = params["limit"].as_u64().unwrap_or(8).min(20) as usize;
+            let query = params["query"]
+                .as_str()
+                .or_else(|| params["name"].as_str())
+                .unwrap_or("")
+                .to_string();
+            let root_path = PathBuf::from(root);
+
+            let (candidates, call_chains, chain_read_first, chain_missing, chain_next) =
+                build_call_chains_result(&root_path, language, &query, direction, max_depth, limit);
+
+            let mut content = vec![json!({
+                "type": "text",
+                "text": format!("Call chains for '{}': {} chains found, {} candidates",
+                    query, call_chains.len(), candidates.len())
+            })];
+
+            if compact {
+                content.push(json!({
+                    "type": "text",
+                    "text": "Use compact=false for full chain details."
+                }));
+            }
+
+            let chain_count = call_chains.len();
+            let chains_output = if compact {
+                call_chains.into_iter().take(5).collect::<Vec<_>>()
+            } else {
+                call_chains
+            };
+
+            return Ok(json!({
+                "content": content,
+                "schemaVersion": "codelattice.callChains.v1",
+                "target": query,
+                "candidates": candidates,
+                "callChains": chains_output,
+                "readFirst": chain_read_first,
+                "ambiguity": if candidates.len() > 5 { "multiple candidates found, consider narrowing query" } else { "" },
+                "missingEvidence": chain_missing,
+                "generatedFrom": "static-call-graph",
+                "analysisSemantics": {
+                    "staticAnalysis": true,
+                    "targetCodeExecuted": false,
+                    "runtimeVerified": false,
+                    "scriptsExecuted": false
+                },
+                "nextActions": chain_next,
+                "detailHint": if compact && chain_count > 5 { "Use compact=false or increase limit for more chains" } else { "" }
+            }));
         }
         _ => unreachable!(),
     };
@@ -21137,9 +21192,66 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             "config_examples_sync",
             "public_api_change",
             "framework_route_change",
+            "ask",
         ],
         "codelattice_workflow",
     )?;
+
+    if mode == "ask" {
+        let question = params["question"].as_str().unwrap_or("").to_string();
+        let ask_compact = compact;
+        let ask_execute = execute;
+
+        if question.is_empty() {
+            return Ok(json!({
+                "content": [{"type": "text", "text": "Please provide a question parameter."}],
+                "schemaVersion": "codelattice.ask.v1",
+                "intent": "unknown",
+                "question": "",
+                "answerSummary": "No question provided.",
+                "evidence": [],
+                "callChains": [],
+                "readFirst": [],
+                "missingEvidence": [{"kind": "missing_input", "explanation": "question parameter is required"}],
+                "nextActions": [{"tool": "codelattice_workflow", "mode": "ask", "why": "Retry with a question", "arguments": {"question": "your question here"}}],
+                "aiGuidance": "Ask a specific question about the codebase, such as: 'What is the call flow of helper()?' or 'What does this project do?'",
+                "generatedFrom": "intent-router",
+                "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false, "scriptsExecuted": false}
+            }));
+        }
+
+        let (
+            intent,
+            answer_summary,
+            evidence,
+            call_chains,
+            read_first,
+            missing_evidence,
+            next_actions,
+            ai_guidance,
+        ) = route_ask_intent(root, language, &question, ask_compact, ask_execute);
+
+        return Ok(json!({
+            "content": [{"type": "text", "text": &answer_summary}],
+            "schemaVersion": "codelattice.ask.v1",
+            "intent": intent,
+            "question": question,
+            "answerSummary": answer_summary,
+            "evidence": evidence,
+            "callChains": call_chains,
+            "readFirst": read_first,
+            "missingEvidence": missing_evidence,
+            "nextActions": next_actions,
+            "aiGuidance": ai_guidance,
+            "generatedFrom": "intent-router",
+            "analysisSemantics": {
+                "staticAnalysis": true,
+                "targetCodeExecuted": false,
+                "runtimeVerified": false,
+                "scriptsExecuted": false
+            }
+        }));
+    }
 
     let mut missing_inputs: Vec<Value> = Vec::new();
     let mut next_actions: Vec<Value> = Vec::new();
@@ -21896,4 +22008,427 @@ pub fn run_mcp_server() -> Result<(), String> {
 
     eprintln!("[mcp] server stopped");
     Ok(())
+}
+
+fn run_rust_analysis_if_available(root: &Path, language: &str) -> Option<Value> {
+    let lang = if language == "auto" { "rust" } else { language };
+    run_analyze_subprocess(root, lang, "json", false).ok()
+}
+
+fn build_call_chains_result(
+    root: &Path,
+    language: &str,
+    query: &str,
+    direction: &str,
+    max_depth: usize,
+    limit: usize,
+) -> (Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>, Vec<Value>) {
+    let mut candidates = Vec::new();
+    let mut call_chains = Vec::new();
+    let mut read_first = Vec::new();
+    let mut missing = Vec::new();
+    let mut next_actions = Vec::new();
+
+    let analyze_result = run_rust_analysis_if_available(root, language);
+    match analyze_result {
+        Some(graph_data) => {
+            let graph = graph_data.get("graph").unwrap_or(&Value::Null);
+            let nodes = graph
+                .get("nodes")
+                .and_then(|n| n.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let edges = graph
+                .get("edges")
+                .and_then(|e| e.as_array())
+                .cloned()
+                .unwrap_or_default();
+
+            let query_lower = query.to_lowercase();
+            for node in &nodes {
+                if node.get("kind").and_then(|k| k.as_str()) == Some("symbol") {
+                    let name = node
+                        .get("properties")
+                        .and_then(|p| p.get("name"))
+                        .and_then(|n| n.as_str())
+                        .unwrap_or("");
+                    if name.to_lowercase().contains(&query_lower) {
+                        candidates.push(json!({
+                            "name": name,
+                            "file": node["properties"]["sourcePath"].as_str().unwrap_or(""),
+                            "line": node["properties"]["lineStart"].as_u64().unwrap_or(0),
+                            "kind": node["properties"]["symbolKind"].as_str().unwrap_or("unknown"),
+                            "id": node["id"]
+                        }));
+                    }
+                }
+            }
+
+            let calls_edges: Vec<_> = edges
+                .iter()
+                .filter(|e| e.get("type").and_then(|t| t.as_str()) == Some("CALLS"))
+                .collect();
+
+            for candidate in candidates.iter().take(limit) {
+                let id = candidate["id"].as_str().unwrap_or("");
+
+                if direction == "upstream" || direction == "both" {
+                    let mut chain = Vec::new();
+                    let mut files = BTreeSet::new();
+                    let mut edge_kinds = Vec::new();
+                    let mut current = id.to_string();
+
+                    for _ in 0..max_depth {
+                        let caller = calls_edges.iter().find(|e| {
+                            e.get("target").and_then(|t| t.as_str()) == Some(current.as_str())
+                        });
+                        match caller {
+                            Some(edge) => {
+                                let source_id =
+                                    edge.get("source").and_then(|s| s.as_str()).unwrap_or("");
+                                let source_name = nodes
+                                    .iter()
+                                    .find(|n| n["id"].as_str() == Some(source_id))
+                                    .and_then(|n| n["properties"]["name"].as_str())
+                                    .unwrap_or(source_id);
+                                chain.push(source_name.to_string());
+                                edge_kinds.push("CALLS");
+                                if let Some(f) = nodes
+                                    .iter()
+                                    .find(|n| n["id"].as_str() == Some(source_id))
+                                    .and_then(|n| n["properties"]["sourcePath"].as_str())
+                                {
+                                    files.insert(f.to_string());
+                                }
+                                current = source_id.to_string();
+                            }
+                            None => break,
+                        }
+                    }
+                    chain.push(candidate["name"].as_str().unwrap_or(query).to_string());
+
+                    if chain.len() > 1 {
+                        call_chains.push(json!({
+                            "chain": chain.join(" -> "),
+                            "depth": chain.len() - 1,
+                            "direction": "upstream",
+                            "confidence": 0.70,
+                            "confidenceReason": "static-call-graph-heuristic",
+                            "entryFile": chain.first().map(|_| "").unwrap_or(""),
+                            "exitFile": candidate["file"].as_str().unwrap_or(""),
+                            "files": files,
+                            "edgeKinds": edge_kinds
+                        }));
+                    }
+                }
+
+                if direction == "downstream" || direction == "both" {
+                    let mut chain = vec![candidate["name"].as_str().unwrap_or(query).to_string()];
+                    let mut files = BTreeSet::new();
+                    let mut edge_kinds = Vec::new();
+                    let mut current = id.to_string();
+                    files.insert(candidate["file"].as_str().unwrap_or("").to_string());
+
+                    for _ in 0..max_depth {
+                        let callee = calls_edges.iter().find(|e| {
+                            e.get("source").and_then(|s| s.as_str()) == Some(current.as_str())
+                        });
+                        match callee {
+                            Some(edge) => {
+                                let target_id =
+                                    edge.get("target").and_then(|t| t.as_str()).unwrap_or("");
+                                let target_name = nodes
+                                    .iter()
+                                    .find(|n| n["id"].as_str() == Some(target_id))
+                                    .and_then(|n| n["properties"]["name"].as_str())
+                                    .unwrap_or(target_id);
+                                chain.push(target_name.to_string());
+                                edge_kinds.push("CALLS");
+                                if let Some(f) = nodes
+                                    .iter()
+                                    .find(|n| n["id"].as_str() == Some(target_id))
+                                    .and_then(|n| n["properties"]["sourcePath"].as_str())
+                                {
+                                    files.insert(f.to_string());
+                                }
+                                current = target_id.to_string();
+                            }
+                            None => break,
+                        }
+                    }
+
+                    if chain.len() > 1 {
+                        call_chains.push(json!({
+                            "chain": chain.join(" -> "),
+                            "depth": chain.len() - 1,
+                            "direction": "downstream",
+                            "confidence": 0.70,
+                            "confidenceReason": "static-call-graph-heuristic",
+                            "entryFile": candidate["file"].as_str().unwrap_or(""),
+                            "exitFile": chain.last().map(|_| "").unwrap_or(""),
+                            "files": files,
+                            "edgeKinds": edge_kinds
+                        }));
+                    }
+                }
+            }
+
+            if !candidates.is_empty() {
+                read_first.push(json!({
+                    "kind": "source",
+                    "path": candidates[0]["file"],
+                    "reason": "Primary candidate source file"
+                }));
+            }
+        }
+        None => {
+            missing.push(json!({
+                "kind": "no_graph_data",
+                "explanation": format!("No graph data available for {} at {}. Run analyze first.", language, root.display())
+            }));
+        }
+    }
+
+    if candidates.is_empty() {
+        missing.push(json!({
+            "kind": "symbol_not_found",
+            "explanation": format!("No symbols matching '{}' found in the graph.", query)
+        }));
+        next_actions.push(json!({
+            "tool": "codelattice_symbol",
+            "mode": "search",
+            "why": format!("Try a broader search for '{}'", query),
+            "arguments": { "query": query }
+        }));
+    }
+
+    next_actions.push(json!({
+        "tool": "codelattice_symbol",
+        "mode": "context",
+        "why": "Get full context for the target symbol",
+        "arguments": { "name": query }
+    }));
+
+    (candidates, call_chains, read_first, missing, next_actions)
+}
+
+fn route_ask_intent(
+    root: &str,
+    language: &str,
+    question: &str,
+    compact: bool,
+    execute: bool,
+) -> (
+    String,
+    String,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    Vec<Value>,
+    String,
+) {
+    let q = question.to_lowercase();
+
+    let flow_keywords = [
+        "流程",
+        "怎么运行",
+        "调用链",
+        "call flow",
+        "执行路径",
+        "call chain",
+        "how does",
+        "execution path",
+        "调用关系",
+    ];
+    let find_keywords = [
+        "在哪",
+        "找",
+        "搜索",
+        "哪个函数",
+        "which symbol",
+        "where is",
+        "find",
+        "search",
+    ];
+    let inspect_keywords = [
+        "了解项目",
+        "项目结构",
+        "入口",
+        "架构",
+        "overview",
+        "project structure",
+        "entry point",
+        "architecture",
+        "这个项目",
+    ];
+    let edit_keywords = [
+        "如果改",
+        "删除",
+        "重命名",
+        "影响",
+        "风险",
+        "what if",
+        "delete",
+        "rename",
+        "impact",
+        "risk",
+        "如果删除",
+        "如果修改",
+    ];
+
+    let intent;
+    let mut answer_summary = String::new();
+    let mut evidence = Vec::new();
+    let mut call_chains = Vec::new();
+    let mut read_first = Vec::new();
+    let mut missing_evidence = Vec::new();
+    let mut next_actions = Vec::new();
+    let mut ai_guidance = String::new();
+
+    if flow_keywords.iter().any(|k| q.contains(k)) {
+        intent = "explain_flow".to_string();
+        let query = extract_symbol_from_question(question);
+        if !root.is_empty() && !query.is_empty() {
+            let root_path = Path::new(root);
+            let (candidates, chains, rf, me, na) =
+                build_call_chains_result(root_path, language, &query, "both", 4, 8);
+            call_chains = chains;
+            read_first = rf;
+            missing_evidence = me;
+            next_actions = na;
+            if !candidates.is_empty() {
+                answer_summary = format!(
+                    "Found {} candidates and {} call chains for '{}'.",
+                    candidates.len(),
+                    call_chains.len(),
+                    query
+                );
+                evidence.push(json!({
+                    "kind": "candidates_found",
+                    "count": candidates.len(),
+                    "topCandidate": candidates[0]
+                }));
+            } else {
+                answer_summary = format!("No symbols matching '{}' found in the graph.", query);
+                missing_evidence.push(json!({
+                    "kind": "symbol_not_found",
+                    "explanation": format!("'{}' not found in static graph", query)
+                }));
+            }
+        } else {
+            answer_summary =
+                "Call chain analysis requires a valid root path and symbol name.".to_string();
+            missing_evidence.push(json!({
+                "kind": "missing_input",
+                "explanation": "root path or symbol not provided"
+            }));
+        }
+        ai_guidance = "Call chains are derived from static analysis only. Runtime dispatch, trait objects, and dynamic calls are not captured. Use the readFirst entries to verify the actual code flow.".to_string();
+    } else if find_keywords.iter().any(|k| q.contains(k)) {
+        intent = "find_symbol".to_string();
+        let query = extract_symbol_from_question(question);
+        answer_summary = if query.is_empty() {
+            "Please specify which symbol you're looking for.".to_string()
+        } else {
+            format!("Searching for '{}' in the codebase.", query)
+        };
+        next_actions.push(json!({
+            "tool": "codelattice_symbol",
+            "mode": "search",
+            "why": format!("Search for symbols matching '{}'", query),
+            "arguments": {"query": query, "language": language, "root": root}
+        }));
+        ai_guidance =
+            "Use codelattice_symbol(mode=search) to find the symbol, then mode=context for details."
+                .to_string();
+    } else if inspect_keywords.iter().any(|k| q.contains(k)) {
+        intent = "inspect_project".to_string();
+        if !root.is_empty() {
+            answer_summary = format!("Project overview for {} ({}).", root, language);
+            next_actions.push(json!({
+                "tool": "codelattice_project",
+                "mode": "quick",
+                "why": "Get project overview and key metrics",
+                "arguments": {"root": root, "language": language}
+            }));
+        } else {
+            answer_summary = "Please provide a root path to inspect.".to_string();
+            missing_evidence.push(json!({
+                "kind": "missing_input",
+                "explanation": "root path required"
+            }));
+        }
+        ai_guidance = "Use codelattice_project(mode=quick) for a fast project overview, or mode=standard for more detail.".to_string();
+    } else if edit_keywords.iter().any(|k| q.contains(k)) {
+        intent = "before_edit".to_string();
+        let query = extract_symbol_from_question(question);
+        answer_summary = format!(
+            "Risk assessment for editing '{}'. This is a static heuristic, not a runtime proof.",
+            query
+        );
+        next_actions.push(json!({
+            "tool": "codelattice_symbol",
+            "mode": "context",
+            "why": format!("Get context for symbol '{}'", query),
+            "arguments": {"name": query, "language": language, "root": root}
+        }));
+        next_actions.push(json!({
+            "tool": "codelattice_change_review",
+            "mode": "impact",
+            "why": "Assess impact of the proposed change",
+            "arguments": {"symbol": query, "language": language, "root": root}
+        }));
+        ai_guidance = "Impact analysis is static-only. Review test coverage and runtime behavior manually before making changes.".to_string();
+    } else {
+        intent = "general".to_string();
+        answer_summary = format!("Question: '{}'. I can help with: explain_flow, find_symbol, inspect_project, before_edit. Try asking about a specific symbol's call flow, where a function is, the project structure, or what happens if you change something.", question);
+        next_actions.push(json!({
+            "tool": "codelattice_workflow",
+            "mode": "explore",
+            "why": "Explore the project for general orientation",
+            "arguments": {"root": root, "language": language}
+        }));
+        ai_guidance = "Try specific questions like: 'What is the call flow of helper()?', 'Where is the main entry point?', 'What is the project structure?', or 'What happens if I delete helper?'".to_string();
+    }
+
+    let _ = (compact, execute);
+
+    (
+        intent,
+        answer_summary,
+        evidence,
+        call_chains,
+        read_first,
+        missing_evidence,
+        next_actions,
+        ai_guidance,
+    )
+}
+
+fn extract_symbol_from_question(question: &str) -> String {
+    if let Some(start) = question.find('`') {
+        if let Some(end) = question[start + 1..].find('`') {
+            return question[start + 1..start + 1 + end].to_string();
+        }
+    }
+    for word in question.split_whitespace() {
+        let w = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        if w.contains('(') {
+            if let Some(idx) = w.find('(') {
+                let name = &w[..idx];
+                if name.len() >= 2 {
+                    return name.to_string();
+                }
+            }
+        }
+    }
+    let words: Vec<&str> = question.split_whitespace().collect();
+    for word in words.iter().rev() {
+        let w = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_');
+        if w.len() >= 2 && w.chars().next().map(|c| c.is_alphabetic()).unwrap_or(false) {
+            return w.to_string();
+        }
+    }
+    String::new()
 }
