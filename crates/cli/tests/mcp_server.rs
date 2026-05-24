@@ -3878,6 +3878,216 @@ fn extract_tool_data(resp: &serde_json::Value) -> serde_json::Value {
         .unwrap_or_else(|e| panic!("Invalid JSON in tool result: {}. Text: {}", e, text))
 }
 
+fn call_tool_json(
+    session: &mut McpSession,
+    id: u64,
+    name: &str,
+    arguments: serde_json::Value,
+) -> serde_json::Value {
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "method": "tools/call",
+        "params": {
+            "name": name,
+            "arguments": arguments
+        }
+    }));
+    let resp = session.recv();
+    assert_eq!(resp["id"], id);
+    extract_tool_data(&resp)
+}
+
+fn assert_paged_detail_schema(data: &serde_json::Value, expected_page_size: u64) {
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.pagedDetail.v1"),
+        "paged detail response should include schema version: {data:?}"
+    );
+    assert!(
+        data["jobId"].is_string(),
+        "paged detail should include jobId"
+    );
+    assert!(data["page"].is_number(), "paged detail should include page");
+    assert!(
+        data["pageSize"].is_number(),
+        "paged detail should include pageSize"
+    );
+    assert_eq!(
+        data["pageSize"].as_u64(),
+        Some(expected_page_size),
+        "pageSize should reflect requested capped page size"
+    );
+    assert!(
+        data["totalItems"].is_number(),
+        "paged detail should include totalItems"
+    );
+    assert!(
+        data["totalPages"].is_number(),
+        "paged detail should include totalPages"
+    );
+    assert!(
+        data["hasMore"].is_boolean(),
+        "paged detail should include hasMore"
+    );
+    assert!(
+        data["items"].is_array(),
+        "paged detail should include items"
+    );
+}
+
+#[test]
+fn mcp_facade_job_status_and_detail_do_not_require_root() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    let job = call_tool_json(
+        &mut session,
+        11001,
+        "codelattice_project",
+        serde_json::json!({
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "mode": "job",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"]
+        .as_str()
+        .expect("job response should include jobId")
+        .to_string();
+
+    for (index, facade) in [
+        "codelattice_project",
+        "codelattice_workspace",
+        "codelattice_symbol",
+        "codelattice_change_review",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let status = call_tool_json(
+            &mut session,
+            11010 + (index as u64),
+            facade,
+            serde_json::json!({
+                "mode": "job_status",
+                "jobId": job_id
+            }),
+        );
+        assert_eq!(
+            status["jobId"].as_str(),
+            Some(job_id.as_str()),
+            "{facade} job_status should resolve jobId without root: {status:?}"
+        );
+        assert!(
+            status["status"].is_string(),
+            "{facade} job_status should include status: {status:?}"
+        );
+        assert_ne!(
+            status["error"].as_str(),
+            Some("missing_parameter"),
+            "{facade} job_status must not fail root validation first"
+        );
+
+        let detail = call_tool_json(
+            &mut session,
+            11020 + (index as u64),
+            facade,
+            serde_json::json!({
+                "mode": "job_detail",
+                "jobId": job_id,
+                "page": 0,
+                "pageSize": 2
+            }),
+        );
+        assert_paged_detail_schema(&detail, 2);
+        assert_ne!(
+            detail["error"].as_str(),
+            Some("missing_parameter"),
+            "{facade} job_detail must not fail root validation first"
+        );
+
+        let invalid = call_tool_json(
+            &mut session,
+            11030 + (index as u64),
+            facade,
+            serde_json::json!({
+                "mode": "job_status",
+                "jobId": "job_engine_missing"
+            }),
+        );
+        assert_eq!(
+            invalid["error"].as_str(),
+            Some("job_not_found"),
+            "{facade} invalid jobId should be a structured job error: {invalid:?}"
+        );
+    }
+}
+
+#[test]
+fn mcp_workspace_job_response_is_compact_and_details_are_paged() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let workspace = create_multi_project_workspace();
+    let job = call_tool_json(
+        &mut session,
+        11101,
+        "codelattice_workspace",
+        serde_json::json!({
+            "root": workspace.path().to_string_lossy(),
+            "language": "auto",
+            "mode": "job",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        job["compactResult"].as_bool(),
+        Some(true),
+        "job response should be explicitly compact: {job:?}"
+    );
+    assert!(
+        job["summary"]["projects"].is_null(),
+        "workspace job summary must not embed the full project list: {job:?}"
+    );
+    assert!(
+        job["summary"]["totalProjects"].is_number() || job["summary"]["total_projects"].is_number(),
+        "workspace job summary should keep small counts: {job:?}"
+    );
+    assert!(
+        serde_json::to_string(&job).unwrap().len() < 12_000,
+        "compact workspace job response should stay small: {job:?}"
+    );
+
+    let job_id = job["jobId"].as_str().expect("workspace jobId");
+    let detail = call_tool_json(
+        &mut session,
+        11102,
+        "codelattice_workspace",
+        serde_json::json!({
+            "mode": "job_detail",
+            "jobId": job_id,
+            "page": 0,
+            "pageSize": 1
+        }),
+    );
+    assert_paged_detail_schema(&detail, 1);
+    assert_eq!(
+        detail["items"].as_array().map(|items| items.len()),
+        Some(1),
+        "job_detail should honor pageSize and hold full project detail: {detail:?}"
+    );
+    assert!(
+        detail["items"][0]["project"].is_string(),
+        "workspace project detail should live in job_detail items: {detail:?}"
+    );
+}
+
 #[test]
 fn mcp_compact_symbol_search_retains_identity() {
     let mut session = McpSession::start();

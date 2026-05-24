@@ -59,11 +59,15 @@ pub struct GraphReducer {
 }
 
 impl Default for GraphReducer {
-    fn default() -> Self { Self { sorted: true } }
+    fn default() -> Self {
+        Self { sorted: true }
+    }
 }
 
 impl GraphReducer {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     /// Merge artifacts into a deterministic graph.
     /// Artifacts can arrive in any order — the output is always stable.
@@ -96,11 +100,31 @@ impl GraphReducer {
                         sym_val.get("name").and_then(|v| v.as_str()),
                         sym_val.get("kind").and_then(|v| v.as_str()),
                     ) {
-                        let sl = sym_val.get("startLine").and_then(|v| v.as_u64()).map(|v| v as usize)
-                            .or_else(|| sym_val.get("start_line").and_then(|v| v.as_u64()).map(|v| v as usize));
-                        let el = sym_val.get("endLine").and_then(|v| v.as_u64()).map(|v| v as usize)
-                            .or_else(|| sym_val.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize));
-                        let file = sym_val.get("file").and_then(|v| v.as_str()).unwrap_or(&art.unit_id).to_string();
+                        let sl = sym_val
+                            .get("startLine")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as usize)
+                            .or_else(|| {
+                                sym_val
+                                    .get("start_line")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|v| v as usize)
+                            });
+                        let el = sym_val
+                            .get("endLine")
+                            .and_then(|v| v.as_u64())
+                            .map(|v| v as usize)
+                            .or_else(|| {
+                                sym_val
+                                    .get("end_line")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|v| v as usize)
+                            });
+                        let file = sym_val
+                            .get("file")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or(&art.unit_id)
+                            .to_string();
                         let node_id = format!("sym:{}:{}:{}", art.unit_id, kind, name);
                         nodes.entry(node_id.clone()).or_insert_with(|| GraphNode {
                             id: node_id,
@@ -120,11 +144,18 @@ impl GraphReducer {
                 for imp in imps {
                     let src = imp.get("source").and_then(|v| v.as_str()).unwrap_or("");
                     let tgt = imp.get("target").and_then(|v| v.as_str()).unwrap_or("");
-                    let resolved = imp.get("resolved").and_then(|v| v.as_bool()).unwrap_or(false);
+                    let resolved = imp
+                        .get("resolved")
+                        .and_then(|v| v.as_bool())
+                        .unwrap_or(false);
                     edges.push(GraphEdge {
                         source_id: format!("sym:{}:import:{}", art.unit_id, src),
                         target_id: format!("sym:{}:import:{}", art.unit_id, tgt),
-                        kind: if resolved { "IMPORTS".to_string() } else { "IMPORTS_UNRESOLVED".to_string() },
+                        kind: if resolved {
+                            "IMPORTS".to_string()
+                        } else {
+                            "IMPORTS_UNRESOLVED".to_string()
+                        },
                         confidence: if resolved { 0.9 } else { 0.4 },
                         reason: "static-import".to_string(),
                     });
@@ -136,8 +167,15 @@ impl GraphReducer {
                 for call in calls {
                     let caller = call.get("caller").and_then(|v| v.as_str()).unwrap_or("");
                     let callee = call.get("callee").and_then(|v| v.as_str()).unwrap_or("");
-                    let confidence = call.get("confidence").and_then(|v| v.as_f64()).unwrap_or(0.5);
-                    let reason = call.get("reason").and_then(|v| v.as_str()).unwrap_or("static-call").to_string();
+                    let confidence = call
+                        .get("confidence")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.5);
+                    let reason = call
+                        .get("reason")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("static-call")
+                        .to_string();
                     edges.push(GraphEdge {
                         source_id: format!("sym:{}:fn:{}", art.unit_id, caller),
                         target_id: format!("sym:{}:fn:{}", art.unit_id, callee),
@@ -153,7 +191,8 @@ impl GraphReducer {
         let mut node_list: Vec<GraphNode> = nodes.into_values().collect();
         node_list.sort_by(|a, b| a.id.cmp(&b.id));
         edges.sort_by(|a, b| {
-            a.source_id.cmp(&b.source_id)
+            a.source_id
+                .cmp(&b.source_id)
                 .then_with(|| a.target_id.cmp(&b.target_id))
         });
 
@@ -182,7 +221,10 @@ impl GraphReducer {
             diagnostic_count: diagnostics.len(),
             dangling_edge_count: dangling,
             source_file_count: source_file_set.len(),
-            symbol_count: node_list.iter().filter(|n| n.kind != "source-file" && n.kind != "import").count(),
+            symbol_count: node_list
+                .iter()
+                .filter(|n| n.kind != "source-file" && n.kind != "import")
+                .count(),
             nodes: node_list,
             edges,
             diagnostics,
@@ -236,7 +278,10 @@ mod tests {
         // All outputs should have same node IDs (stable renumbering)
         let ids1: Vec<_> = r1.nodes.iter().map(|n| n.id.clone()).collect();
         let ids2: Vec<_> = r2.nodes.iter().map(|n| n.id.clone()).collect();
-        assert_eq!(ids1, ids2, "shuffled inputs must produce identical node IDs");
+        assert_eq!(
+            ids1, ids2,
+            "shuffled inputs must produce identical node IDs"
+        );
     }
 
     #[test]

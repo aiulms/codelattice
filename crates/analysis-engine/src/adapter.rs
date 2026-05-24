@@ -107,7 +107,7 @@ pub struct CallEntry {
 }
 
 /// The trait language adapters implement for the parallel engine.
-/// 
+///
 /// # Safety Contract
 /// — All functions are deterministic (same input → same output)
 /// — No spawning of unmanaged threads

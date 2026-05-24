@@ -10,14 +10,14 @@
 //!
 //! JSON stdout，human logs stderr。
 
-mod engine_bridge;
-mod mcp_job;
 mod arkts_bridge;
 mod bridge_format;
 mod c_bridge;
 mod cangjie_bridge;
 mod cpp_bridge;
+mod engine_bridge;
 mod language_detect;
+mod mcp_job;
 mod mcp_server;
 mod python_bridge;
 mod rust_bridge;
@@ -3150,11 +3150,16 @@ pub fn run() {
             // ═══ Analysis Engine 1.3 path (--engine serial|parallel|parity) ═══
             if engine != "off" {
                 let result = match engine.as_str() {
-                    "serial" | "parallel" | "parity" => {
-                        crate::engine_bridge::run_engine_analysis(root_path, &language, engine == "parallel")
-                    }
+                    "serial" | "parallel" | "parity" => crate::engine_bridge::run_engine_analysis(
+                        root_path,
+                        &language,
+                        engine == "parallel",
+                    ),
                     _ => {
-                        eprintln!("Unknown engine mode: {}. Use serial, parallel, or off.", engine);
+                        eprintln!(
+                            "Unknown engine mode: {}. Use serial, parallel, or off.",
+                            engine
+                        );
                         std::process::exit(1);
                     }
                 };
@@ -3185,8 +3190,16 @@ pub fn run() {
             if engine != "off" {
                 let parallel = engine == "parallel";
                 match engine_bridge::run_engine_analysis(root_path, &lang, parallel) {
-                    Ok(result) => { println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default()); return; }
-                    Err(e) => { eprintln!("Engine analysis failed: {e}, falling back to standard path"); }
+                    Ok(result) => {
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&result).unwrap_or_default()
+                        );
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Engine analysis failed: {e}, falling back to standard path");
+                    }
                 }
             }
 

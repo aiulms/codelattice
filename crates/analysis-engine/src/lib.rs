@@ -9,16 +9,21 @@
 //! - Per-file failure is isolated — bad files become diagnostics, not crashes
 //! - All analysis is static-only (no target code execution, no build scripts)
 
+pub mod adapter;
+pub mod cache;
 pub mod dag;
 pub mod executor;
-pub mod reducer;
-pub mod cache;
 pub mod job;
-pub mod adapter;
+pub mod reducer;
 
-pub use dag::{AnalysisPlan, AnalysisTask, AnalysisStage, AnalysisArtifact};
-pub use executor::{EngineConfig, SerialExecutor, ParallelExecutor, ProgressEvent, SerializableResult};
+pub use adapter::{AdapterCapabilities, FileUnit, LanguageAdapter, ParseOutput, SymbolOutput};
+pub use cache::{
+    ArtifactCache, CacheExplain, CacheExplainEntry, CacheKey, CacheStatus, FileSnapshot,
+    IncrementalPlan,
+};
+pub use dag::{AnalysisArtifact, AnalysisPlan, AnalysisStage, AnalysisTask};
+pub use executor::{
+    EngineConfig, ParallelExecutor, ProgressEvent, SerialExecutor, SerializableResult,
+};
+pub use job::{AnalysisJob, JobProgress, JobStatus, PagedResult};
 pub use reducer::{GraphReducer, MergeResult};
-pub use cache::{ArtifactCache, CacheKey, CacheStatus, CacheExplain, CacheExplainEntry, FileSnapshot, IncrementalPlan};
-pub use job::{AnalysisJob, JobStatus, JobProgress, PagedResult};
-pub use adapter::{LanguageAdapter, FileUnit, ParseOutput, SymbolOutput, AdapterCapabilities};

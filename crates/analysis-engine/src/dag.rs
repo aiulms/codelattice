@@ -36,7 +36,13 @@ impl AnalysisStage {
     }
 
     pub fn is_file_parallelizable(&self) -> bool {
-        matches!(self, AnalysisStage::Parse | AnalysisStage::Symbol | AnalysisStage::Import | AnalysisStage::Reference)
+        matches!(
+            self,
+            AnalysisStage::Parse
+                | AnalysisStage::Symbol
+                | AnalysisStage::Import
+                | AnalysisStage::Reference
+        )
     }
 
     pub fn depends_on(&self) -> Vec<AnalysisStage> {

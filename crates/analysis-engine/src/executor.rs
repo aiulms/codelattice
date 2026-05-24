@@ -21,13 +21,30 @@ pub struct EngineConfig {
 
 impl Default for EngineConfig {
     fn default() -> Self {
-        Self { max_workers: 4, per_task_timeout_ms: 120_000, enable_parallel: true, enable_progress_events: false, cache_enabled: false }
+        Self {
+            max_workers: 4,
+            per_task_timeout_ms: 120_000,
+            enable_parallel: true,
+            enable_progress_events: false,
+            cache_enabled: false,
+        }
     }
 }
 
 impl EngineConfig {
-    pub fn serial_only() -> Self { Self { enable_parallel: false, ..Default::default() } }
-    pub fn parallel(workers: usize) -> Self { Self { enable_parallel: true, max_workers: workers, ..Default::default() } }
+    pub fn serial_only() -> Self {
+        Self {
+            enable_parallel: false,
+            ..Default::default()
+        }
+    }
+    pub fn parallel(workers: usize) -> Self {
+        Self {
+            enable_parallel: true,
+            max_workers: workers,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -52,18 +69,30 @@ pub struct SerializableResult {
     pub executor_mode: String,
 }
 
-fn run_single_task(task: &AnalysisTask, adapter: &dyn LanguageAdapter) -> Result<AnalysisArtifact, String> {
+fn run_single_task(
+    task: &AnalysisTask,
+    adapter: &dyn LanguageAdapter,
+) -> Result<AnalysisArtifact, String> {
     let start = Instant::now();
-    let unit = adapter.discover_files(&task.root)?
+    let unit = adapter
+        .discover_files(&task.root)?
         .into_iter()
         .find(|f| f.id == task.unit_id)
         .ok_or_else(|| format!("Unit {} not found", task.unit_id))?;
 
     let data = match task.stage {
-        AnalysisStage::Parse => serde_json::to_value(adapter.parse_file(&unit)?).map_err(|e| e.to_string())?,
-        AnalysisStage::Symbol => serde_json::to_value(adapter.extract_symbols(&unit)?).map_err(|e| e.to_string())?,
-        AnalysisStage::Import => serde_json::to_value(adapter.extract_imports(&unit)?).map_err(|e| e.to_string())?,
-        AnalysisStage::Reference => serde_json::to_value(adapter.extract_references(&unit)?).map_err(|e| e.to_string())?,
+        AnalysisStage::Parse => {
+            serde_json::to_value(adapter.parse_file(&unit)?).map_err(|e| e.to_string())?
+        }
+        AnalysisStage::Symbol => {
+            serde_json::to_value(adapter.extract_symbols(&unit)?).map_err(|e| e.to_string())?
+        }
+        AnalysisStage::Import => {
+            serde_json::to_value(adapter.extract_imports(&unit)?).map_err(|e| e.to_string())?
+        }
+        AnalysisStage::Reference => {
+            serde_json::to_value(adapter.extract_references(&unit)?).map_err(|e| e.to_string())?
+        }
         _ => serde_json::json!({}),
     };
 
@@ -103,7 +132,11 @@ fn make_error_artifact(task: &AnalysisTask, error: String) -> AnalysisArtifact {
 pub struct SerialExecutor;
 
 impl SerialExecutor {
-    pub fn execute(&self, plan: &AnalysisPlan, adapter: &dyn LanguageAdapter) -> SerializableResult {
+    pub fn execute(
+        &self,
+        plan: &AnalysisPlan,
+        adapter: &dyn LanguageAdapter,
+    ) -> SerializableResult {
         let start = Instant::now();
         let mut artifacts = Vec::new();
         let mut stage_times = HashMap::new();
@@ -113,7 +146,9 @@ impl SerialExecutor {
         for task in &plan.tasks {
             match run_single_task(task, adapter) {
                 Ok(art) => {
-                    *stage_times.entry(task.stage.name().to_string()).or_insert(0) += art.duration_ms;
+                    *stage_times
+                        .entry(task.stage.name().to_string())
+                        .or_insert(0) += art.duration_ms;
                     artifacts.push(art);
                     completed += 1;
                 }
@@ -147,16 +182,22 @@ pub struct ParallelExecutor {
 }
 
 impl ParallelExecutor {
-    pub fn new(workers: usize) -> Self { Self { max_workers: workers } }
+    pub fn new(workers: usize) -> Self {
+        Self {
+            max_workers: workers,
+        }
+    }
 
-    pub fn execute(&self, plan: &AnalysisPlan, adapter: Arc<dyn LanguageAdapter + 'static>) -> SerializableResult {
+    pub fn execute(
+        &self,
+        plan: &AnalysisPlan,
+        adapter: Arc<dyn LanguageAdapter + 'static>,
+    ) -> SerializableResult {
         let start = Instant::now();
 
         // Separate parallel and serial tasks
-        let (parallel_tasks, serial_tasks): (Vec<_>, Vec<_>) = plan.tasks
-            .iter()
-            .cloned()
-            .partition(|t| t.parallelizable);
+        let (parallel_tasks, serial_tasks): (Vec<_>, Vec<_>) =
+            plan.tasks.iter().cloned().partition(|t| t.parallelizable);
 
         // Shared queue
         let queue: Arc<Mutex<Vec<AnalysisTask>>> = Arc::new(Mutex::new(parallel_tasks));
@@ -176,25 +217,24 @@ impl ParallelExecutor {
             let st = stage_times.clone();
             let a = adapter.clone();
 
-            workers.push(thread::spawn(move || {
-                loop {
-                    let task = { q.lock().unwrap().pop() };
-                    match task {
-                        None => break,
-                        Some(task) => {
-                            let t_start = Instant::now();
-                            match run_single_task(&task, a.as_ref()) {
-                                Ok(art) => {
-                                    c.fetch_add(1, Ordering::Relaxed);
-                                    if let Ok(mut tm) = st.lock() {
-                                        *tm.entry(task.stage.name().to_string()).or_insert(0) += art.duration_ms;
-                                    }
-                                    r.lock().unwrap().push(art);
+            workers.push(thread::spawn(move || loop {
+                let task = { q.lock().unwrap().pop() };
+                match task {
+                    None => break,
+                    Some(task) => {
+                        let t_start = Instant::now();
+                        match run_single_task(&task, a.as_ref()) {
+                            Ok(art) => {
+                                c.fetch_add(1, Ordering::Relaxed);
+                                if let Ok(mut tm) = st.lock() {
+                                    *tm.entry(task.stage.name().to_string()).or_insert(0) +=
+                                        art.duration_ms;
                                 }
-                                Err(e) => {
-                                    f.fetch_add(1, Ordering::Relaxed);
-                                    r.lock().unwrap().push(make_error_artifact(&task, e));
-                                }
+                                r.lock().unwrap().push(art);
+                            }
+                            Err(e) => {
+                                f.fetch_add(1, Ordering::Relaxed);
+                                r.lock().unwrap().push(make_error_artifact(&task, e));
                             }
                         }
                     }
@@ -202,13 +242,21 @@ impl ParallelExecutor {
             }));
         }
 
-        for w in workers { let _ = w.join(); }
+        for w in workers {
+            let _ = w.join();
+        }
 
         // Serial tasks
         for task in &serial_tasks {
             match run_single_task(task, adapter.as_ref()) {
-                Ok(art) => { results.lock().unwrap().push(art); completed.fetch_add(1, Ordering::Relaxed); }
-                Err(e) => { results.lock().unwrap().push(make_error_artifact(task, e)); failed.fetch_add(1, Ordering::Relaxed); }
+                Ok(art) => {
+                    results.lock().unwrap().push(art);
+                    completed.fetch_add(1, Ordering::Relaxed);
+                }
+                Err(e) => {
+                    results.lock().unwrap().push(make_error_artifact(task, e));
+                    failed.fetch_add(1, Ordering::Relaxed);
+                }
             }
         }
 
@@ -233,50 +281,116 @@ impl ParallelExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::adapter::{AdapterCapabilities, FileUnit, ImportEntry, ImportOutput, ParseOutput, ReferenceOutput, SymbolOutput};
+    use crate::adapter::{
+        AdapterCapabilities, FileUnit, ImportEntry, ImportOutput, ParseOutput, ReferenceOutput,
+        SymbolOutput,
+    };
 
     struct MockAdapter;
     impl LanguageAdapter for MockAdapter {
         fn capabilities(&self) -> AdapterCapabilities {
             AdapterCapabilities {
-                language: "mock".into(), adapter_version: "1.0".into(), parser_version: "1.0".into(),
-                supports_parse: true, supports_symbols: true, supports_imports: true,
-                supports_references: true, supports_calls: false, file_granularity: true,
-                max_preferred_concurrency: Some(4), notes: vec![],
+                language: "mock".into(),
+                adapter_version: "1.0".into(),
+                parser_version: "1.0".into(),
+                supports_parse: true,
+                supports_symbols: true,
+                supports_imports: true,
+                supports_references: true,
+                supports_calls: false,
+                file_granularity: true,
+                max_preferred_concurrency: Some(4),
+                notes: vec![],
             }
         }
         fn discover_files(&self, _root: &str) -> Result<Vec<FileUnit>, String> {
-            Ok((0..3).map(|i| FileUnit {
-                id: format!("file_{}", i), path: format!("file_{}.mock", i),
-                language: "mock".into(), content_hash: Some(format!("hash_{}", i)), size_bytes: 100,
-            }).collect())
+            Ok((0..3)
+                .map(|i| FileUnit {
+                    id: format!("file_{}", i),
+                    path: format!("file_{}.mock", i),
+                    language: "mock".into(),
+                    content_hash: Some(format!("hash_{}", i)),
+                    size_bytes: 100,
+                })
+                .collect())
         }
         fn parse_file(&self, _unit: &FileUnit) -> Result<ParseOutput, String> {
-            Ok(ParseOutput { unit_id: "x".into(), filename: "x".into(), ast_node_count: 10, tree_sitter_success: true, diagnostics: vec![], parse_duration_ms: 1 })
+            Ok(ParseOutput {
+                unit_id: "x".into(),
+                filename: "x".into(),
+                ast_node_count: 10,
+                tree_sitter_success: true,
+                diagnostics: vec![],
+                parse_duration_ms: 1,
+            })
         }
         fn extract_symbols(&self, _unit: &FileUnit) -> Result<SymbolOutput, String> {
-            Ok(SymbolOutput { unit_id: "x".into(), symbol_count: 2, symbols: vec![], duration_ms: 1 })
+            Ok(SymbolOutput {
+                unit_id: "x".into(),
+                symbol_count: 2,
+                symbols: vec![],
+                duration_ms: 1,
+            })
         }
         fn extract_imports(&self, _unit: &FileUnit) -> Result<ImportOutput, String> {
-            Ok(ImportOutput { unit_id: "x".into(), import_count: 1, imports: vec![ImportEntry { source: "a".into(), target: "b".into(), kind: "import".into(), resolved: true }], duration_ms: 1 })
+            Ok(ImportOutput {
+                unit_id: "x".into(),
+                import_count: 1,
+                imports: vec![ImportEntry {
+                    source: "a".into(),
+                    target: "b".into(),
+                    kind: "import".into(),
+                    resolved: true,
+                }],
+                duration_ms: 1,
+            })
         }
         fn extract_references(&self, _unit: &FileUnit) -> Result<ReferenceOutput, String> {
-            Ok(ReferenceOutput { unit_id: "x".into(), call_count: 1, reference_count: 1, calls: vec![], duration_ms: 1 })
+            Ok(ReferenceOutput {
+                unit_id: "x".into(),
+                call_count: 1,
+                reference_count: 1,
+                calls: vec![],
+                duration_ms: 1,
+            })
         }
     }
 
     fn make_plan() -> AnalysisPlan {
         AnalysisPlan {
-            schema_version: "1.0".into(), root: "mock".into(), language: "mock".into(),
-            total_tasks: 6, stages: vec![AnalysisStage::Parse, AnalysisStage::Symbol],
+            schema_version: "1.0".into(),
+            root: "mock".into(),
+            language: "mock".into(),
+            total_tasks: 6,
+            stages: vec![AnalysisStage::Parse, AnalysisStage::Symbol],
             parallelizable_tasks: 6,
-            tasks: (0..3).flat_map(|i| {
-                let id = format!("file_{}", i);
-                vec![
-                    AnalysisTask { id: format!("parse_{}", id), stage: AnalysisStage::Parse, root: "mock".into(), language: "mock".into(), unit_id: id.clone(), depends_on: vec![], cache_key: None, parallelizable: true },
-                    AnalysisTask { id: format!("sym_{}", id), stage: AnalysisStage::Symbol, root: "mock".into(), language: "mock".into(), unit_id: id, depends_on: vec![], cache_key: None, parallelizable: true },
-                ]
-            }).collect(),
+            tasks: (0..3)
+                .flat_map(|i| {
+                    let id = format!("file_{}", i);
+                    vec![
+                        AnalysisTask {
+                            id: format!("parse_{}", id),
+                            stage: AnalysisStage::Parse,
+                            root: "mock".into(),
+                            language: "mock".into(),
+                            unit_id: id.clone(),
+                            depends_on: vec![],
+                            cache_key: None,
+                            parallelizable: true,
+                        },
+                        AnalysisTask {
+                            id: format!("sym_{}", id),
+                            stage: AnalysisStage::Symbol,
+                            root: "mock".into(),
+                            language: "mock".into(),
+                            unit_id: id,
+                            depends_on: vec![],
+                            cache_key: None,
+                            parallelizable: true,
+                        },
+                    ]
+                })
+                .collect(),
             estimated_stages: [("parse".into(), 3), ("symbol".into(), 3)].into(),
         }
     }
@@ -291,10 +405,21 @@ mod tests {
 
         // Collect results into owned Vecs
         let s_artifacts: Vec<_> = serial.artifacts.iter().map(|a| a.task_id.clone()).collect();
-        let p_artifacts: Vec<_> = parallel.artifacts.iter().map(|a| a.task_id.clone()).collect();
+        let p_artifacts: Vec<_> = parallel
+            .artifacts
+            .iter()
+            .map(|a| a.task_id.clone())
+            .collect();
 
-        assert_eq!(serial.completed, parallel.completed, "serial and parallel must complete same count");
+        assert_eq!(
+            serial.completed, parallel.completed,
+            "serial and parallel must complete same count"
+        );
         assert_eq!(serial.failed, parallel.failed, "failure counts must match");
-        assert_eq!(s_artifacts.len(), p_artifacts.len(), "artifact counts must match");
+        assert_eq!(
+            s_artifacts.len(),
+            p_artifacts.len(),
+            "artifact counts must match"
+        );
     }
 }

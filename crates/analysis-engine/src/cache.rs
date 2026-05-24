@@ -7,8 +7,8 @@ use crate::adapter::AdapterCapabilities;
 use crate::dag::AnalysisArtifact;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 /// Content-addressed cache key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -114,20 +114,28 @@ impl ArtifactCache {
         cache
     }
 
-    pub fn persistent_enabled(&self) -> bool { self.persistent_dir.is_some() }
+    pub fn persistent_enabled(&self) -> bool {
+        self.persistent_dir.is_some()
+    }
 
     pub fn check(&self, key: &CacheKey) -> CacheStatus {
-        if self.memory.contains_key(key) { return CacheStatus::Hit; }
+        if self.memory.contains_key(key) {
+            return CacheStatus::Hit;
+        }
         if self.persistent_dir.is_some() {
             if let Some(path) = self.persistent_path(key) {
-                if path.exists() { return CacheStatus::Hit; }
+                if path.exists() {
+                    return CacheStatus::Hit;
+                }
             }
         }
         CacheStatus::Miss("not in cache".into())
     }
 
     pub fn store(&mut self, key: CacheKey, artifact: AnalysisArtifact) {
-        if artifact.error.is_some() { return; }
+        if artifact.error.is_some() {
+            return;
+        }
         // Persist if dir is set
         if let Some(dir) = &self.persistent_dir {
             if let Some(pp) = self.persistent_path(&key) {
@@ -143,8 +151,15 @@ impl ArtifactCache {
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Option<&AnalysisArtifact> {
-        if self.memory.contains_key(key) { self.stats_hits += 1; return self.memory.get(key); }
-        if let Some(pp) = self.persistent_dir.as_ref().and_then(|_| self.persistent_path(key)) {
+        if self.memory.contains_key(key) {
+            self.stats_hits += 1;
+            return self.memory.get(key);
+        }
+        if let Some(pp) = self
+            .persistent_dir
+            .as_ref()
+            .and_then(|_| self.persistent_path(key))
+        {
             if pp.exists() {
                 if let Ok(content) = fs::read_to_string(&pp) {
                     if let Ok(artifact) = serde_json::from_str::<AnalysisArtifact>(&content) {
@@ -162,7 +177,12 @@ impl ArtifactCache {
     fn persistent_path(&self, key: &CacheKey) -> Option<PathBuf> {
         self.persistent_dir.as_ref().map(|dir| {
             let safe_path = key.path.replace('/', "_").replace('\\', "_");
-            dir.join(format!("{}_{}_{}.json", key.language, key.stage, &safe_path[..safe_path.len().min(80)]))
+            dir.join(format!(
+                "{}_{}_{}.json",
+                key.language,
+                key.stage,
+                &safe_path[..safe_path.len().min(80)]
+            ))
         })
     }
 
@@ -171,7 +191,9 @@ impl ArtifactCache {
             if let Ok(entries) = fs::read_dir(dir) {
                 for e in entries.flatten() {
                     let p = e.path();
-                    if p.extension().and_then(|e| e.to_str()) != Some("json") { continue; }
+                    if p.extension().and_then(|e| e.to_str()) != Some("json") {
+                        continue;
+                    }
                     if let Ok(content) = fs::read_to_string(&p) {
                         if let Ok(artifact) = serde_json::from_str::<AnalysisArtifact>(&content) {
                             // Keep in persistent only (load on demand)
@@ -184,8 +206,12 @@ impl ArtifactCache {
 
     /// Build a cache key for a file unit and stage.
     pub fn build_key(
-        unit_id: &str, path: &str, content_hash: &str,
-        language: &str, capabilities: &AdapterCapabilities, stage: &str,
+        unit_id: &str,
+        path: &str,
+        content_hash: &str,
+        language: &str,
+        capabilities: &AdapterCapabilities,
+        stage: &str,
     ) -> CacheKey {
         CacheKey {
             path: path.to_string(),
@@ -205,13 +231,24 @@ impl ArtifactCache {
         snaps
     }
 
-    fn snapshot_dir(dir: &Path, exts: &[&str], out: &mut Vec<FileSnapshot>, depth: usize) -> std::io::Result<()> {
-        if depth == 0 { return Ok(()); }
+    fn snapshot_dir(
+        dir: &Path,
+        exts: &[&str],
+        out: &mut Vec<FileSnapshot>,
+        depth: usize,
+    ) -> std::io::Result<()> {
+        if depth == 0 {
+            return Ok(());
+        }
         if let Ok(entries) = fs::read_dir(dir) {
             for e in entries.flatten() {
                 let p = e.path();
                 let fname = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                if p.is_dir() && !fname.starts_with('.') && fname != "node_modules" && fname != "target" {
+                if p.is_dir()
+                    && !fname.starts_with('.')
+                    && fname != "node_modules"
+                    && fname != "target"
+                {
                     let _ = Self::snapshot_dir(&p, exts, out, depth - 1);
                 } else if p.is_file() {
                     if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
@@ -219,12 +256,17 @@ impl ArtifactCache {
                             let meta = fs::metadata(&p).ok();
                             let hash = format!("{:x}", meta.as_ref().map(|m| m.len()).unwrap_or(0));
                             let size = meta.as_ref().map(|m| m.len()).unwrap_or(0);
-                            let modified = meta.as_ref().and_then(|m| m.modified().ok())
+                            let modified = meta
+                                .as_ref()
+                                .and_then(|m| m.modified().ok())
                                 .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                                .map(|d| d.as_millis() as u64).unwrap_or(0);
+                                .map(|d| d.as_millis() as u64)
+                                .unwrap_or(0);
                             out.push(FileSnapshot {
                                 path: p.to_string_lossy().to_string(),
-                                hash, size, modified_ms: modified,
+                                hash,
+                                size,
+                                modified_ms: modified,
                             });
                         }
                     }
@@ -241,10 +283,13 @@ impl ArtifactCache {
 
     /// Build an incremental plan by comparing current vs previous snapshots.
     pub fn incremental_plan(&mut self, current: &[FileSnapshot]) -> IncrementalPlan {
-        let prev_map: HashMap<&str, &FileSnapshot> = self.previous_snapshots.iter()
-            .map(|s| (s.path.as_str(), s)).collect();
-        let curr_map: HashMap<&str, &FileSnapshot> = current.iter()
-            .map(|s| (s.path.as_str(), s)).collect();
+        let prev_map: HashMap<&str, &FileSnapshot> = self
+            .previous_snapshots
+            .iter()
+            .map(|s| (s.path.as_str(), s))
+            .collect();
+        let curr_map: HashMap<&str, &FileSnapshot> =
+            current.iter().map(|s| (s.path.as_str(), s)).collect();
 
         let mut unchanged = 0usize;
         let mut modified = 0usize;
@@ -253,27 +298,41 @@ impl ArtifactCache {
 
         for (path, curr) in &curr_map {
             if let Some(prev) = prev_map.get(path) {
-                if prev.hash == curr.hash { unchanged += 1; }
-                else { modified += 1; self.stats_stale += 1; }
+                if prev.hash == curr.hash {
+                    unchanged += 1;
+                } else {
+                    modified += 1;
+                    self.stats_stale += 1;
+                }
             } else {
                 added += 1;
             }
         }
         for path in prev_map.keys() {
-            if !curr_map.contains_key(path) { removed += 1; }
+            if !curr_map.contains_key(path) {
+                removed += 1;
+            }
         }
 
         IncrementalPlan {
-            root: String::new(), language: String::new(),
+            root: String::new(),
+            language: String::new(),
             previous_snapshots: self.previous_snapshots.clone(),
             current_snapshots: current.to_vec(),
-            unchanged, modified, added, removed,
+            unchanged,
+            modified,
+            added,
+            removed,
             total_files: current.len(),
         }
     }
 
     /// Build a cache explain document with rich statistics.
-    pub fn explain(&self, entries: Vec<CacheExplainEntry>, plan: Option<&IncrementalPlan>) -> CacheExplain {
+    pub fn explain(
+        &self,
+        entries: Vec<CacheExplainEntry>,
+        plan: Option<&IncrementalPlan>,
+    ) -> CacheExplain {
         let hits = entries.iter().filter(|e| e.status == "hit").count();
         let misses = entries.iter().filter(|e| e.status == "miss").count();
         let stale = entries.iter().filter(|e| e.status == "stale").count();
@@ -281,20 +340,37 @@ impl ArtifactCache {
 
         let mut reasons = Vec::new();
         if let Some(p) = plan {
-            if p.added > 0 { reasons.push(format!("{} new files detected", p.added)); }
-            if p.modified > 0 { reasons.push(format!("{} files modified", p.modified)); }
-            if p.removed > 0 { reasons.push(format!("{} files removed", p.removed)); }
-            if p.unchanged > 0 { reasons.push(format!("{} files unchanged", p.unchanged)); }
+            if p.added > 0 {
+                reasons.push(format!("{} new files detected", p.added));
+            }
+            if p.modified > 0 {
+                reasons.push(format!("{} files modified", p.modified));
+            }
+            if p.removed > 0 {
+                reasons.push(format!("{} files removed", p.removed));
+            }
+            if p.unchanged > 0 {
+                reasons.push(format!("{} files unchanged", p.unchanged));
+            }
         }
-        if hits > 0 { reasons.push(format!("{} cache hits from previous analysis", hits)); }
-        if misses > 0 { reasons.push("First run or cache miss — artifacts will be built".into()); }
+        if hits > 0 {
+            reasons.push(format!("{} cache hits from previous analysis", hits));
+        }
+        if misses > 0 {
+            reasons.push("First run or cache miss — artifacts will be built".into());
+        }
 
         CacheExplain {
             enabled: true,
             persistent: self.persistent_dir.is_some(),
-            cache_dir: self.persistent_dir.as_ref().map(|d| d.to_string_lossy().to_string()),
+            cache_dir: self
+                .persistent_dir
+                .as_ref()
+                .map(|d| d.to_string_lossy().to_string()),
             total_artifacts: self.memory.len(),
-            hits, misses, stale,
+            hits,
+            misses,
+            stale,
             rebuilt: rebuilt + hits, // hits = reused
             skipped: 0,
             reasons,
@@ -303,11 +379,20 @@ impl ArtifactCache {
         }
     }
 
-    pub fn is_persistent_available(&self) -> bool { self.persistent_dir.is_some() }
-    pub fn stats(&self) -> (usize, usize, usize, usize) {
-        (self.stats_hits, self.stats_misses, self.stats_stale, self.stats_rebuilt)
+    pub fn is_persistent_available(&self) -> bool {
+        self.persistent_dir.is_some()
     }
-    pub fn entry_count(&self) -> usize { self.memory.len() }
+    pub fn stats(&self) -> (usize, usize, usize, usize) {
+        (
+            self.stats_hits,
+            self.stats_misses,
+            self.stats_stale,
+            self.stats_rebuilt,
+        )
+    }
+    pub fn entry_count(&self) -> usize {
+        self.memory.len()
+    }
 }
 
 #[cfg(test)]
@@ -317,20 +402,45 @@ mod tests {
     #[test]
     fn incremental_detection() {
         let s1 = vec![
-            FileSnapshot { path: "a.rs".into(), hash: "h1".into(), size: 100, modified_ms: 1 },
-            FileSnapshot { path: "b.rs".into(), hash: "h2".into(), size: 200, modified_ms: 2 },
+            FileSnapshot {
+                path: "a.rs".into(),
+                hash: "h1".into(),
+                size: 100,
+                modified_ms: 1,
+            },
+            FileSnapshot {
+                path: "b.rs".into(),
+                hash: "h2".into(),
+                size: 200,
+                modified_ms: 2,
+            },
         ];
         let s2 = vec![
-            FileSnapshot { path: "a.rs".into(), hash: "h1".into(), size: 100, modified_ms: 1 },
-            FileSnapshot { path: "b.rs".into(), hash: "h3".into(), size: 201, modified_ms: 3 },
-            FileSnapshot { path: "c.rs".into(), hash: "h4".into(), size: 300, modified_ms: 4 },
+            FileSnapshot {
+                path: "a.rs".into(),
+                hash: "h1".into(),
+                size: 100,
+                modified_ms: 1,
+            },
+            FileSnapshot {
+                path: "b.rs".into(),
+                hash: "h3".into(),
+                size: 201,
+                modified_ms: 3,
+            },
+            FileSnapshot {
+                path: "c.rs".into(),
+                hash: "h4".into(),
+                size: 300,
+                modified_ms: 4,
+            },
         ];
         let mut cache = ArtifactCache::new(None);
         cache.set_previous_snapshots(s1);
         let plan = cache.incremental_plan(&s2);
         assert_eq!(plan.unchanged, 1); // a.rs
-        assert_eq!(plan.modified, 1);  // b.rs
-        assert_eq!(plan.added, 1);     // c.rs
+        assert_eq!(plan.modified, 1); // b.rs
+        assert_eq!(plan.added, 1); // c.rs
         assert_eq!(plan.removed, 0);
     }
 }

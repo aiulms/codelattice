@@ -134,7 +134,10 @@ impl JobRuntime {
                 if status == JobStatus::Running && job.started_at_ms.is_none() {
                     job.started_at_ms = Some(now);
                 }
-                if status == JobStatus::Succeeded || status == JobStatus::Failed || status == JobStatus::Cancelled {
+                if status == JobStatus::Succeeded
+                    || status == JobStatus::Failed
+                    || status == JobStatus::Cancelled
+                {
                     job.completed_at_ms = Some(now);
                 }
             }
@@ -151,7 +154,13 @@ impl JobRuntime {
     }
 
     /// Set job result with compact summary.
-    pub fn set_result(&self, job_id: &str, result: &SerializableResult, cache_hits: usize, cache_misses: usize) {
+    pub fn set_result(
+        &self,
+        job_id: &str,
+        result: &SerializableResult,
+        cache_hits: usize,
+        cache_misses: usize,
+    ) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(job) = jobs.get_mut(job_id) {
                 let summary = JobResultSummary {

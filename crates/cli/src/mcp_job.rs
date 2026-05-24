@@ -11,15 +11,19 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 
 use serde_json::Value;
 
-use gitnexus_analysis_engine::executor::{EngineConfig, SerialExecutor, ParallelExecutor, SerializableResult};
-use gitnexus_analysis_engine::job::{JobRuntime, JobStatus, JobProgress, PagedResult, AnalysisJob, JobResultSummary};
-use gitnexus_analysis_engine::dag::{AnalysisPlan, AnalysisStage, AnalysisTask, AnalysisArtifact};
-use gitnexus_analysis_engine::cache::{ArtifactCache, CacheExplainEntry, CacheKey};
+use gitnexus_analysis_engine::cache::{ArtifactCache, CacheExplainEntry, CacheKey, CacheStatus};
+use gitnexus_analysis_engine::dag::{AnalysisArtifact, AnalysisPlan, AnalysisStage, AnalysisTask};
+use gitnexus_analysis_engine::executor::{
+    EngineConfig, ParallelExecutor, SerialExecutor, SerializableResult,
+};
+use gitnexus_analysis_engine::job::{
+    AnalysisJob, JobProgress, JobResultSummary, JobRuntime, JobStatus, PagedResult,
+};
 
 /// MCP-level job handle — tracks one engine-backed analysis invocation.
 #[derive(Debug, Clone)]
@@ -91,7 +95,10 @@ impl McpJobRegistry {
             }
         }
 
-        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
         let job_id = self.next_job_id();
         let handle = McpJobHandle {
             job_id: job_id.clone(),
@@ -116,7 +123,10 @@ impl McpJobRegistry {
                 j.status = status;
                 if status == JobStatus::Succeeded || status == JobStatus::Failed {
                     j.completed_at_ms = Some(
-                        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64,
                     );
                 }
             }
@@ -140,7 +150,10 @@ impl McpJobRegistry {
                 j.summary = Some(summary);
                 j.status = JobStatus::Succeeded;
                 j.completed_at_ms = Some(
-                    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64,
                 );
             }
         }
@@ -174,7 +187,12 @@ impl McpJobRegistry {
         let dp = self.detail_pages.lock().ok()?;
         let items = dp.get(job_id)?;
         let total = items.len();
-        let total_pages = if total == 0 { 1 } else { (total + page_size - 1) / page_size };
+        let page_size = page_size.clamp(1, 200);
+        let total_pages = if total == 0 {
+            1
+        } else {
+            (total + page_size - 1) / page_size
+        };
         let start = page.saturating_mul(page_size);
         let end = (start + page_size).min(total);
         let page_items: Vec<&Value> = items[start..end].iter().collect();
@@ -255,14 +273,21 @@ impl McpJobRegistry {
             },
             "cacheStats": cache_stats(),
             "nextActions": match handle.status {
-                JobStatus::Succeeded => vec!["Use mode=job_detail with page=0 to fetch paged details".to_string()],
-                JobStatus::Running => vec![format!("Check status with jobId={}", handle.job_id)],
-                JobStatus::Failed => vec!["Review error details above".to_string(), "Retry with different root or language".to_string()],
+                JobStatus::Succeeded => vec![
+                    "Use mode=job_detail with this jobId and page/pageSize to fetch paged details; root is not required.".to_string()
+                ],
+                JobStatus::Running => vec![
+                    format!("Check status with mode=job_status and jobId={} (root is not required).", handle.job_id)
+                ],
+                JobStatus::Failed => vec![
+                    "Review error details above".to_string(),
+                    "Retry with a specific project root and explicit language if the root/language was ambiguous.".to_string()
+                ],
                 _ => vec!["Job is queued, check status periodically".to_string()],
             },
             "compactResult": true,
             "detailPageHint": match handle.status {
-                JobStatus::Succeeded => Some(format!("codelattice_project(mode=job_detail, jobId={}, page=0, pageSize=50)", handle.job_id)),
+                JobStatus::Succeeded => Some(format!("Call mode=job_detail with jobId={}, page=0, pageSize=50; root is not required.", handle.job_id)),
                 _ => None::<String>,
             },
         })
@@ -270,12 +295,15 @@ impl McpJobRegistry {
 }
 
 /// Global MCP job registry (lazy init).
-pub static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> = std::sync::LazyLock::new(McpJobRegistry::new);
+pub static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> =
+    std::sync::LazyLock::new(McpJobRegistry::new);
 
 /// Global engine cache shared across jobs.
 pub static ENGINE_CACHE: std::sync::LazyLock<std::sync::Mutex<ArtifactCache>> =
     std::sync::LazyLock::new(|| {
-        let cache_dir = std::env::var("CODELATTICE_CACHE_DIR").ok().map(std::path::PathBuf::from);
+        let cache_dir = std::env::var("CODELATTICE_CACHE_DIR")
+            .ok()
+            .map(std::path::PathBuf::from);
         std::sync::Mutex::new(ArtifactCache::new(cache_dir))
     });
 
@@ -328,38 +356,63 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
     }
 
     let nf = files.len();
-    MCP_JOBS.update_progress(&handle.job_id, McpJobProgress {
-        stage: "planning".into(),
-        completed_units: 0, total_units: nf * 2, failed_units: 0,
-        elapsed_ms: 0, executor_mode: "serial".into(),
-        cache_hits: 0, cache_misses: 0,
-    });
+    MCP_JOBS.update_progress(
+        &handle.job_id,
+        McpJobProgress {
+            stage: "planning".into(),
+            completed_units: 0,
+            total_units: nf * 2,
+            failed_units: 0,
+            elapsed_ms: 0,
+            executor_mode: "serial".into(),
+            cache_hits: 0,
+            cache_misses: 0,
+        },
+    );
 
     // Build tasks
-    let tasks: Vec<AnalysisTask> = files.iter().flat_map(|f| {
-        [AnalysisStage::Parse, AnalysisStage::Symbol].iter().map(move |s| AnalysisTask {
-            id: format!("{}:{}", s.name(), f.id), stage: *s,
-            root: root.to_string(), language: language.to_string(),
-            unit_id: f.id.clone(), depends_on: vec![], cache_key: None,
-            parallelizable: s.is_file_parallelizable(),
+    let tasks: Vec<AnalysisTask> = files
+        .iter()
+        .flat_map(|f| {
+            [AnalysisStage::Parse, AnalysisStage::Symbol]
+                .iter()
+                .map(move |s| AnalysisTask {
+                    id: format!("{}:{}", s.name(), f.id),
+                    stage: *s,
+                    root: root.to_string(),
+                    language: language.to_string(),
+                    unit_id: f.id.clone(),
+                    depends_on: vec![],
+                    cache_key: None,
+                    parallelizable: s.is_file_parallelizable(),
+                })
         })
-    }).collect();
+        .collect();
 
     let plan = AnalysisPlan {
-        schema_version: "1.0".into(), root: root.to_string(),
-        language: language.to_string(), total_tasks: tasks.len(),
+        schema_version: "1.0".into(),
+        root: root.to_string(),
+        language: language.to_string(),
+        total_tasks: tasks.len(),
         stages: vec![AnalysisStage::Parse, AnalysisStage::Symbol],
         parallelizable_tasks: tasks.iter().filter(|t| t.parallelizable).count(),
         tasks,
         estimated_stages: [("parse".into(), nf), ("symbol".into(), nf)].into(),
     };
 
-    MCP_JOBS.update_progress(&handle.job_id, McpJobProgress {
-        stage: "executing".into(),
-        completed_units: 0, total_units: plan.total_tasks, failed_units: 0,
-        elapsed_ms: 0, executor_mode: "serial".into(),
-        cache_hits: 0, cache_misses: 0,
-    });
+    MCP_JOBS.update_progress(
+        &handle.job_id,
+        McpJobProgress {
+            stage: "executing".into(),
+            completed_units: 0,
+            total_units: plan.total_tasks,
+            failed_units: 0,
+            elapsed_ms: 0,
+            executor_mode: "serial".into(),
+            cache_hits: 0,
+            cache_misses: 0,
+        },
+    );
 
     let is_parallel = mode.contains("parallel");
     let result = if is_parallel {
@@ -428,7 +481,10 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     let inventory = gitnexus_workspace_model::scan_workspace_inventory(Path::new(root), true)
         .map_err(|e| format!("Workspace scan: {}", e))?;
 
-    let supported: Vec<_> = inventory.iter().filter(|p| p.supported && !p.path.is_empty()).collect();
+    let supported: Vec<_> = inventory
+        .iter()
+        .filter(|p| p.supported && !p.path.is_empty())
+        .collect();
     let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
 
     if supported.is_empty() {
@@ -437,16 +493,19 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
         return Ok(MCP_JOBS.to_response(&h));
     }
 
-    MCP_JOBS.update_progress(&handle.job_id, McpJobProgress {
-        stage: "analyzing".into(),
-        completed_units: 0,
-        total_units: supported.len(),
-        failed_units: 0,
-        elapsed_ms: 0,
-        executor_mode: mode.to_string(),
-        cache_hits: 0,
-        cache_misses: 0,
-    });
+    MCP_JOBS.update_progress(
+        &handle.job_id,
+        McpJobProgress {
+            stage: "analyzing".into(),
+            completed_units: 0,
+            total_units: supported.len(),
+            failed_units: 0,
+            elapsed_ms: 0,
+            executor_mode: mode.to_string(),
+            cache_hits: 0,
+            cache_misses: 0,
+        },
+    );
 
     // Run engine analysis on each supported project (bounded parallel)
     let worker_limit = 4usize;
@@ -499,6 +558,19 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
                             });
                         }
                     }
+                    // 查缓存：如果全命中则跳过分析
+                    let mut cache_hit_count = 0usize;
+                    if let Ok(cache) = ENGINE_CACHE.lock() {
+                        for task in &tasks {
+                            if matches!(cache.check(&CacheKey {
+                                path: task.unit_id.clone(), content_hash: format!("{:x}", task.unit_id.len()),
+                                language: lang.clone(), adapter_version: "1.3".into(),
+                                parser_version: "1.0".into(), stage: task.stage.name().to_string(),
+                                engine_version: "1.3".into(),
+                            }), CacheStatus::Hit) { cache_hit_count += 1; }
+                        }
+                    }
+                    let all_cached = cache_hit_count > 0 && cache_hit_count == tasks.len();
 
                     let plan = AnalysisPlan {
                         schema_version: "1.0".into(), root: proj_root.to_string(),
@@ -508,7 +580,11 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
                         tasks, estimated_stages: [("parse".into(), nf), ("symbol".into(), nf)].into(),
                     };
 
-                    let result = SerialExecutor.execute(&plan, adapter.as_ref());
+                    let result = if all_cached {
+                        SerializableResult { total_tasks: plan.total_tasks, completed: plan.total_tasks, failed: 0, total_duration_ms: 0, artifacts: vec![], stage_times: Default::default(), executor_mode: "cache".into() }
+                    } else {
+                        SerialExecutor.execute(&plan, adapter.as_ref())
+                    };
                     // Store artifacts in persistent cache
                     for art in &result.artifacts {
                         if art.error.is_none() {
@@ -527,6 +603,7 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
                         "files": nf, "tasks": result.total_tasks,
                         "completed": result.completed, "failed": result.failed,
                         "duration_ms": result.total_duration_ms,
+                        "cache_hits": cache_hit_count,
                         "language": lang,
                     })
                 }
@@ -540,35 +617,44 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
 
         for r in &chunk_results {
             let status = r["status"].as_str().unwrap_or("unknown");
-            if status == "completed" { completed += 1; }
-            else if status == "failed" { failed += 1; }
+            if status == "completed" {
+                completed += 1;
+            } else if status == "failed" {
+                failed += 1;
+            }
             aggregated.push(r.clone());
         }
 
-        MCP_JOBS.update_progress(&handle.job_id, McpJobProgress {
-            stage: "analyzing".into(),
-            completed_units: completed + failed,
-            total_units: supported.len(),
-            failed_units: failed,
-            elapsed_ms: 0,
-            executor_mode: mode.to_string(),
-            cache_hits: 0,
-            cache_misses: 0,
-        });
+        MCP_JOBS.update_progress(
+            &handle.job_id,
+            McpJobProgress {
+                stage: "analyzing".into(),
+                completed_units: completed + failed,
+                total_units: supported.len(),
+                failed_units: failed,
+                elapsed_ms: 0,
+                executor_mode: mode.to_string(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
     }
 
     let summary = serde_json::json!({
         "workspace": true,
         "root": root,
-        "total_projects": inventory.len(),
-        "supported_count": supported.len(),
-        "unsupported_count": unsupported.len(),
-        "analyzed_count": completed,
-        "failed_count": failed,
-        "skipped_count": supported.len() - completed - failed,
-        "total_symbols": total_symbols,
-        "total_edges": total_edges,
-        "projects": aggregated,
+        "totalProjects": inventory.len(),
+        "supportedCount": supported.len(),
+        "unsupportedCount": unsupported.len(),
+        "analyzedCount": completed,
+        "failedCount": failed,
+        "skippedCount": supported.len() - completed - failed,
+        "totalSymbols": total_symbols,
+        "totalEdges": total_edges,
+        "detailItems": aggregated.len(),
+        "detailsPaged": true,
+        "staticAnalysisOnly": true,
+        "targetCodeExecuted": false,
     });
 
     let detail_items: Vec<Value> = aggregated.clone();

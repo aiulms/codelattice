@@ -8775,16 +8775,20 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_project",
-                "description": "Project-level analysis for a SINGLE project root: overview, quality gates, insights. root MUST be one project directory (e.g. /path/to/my-project). For monorepo/workspace roots, use codelattice_workspace first, then switch to codelattice_project with a sub-project root.",
+                "description": "Project-level analysis for a SINGLE project root: overview, quality gates, insights, or engine-backed job mode. root is required for analysis/job modes; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize. For monorepo/workspace roots, use codelattice_workspace first, then switch to codelattice_project with a sub-project root.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "root": { "type": "string", "description": "Absolute path to project root" },
-                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "ai_context", "full"], "default": "overview", "description": "Analysis mode. Use ai_context when preparing context for an AI coding task." },
+                        "root": { "type": "string", "description": "Absolute path to project root. Required for overview/quality/insights/ai_context/full/job; not needed for job_status/job_detail." },
+                        "mode": { "type": "string", "enum": ["overview", "quality", "insights", "ai_context", "full", "job", "job_status", "job_detail"], "default": "overview", "description": "Analysis mode. Use job for large projects, then job_status/job_detail with the returned jobId." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
-                        "compact": { "type": "boolean", "default": false }
+                        "compact": { "type": "boolean", "default": false },
+                        "parallel": { "type": "boolean", "default": false, "description": "Use parallel engine execution for job mode when available" },
+                        "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
+                        "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
+                        "pageSize": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "job_detail page size" }
                     },
-                    "required": ["root"]
+                    "required": []
                 }
             },
             {
@@ -8793,34 +8797,40 @@ fn tools_list() -> Value {
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "root": { "type": "string", "description": "Absolute path to project root" },
-                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "graph"], "default": "search", "description": "Query mode" },
+                        "root": { "type": "string", "description": "Absolute path to project root. Required for search/context/callers/callees/graph/job; not needed for job_status/job_detail." },
+                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "graph", "job", "job_status", "job_detail"], "default": "search", "description": "Query mode. Use job_status/job_detail with jobId only after a job response." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
+                        "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
+                        "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
+                        "pageSize": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "job_detail page size" },
                         "name": { "type": "string", "description": "Symbol name (required for context, callers, callees modes)" },
                         "query": { "type": "string", "description": "Search query (for search mode)" },
                         "kind": { "type": "string", "description": "Filter by symbol kind" },
                         "limit": { "type": "integer", "default": 20, "description": "Max results" },
                         "depth": { "type": "integer", "default": 1, "description": "Call depth for callers/callees" }
                     },
-                    "required": ["root"]
+                    "required": []
                 }
             },
             {
                 "name": "codelattice_change_review",
-                "description": "Pre-commit change review for a SINGLE project root: detect changed symbols, assess impact, check safety, breaking changes, consistency, cleanup review, release checks, root-cause evidence. root MUST be one project directory. For workspace-level change impact, use codelattice_workspace mode=impact.",
+                "description": "Pre-commit change review for a SINGLE project root: detect changed symbols, assess impact, check safety, breaking changes, consistency, cleanup review, release checks, root-cause evidence, or engine-backed job mode. root is required for review/job modes; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "root": { "type": "string", "description": "Absolute path to project root — must be a single project directory, not a workspace root" },
-                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review", "safe_cleanup_review", "dead_code", "reachability", "external_api", "framework_entries", "release_check", "docs_tests", "config_examples", "root_cause"], "default": "impact", "description": "Review mode. native_review orchestrates changed_symbols + production_assist; safe_cleanup_review replaces the hidden cleanup facade in default AI mode; release_check/docs_tests/config_examples replace the hidden release facade; root_cause routes to evidence planning." },
+                        "root": { "type": "string", "description": "Absolute path to project root — must be a single project directory, not a workspace root. Required except for job_status/job_detail." },
+                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review", "safe_cleanup_review", "dead_code", "reachability", "external_api", "framework_entries", "release_check", "docs_tests", "config_examples", "root_cause", "job", "job_status", "job_detail"], "default": "impact", "description": "Review mode. job_status/job_detail use jobId and do not need root." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
+                        "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
+                        "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
+                        "pageSize": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "job_detail page size" },
                         "symbol": { "type": "string", "description": "Target symbol (for impact mode)" },
                         "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Changed symbol names" },
                         "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" }
                     },
-                    "required": ["root"]
+                    "required": []
                 }
             },
             {
@@ -8840,13 +8850,16 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_workspace",
-                "description": "Workspace/monorepo multi-project analysis: dependency graph, cross-project impact, overview. root SHOULD be a workspace root (parent of multiple projects). For single-project work, prefer codelattice_project or codelattice_symbol with a sub-project root.",
+                "description": "Workspace/monorepo multi-project analysis: dependency graph, cross-project impact, overview, or engine-backed job mode. root is required for graph/impact/overview/full/job; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "root": { "type": "string", "description": "Absolute path to workspace root" },
-                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "full"], "default": "graph", "description": "Analysis mode" },
+                        "root": { "type": "string", "description": "Absolute path to workspace root. Required except for job_status/job_detail." },
+                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "full", "job", "job_status", "job_detail"], "default": "graph", "description": "Analysis mode. Use job for large workspaces, then job_status/job_detail with jobId." },
                         "compact": { "type": "boolean", "default": false },
+                        "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
+                        "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
+                        "pageSize": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "job_detail page size" },
                         "target": {
                             "type": "object",
                             "description": "Target for impact mode",
@@ -8860,7 +8873,7 @@ fn tools_list() -> Value {
                         "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
                         "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 5 }
                     },
-                    "required": ["root"]
+                    "required": []
                 }
             },
             {
@@ -13268,12 +13281,16 @@ fn make_busy_response(id: &Value, tool_name: &str) -> Value {
         "schemaVersion": "codelattice.mcpBusy.v1",
         "error": "mcp_server_busy",
         "tool": tool_name,
-        "message": "Another CodeLattice tools/call is still running in this MCP session. This server intentionally rejects concurrent tool calls instead of queuing them until the client times out.",
-        "retry": "Retry this tool call after the current CodeLattice call finishes.",
+        "message": "Another CodeLattice tools/call is still running in this MCP session. This is a concurrency guard, not a server crash. The server intentionally rejects overlapping calls instead of queuing them until the client times out.",
+        "retry": "Wait for the current CodeLattice call to finish, then retry this tool call in the same MCP session.",
+        "recovery": "If busy responses continue after the long call should have finished, the MCP client may still have a stale in-flight request. Restart the MCP session/client connection and retry.",
+        "recommendedLargeProjectPath": "For large projects or monorepos, prefer mode=job, then poll mode=job_status with jobId, then fetch mode=job_detail pages. This avoids long synchronous calls.",
         "aiGuidance": [
             "Do not issue parallel CodeLattice MCP tool calls in the same session.",
+            "Treat mcp_server_busy as backpressure from the current session, not as data corruption or a locked cache.",
+            "Do not keep retrying in a tight loop; wait briefly and retry once.",
             "Use codelattice_workflow with execute=true when you want CodeLattice to orchestrate multiple steps.",
-            "For large workspaces, start with codelattice_project or codelattice_workspace, then drill into a specific project root."
+            "For large workspaces, start with codelattice_workspace(mode=job, root=..., language=auto, compact=true), then use job_status and job_detail."
         ],
         "generatedFrom": {
             "staticAnalysis": false,
@@ -17689,15 +17706,22 @@ where
 
 // ═══ Generic job runtime dispatch for all facades ═══
 
-fn handle_facade_job(root: &str, language: &str, mode: &str, _facade: &str, params: &Value, _compact: bool) -> Result<Value, Value> {
+fn handle_facade_job(
+    root: &str,
+    language: &str,
+    mode: &str,
+    facade: &str,
+    params: &Value,
+    _compact: bool,
+) -> Result<Value, Value> {
     match mode {
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
             let engine_mode = if parallel { "parallel" } else { "serial" };
-            let (result, wf) = if language == "auto" {
-                (crate::mcp_job::submit_workspace_job(root, engine_mode), "workspace")
+            let result = if language == "auto" {
+                crate::mcp_job::submit_workspace_job(root, engine_mode)
             } else {
-                (crate::mcp_job::submit_project_job(root, language, engine_mode), "project")
+                crate::mcp_job::submit_project_job(root, language, engine_mode)
             };
             match result {
                 Ok(job) => Ok(tool_result(&job)),
@@ -17705,26 +17729,48 @@ fn handle_facade_job(root: &str, language: &str, mode: &str, _facade: &str, para
             }
         }
         "job_status" => {
-            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
+            let job_id = params["jobId"]
+                .as_str()
+                .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
             match crate::mcp_job::MCP_JOBS.get(job_id) {
                 Some(handle) => Ok(tool_result(&crate::mcp_job::MCP_JOBS.to_response(&handle))),
-                None => Ok(tool_result(&json!({"error": "job_not_found", "jobId": job_id}))),
+                None => Ok(tool_result(
+                    &json!({"error": "job_not_found", "jobId": job_id, "facade": facade}),
+                )),
             }
         }
         "job_detail" => {
-            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
+            let job_id = params["jobId"]
+                .as_str()
+                .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
             let page = params["page"].as_u64().unwrap_or(0) as usize;
-            let page_size = params["pageSize"].as_u64().unwrap_or(50).min(200) as usize;
+            let page_size = params["pageSize"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
+            if crate::mcp_job::MCP_JOBS.get(job_id).is_none() {
+                return Ok(tool_result(
+                    &json!({"error": "job_not_found", "jobId": job_id, "facade": facade}),
+                ));
+            }
             match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
                 Some(page_result) => Ok(tool_result(&page_result)),
-                None => Ok(tool_result(&json!({"error": "job_not_found_or_no_details", "jobId": job_id}))),
+                None => Ok(tool_result(
+                    &json!({"error": "job_detail_unavailable", "jobId": job_id, "facade": facade}),
+                )),
             }
         }
-        _ => Err(mcp_error("invalid_mode", &format!("Unknown job mode: {}", mode))),
+        _ => Err(mcp_error(
+            "invalid_mode",
+            &format!("Unknown job mode: {}", mode),
+        )),
     }
 }
 
-fn handle_project_job(root: &str, language: &str, mode: &str, params: &Value, compact: bool) -> Result<Value, Value> {
+fn handle_project_job(
+    root: &str,
+    language: &str,
+    mode: &str,
+    params: &Value,
+    _compact: bool,
+) -> Result<Value, Value> {
     match mode {
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
@@ -17733,39 +17779,67 @@ fn handle_project_job(root: &str, language: &str, mode: &str, params: &Value, co
             Ok(tool_result(&result))
         }
         "job_status" => {
-            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required for job_status mode"))?;
+            let job_id = params["jobId"].as_str().ok_or_else(|| {
+                mcp_error("missing_parameter", "jobId required for job_status mode")
+            })?;
             match crate::mcp_job::get_job_status(job_id) {
                 Some(job) => Ok(tool_result(&job)),
-                None => Ok(tool_result(&json!({"error": "job_not_found", "jobId": job_id}))),
+                None => Ok(tool_result(
+                    &json!({"error": "job_not_found", "jobId": job_id, "facade": "codelattice_project"}),
+                )),
             }
         }
         "job_detail" => {
-            let job_id = params["jobId"].as_str().ok_or_else(|| mcp_error("missing_parameter", "jobId required for job_detail mode"))?;
+            let job_id = params["jobId"].as_str().ok_or_else(|| {
+                mcp_error("missing_parameter", "jobId required for job_detail mode")
+            })?;
             let page = params["page"].as_u64().unwrap_or(0) as usize;
-            let page_size = params["pageSize"].as_u64().unwrap_or(50).min(200) as usize;
+            let page_size = params["pageSize"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
+            if crate::mcp_job::MCP_JOBS.get(job_id).is_none() {
+                return Ok(tool_result(
+                    &json!({"error": "job_not_found", "jobId": job_id, "facade": "codelattice_project"}),
+                ));
+            }
             match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
                 Some(page_result) => Ok(tool_result(&page_result)),
-                None => Ok(tool_result(&json!({"error": "job_not_found_or_no_details", "jobId": job_id}))),
+                None => Ok(tool_result(
+                    &json!({"error": "job_detail_unavailable", "jobId": job_id, "facade": "codelattice_project"}),
+                )),
             }
         }
-        _ => Err(mcp_error("invalid_mode", &format!("Unknown job mode: {}", mode))),
+        _ => Err(mcp_error(
+            "invalid_mode",
+            &format!("Unknown job mode: {}", mode),
+        )),
     }
 }
 
 fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
-    let root = params["root"]
-        .as_str()
-        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let mode = params["mode"].as_str().unwrap_or("overview");
     let compact = params["compact"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
-        &["overview", "quality", "insights", "ai_context", "full", "job", "job_status", "job_detail"],
+        &[
+            "overview",
+            "quality",
+            "insights",
+            "ai_context",
+            "full",
+            "job",
+            "job_status",
+            "job_detail",
+        ],
         "codelattice_project",
     )?;
 
     // ═══ Analysis Engine 1.3 job runtime modes ═══
+    if matches!(mode, "job_status" | "job_detail") {
+        return handle_project_job("", language, mode, params, compact);
+    }
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     if matches!(mode, "job" | "job_status" | "job_detail") {
         return handle_project_job(root, language, mode, params, compact);
     }
@@ -17870,18 +17944,30 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 // ── codelattice_symbol ───────────────────────────────────────────────
 
 fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
-    let root = params["root"]
-        .as_str()
-        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let mode = params["mode"].as_str().unwrap_or("search");
     let compact = params["compact"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
-        &["search", "context", "callers", "callees", "graph", "job", "job_status", "job_detail"],
+        &[
+            "search",
+            "context",
+            "callers",
+            "callees",
+            "graph",
+            "job",
+            "job_status",
+            "job_detail",
+        ],
         "codelattice_symbol",
     )?;
 
+    if matches!(mode, "job_status" | "job_detail") {
+        return handle_facade_job("", language, mode, "codelattice_symbol", params, compact);
+    }
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     if matches!(mode, "job" | "job_status" | "job_detail") {
         return handle_facade_job(root, language, mode, "codelattice_symbol", params, compact);
     }
@@ -18016,9 +18102,6 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
 // ── codelattice_change_review ────────────────────────────────────────
 
 fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
-    let root = params["root"]
-        .as_str()
-        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let mode = params["mode"].as_str().unwrap_or("impact");
     let compact = params["compact"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
@@ -18041,14 +18124,36 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "docs_tests",
             "config_examples",
             "root_cause",
-            "job", "job_status", "job_detail",
+            "job",
+            "job_status",
+            "job_detail",
         ],
         "codelattice_change_review",
     )?;
 
     // ═══ Engine 1.3 job runtime ═══
+    if matches!(mode, "job_status" | "job_detail") {
+        return handle_facade_job(
+            "",
+            language,
+            mode,
+            "codelattice_change_review",
+            params,
+            compact,
+        );
+    }
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     if matches!(mode, "job" | "job_status" | "job_detail") {
-        return handle_facade_job(root, language, mode, "codelattice_change_review", params, compact);
+        return handle_facade_job(
+            root,
+            language,
+            mode,
+            "codelattice_change_review",
+            params,
+            compact,
+        );
     }
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
@@ -18357,19 +18462,30 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 // ── codelattice_workspace ────────────────────────────────────────────
 
 fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
-    let root = params["root"]
-        .as_str()
-        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let mode = params["mode"].as_str().unwrap_or("graph");
     let compact = params["compact"].as_bool().unwrap_or(false);
     let language = "auto";
     validate_facade_mode(
         mode,
-        &["graph", "impact", "overview", "full", "job", "job_status", "job_detail"],
+        &[
+            "graph",
+            "impact",
+            "overview",
+            "full",
+            "job",
+            "job_status",
+            "job_detail",
+        ],
         "codelattice_workspace",
     )?;
 
     // ═══ Engine 1.3 job runtime ═══
+    if matches!(mode, "job_status" | "job_detail") {
+        return handle_facade_job("", "auto", mode, "codelattice_workspace", params, compact);
+    }
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     if matches!(mode, "job" | "job_status" | "job_detail") {
         return handle_facade_job(root, "auto", mode, "codelattice_workspace", params, compact);
     }
