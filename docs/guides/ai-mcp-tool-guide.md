@@ -4,6 +4,68 @@ CodeLattice MCP 默认对 AI 客户端只暴露 6 个入口工具。目标是让
 
 所有输出仍然是静态分析结果：不执行目标项目代码，不证明运行时行为，不证明测试覆盖率，也不证明删除安全。
 
+## 日常 MCP 配置
+
+日常 Claude / OpenCode / TRAE 使用时，指向已 promote 的稳定 wrapper，并且不要设置 `CODELATTICE_MCP_TOOLSET=full`。
+
+推荐配置：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"
+    }
+  }
+}
+```
+
+如果客户端要求 `command + args` 形式，可使用等价写法：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "bash",
+      "args": ["/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"]
+    }
+  }
+}
+```
+
+OpenCode 的日常配置示例：
+
+```json
+{
+  "mcp": {
+    "codelattice": {
+      "type": "local",
+      "command": [
+        "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"
+      ],
+      "enabled": true
+    }
+  }
+}
+```
+
+不要把日常 AI client 配成这样：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh",
+      "env": {
+        "CODELATTICE_MCP_TOOLSET": "full"
+      }
+    }
+  }
+}
+```
+
+`full` 会暴露 49 个底层/调试工具，模型容易绕过 facade，直接调用 `codelattice_project_overview`、`codelattice_cache_status` 等旧入口。日常模式应保持默认 6 个 facade。
+
 ## 默认 6 个工具
 
 | 工具 | 主要用途 | 典型模式 |
@@ -33,6 +95,8 @@ CodeLattice MCP 默认对 AI 客户端只暴露 6 个入口工具。目标是让
 
 大项目和 monorepo 不要让 AI 调用底层 `codelattice_project_overview` 或其他 full toolset 工具。正确流程是：
 
+工具：`codelattice_workspace`
+
 ```json
 {"mode":"job","root":"/path/to/workspace","language":"auto","compact":true}
 {"mode":"job_status","jobId":"job_engine_00000001"}
@@ -40,6 +104,8 @@ CodeLattice MCP 默认对 AI 客户端只暴露 6 个入口工具。目标是让
 ```
 
 单项目请使用明确项目根和明确语言：
+
+工具：`codelattice_project`
 
 ```json
 {"mode":"job","root":"/path/to/workspace/packages/app","language":"typescript","compact":true}

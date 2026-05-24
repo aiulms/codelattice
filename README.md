@@ -380,6 +380,18 @@ bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```
 
+AI 客户端日常配置不要设置 `CODELATTICE_MCP_TOOLSET=full`。推荐直接指向稳定 wrapper：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"
+    }
+  }
+}
+```
+
 默认 MCP 工具面：
 
 | 工具 | 什么时候用 |
@@ -399,6 +411,8 @@ CodeLattice MCP 默认使用 `ai` toolset，只暴露上面 6 个入口工具。
 CODELATTICE_MCP_TOOLSET=core   # 常用底层工具 + facade
 CODELATTICE_MCP_TOOLSET=full   # 全部 49 个工具，适合调试/回归 smoke
 ```
+
+如果 Claude / OpenCode / TRAE 等日常 AI 客户端配置了 `CODELATTICE_MCP_TOOLSET=full`，模型会看到旧底层工具，容易绕开 facade/job/paging 保护。大项目和 monorepo 应优先使用 `codelattice_workspace mode=job → job_status → job_detail`。
 
 外部用户和执行 AI 可以直接使用这些指南：
 

@@ -8,6 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **AI MCP client configuration guidance**: clarifies that Claude, OpenCode, TRAE, and other daily AI clients should point at the promoted `CodeLattice-Tool/codelattice-mcp.sh` wrapper without `CODELATTICE_MCP_TOOLSET=full`. The AI guide now includes copyable CodeLattice-only config snippets, warns that `full` exposes debug/low-level tools, and documents the recommended large-workspace flow: `codelattice_workspace mode=job → job_status → job_detail`.
+
 - **MCP installed facade job usability**: job runtime status/detail calls now work from all four job-capable facade tools without a `root` parameter; invalid `jobId` returns structured `job_not_found` instead of being masked by root validation. Workspace job responses now keep the first response genuinely compact and move project detail into paged `job_detail` results. Busy responses explain recovery and recommend job mode for large repositories. The installed smoke now uses a real initialize + initialized + tools/list/tools/call MCP session and verifies the default six facade tools, jobId retention, paging schema, and invalid-job behavior.
 
 - **MCP concurrency stability**: concurrent `tools/call` requests in the same stdio session no longer disconnect the CodeLattice MCP server. The server now keeps the first active tool call running and returns a structured `codelattice.mcpBusy.v1` / `mcp_server_busy` response for overlapping calls, with AI guidance to retry sequentially or use `codelattice_workflow execute=true`. New `scripts/codelattice-mcp-concurrency-smoke.sh` verifies parallel calls, structured busy responses, and same-process recovery after busy; native precommit now runs this smoke.

@@ -43,6 +43,55 @@ bash "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh"
 
 启动后进入 JSON-RPC over stdio 模式。日志输出到 stderr，stdout 为纯净 JSON-RPC。
 
+### 日常 AI 客户端配置
+
+日常 Claude / OpenCode / TRAE 使用 **默认 AI toolset**。不要在客户端配置里设置 `CODELATTICE_MCP_TOOLSET=full`。
+
+复制即用的最小配置：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"
+    }
+  }
+}
+```
+
+如果客户端要求 `command + args` 形式：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "bash",
+      "args": ["/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"]
+    }
+  }
+}
+```
+
+不要在日常 AI 配置中加入：
+
+```json
+"env": {
+  "CODELATTICE_MCP_TOOLSET": "full"
+}
+```
+
+`full` 模式只用于开发者调试、dogfood 和 release smoke。日常 AI 客户端应只看到 6 个 facade：`codelattice_workflow`、`codelattice_project`、`codelattice_symbol`、`codelattice_change_review`、`codelattice_workspace`、`codelattice_cache`。
+
+大项目 / monorepo 推荐入口：
+
+```json
+{"tool":"codelattice_workspace","arguments":{"mode":"job","root":"/path/to/workspace","language":"auto","compact":true}}
+{"tool":"codelattice_workspace","arguments":{"mode":"job_status","jobId":"job_engine_00000001"}}
+{"tool":"codelattice_workspace","arguments":{"mode":"job_detail","jobId":"job_engine_00000001","page":0,"pageSize":50}}
+```
+
+`job_status` 和 `job_detail` 不需要 `root`；它们只需要 `jobId`，`job_detail` 可额外传 `page` / `pageSize`。
+
 ### Fresh clone 安装路径
 
 外部用户从 fresh clone 到 MCP 可用的最小路径：
@@ -180,7 +229,9 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 
 ---
 
-## 六、21 个 MCP 工具一览
+## 六、底层 MCP 工具一览（debug-only）
+
+> 日常 AI 客户端不要从本节选择工具。本节记录的是历史/底层工具面，主要给开发者调试、full-toolset dogfood 和 release smoke 使用。普通 AI client 应使用上面的 6 个 facade；大项目优先 `codelattice_workspace mode=job → job_status → job_detail`。
 
 | # | 工具名 | 用途 | 版本 |
 |---|--------|------|------|
@@ -208,7 +259,9 @@ opencode 使用 `mcp` 字段配置 MCP servers，格式与 Codex / Claude Deskto
 
 ---
 
-## 七、推荐使用策略
+## 七、底层工具调试策略（debug-only）
+
+> 以下策略只适用于 `CODELATTICE_MCP_TOOLSET=full` 的开发者调试场景。日常 AI client 不应设置 `full`，也不应直接调用 `codelattice_project_overview` 处理大项目或 monorepo。
 
 ### 首次打开项目
 
