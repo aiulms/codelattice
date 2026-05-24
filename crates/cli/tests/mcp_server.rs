@@ -48,6 +48,19 @@ fn create_multi_project_workspace() -> tempfile::TempDir {
     .unwrap();
     std::fs::write(py_dir.join("main.py"), "def main():\n    return 1\n").unwrap();
 
+    let script_dir = root.join("scripts");
+    std::fs::create_dir_all(&script_dir).unwrap();
+    std::fs::write(
+        script_dir.join("deploy.sh"),
+        "#!/usr/bin/env bash\necho deploy\n",
+    )
+    .unwrap();
+    std::fs::write(
+        script_dir.join("smoke.sh"),
+        "#!/usr/bin/env bash\necho smoke\n",
+    )
+    .unwrap();
+
     let unsupported = root.join("csharp-addon");
     std::fs::create_dir_all(&unsupported).unwrap();
     std::fs::write(
@@ -1086,6 +1099,23 @@ fn mcp_project_auto_enters_workspace_for_multi_project_root() {
             .map(|items| !items.is_empty())
             .unwrap_or(false),
         "unsupported modules should be visible as backlog, not silently analyzed: {data:?}"
+    );
+    assert!(
+        data["sourceOnlyEntries"]
+            .as_array()
+            .map(|items| {
+                items.iter().all(|item| {
+                    item["category"].is_string()
+                        && item["reason"].is_string()
+                        && item["nextAction"].is_string()
+                })
+            })
+            .unwrap_or(false),
+        "source-only entries should be explained with category/reason/nextAction: {data:?}"
+    );
+    assert!(
+        data["sourceOnlySummary"]["byCategory"].is_array(),
+        "sourceOnlySummary should classify source-only entries: {data:?}"
     );
     assert_eq!(data["generatedFrom"]["staticAnalysis"], true);
     assert_eq!(data["generatedFrom"]["scriptsExecuted"], false);
@@ -7654,6 +7684,97 @@ fn mcp_project_insights_basic_rust() {
 
     // Compact default
     assert_eq!(data["compact"], true);
+}
+
+#[test]
+fn mcp_project_insights_architecture_risk_dimensions_present() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert!(
+        data["summary"]["architectureRiskLevel"].is_string(),
+        "summary should expose architectureRiskLevel: {data:?}"
+    );
+    assert!(
+        data["architectureRisk"]["dimensions"]
+            .as_array()
+            .map(|items| items.len() >= 5)
+            .unwrap_or(false),
+        "architectureRisk should include dimensioned risk signals: {data:?}"
+    );
+    assert!(
+        data["architectureRisk"]["dimensions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|d| d["dimension"].as_str() == Some("entryPointQuality")),
+        "entryPointQuality dimension should be present: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_insights_entry_candidates_are_classified() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9012,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project_insights",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust"
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    let entries = data["entryPointCandidates"]
+        .as_array()
+        .expect("entryPointCandidates should be array");
+    assert!(
+        !entries.is_empty(),
+        "Rust fixture should have at least one entry candidate: {data:?}"
+    );
+    for entry in entries {
+        assert!(
+            entry["entryKind"].is_string(),
+            "entry candidate should be classified: {entry:?}"
+        );
+        assert!(
+            entry["confidence"].is_number(),
+            "entry candidate should expose confidence: {entry:?}"
+        );
+        assert!(
+            entry["evidence"].is_array(),
+            "entry candidate should expose evidence: {entry:?}"
+        );
+        assert_eq!(
+            entry["isTestEntry"].as_bool(),
+            Some(false),
+            "primary entry candidates should not be test entries: {entry:?}"
+        );
+    }
 }
 
 #[test]

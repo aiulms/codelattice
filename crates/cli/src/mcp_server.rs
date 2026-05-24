@@ -185,6 +185,97 @@ fn validate_workspace_root_path(root: &str) -> Result<(PathBuf, bool), Value> {
     Ok((canonical, protected))
 }
 
+fn source_only_entry_category(p: &ProjectInfo) -> (&'static str, &'static str, &'static str) {
+    let rel = p.relative_path.to_lowercase();
+    let name = p.name.to_lowercase();
+
+    if p.language == "shell" || rel.contains("script") || name.contains("script") {
+        (
+            "script_directory",
+            "source-only shell/script directory without a manifest",
+            "Treat as support scripts. Analyze only when the task touches automation or operations.",
+        )
+    } else if is_test_like_path(&p.relative_path) || is_test_like_path(&p.name) {
+        (
+            "test_or_fixture_directory",
+            "source-only test/example/fixture directory without a manifest",
+            "Do not treat as architecture entry point; inspect when validating behavior or fixtures.",
+        )
+    } else if rel.ends_with("/src")
+        || rel.contains("/src/")
+        || name == "src"
+        || rel.contains("/lib")
+        || rel.contains("/core")
+        || rel.contains("/api")
+    {
+        (
+            "nested_source_directory",
+            "source files detected under a nested source directory, but no project manifest was found there",
+            "Prefer the nearest manifest-backed parent project. Use this path only for focused drill-down.",
+        )
+    } else {
+        (
+            "manifestless_source_directory",
+            "source files detected, but no supported project manifest was found",
+            "Select a manifest-backed sibling/parent when available, or specify language for focused analysis.",
+        )
+    }
+}
+
+fn source_only_entry_json(p: &ProjectInfo) -> Value {
+    let (category, reason, next_action) = source_only_entry_category(p);
+    json!({
+        "path": p.path,
+        "relativePath": p.relative_path,
+        "name": p.name,
+        "language": p.language,
+        "manifestFile": p.manifest_file,
+        "category": category,
+        "reason": reason,
+        "nextAction": next_action,
+        "supported": p.supported,
+        "analyzable": true,
+        "recommendedAsProjectRoot": category == "manifestless_source_directory"
+    })
+}
+
+fn source_only_entries_json<'a, I>(items: I, limit: usize) -> Vec<Value>
+where
+    I: IntoIterator<Item = &'a ProjectInfo>,
+{
+    items
+        .into_iter()
+        .filter(|p| p.supported && p.manifest_file.is_empty())
+        .take(limit)
+        .map(source_only_entry_json)
+        .collect()
+}
+
+fn source_only_summary_json(entries: &[Value], total_count: usize) -> Value {
+    let mut by_category: HashMap<String, usize> = HashMap::new();
+    for entry in entries {
+        if let Some(category) = entry["category"].as_str() {
+            *by_category.entry(category.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    let by_category_json: Vec<Value> = {
+        let mut pairs: Vec<_> = by_category.into_iter().collect();
+        pairs.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+        pairs
+            .into_iter()
+            .map(|(category, count)| json!({"category": category, "count": count}))
+            .collect()
+    };
+
+    json!({
+        "total": total_count,
+        "reported": entries.len(),
+        "byCategory": by_category_json,
+        "explanation": "sourceOnly entries are directories with supported source files but no supported project manifest. They may be scripts, tests, nested source directories, or manifestless project roots."
+    })
+}
+
 fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
     let path = PathBuf::from(root).canonicalize().ok()?;
     let inventory = scan_workspace_inventory(&path, true).ok()?;
@@ -211,6 +302,11 @@ fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
         .and_then(|g| serde_json::to_value(g.summary).ok());
     let workspace_graph_available = graph_summary.is_some();
     let workspace_summary = graph_summary.unwrap_or_else(|| json!({}));
+    let source_only_count = supported
+        .len()
+        .saturating_sub(supported_manifest_projects.len());
+    let source_only_entries = source_only_entries_json(supported.iter().copied(), 50);
+    let source_only_summary = source_only_summary_json(&source_only_entries, source_only_count);
 
     Some(json!({
         "schemaVersion": "codelattice.workspaceAutoEntry.v1",
@@ -221,12 +317,14 @@ fn build_workspace_auto_entry(root: &str, protected: bool) -> Option<Value> {
         "analysisSemantics": build_analysis_semantics(),
         "summary": {
             "supportedProjectCount": supported_manifest_projects.len(),
-            "sourceOnlyEntryCount": supported.len().saturating_sub(supported_manifest_projects.len()),
+            "sourceOnlyEntryCount": source_only_count,
             "unsupportedModuleCount": unsupported.len(),
             "recommendedProjectCount": supported_manifest_projects.len(),
             "workspaceGraphAvailable": workspace_graph_available,
             "liveRootProtected": protected
         },
+        "sourceOnlySummary": source_only_summary,
+        "sourceOnlyEntries": source_only_entries,
         "supportedProjects": supported_manifest_projects.iter().map(|p| json!({
             "path": p.path,
             "relativePath": p.relative_path,
@@ -6344,6 +6442,333 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
 // v0.8: Large Project Insight Pack
 // ============================================================
 
+#[derive(Clone, Debug)]
+struct EntrySignal {
+    primary_candidate: bool,
+    any_candidate: bool,
+    category: String,
+    confidence: f64,
+    evidence: Vec<String>,
+    is_test_entry: bool,
+    next_action: String,
+}
+
+fn promote_entry_signal(
+    category: &mut String,
+    confidence: &mut f64,
+    evidence: &mut Vec<String>,
+    next_action: &mut String,
+    cat: &str,
+    score: f64,
+    reason: &str,
+    action: &str,
+) {
+    if score > *confidence {
+        *category = cat.to_string();
+        *confidence = score;
+        *next_action = action.to_string();
+    }
+    evidence.push(reason.to_string());
+}
+
+fn classify_entry_signal(
+    name: &str,
+    kind: &str,
+    file: &str,
+    language: &str,
+    fan_out: usize,
+    fan_in: usize,
+) -> EntrySignal {
+    let lower_name = name.to_lowercase();
+    let lower_file = file.to_lowercase().replace('\\', "/");
+    let test_like = is_test_symbol(name, file);
+    let mut category = "not_entry".to_string();
+    let mut confidence: f64 = 0.0;
+    let mut evidence: Vec<String> = Vec::new();
+    let mut next_action =
+        "Use symbol context only if this appears in the current task.".to_string();
+
+    match language {
+        "rust" => {
+            if name == "main" && lower_file.ends_with("main.rs") {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.96,
+                    "rust main function in main.rs",
+                    "Start here for binary runtime flow.",
+                );
+            } else if lower_file.ends_with("main.rs") && kind == "function" {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.72,
+                    "function in Rust main.rs",
+                    "Inspect after main to understand binary startup.",
+                );
+            }
+            if lower_file.contains("/api/")
+                || lower_file.contains("/routes")
+                || lower_file.contains("handler")
+                || lower_name.contains("route")
+                || lower_name.contains("handler")
+            {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "framework_route",
+                    0.68,
+                    "route/API/handler naming or path",
+                    "Inspect as possible external request boundary.",
+                );
+            }
+            if lower_file.ends_with("lib.rs") && !lower_name.starts_with('_') {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "public_api",
+                    0.56,
+                    "symbol is exposed from lib.rs",
+                    "Read as package API surface, not necessarily runtime startup.",
+                );
+            }
+        }
+        "typescript" | "javascript" | "arkts" => {
+            if lower_file.ends_with("main.ts")
+                || lower_file.ends_with("main.js")
+                || lower_file.ends_with("app.ts")
+                || lower_file.ends_with("app.js")
+                || lower_file.ends_with("server.ts")
+                || lower_file.ends_with("server.js")
+                || lower_file.contains("/bin/")
+            {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.82,
+                    "JS/TS runtime-style entry filename",
+                    "Start here for app bootstrap or CLI startup.",
+                );
+            }
+            if lower_file.ends_with("index.ts")
+                || lower_file.ends_with("index.tsx")
+                || lower_file.ends_with("index.js")
+                || lower_file.ends_with("index.jsx")
+            {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "package_entry",
+                    0.62,
+                    "index file often re-exports package API",
+                    "Read as package/API boundary before drilling into implementations.",
+                );
+            }
+            if lower_file.contains("/routes")
+                || lower_file.contains("/pages")
+                || lower_file.contains("/api/")
+                || lower_name.contains("handler")
+                || lower_name.contains("controller")
+                || lower_name.contains("render")
+            {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "framework_route",
+                    0.70,
+                    "framework route/page/controller signal",
+                    "Inspect as possible UI/API entry boundary.",
+                );
+            }
+            if language == "arkts"
+                && (name == "build"
+                    || lower_name == "abouttoappear"
+                    || lower_file.contains("index.ets")
+                    || lower_file.contains("mainability"))
+            {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "framework_route",
+                    0.78,
+                    "ArkTS component/lifecycle entry signal",
+                    "Inspect as UI lifecycle entry; static-only framework hint.",
+                );
+            }
+        }
+        "python" => {
+            if name == "main" || lower_file.ends_with("__main__.py") {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.88,
+                    "Python main/__main__ entry",
+                    "Start here for CLI/runtime flow.",
+                );
+            }
+            if name == "create_app"
+                || lower_file.ends_with("app.py")
+                || lower_file.contains("/routes")
+                || lower_name.contains("handler")
+            {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "framework_route",
+                    0.72,
+                    "Python app/route/handler signal",
+                    "Inspect as possible web/framework entry boundary.",
+                );
+            }
+            if lower_file.ends_with("__init__.py") && !lower_name.starts_with('_') {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "package_entry",
+                    0.56,
+                    "__init__.py public package surface",
+                    "Read as package API surface.",
+                );
+            }
+        }
+        "c" | "cpp" => {
+            if name == "main" || name == "WinMain" || name == "wWinMain" || name == "DllMain" {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.92,
+                    "C/C++ process or library entry symbol",
+                    "Start here for runtime flow.",
+                );
+            }
+            if lower_file.contains("/include/") && !lower_name.starts_with('_') {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "public_api",
+                    0.58,
+                    "header/include public surface",
+                    "Read as external API surface, not necessarily startup.",
+                );
+            }
+        }
+        "cangjie" => {
+            if name == "main" {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.90,
+                    "Cangjie main function",
+                    "Start here for runtime flow.",
+                );
+            }
+            if lower_file.ends_with("package.cj") && !lower_name.starts_with('_') {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "package_entry",
+                    0.58,
+                    "package.cj package surface",
+                    "Read as package boundary.",
+                );
+            }
+        }
+        _ => {
+            if name == "main" {
+                promote_entry_signal(
+                    &mut category,
+                    &mut confidence,
+                    &mut evidence,
+                    &mut next_action,
+                    "runtime_start",
+                    0.80,
+                    "generic main symbol",
+                    "Start here if this is the selected language runtime.",
+                );
+            }
+        }
+    }
+
+    if confidence == 0.0 && kind == "function" && fan_out >= 12 && !lower_name.starts_with('_') {
+        promote_entry_signal(
+            &mut category,
+            &mut confidence,
+            &mut evidence,
+            &mut next_action,
+            "orchestration",
+            0.48,
+            "high fan-out function; possible coordinator",
+            "Read after stronger entry points; fan-out alone is not startup proof.",
+        );
+    } else if confidence > 0.0 && fan_out >= 6 {
+        evidence.push(format!("fan-out {}", fan_out));
+    }
+    if fan_in >= 4 {
+        evidence.push(format!("fan-in {}", fan_in));
+    }
+
+    if test_like {
+        let original_category = category.clone();
+        if confidence > 0.0 || fan_out > 0 {
+            category = "test_entry".to_string();
+            evidence.push(format!(
+                "test-like path/name; downweighted from {}",
+                original_category
+            ));
+            next_action =
+                "Treat as validation/test signal, not as architecture startup entry.".to_string();
+            confidence = (confidence * 0.25).max(0.15);
+        }
+    }
+
+    let any_candidate = confidence > 0.0;
+    EntrySignal {
+        primary_candidate: any_candidate && !test_like && confidence >= 0.45,
+        any_candidate,
+        category,
+        confidence: (confidence * 100.0).round() / 100.0,
+        evidence,
+        is_test_entry: test_like && any_candidate,
+        next_action,
+    }
+}
+
 /// Large project insight map: hotspots, entry points, risk map, read-first/review-first.
 ///
 /// Provides graph-based heuristic insights for AI agents and humans onboarding
@@ -6585,6 +7010,12 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
         cross_file_impact_count: usize,
         low_confidence_edge_count: usize,
         is_entry_like: bool,
+        has_entry_signal: bool,
+        entry_kind: String,
+        entry_confidence: f64,
+        entry_evidence: Vec<String>,
+        is_test_entry: bool,
+        entry_next_action: String,
         is_public: bool,
         diagnostic_count: usize,
     }
@@ -6658,14 +7089,17 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
             })
             .count();
 
-        // Entry-like detection
-        let is_entry_like = detect_entry_like(&name, &kind, &file, &gv.language, fan_out);
+        // Entry-like detection now keeps evidence/category so AI agents know why a
+        // symbol was suggested and whether it is only a test entry.
+        let entry_signal =
+            classify_entry_signal(&name, &kind, &file, &gv.language, fan_out, fan_in);
+        let is_entry_like = entry_signal.primary_candidate;
 
         // Public/exported heuristic
         let is_public = kind == "function"
             && !name.starts_with('_')
             && !name.contains("::test")
-            && !file.contains("/test");
+            && !is_test_symbol(&name, &file);
 
         // Diagnostics nearby
         let diagnostic_count = gv.diagnostics_for(id).len();
@@ -6680,6 +7114,12 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
             cross_file_impact_count,
             low_confidence_edge_count,
             is_entry_like,
+            has_entry_signal: entry_signal.any_candidate,
+            entry_kind: entry_signal.category,
+            entry_confidence: entry_signal.confidence,
+            entry_evidence: entry_signal.evidence,
+            is_test_entry: entry_signal.is_test_entry,
+            entry_next_action: entry_signal.next_action,
             is_public,
             diagnostic_count,
         });
@@ -6739,25 +7179,25 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
     // ---------------------------------------------------------------
     // 3. Entry point candidates
     // ---------------------------------------------------------------
-    let entry_candidates: Vec<Value> = symbol_metrics
+    let mut entry_metric_refs: Vec<&SymbolMetrics> = symbol_metrics
         .iter()
         .filter(|sm| sm.is_entry_like)
+        .collect();
+    entry_metric_refs.sort_by(|a, b| {
+        b.entry_confidence
+            .partial_cmp(&a.entry_confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| b.fan_out.cmp(&a.fan_out))
+            .then_with(|| b.fan_in.cmp(&a.fan_in))
+            .then_with(|| a.file.cmp(&b.file))
+            .then_with(|| a.name.cmp(&b.name))
+    });
+
+    let entry_candidates: Vec<Value> = entry_metric_refs
+        .iter()
         .take(limit)
         .map(|sm| {
-            let mut lang_reasons: Vec<String> = Vec::new();
-            let mut graph_reasons: Vec<String> = Vec::new();
-
-            if sm.name == "main" {
-                lang_reasons.push("main entry".to_string());
-            }
-            if sm.fan_out > 5 {
-                graph_reasons.push(format!("high fan-out orchestrator ({})", sm.fan_out));
-            }
-            if sm.fan_in > 3 {
-                graph_reasons.push(format!("{} direct callers", sm.fan_in));
-            }
-
-            let entry_risk = if sm.fan_out > 10 && sm.fan_in > 5 {
+            let entry_risk = if sm.entry_confidence < 0.60 || sm.fan_out > 10 && sm.fan_in > 5 {
                 "MEDIUM"
             } else {
                 "LOW"
@@ -6769,8 +7209,13 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "kind": sm.kind,
                 "file": sm.file,
                 "line": sm.line,
-                "languageReason": lang_reasons.join("; "),
-                "graphReason": graph_reasons.join("; "),
+                "entryKind": sm.entry_kind,
+                "confidence": sm.entry_confidence,
+                "evidence": sm.entry_evidence,
+                "isTestEntry": sm.is_test_entry,
+                "fanIn": sm.fan_in,
+                "fanOut": sm.fan_out,
+                "nextAction": sm.entry_next_action,
                 "riskScore": entry_risk,
             })
         })
@@ -6820,6 +7265,9 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "fanOut": sm.fan_out,
                 "crossFileImpactCount": sm.cross_file_impact_count,
                 "isEntryLike": sm.is_entry_like,
+                "entryKind": sm.entry_kind,
+                "entryConfidence": sm.entry_confidence,
+                "isTestEntry": sm.is_test_entry,
                 "isPublic": sm.is_public,
             })
         })
@@ -6954,20 +7402,21 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
 
         // Entry-like symbols first
         for sm in symbol_metrics.iter().filter(|sm| sm.is_entry_like).take(5) {
-            let mut reason_parts: Vec<String> = Vec::new();
-            if sm.name == "main" {
-                reason_parts.push("entry-like function".to_string());
-            }
-            if sm.fan_out > 5 {
-                reason_parts.push(format!("high fan-out orchestrator ({})", sm.fan_out));
-            }
+            let mut reason_parts: Vec<String> = sm.entry_evidence.clone();
+            reason_parts.push(format!(
+                "entry-kind={} confidence={:.2}",
+                sm.entry_kind, sm.entry_confidence
+            ));
             items.push(json!({
                 "id": sm.name,
                 "name": sm.name,
                 "kind": sm.kind,
                 "file": sm.file,
                 "line": sm.line,
+                "entryKind": sm.entry_kind,
+                "confidence": sm.entry_confidence,
                 "reason": reason_parts.join("; "),
+                "nextAction": sm.entry_next_action,
             }));
         }
 
@@ -7101,6 +7550,171 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
     // Quality metrics (computed once, used in both compact and full)
     let quality_metrics = compute_quality_metrics(&gv);
 
+    let primary_entry_count = entry_candidates.len();
+    let test_entry_candidate_count = symbol_metrics
+        .iter()
+        .filter(|sm| sm.has_entry_signal && sm.is_test_entry)
+        .count();
+    let best_entry_confidence = symbol_metrics
+        .iter()
+        .filter(|sm| sm.is_entry_like)
+        .map(|sm| sm.entry_confidence)
+        .fold(0.0_f64, f64::max);
+    let graph_density = if source_file_count > 0 {
+        edge_count as f64 / source_file_count as f64
+    } else {
+        0.0
+    };
+    let max_hotspot_score = risk_items
+        .iter()
+        .filter_map(|item| item["riskScore"].as_f64())
+        .fold(0.0_f64, f64::max);
+
+    let dimension_level = |score: u64| -> &'static str {
+        if score >= 3 {
+            "high"
+        } else if score >= 1 {
+            "medium"
+        } else {
+            "low"
+        }
+    };
+
+    let mut risk_dimensions: Vec<Value> = Vec::new();
+    let mut total_dimension_score: u64 = 0;
+
+    let entry_score = if primary_entry_count == 0 {
+        3
+    } else if best_entry_confidence < 0.60 || test_entry_candidate_count > primary_entry_count {
+        2
+    } else if best_entry_confidence < 0.75 || test_entry_candidate_count > 0 {
+        1
+    } else {
+        0
+    };
+    total_dimension_score += entry_score;
+    risk_dimensions.push(json!({
+        "dimension": "entryPointQuality",
+        "level": dimension_level(entry_score),
+        "score": entry_score,
+        "evidence": {
+            "primaryEntryCount": primary_entry_count,
+            "testEntryCandidateCount": test_entry_candidate_count,
+            "bestEntryConfidence": best_entry_confidence
+        },
+        "reason": if primary_entry_count == 0 {
+            "No high-confidence non-test architecture entry point was detected."
+        } else if test_entry_candidate_count > primary_entry_count {
+            "Test-like entry signals outnumber primary architecture entry signals."
+        } else {
+            "Entry point candidates were classified and test-like entries were downranked."
+        },
+        "nextAction": "Read the top entryPointCandidates first; treat testEntry candidates as validation signals only."
+    }));
+
+    let graph_score = if source_file_count >= 20 && graph_density < 1.0 {
+        3
+    } else if source_file_count >= 10 && graph_density < 1.5 {
+        2
+    } else if graph_density < 2.0 {
+        1
+    } else {
+        0
+    };
+    total_dimension_score += graph_score;
+    risk_dimensions.push(json!({
+        "dimension": "graphDensity",
+        "level": dimension_level(graph_score),
+        "score": graph_score,
+        "evidence": {
+            "sourceFileCount": source_file_count,
+            "edgeCount": edge_count,
+            "edgesPerSourceFile": (graph_density * 100.0).round() / 100.0
+        },
+        "reason": "Sparse graph density means CodeLattice has fewer structural edges to support architecture conclusions.",
+        "nextAction": "Use symbol search and targeted source reads for modules with sparse graph evidence."
+    }));
+
+    let low_confidence_total = low_confidence_files.len() + low_confidence_symbols.len();
+    let low_conf_score = if low_confidence_total > 10 {
+        3
+    } else if low_confidence_total > 3 {
+        2
+    } else if low_confidence_total > 0 {
+        1
+    } else {
+        0
+    };
+    total_dimension_score += low_conf_score;
+    risk_dimensions.push(json!({
+        "dimension": "lowConfidenceEdges",
+        "level": dimension_level(low_conf_score),
+        "score": low_conf_score,
+        "evidence": {
+            "lowConfidenceFileZones": low_confidence_files.len(),
+            "lowConfidenceSymbolZones": low_confidence_symbols.len()
+        },
+        "reason": "Low-confidence static edges require runtime tests or manual source confirmation.",
+        "nextAction": "Prefer impact/review modes before editing low-confidence zones."
+    }));
+
+    let diagnostic_score = if gv.diagnostics.len() > 20 {
+        3
+    } else if gv.diagnostics.len() > 5 {
+        2
+    } else if !gv.diagnostics.is_empty() {
+        1
+    } else {
+        0
+    };
+    total_dimension_score += diagnostic_score;
+    risk_dimensions.push(json!({
+        "dimension": "diagnostics",
+        "level": dimension_level(diagnostic_score),
+        "score": diagnostic_score,
+        "evidence": {"diagnosticCount": gv.diagnostics.len()},
+        "reason": "Diagnostics indicate static parser or resolver uncertainty.",
+        "nextAction": "Inspect diagnostics before trusting missing-edge or dead-code conclusions."
+    }));
+
+    let hotspot_score = if max_hotspot_score >= 8.0 {
+        3
+    } else if max_hotspot_score >= 4.0 {
+        2
+    } else if max_hotspot_score > 0.0 {
+        1
+    } else {
+        0
+    };
+    total_dimension_score += hotspot_score;
+    risk_dimensions.push(json!({
+        "dimension": "hotspotComplexity",
+        "level": dimension_level(hotspot_score),
+        "score": hotspot_score,
+        "evidence": {"maxHotspotScore": (max_hotspot_score * 10.0).round() / 10.0},
+        "reason": "Hotspot score combines fan-in, fan-out, diagnostics, and low-confidence edges.",
+        "nextAction": "Review hotspotFiles and hotspotSymbols before broad refactors."
+    }));
+
+    let architecture_risk_level = if total_dimension_score >= 8 {
+        "high"
+    } else if total_dimension_score >= 3 {
+        "medium"
+    } else {
+        "low"
+    };
+    let architecture_risk = json!({
+        "overallRiskLevel": architecture_risk_level,
+        "overallScore": total_dimension_score,
+        "dimensions": risk_dimensions,
+        "interpretation": "Architecture risk is a static-readiness signal for AI navigation, not proof of runtime failure.",
+        "recommendedFollowups": [
+            "Use readFirst to understand the project shape.",
+            "Use reviewFirst before editing high-coupling or uncertain areas.",
+            "Use codelattice_change_review mode=impact for concrete change targets."
+        ]
+    });
+
     let result_data = if compact {
         json!({
             "summary": {
@@ -7112,11 +7726,14 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "hotspotSymbolCount": hotspot_symbol_count,
                 "entryPointCandidateCount": entry_point_candidate_count,
                 "lowConfidenceZoneCount": low_confidence_zone_count,
+                "architectureRiskLevel": architecture_risk_level,
+                "architectureRiskScore": total_dimension_score,
             },
             "entryPointCandidates": entry_candidates,
             "hotspotFiles": hotspot_files,
             "hotspotSymbols": hotspot_symbols,
             "riskMap": risk_items,
+            "architectureRisk": architecture_risk,
             "lowConfidenceZones": low_confidence_zones,
             "readFirst": read_first,
             "reviewFirst": review_first,
@@ -7153,6 +7770,8 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "hotspotSymbolCount": hotspot_symbol_count,
                 "entryPointCandidateCount": entry_point_candidate_count,
                 "lowConfidenceZoneCount": low_confidence_zone_count,
+                "architectureRiskLevel": architecture_risk_level,
+                "architectureRiskScore": total_dimension_score,
                 "totalFileCount": file_count,
                 "nodeCount": node_count,
                 "diagnosticsCount": gv.diagnostics.len(),
@@ -7162,6 +7781,7 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
             "hotspotFiles": hotspot_files,
             "hotspotSymbols": hotspot_symbols,
             "riskMap": risk_items,
+            "architectureRisk": architecture_risk,
             "lowConfidenceZones": low_confidence_zones,
             "readFirst": read_first,
             "reviewFirst": review_first,
@@ -17449,6 +18069,8 @@ fn diagnose_root(root: &str, language: &str) -> Value {
         .collect();
     let manifest_count = supported_manifest_projects.len();
     let source_only_count = supported.len().saturating_sub(manifest_count);
+    let source_only_entries = source_only_entries_json(supported.iter().copied(), 50);
+    let source_only_summary = source_only_summary_json(&source_only_entries, source_only_count);
     let root_project = supported_manifest_projects
         .iter()
         .find(|p| p.relative_path == ".");
@@ -17584,6 +18206,8 @@ fn diagnose_root(root: &str, language: &str) -> Value {
             "sourceOnlySupportedEntries": source_only_count,
             "unsupportedEntries": unsupported.len()
         },
+        "sourceOnlySummary": source_only_summary,
+        "sourceOnlyEntries": source_only_entries,
         "cautions": cautions,
         "explanation": explanation
     })
