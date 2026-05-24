@@ -21237,15 +21237,15 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             intent,
             answer_summary,
             target_query,
-            evidence,
+            _evidence,
             call_chains,
-            read_first,
+            _read_first,
             missing_evidence,
             files_involved,
             read_order,
             orchestration,
             next_actions,
-            ai_guidance,
+            _ai_guidance,
         ) = route_ask_intent(root, language, &question, ask_compact, ask_execute);
 
         let ask_result = json!({
@@ -22068,7 +22068,6 @@ fn build_call_chains_result(
     let mut files_involved = Vec::new();
     let mut entry_points = Vec::new();
     let mut exit_points = Vec::new();
-    let mut chain_summary = String::new();
 
     let analyze_result = run_rust_analysis_if_available(root, language);
     match analyze_result {
@@ -22218,6 +22217,7 @@ fn build_call_chains_result(
                                     .and_then(|n| n["properties"]["name"].as_str())
                                     .unwrap_or(target_id);
                                 chain.push(target_name.to_string());
+                                chain_ids.push(target_id.to_string());
                                 edge_kinds.push("CALLS");
                                 if let Some(f) = nodes
                                     .iter()
@@ -22358,8 +22358,8 @@ fn build_call_chains_result(
         }
     }
     files_involved = all_files_set.into_iter().map(Value::String).collect();
-    if call_chains.is_empty() {
-        chain_summary = format!(
+    let chain_summary = if call_chains.is_empty() {
+        format!(
             "0 chains found for '{}'. {}",
             query,
             if candidates.is_empty() {
@@ -22367,7 +22367,7 @@ fn build_call_chains_result(
             } else {
                 "Symbol found but no CALLS edges traced."
             }
-        );
+        )
     } else {
         let summaries: Vec<String> = call_chains
             .iter()
@@ -22389,13 +22389,13 @@ fn build_call_chains_result(
                 }
             })
             .collect();
-        chain_summary = format!(
+        format!(
             "{} chain(s) for '{}': {}",
             call_chains.len(),
             query,
             summaries.join("; ")
-        );
-    }
+        )
+    };
 
     (
         candidates,
@@ -22485,13 +22485,13 @@ fn route_ask_intent(
     ];
 
     let intent;
-    let mut answer_summary = String::new();
+    let answer_summary;
     let mut evidence = Vec::new();
     let mut call_chains = Vec::new();
     let mut read_first = Vec::new();
     let mut missing_evidence = Vec::new();
     let mut next_actions = Vec::new();
-    let mut ai_guidance = String::new();
+    let ai_guidance;
     let mut target_query: Option<String> = None;
     let mut files_involved = Vec::new();
     let mut read_order_out = Vec::new();
