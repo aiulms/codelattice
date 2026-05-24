@@ -13,6 +13,7 @@ Write set:
 - `crates/cli/src/mcp_server.rs`
 - `crates/cli/tests/mcp_server.rs`
 - `scripts/codelattice-installed-acceptance.sh`
+- `scripts/promote-to-local-tool.sh`
 - `docs/mcp/ai-usage-guide.md`
 - `CHANGELOG.md`
 
@@ -33,4 +34,5 @@ When a small sample helps the AI choose a next root, expose `sourceOnlyEntryPrev
 - Add MCP regression tests proving compact root diagnosis omits `sourceOnlyEntries`.
 - Keep full-mode source-only diagnostics intact.
 - Extend installed acceptance smoke with a payload-size/shape check.
+- Keep installed sync/promotion on the full-language runtime and verify the promoted wrapper after sync.
 - Run formatting, MCP tests, native precommit, installed sync, and strict installed acceptance.

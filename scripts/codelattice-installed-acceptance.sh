@@ -4,10 +4,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEV_BINARY="$ROOT/target/debug/codelattice"
+DEV_COMPAT_BINARY="$ROOT/target/debug/gitnexus-rust-core-cli"
 INSTALLED_DIR="/Users/jiangxuanyang/Desktop/CodeLattice-Tool"
 INSTALLED_WRAPPER="$INSTALLED_DIR/codelattice-mcp.sh"
 INSTALLED_BIN="$INSTALLED_DIR/bin/codelattice"
+INSTALLED_LEGACY_ALIAS_BIN="$INSTALLED_DIR/bin/codelattice-cli"
+INSTALLED_COMPAT_BIN="$INSTALLED_DIR/bin/gitnexus-rust-core-cli"
 FIXTURE="$ROOT/fixtures/call-resolution/c1-same-module"
+ALL_LANGUAGE_FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 
 SYNC=false
 DEV_ONLY=false
@@ -107,6 +111,42 @@ for line in sys.stdin:
 " 2>/dev/null
 }
 
+sync_installed_profile_json() {
+    local attempt
+    local out
+
+    for attempt in 1 2 3; do
+        out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"acceptance-sync","version":"1.0"}}}' \
+            | env CODELATTICE_MCP_TOOLSET=full "$INSTALLED_BIN" mcp 2>/dev/null \
+            | python3 -c 'import json,sys
+for line in sys.stdin:
+    text=line.strip()
+    if not text:
+        continue
+    try:
+        doc=json.loads(text)
+    except Exception:
+        continue
+    if doc.get("id") == 1:
+        print(json.dumps(doc, separators=(",", ":")))
+        break' 2>/dev/null || true)
+        if [ -n "$out" ]; then
+            printf '%s\n' "$out"
+            return 0
+        fi
+
+        # macOS 偶尔会对刚替换的二进制出现一次性拒绝启动；重拷贝同一份
+        # runtime 后再试，避免 sync 留下 stale manifest/profile。
+        rm -f "$INSTALLED_COMPAT_BIN"
+        cp "$DEV_COMPAT_BINARY" "$INSTALLED_COMPAT_BIN"
+        chmod +x "$INSTALLED_COMPAT_BIN"
+        sleep 0.2
+    done
+
+    printf '{}\n'
+    return 1
+}
+
 section "Source Info"
 HEAD_COMMIT=$(cd "$ROOT" && git rev-parse --short HEAD)
 echo "  HEAD: $HEAD_COMMIT"
@@ -204,7 +244,7 @@ if [ "$DEV_ONLY" = false ] && [ "$INSTALLED_ONLY" = false ] || [ "$DEV_ONLY" = t
     fi
 fi
 
-if [ "$INSTALLED_ONLY" = true ] || ([ "$DEV_ONLY" = false ] && [ -x "$INSTALLED_WRAPPER" ]); then
+if [ "$INSTALLED_ONLY" = true ] || ([ "$DEV_ONLY" = false ] && [ "$SYNC" = false ] && [ -x "$INSTALLED_WRAPPER" ]); then
     section "Installed Version"
 
     if [ ! -x "$INSTALLED_WRAPPER" ]; then
@@ -215,7 +255,7 @@ if [ "$INSTALLED_ONLY" = true ] || ([ "$DEV_ONLY" = false ] && [ -x "$INSTALLED_
 
         if [ -f "$INSTALLED_DIR/manifest.json" ]; then
             echo "  Manifest:"
-            python3 -c "import json; d=json.load(open('$INSTALLED_DIR/manifest.json')); print(f'    sourceCommit: {d.get(\"sourceCommit\",\"N/A\")}'); print(f'    serverVersion: {d.get(\"serverVersion\",\"N/A\")}'); print(f'    toolCount: {d.get(\"toolCount\",\"N/A\")}')" 2>/dev/null || echo "    (manifest parse error)"
+            python3 -c "import json; d=json.load(open('$INSTALLED_DIR/manifest.json')); p=d.get('profile', {}); print(f'    sourceCommit: {d.get(\"sourceCommit\",\"N/A\")}'); print(f'    serverVersion: {d.get(\"serverVersion\", p.get(\"serverVersion\", \"N/A\"))}'); print(f'    toolCount: {d.get(\"toolCount\", p.get(\"toolCount\", \"N/A\"))}')" 2>/dev/null || echo "    (manifest parse error)"
             INSTALLED_SOURCE_COMMIT=$(python3 -c "import json; d=json.load(open('$INSTALLED_DIR/manifest.json')); print(d.get('sourceCommit',''))" 2>/dev/null || echo "")
             if [ -n "$INSTALLED_SOURCE_COMMIT" ] && [ "$INSTALLED_SOURCE_COMMIT" != "$HEAD_COMMIT" ]; then
                 warn "Installed binary is stale: installed=$INSTALLED_SOURCE_COMMIT, source=$HEAD_COMMIT. Run scripts/codelattice-installed-acceptance.sh --sync to update CodeLattice-Tool."
@@ -279,23 +319,74 @@ if [ "$SYNC" = true ]; then
         fail "Installed dir not found: $INSTALLED_DIR"
     else
         echo "  Building..."
-        cargo build --manifest-path "$ROOT/Cargo.toml" --bin codelattice 2>&1 | tail -1
+        cargo build --manifest-path "$ROOT/Cargo.toml" -p gitnexus-rust-core-cli --features "$ALL_LANGUAGE_FEATURES" --bins 2>&1 | tail -1
 
         echo "  Copying binary..."
-        cp "$DEV_BINARY" "$INSTALLED_BIN"
-        ok "Binary copied to $INSTALLED_BIN"
+        cp "$DEV_COMPAT_BINARY" "$INSTALLED_COMPAT_BIN"
+        chmod +x "$INSTALLED_COMPAT_BIN"
+        rm -f "$INSTALLED_BIN"
+        rm -f "$INSTALLED_LEGACY_ALIAS_BIN"
+        ln -s gitnexus-rust-core-cli "$INSTALLED_BIN"
+        ln -s gitnexus-rust-core-cli "$INSTALLED_LEGACY_ALIAS_BIN"
+        ok "Runtime copied to $INSTALLED_COMPAT_BIN with codelattice/codelattice-cli links"
+
+        SYNC_PROFILE_JSON=$(sync_installed_profile_json || true)
+        BINARY_SHA256=$(shasum -a 256 "$INSTALLED_COMPAT_BIN" | awk '{print $1}')
 
         if [ -f "$INSTALLED_DIR/manifest.json" ]; then
             echo "  Updating manifest..."
-            python3 -c "
-import json, datetime
-m = json.load(open('$INSTALLED_DIR/manifest.json'))
-m['sourceCommit'] = '$HEAD_COMMIT'
+            PROFILE_JSON="$SYNC_PROFILE_JSON" BINARY_SHA256="$BINARY_SHA256" HEAD_COMMIT="$HEAD_COMMIT" python3 -c "
+import datetime, json, os
+manifest_path = '$INSTALLED_DIR/manifest.json'
+m = json.load(open(manifest_path))
+profile = json.loads(os.environ.get('PROFILE_JSON') or '{}')
+server = profile.get('result', {}).get('serverInfo', {})
+m['sourceCommit'] = os.environ['HEAD_COMMIT']
 m['installedAt'] = datetime.datetime.now().isoformat()
-json.dump(m, open('$INSTALLED_DIR/manifest.json','w'), indent=2)
+m['binary'] = 'bin/codelattice'
+m['legacyAliasBinary'] = 'bin/codelattice-cli'
+m['compatBinary'] = 'bin/gitnexus-rust-core-cli'
+m['binarySha256'] = os.environ['BINARY_SHA256']
+m.setdefault('paths', {})['binary'] = 'bin/codelattice'
+m['paths']['legacyAliasBinary'] = 'bin/codelattice-cli'
+m['paths']['compatBinary'] = 'bin/gitnexus-rust-core-cli'
+m['profile'] = {
+    'serverVersion': server.get('version', 'unknown'),
+    'cangjieSupport': bool(server.get('cangjieSupport', False)),
+    'arktsSupport': bool(server.get('arktsSupport', False)),
+    'typescriptSupport': bool(server.get('typescriptSupport', False)),
+    'javascriptSupport': bool(server.get('javascriptSupport', False)),
+    'cSupport': bool(server.get('cSupport', False)),
+    'cppSupport': bool(server.get('cppSupport', False)),
+    'pythonSupport': bool(server.get('pythonSupport', False)),
+    'shellSupport': bool(server.get('shellSupport', False)),
+    'toolCount': int(server.get('toolCount', 0) or 0),
+}
+json.dump(m, open(manifest_path,'w'), indent=2)
 print('  manifest updated')
 "
             ok "Manifest updated"
+        fi
+
+        echo "  Verifying synced installed runtime..."
+        if "$INSTALLED_WRAPPER" --self-test >/dev/null 2>&1; then
+            ok "Synced installed self-test passed"
+        else
+            rm -f "$INSTALLED_COMPAT_BIN"
+            cp "$DEV_COMPAT_BINARY" "$INSTALLED_COMPAT_BIN"
+            chmod +x "$INSTALLED_COMPAT_BIN"
+            if "$INSTALLED_WRAPPER" --self-test >/dev/null 2>&1; then
+                ok "Synced installed self-test passed after retry"
+            else
+                fail "Synced installed self-test failed"
+            fi
+        fi
+        SYNC_TOOLS_JSON=$(mcp_call "$INSTALLED_BIN" "tools/list" '{}')
+        if [ -z "$SYNC_TOOLS_JSON" ]; then
+            fail "Synced installed tools/list returned empty"
+        else
+            SYNC_TOOL_COUNT=$(echo "$SYNC_TOOLS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('tools',[])))" 2>/dev/null || echo "0")
+            assert_eq "Synced installed default toolset count" "6" "$SYNC_TOOL_COUNT"
         fi
 
         echo ""

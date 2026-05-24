@@ -125,6 +125,22 @@ install_executable() {
     mv "$tmp" "$dst"
 }
 
+install_symlink() {
+    local target="$1"
+    local link="$2"
+    local backup="${link}.replaced-$(date -u +%Y%m%d%H%M%S)"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "DRY-RUN: install symlink $link -> $target"
+        return
+    fi
+
+    if [[ -e "$link" || -L "$link" ]]; then
+        mv "$link" "$backup"
+    fi
+    ln -s "$target" "$link"
+}
+
 json_escape() {
     python3 -c 'import json,sys; print(json.dumps(sys.stdin.read().rstrip("\n"))[1:-1])'
 }
@@ -217,9 +233,9 @@ fi
 echo ""
 echo "--- Installing stable runtime ---"
 run mkdir -p "$INSTALL_BIN_DIR"
-install_executable "$RELEASE_BIN" "$INSTALL_BIN"
-install_executable "$RELEASE_BIN" "$INSTALL_LEGACY_ALIAS_BIN"
 install_executable "$RELEASE_COMPAT_BIN" "$INSTALL_COMPAT_BIN"
+install_symlink "$COMPAT_BIN_NAME" "$INSTALL_BIN"
+install_symlink "$COMPAT_BIN_NAME" "$INSTALL_LEGACY_ALIAS_BIN"
 if [[ "$DRY_RUN" != "true" ]]; then
     echo ""
     echo "--- Verifying installed runtime profile ---"
@@ -362,7 +378,7 @@ WRAPPER
     SOURCE_COMMIT="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo unknown)"
     SOURCE_REMOTE="$(git -C "$REPO_ROOT" remote get-url gitcode 2>/dev/null || git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || echo unknown)"
     INSTALLED_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-    BINARY_SHA256="$(shasum -a 256 "$INSTALL_BIN" | awk '{print $1}')"
+    BINARY_SHA256="$(shasum -a 256 "$INSTALL_COMPAT_BIN" | awk '{print $1}')"
     INIT_RESP="$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"promote-manifest","version":"1.0"}}}' | env CODELATTICE_MCP_TOOLSET=full "$INSTALL_BIN" mcp 2>/dev/null | python3 -c 'import json, sys
 for line in sys.stdin:
     text=line.strip()
