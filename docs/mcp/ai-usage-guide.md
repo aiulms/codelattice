@@ -139,3 +139,11 @@ This means:
 ## After Syncing Installed Version
 
 After running `scripts/codelattice-installed-acceptance.sh --sync`, you MUST restart your MCP session (Claude/OpenCode/TRAE) for the new binary to take effect.
+
+Before release or handoff, verify the installed binary is the same commit as the source tree:
+
+```bash
+scripts/codelattice-installed-acceptance.sh --require-fresh-installed
+```
+
+Without `--require-fresh-installed`, the script reports a stale installed binary as a warning so development dry-runs can still pass while the installed version intentionally lags behind.

@@ -8,6 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **Installed acceptance freshness warning**: `scripts/codelattice-installed-acceptance.sh` now reports when the promoted `CodeLattice-Tool` manifest `sourceCommit` lags behind the current source HEAD. The default dry-run keeps stale installed binaries as a warning, while `--require-fresh-installed` turns the mismatch into a failing release/sync gate. The AI MCP usage guide documents this handoff check.
+
 - **AI Ask + Call Chain Pack**: adds `mode=ask` to `codelattice_workflow` and `mode=call_chains` to `codelattice_symbol` without increasing MCP tool count (still 49 tools, 6 AI facade tools). `ask` mode does keyword-based intent routing (explain_flow, find_symbol, inspect_project, before_edit, locate_issue, general) and returns structured answers with evidence, call chains, readFirst, and aiGuidance. `call_chains` mode traverses CALLS edges to produce readable call chain paths with confidence, direction, files, and edge kinds. Both modes output `analysisSemantics` with `staticAnalysis=true, targetCodeExecuted=false, runtimeVerified=false`. All outputs are compact-friendly.
 
 - **Ask v2 Orchestration + Read Path Pack**: upgrades `ask` to `codelattice.ask.v2` schema with `orchestration` tracking (stepsAttempted/stepsSkipped), `readOrder`, `filesInvolved`, `recommendedNextCalls`. Adds `locate_issue` intent for bug triage. Enhances `call_chains` with `readOrder`, `filesInvolved`, `entryPoints`, `exitPoints`, `chainSummary`. Fixes graph schema compatibility (node `label` vs `kind`, edge `type` vs `properties.callKind`). Adds 5 new MCP regression tests (total 163).

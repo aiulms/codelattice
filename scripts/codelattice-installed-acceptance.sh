@@ -13,6 +13,7 @@ SYNC=false
 DEV_ONLY=false
 INSTALLED_ONLY=false
 OPEN_NWE=false
+REQUIRE_FRESH_INSTALLED=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -20,18 +21,21 @@ while [[ $# -gt 0 ]]; do
         --dev-only) DEV_ONLY=true; shift ;;
         --installed-only) INSTALLED_ONLY=true; shift ;;
         --open-nwe) OPEN_NWE=true; shift ;;
-        --help) echo "Usage: $0 [--sync] [--dev-only] [--installed-only] [--open-nwe]"; exit 0 ;;
+        --require-fresh-installed) REQUIRE_FRESH_INSTALLED=true; shift ;;
+        --help) echo "Usage: $0 [--sync] [--dev-only] [--installed-only] [--open-nwe] [--require-fresh-installed]"; exit 0 ;;
         *) echo "Unknown argument: $1"; exit 1 ;;
     esac
 done
 
 PASS=0
 FAIL=0
+WARN=0
 
 section() { echo ""; echo "=== $1 ==="; }
 
 ok() { echo "  ✅ $1"; PASS=$((PASS + 1)); }
 fail() { echo "  ❌ $1"; FAIL=$((FAIL + 1)); }
+warn() { echo "  ⚠️  $1"; WARN=$((WARN + 1)); }
 
 assert_eq() {
     local label="$1" expected="$2" actual="$3"
@@ -189,6 +193,15 @@ if [ "$INSTALLED_ONLY" = true ] || ([ "$DEV_ONLY" = false ] && [ -x "$INSTALLED_
         if [ -f "$INSTALLED_DIR/manifest.json" ]; then
             echo "  Manifest:"
             python3 -c "import json; d=json.load(open('$INSTALLED_DIR/manifest.json')); print(f'    sourceCommit: {d.get(\"sourceCommit\",\"N/A\")}'); print(f'    serverVersion: {d.get(\"serverVersion\",\"N/A\")}'); print(f'    toolCount: {d.get(\"toolCount\",\"N/A\")}')" 2>/dev/null || echo "    (manifest parse error)"
+            INSTALLED_SOURCE_COMMIT=$(python3 -c "import json; d=json.load(open('$INSTALLED_DIR/manifest.json')); print(d.get('sourceCommit',''))" 2>/dev/null || echo "")
+            if [ -n "$INSTALLED_SOURCE_COMMIT" ] && [ "$INSTALLED_SOURCE_COMMIT" != "$HEAD_COMMIT" ]; then
+                warn "Installed binary is stale: installed=$INSTALLED_SOURCE_COMMIT, source=$HEAD_COMMIT. Run scripts/codelattice-installed-acceptance.sh --sync to update CodeLattice-Tool."
+                if [ "$REQUIRE_FRESH_INSTALLED" = true ]; then
+                    fail "Installed sourceCommit does not match current HEAD while --require-fresh-installed is set"
+                fi
+            elif [ -n "$INSTALLED_SOURCE_COMMIT" ]; then
+                ok "Installed sourceCommit matches current HEAD"
+            fi
         else
             echo "  No manifest.json found"
         fi
@@ -270,6 +283,7 @@ fi
 section "Summary"
 echo "  HEAD: $HEAD_COMMIT"
 echo "  Passed: $PASS"
+echo "  Warnings: $WARN"
 echo "  Failed: $FAIL"
 echo ""
 
