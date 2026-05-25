@@ -20370,6 +20370,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "job",
             "job_status",
             "job_detail",
+            "whatif",
         ],
         "codelattice_change_review",
     )?;
@@ -20566,6 +20567,56 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 ],
                 compact,
             )));
+        }
+        "whatif" => {
+            let change = params["change"].as_str().unwrap_or("").to_string();
+            let symbol_param = params["symbol"].as_str().unwrap_or("").to_string();
+            let file_param = params["file"].as_str().unwrap_or("").to_string();
+            let action = params["action"].as_str().unwrap_or("").to_string();
+            let root_path = PathBuf::from(root);
+
+            let (
+                change_intent,
+                target_candidates,
+                direct_impact,
+                indirect_impact,
+                risk,
+                safe_alts,
+                tests,
+                read_first,
+                missing,
+                next_actions,
+            ) = build_whatif_result(
+                &root_path,
+                language,
+                &change,
+                &symbol_param,
+                &file_param,
+                &action,
+            );
+
+            let result_body = json!({
+                "schemaVersion": "codelattice.whatIf.v1",
+                "changeIntent": change_intent,
+                "targetCandidates": target_candidates,
+                "directImpact": direct_impact,
+                "indirectImpact": if compact { indirect_impact.into_iter().take(5).collect::<Vec<_>>() } else { indirect_impact },
+                "risk": risk,
+                "safeAlternatives": safe_alts,
+                "testsToRun": tests,
+                "readFirst": read_first,
+                "missingEvidence": missing,
+                "recommendedNextCalls": next_actions,
+                "analysisSemantics": {
+                    "staticAnalysisExecuted": true,
+                    "targetCodeExecuted": false,
+                    "runtimeVerified": false,
+                    "scriptsExecuted": false
+                }
+            });
+            let content_text = serde_json::to_string_pretty(&result_body)
+                .unwrap_or_else(|_| result_body.to_string());
+            return Ok(json!({"content": [{"type": "text", "text": content_text}]}));
         }
         _ => unreachable!(),
     };
@@ -21748,6 +21799,30 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             _ai_guidance,
         ) = route_ask_intent(cache, root, language, &question, ask_compact, ask_execute);
 
+        let what_if = if intent == "before_edit" || intent == "whatif" {
+            let query = target_query.as_ref().unwrap_or(&String::new()).clone();
+            if !root.is_empty() && !query.is_empty() {
+                let root_path = Path::new(root);
+                let (ci, tc, di, ii, risk, sa, tests, rf, me, _na) =
+                    build_whatif_result(root_path, language, &question, &query, "", "");
+                json!({
+                    "changeIntent": ci,
+                    "targetCandidates": tc,
+                    "directImpact": di,
+                    "indirectImpact": ii.into_iter().take(5).collect::<Vec<_>>(),
+                    "risk": risk,
+                    "safeAlternatives": sa,
+                    "testsToRun": tests,
+                    "readFirst": rf,
+                    "evidenceGaps": me
+                })
+            } else {
+                Value::Null
+            }
+        } else {
+            Value::Null
+        };
+
         let ask_result = json!({
             "schemaVersion": "codelattice.ask.v2",
             "intent": intent,
@@ -21758,6 +21833,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "callChains": call_chains,
             "readOrder": read_order,
             "triagePlan": triage_plan,
+            "whatIf": what_if,
             "filesInvolved": files_involved,
             "missingEvidence": missing_evidence,
             "recommendedNextCalls": next_actions,
@@ -23474,4 +23550,262 @@ fn extract_symbol_from_question(question: &str) -> String {
         return last.to_string();
     }
     String::new()
+}
+
+fn build_whatif_result(
+    root: &Path,
+    language: &str,
+    change: &str,
+    symbol_param: &str,
+    file_param: &str,
+    action_param: &str,
+) -> (
+    serde_json::Value,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    serde_json::Value,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+    Vec<serde_json::Value>,
+) {
+    let change_lower = change.to_lowercase();
+    let action = if !action_param.is_empty() {
+        action_param.to_string()
+    } else if change_lower.contains("删除") || change_lower.contains("delete") {
+        "delete".to_string()
+    } else if change_lower.contains("重命名") || change_lower.contains("rename") {
+        "rename".to_string()
+    } else {
+        "modify".to_string()
+    };
+
+    let target_query = if !symbol_param.is_empty() {
+        symbol_param.to_string()
+    } else {
+        let from_change = extract_symbol_from_question(change);
+        if !from_change.is_empty() {
+            from_change
+        } else {
+            file_param.to_string()
+        }
+    };
+
+    let target_file = if !file_param.is_empty() {
+        file_param.to_string()
+    } else {
+        String::new()
+    };
+
+    let change_intent = json!({
+        "rawChange": change,
+        "action": action,
+        "targetQuery": target_query,
+        "targetFile": target_file,
+        "confidence": if target_query.is_empty() { 0.0 } else { 0.70 }
+    });
+
+    let mut target_candidates = Vec::new();
+    let mut direct_impact = Vec::new();
+    let mut indirect_impact = Vec::new();
+    let mut read_first = Vec::new();
+    let mut missing = Vec::new();
+    let mut next_actions = Vec::new();
+
+    if !target_query.is_empty() && !root.as_os_str().is_empty() {
+        let (candidates, chains, _, me, _, ro, fi, _, _, _) =
+            build_call_chains_result(root, language, &target_query, "both", 3, 10);
+
+        target_candidates = candidates;
+
+        for chain in &chains {
+            let dir = chain["direction"].as_str().unwrap_or("");
+            if dir == "upstream" {
+                if let Some(arr) = chain["chain"].as_array() {
+                    if let Some(caller) = arr.first() {
+                        let caller_name = caller.as_str().unwrap_or("");
+                        if caller_name != target_query
+                            && !direct_impact
+                                .iter()
+                                .any(|d: &Value| d["name"].as_str() == Some(caller_name))
+                        {
+                            direct_impact.push(json!({
+                                "name": caller_name,
+                                "kind": "caller",
+                                "file": chain["entryFile"].as_str().unwrap_or(""),
+                                "reason": format!("directly calls {}", target_query)
+                            }));
+                        }
+                    }
+                }
+            } else if dir == "downstream" {
+                if let Some(arr) = chain["chain"].as_array() {
+                    if arr.len() > 1 {
+                        if let Some(callee) = arr.get(1) {
+                            let callee_name = callee.as_str().unwrap_or("");
+                            if callee_name != target_query
+                                && !direct_impact
+                                    .iter()
+                                    .any(|d: &Value| d["name"].as_str() == Some(callee_name))
+                            {
+                                direct_impact.push(json!({
+                                    "name": callee_name,
+                                    "kind": "callee",
+                                    "file": chain["exitFile"].as_str().unwrap_or(""),
+                                    "reason": format!("directly called by {}", target_query)
+                                }));
+                            }
+                        }
+                    }
+                    for sym in arr.iter().skip(2) {
+                        let name = sym.as_str().unwrap_or("");
+                        if name != target_query
+                            && !indirect_impact
+                                .iter()
+                                .any(|d: &Value| d["name"].as_str() == Some(name))
+                        {
+                            indirect_impact.push(json!({
+                                "name": name,
+                                "kind": "indirect",
+                                "reason": format!("transitive dependency via {}", target_query)
+                            }));
+                        }
+                    }
+                }
+            }
+        }
+
+        if !ro.is_empty() {
+            read_first = ro;
+        }
+        if !fi.is_empty() {
+            for f in fi {
+                read_first.push(
+                    json!({"kind": "file", "path": f, "reason": "file involved in change impact"}),
+                );
+            }
+        }
+        missing.extend(me);
+    }
+
+    if target_candidates.is_empty() {
+        missing.push(json!({
+            "kind": "symbol_not_found",
+            "explanation": format!("No symbols matching '{}' found in the static graph.", target_query)
+        }));
+    }
+
+    let fan_in = direct_impact
+        .iter()
+        .filter(|d| d["kind"].as_str() == Some("caller"))
+        .count();
+    let fan_out = direct_impact
+        .iter()
+        .filter(|d| d["kind"].as_str() == Some("callee"))
+        .count();
+    let total_impact = fan_in + fan_out + indirect_impact.len();
+
+    let (risk_level, risk_reasons) = if target_candidates.is_empty() {
+        (
+            "low".to_string(),
+            vec!["symbol not found in graph, cannot assess impact".to_string()],
+        )
+    } else if action == "delete" && total_impact > 5 {
+        (
+            "high".to_string(),
+            vec![
+                format!(
+                    "delete action with {} direct and {} indirect impacts",
+                    fan_in + fan_out,
+                    indirect_impact.len()
+                ),
+                "high fan-in/fan-out increases risk".to_string(),
+            ],
+        )
+    } else if action == "delete" && total_impact > 0 {
+        (
+            "medium".to_string(),
+            vec![format!(
+                "delete action affects {} direct callers/callees",
+                fan_in + fan_out
+            )],
+        )
+    } else if action == "rename" && total_impact > 3 {
+        (
+            "medium".to_string(),
+            vec![format!("rename affects {} references", total_impact)],
+        )
+    } else if total_impact > 0 {
+        (
+            "low".to_string(),
+            vec![format!(
+                "modify action with {} direct impacts",
+                fan_in + fan_out
+            )],
+        )
+    } else {
+        (
+            "low".to_string(),
+            vec!["no direct or indirect impacts detected in static graph".to_string()],
+        )
+    };
+
+    let risk = json!({
+        "level": risk_level,
+        "reasons": risk_reasons,
+        "staticOnly": true,
+        "fanIn": fan_in,
+        "fanOut": fan_out,
+        "indirectCount": indirect_impact.len()
+    });
+
+    let mut safe_alts = Vec::new();
+    if action == "delete" || action == "rename" {
+        safe_alts.push(json!({"suggestion": "Add a compatibility wrapper before removing the original", "priority": "high"}));
+        safe_alts.push(
+            json!({"suggestion": "Keep old symbol as deprecated alias", "priority": "medium"}),
+        );
+        safe_alts.push(
+            json!({"suggestion": "Update all call sites first, then remove", "priority": "high"}),
+        );
+    }
+    safe_alts.push(json!({"suggestion": format!("Use codelattice_symbol(mode=call_chains, query=\"{}\") to verify chain before changing", target_query), "priority": "medium"}));
+
+    let mut tests = Vec::new();
+    if !target_candidates.is_empty() {
+        tests.push(
+            json!({"suggestion": "Run existing tests for affected modules", "automated": false}),
+        );
+        if fan_in > 0 {
+            tests.push(json!({"suggestion": format!("Add integration tests for {} caller(s)", fan_in), "automated": false}));
+        }
+    }
+
+    next_actions.push(json!({
+        "tool": "codelattice_symbol",
+        "mode": "call_chains",
+        "why": format!("Trace full call chains for '{}'", target_query),
+        "arguments": {"query": target_query, "language": language}
+    }));
+    next_actions.push(json!({
+        "tool": "codelattice_change_review",
+        "mode": "impact",
+        "why": "Get detailed impact analysis",
+        "arguments": {"symbol": target_query, "language": language}
+    }));
+
+    (
+        change_intent,
+        target_candidates,
+        direct_impact,
+        indirect_impact,
+        risk,
+        safe_alts,
+        tests,
+        read_first,
+        missing,
+        next_actions,
+    )
 }

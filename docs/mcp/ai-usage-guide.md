@@ -104,6 +104,29 @@ codelattice_symbol(mode=call_chains, query="mission_loop")
 codelattice_change_review(mode=impact, symbol="mission_loop")
 ```
 
+### Whatif / Pre-Edit Change Preview
+
+Before making changes, use `whatif` to preview impact without actually modifying code:
+
+```
+codelattice_change_review(mode=whatif, change="删除 helper 函数", root="/path/to/project", language="rust")
+```
+
+Or via ask:
+```
+codelattice_workflow(mode=ask, question="如果删除 helper 会影响什么")
+```
+
+Whatif returns `codelattice.whatIf.v1` with:
+- `targetCandidates` — symbols matching the change target
+- `directImpact` — direct callers/callees affected
+- `indirectImpact` — transitive dependencies
+- `risk` — level (low/medium/high/critical) with reasons
+- `safeAlternatives` — suggested safer approaches
+- `testsToRun` — recommended test validation steps
+
+All whatif results are static-only. `targetCodeExecuted=false` means CodeLattice did not run or build the target project.
+
 ### Compact Payloads
 
 Use `compact=true` by default when asking for orientation, call chains, or issue triage. Compact facade responses intentionally keep `rootDiagnosis` small: they include `sourceOnlySummary` and at most five `sourceOnlyEntryPreview` items, but omit full `sourceOnlyEntries`.

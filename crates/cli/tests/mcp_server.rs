@@ -14616,3 +14616,229 @@ fn mcp_workflow_ask_v2_locate_issue_embeds_static_triage_plan() {
         "ask orchestration should show project diagnosis was executed: {data:?}"
     );
 }
+
+#[test]
+fn mcp_workflow_ask_explain_flow_has_read_order_and_files() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99030,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 的执行流程是什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    let steps = data["orchestration"]["stepsAttempted"].as_array();
+    assert!(
+        steps.is_some_and(|s| s
+            .iter()
+            .any(|step| step.as_str() == Some("call_chains:executed"))),
+        "stepsAttempted should contain call_chains:executed: {:?}",
+        steps
+    );
+    let ro = data["readOrder"].as_array();
+    assert!(
+        ro.is_some_and(|a| !a.is_empty()),
+        "readOrder should be non-empty"
+    );
+    let fi = data["filesInvolved"].as_array();
+    assert!(
+        fi.is_some_and(|a| !a.is_empty()),
+        "filesInvolved should be non-empty"
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_locate_issue_has_triage_plan() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99031,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 函数报错怎么定位"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("locate_issue"));
+    let tp = data["triagePlan"].as_object();
+    assert!(tp.is_some(), "triagePlan should exist");
+    let ro = data["triagePlan"]["readFirst"].as_array();
+    assert!(
+        ro.is_some_and(|a| !a.is_empty()),
+        "triagePlan.readFirst should be non-empty"
+    );
+    let eg = data["triagePlan"]["evidenceGaps"].as_array();
+    assert!(
+        eg.is_some_and(|a| !a.is_empty()),
+        "triagePlan.evidenceGaps should be non-empty"
+    );
+    let steps = data["orchestration"]["stepsAttempted"].as_array();
+    assert!(
+        steps.is_some_and(|s| s
+            .iter()
+            .any(|step| step.as_str() == Some("project_diagnose:executed"))),
+        "stepsAttempted should contain project_diagnose:executed: {:?}",
+        steps
+    );
+}
+
+#[test]
+fn mcp_change_review_whatif_delete_helper() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99032,
+        "codelattice_change_review",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "whatif",
+            "change": "删除 helper 函数"
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.whatIf.v1"),
+        "schema: {:?}",
+        data["schemaVersion"]
+    );
+    let tc = data["targetCandidates"].as_array();
+    assert!(
+        tc.is_some_and(|a| !a.is_empty()),
+        "targetCandidates should be non-empty"
+    );
+    let di = data["directImpact"].as_array();
+    let ii = data["indirectImpact"].as_array();
+    assert!(
+        di.is_some_and(|a| !a.is_empty()) || ii.is_some_and(|a| !a.is_empty()),
+        "at least one of directImpact/indirectImpact should be non-empty"
+    );
+    let risk = data["risk"]["level"].as_str();
+    assert!(
+        risk == Some("low")
+            || risk == Some("medium")
+            || risk == Some("high")
+            || risk == Some("critical"),
+        "risk.level should exist: {:?}",
+        risk
+    );
+    let sa = data["safeAlternatives"].as_array();
+    assert!(
+        sa.is_some_and(|a| !a.is_empty()),
+        "safeAlternatives should be non-empty"
+    );
+    assert_eq!(data["analysisSemantics"]["targetCodeExecuted"], false);
+}
+
+#[test]
+fn mcp_workflow_ask_before_edit_routes_to_whatif() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99033,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "如果删除 helper 会影响什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    let intent = data["intent"].as_str().unwrap_or("");
+    assert!(
+        intent == "before_edit" || intent == "whatif",
+        "intent should be before_edit or whatif: {:?}",
+        intent
+    );
+    let wi = data.get("whatIf");
+    assert!(
+        wi.is_some(),
+        "whatIf field should exist: keys={:?}",
+        data.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+    let next = data["recommendedNextCalls"].as_array();
+    assert!(
+        next.is_some_and(|a| a
+            .iter()
+            .any(|n| n["tool"].as_str() == Some("codelattice_change_review"))),
+        "recommendedNextCalls should include codelattice_change_review"
+    );
+}
+
+#[test]
+fn mcp_change_review_whatif_missing_symbol() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99034,
+        "codelattice_change_review",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "whatif",
+            "change": "删除 nonexistent_xyz_symbol"
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.whatIf.v1")
+    );
+    let tc = data["targetCandidates"].as_array();
+    assert!(
+        tc.is_some_and(|a| a.is_empty()),
+        "targetCandidates should be empty"
+    );
+    let me = data["missingEvidence"].as_array();
+    assert!(
+        me.is_some_and(|a| a
+            .iter()
+            .any(|m| m["kind"].as_str() == Some("symbol_not_found"))),
+        "missingEvidence should contain symbol_not_found"
+    );
+    let risk = data["risk"]["level"].as_str().unwrap_or("");
+    assert_ne!(
+        risk, "critical",
+        "risk should not be critical for missing symbol, got: {}",
+        risk
+    );
+}
+
+#[test]
+fn mcp_toolset_unchanged_after_whatif() {
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({"jsonrpc":"2.0","id":99035,"method":"tools/list","params":{}}));
+    let resp = s.recv();
+    let tools = resp["result"]["tools"].as_array().expect("tools array");
+    assert_eq!(tools.len(), 6, "default AI toolset must be 6");
+    let mut s2 = McpSession::start_default_toolset();
+    s2.initialize();
+    s2.send_notification_initialized();
+    s2.send(&serde_json::json!({"jsonrpc":"2.0","id":99036,"method":"tools/list","params":{}}));
+    let _ = s2.recv();
+}
