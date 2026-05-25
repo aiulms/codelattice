@@ -20584,6 +20584,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 read_first,
                 missing,
                 next_actions,
+                action_plan,
             ) = build_whatif_result(root, language, &change, &symbol_param, &file_param, &action);
 
             let result_body = json!({
@@ -20597,6 +20598,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 "testsToRun": tests,
                 "readFirst": read_first,
                 "missingEvidence": missing,
+                "actionPlan": action_plan,
                 "recommendedNextCalls": next_actions,
                 "analysisSemantics": {
                     "staticAnalysisExecuted": true,
@@ -21785,6 +21787,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             files_involved,
             read_order,
             triage_plan,
+            project_digest,
             orchestration,
             next_actions,
             _ai_guidance,
@@ -21793,7 +21796,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let what_if = if intent == "before_edit" || intent == "whatif" {
             let query = target_query.as_ref().unwrap_or(&String::new()).clone();
             if !root.is_empty() && !query.is_empty() {
-                let (ci, tc, di, ii, risk, sa, tests, rf, me, _na) =
+                let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, _ap) =
                     build_whatif_result(root, language, &question, &query, "", "");
                 json!({
                     "schemaVersion": "codelattice.whatIf.v1",
@@ -21829,7 +21832,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "orchestration": orchestration,
             "callChains": call_chains,
             "readOrder": read_order,
-            "projectDigest": if intent == "inspect_project" { triage_plan.clone() } else { Value::Null },
+            "projectDigest": project_digest,
             "triagePlan": triage_plan,
             "whatIf": what_if,
             "filesInvolved": files_involved,
@@ -23160,6 +23163,7 @@ fn route_ask_intent(
     Vec<Value>,
     serde_json::Value,
     serde_json::Value,
+    serde_json::Value,
     Vec<Value>,
     String,
 ) {
@@ -23228,6 +23232,7 @@ fn route_ask_intent(
     let mut files_involved = Vec::new();
     let mut read_order_out = Vec::new();
     let mut triage_plan = Value::Null;
+    let mut project_digest = Value::Null;
     let mut orchestration = json!({"stepsAttempted": [], "stepsSkipped": []});
 
     if flow_keywords.iter().any(|k| q.contains(k)) {
@@ -23347,7 +23352,7 @@ fn route_ask_intent(
                         "Project at {} ({}): {} source files, {} symbols, {} CALLS edges. Static analysis only.",
                         root, language, source_files.len(), symbol_count, calls_count
                     );
-                    triage_plan = json!({
+                    project_digest = json!({
                         "sourceFileCount": source_files.len(),
                         "symbolCount": symbol_count,
                         "callsEdgeCount": calls_count,
@@ -23409,7 +23414,7 @@ fn route_ask_intent(
         };
         orchestration["stepsAttempted"] = json!(["intent-classification:before_edit"]);
         if !root.is_empty() && !query.is_empty() {
-            let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na) =
+            let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na, _ap) =
                 build_whatif_result(root, language, &question, &query, "", "");
             answer_summary = if !tc.is_empty() {
                 format!(
@@ -23648,6 +23653,7 @@ fn route_ask_intent(
         files_involved,
         read_order_out,
         triage_plan,
+        project_digest,
         orchestration,
         next_actions,
         ai_guidance,
@@ -23704,6 +23710,7 @@ fn build_whatif_result(
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
     serde_json::Value,
+    Vec<serde_json::Value>,
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
     Vec<serde_json::Value>,
@@ -23935,6 +23942,54 @@ fn build_whatif_result(
         "arguments": {"symbol": target_query, "language": language, "root": root}
     }));
 
+    let mut action_plan = Vec::new();
+    if !read_first.is_empty() {
+        action_plan.push(json!({
+            "action": "readFirst",
+            "target": read_first.first().and_then(|r| r.get("path")).and_then(|p| p.as_str()).unwrap_or(""),
+            "reason": "Read the primary target file before making changes",
+            "confidence": 0.80,
+            "staticOnly": true
+        }));
+    }
+    if !direct_impact.is_empty() {
+        action_plan.push(json!({
+            "action": "checkCallers",
+            "target": direct_impact.iter().filter(|d| d["kind"].as_str() == Some("caller")).take(3).filter_map(|d| d["name"].as_str()).collect::<Vec<_>>().join(", "),
+            "reason": format!("{} direct caller(s) will break", direct_impact.iter().filter(|d| d["kind"].as_str() == Some("caller")).count()),
+            "confidence": 0.70,
+            "staticOnly": true
+        }));
+    }
+    if !safe_alts.is_empty() {
+        action_plan.push(json!({
+            "action": "safeAlternative",
+            "target": safe_alts.first().and_then(|s| s["suggestion"].as_str()).unwrap_or(""),
+            "reason": "Safest approach to minimize risk",
+            "confidence": 0.60,
+            "staticOnly": true
+        }));
+    }
+    if !tests.is_empty() {
+        action_plan.push(json!({
+            "action": "testsToRun",
+            "target": tests.first().and_then(|t| t["suggestion"].as_str()).unwrap_or(""),
+            "reason": "Verify change with tests before and after",
+            "confidence": 0.50,
+            "staticOnly": true
+        }));
+    }
+    if !indirect_impact.is_empty() {
+        action_plan.push(json!({
+            "action": "followUpImpact",
+            "target": format!("{} indirect dependencies", indirect_impact.len()),
+            "reason": "Transitive impact may propagate further",
+            "confidence": 0.40,
+            "staticOnly": true
+        }));
+    }
+    let action_plan_compact: Vec<Value> = action_plan.into_iter().take(5).collect();
+
     (
         change_intent,
         target_candidates,
@@ -23946,5 +24001,6 @@ fn build_whatif_result(
         read_first,
         missing,
         next_actions,
+        action_plan_compact,
     )
 }
