@@ -21845,6 +21845,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             triage_plan,
             project_digest,
             orchestration,
+            auto_job,
             next_actions,
             _ai_guidance,
         ) = route_ask_intent(cache, root, language, &question, ask_compact, ask_execute);
@@ -21898,6 +21899,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "targetQuery": target_query,
             "answerSummary": answer_summary,
             "orchestration": orchestration,
+            "job": auto_job,
             "callChains": call_chains,
             "readOrder": read_order,
             "projectDigest": project_digest,
@@ -22761,6 +22763,77 @@ fn ask_large_project_next_actions(
     actions
 }
 
+fn ask_submit_auto_job(root: &str, language: &str) -> Value {
+    match crate::mcp_job::submit_project_job(root, language, "parallel") {
+        Ok(job_response) => {
+            let job_id = job_response
+                .get("jobId")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let status = job_response
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            json!({
+                "submitted": true,
+                "jobId": job_id,
+                "status": status,
+                "detailPageHint": format!("codelattice_project(mode=job_detail, jobId={}, page=0, pageSize=50)", job_id)
+            })
+        }
+        Err(e) => json!({
+            "submitted": false,
+            "error": e,
+            "fallback": "Use codelattice_project(mode=job) manually"
+        }),
+    }
+}
+
+fn ask_job_next_actions(
+    root: &str,
+    language: &str,
+    job: &Value,
+    query: Option<&str>,
+    question: &str,
+) -> Vec<Value> {
+    let mut actions = Vec::new();
+    if job["submitted"].as_bool().unwrap_or(false) {
+        let job_id = job["jobId"].as_str().unwrap_or("");
+        actions.push(json!({
+            "tool": "codelattice_project",
+            "mode": "job_status",
+            "why": "Check auto-submitted job status",
+            "arguments": {"jobId": job_id}
+        }));
+        actions.push(json!({
+            "tool": "codelattice_project",
+            "mode": "job_detail",
+            "why": "Page through the auto-submitted job results",
+            "arguments": {"jobId": job_id, "page": 0, "pageSize": 50}
+        }));
+    } else {
+        actions.push(json!({
+            "tool": "codelattice_project",
+            "mode": "job",
+            "why": "Auto-job submission failed; submit manually",
+            "arguments": {"root": root, "language": language, "compact": true, "parallel": true}
+        }));
+    }
+    if let Some(q) = query {
+        if !q.is_empty() {
+            actions.push(json!({
+                "tool": "codelattice_symbol",
+                "mode": "call_chains",
+                "why": format!("Trace call chains for '{}' after job completes", q),
+                "arguments": {"query": q, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
+            }));
+        }
+    }
+    actions
+}
+
 fn build_large_project_digest(
     root: &str,
     language: &str,
@@ -23421,6 +23494,7 @@ fn route_ask_intent(
     serde_json::Value,
     serde_json::Value,
     serde_json::Value,
+    serde_json::Value,
     Vec<Value>,
     String,
 ) {
@@ -23491,6 +23565,7 @@ fn route_ask_intent(
     let mut triage_plan = Value::Null;
     let mut project_digest = Value::Null;
     let mut orchestration = json!({"stepsAttempted": [], "stepsSkipped": []});
+    let mut auto_job = Value::Null;
 
     if flow_keywords.iter().any(|k| q.contains(k)) {
         intent = "explain_flow".to_string();
@@ -23517,8 +23592,9 @@ fn route_ask_intent(
                     "kind": "large_project_deferred",
                     "explanation": "Synchronous call-chain traversal skipped full graph analysis to avoid blocking MCP."
                 }));
+                auto_job = ask_submit_auto_job(root, language);
                 next_actions =
-                    ask_large_project_next_actions(root, language, Some(&query), question);
+                    ask_job_next_actions(root, language, &auto_job, Some(&query), question);
                 orchestration["stepsSkipped"] = json!(["call_chains:deferred_large_project"]);
                 orchestration["resultsSummary"] = json!({
                     "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
@@ -23620,7 +23696,8 @@ fn route_ask_intent(
                     "kind": "full_graph_deferred",
                     "explanation": "Large project ask uses lightweight discovery; run codelattice_project(mode=job) for complete graph details."
                 }));
-                next_actions = ask_large_project_next_actions(root, language, None, question);
+                auto_job = ask_submit_auto_job(root, language);
+                next_actions = ask_job_next_actions(root, language, &auto_job, None, question);
             } else {
                 let root_path = Path::new(root);
                 let analyze_result = run_rust_analysis_if_available(root_path, language);
@@ -23771,12 +23848,9 @@ fn route_ask_intent(
                     .as_array()
                     .cloned()
                     .unwrap_or_default();
-                next_actions = deferred["recommendedNextCalls"]
-                    .as_array()
-                    .cloned()
-                    .unwrap_or_else(|| {
-                        ask_large_project_next_actions(root, language, Some(&query), question)
-                    });
+                auto_job = ask_submit_auto_job(root, language);
+                next_actions =
+                    ask_job_next_actions(root, language, &auto_job, Some(&query), question);
             } else {
                 let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na, _ap) =
                     build_whatif_result(root, language, &question, &query, "", "");
@@ -23911,6 +23985,9 @@ fn route_ask_intent(
             orchestration["resultsSummary"] = json!({
                 "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
             });
+            auto_job = ask_submit_auto_job(root, language);
+            next_actions =
+                ask_job_next_actions(root, language, &auto_job, target_query.as_deref(), question);
         } else if !root.is_empty() && !query.is_empty() {
             let root_path = Path::new(root);
             let (_, chains, _, me, _, ro, fi, _, _, _) =
@@ -24067,6 +24144,7 @@ fn route_ask_intent(
         triage_plan,
         project_digest,
         orchestration,
+        auto_job,
         next_actions,
         ai_guidance,
     )

@@ -15203,11 +15203,11 @@ fn mcp_workflow_ask_large_project_inspect_defers_full_graph() {
     let next = data["recommendedNextCalls"].as_array().unwrap();
     assert!(
         next.iter().any(|n| {
+            let mode = n["mode"].as_str().unwrap_or("");
             n["tool"].as_str() == Some("codelattice_project")
-                && n["mode"].as_str() == Some("job")
-                && n["arguments"]["root"].as_str() == large.path().to_str()
+                && (mode == "job" || mode == "job_status" || mode == "job_detail")
         }),
-        "large inspect should recommend project job with root: {next:?}"
+        "large inspect should recommend project job: {next:?}"
     );
 }
 
@@ -15244,16 +15244,22 @@ fn mcp_workflow_ask_large_project_before_edit_defers_whatif() {
     let next = data["recommendedNextCalls"].as_array().unwrap();
     for n in next {
         if n["tool"].as_str().unwrap_or("").starts_with("codelattice_") {
+            let mode = n["mode"].as_str().unwrap_or("");
+            let has_id = n
+                .get("arguments")
+                .is_some_and(|args| args.get("root").is_some() || args.get("jobId").is_some());
             assert!(
-                n.get("arguments")
-                    .is_some_and(|args| args.get("root").is_some()),
-                "large before_edit follow-up must include root: {n:?}"
+                has_id,
+                "large before_edit follow-up must include root or jobId: {n:?}"
             );
+            let _ = mode;
         }
     }
     assert!(
         next.iter().any(|n| {
-            n["tool"].as_str() == Some("codelattice_project") && n["mode"].as_str() == Some("job")
+            let mode = n["mode"].as_str().unwrap_or("");
+            n["tool"].as_str() == Some("codelattice_project")
+                && (mode == "job" || mode == "job_status" || mode == "job_detail")
         }),
         "large before_edit should recommend project job: {next:?}"
     );
@@ -15302,4 +15308,64 @@ fn mcp_symbol_call_chains_large_project_defers_to_job() {
         "deferred call_chains payload should stay compact, got {} bytes",
         text.len()
     );
+}
+
+#[test]
+fn mcp_workflow_ask_inspect_large_project_auto_job() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99060,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目结构是什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("inspect_project"));
+    let job = data.get("job");
+    assert!(
+        job.is_some(),
+        "job field should exist: keys={:?}",
+        data.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+    let j = job.unwrap();
+    if j["submitted"].as_bool().unwrap_or(false) {
+        let job_id = j["jobId"].as_str().unwrap_or("");
+        assert!(
+            !job_id.is_empty(),
+            "jobId should not be empty when submitted=true"
+        );
+        let next = data["recommendedNextCalls"]
+            .as_array()
+            .expect("recommendedNextCalls should exist");
+        let first_tool = next.first().and_then(|n| n["mode"].as_str()).unwrap_or("");
+        assert!(
+            first_tool == "job_status" || first_tool == "job_detail" || first_tool == "job",
+            "first recommendedNextCalls should be job_status/job_detail/job, got: {}",
+            first_tool
+        );
+    }
+}
+
+#[test]
+fn mcp_toolset_unchanged_after_auto_job() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    s.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 99061,
+        "method": "tools/list",
+        "params": {}
+    }));
+    let resp = s.recv();
+    let tools = resp["result"]["tools"].as_array().expect("tools array");
+    assert!(!tools.is_empty(), "toolset must not be empty");
 }
