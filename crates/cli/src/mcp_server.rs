@@ -20200,6 +20200,44 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                 .to_string();
             let root_path = PathBuf::from(root);
 
+            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+                let result_body = json!({
+                    "schemaVersion": "codelattice.callChains.v1",
+                    "target": query,
+                    "candidates": [],
+                    "callChains": [],
+                    "readFirst": sample_files.iter().take(5).map(|path| json!({
+                        "kind": "source-sample",
+                        "path": path,
+                        "reason": "large project sample; run job analysis for complete call-chain evidence"
+                    })).collect::<Vec<_>>(),
+                    "readOrder": [],
+                    "filesInvolved": sample_files,
+                    "entryPoints": [],
+                    "exitPoints": [],
+                    "chainSummary": format!("Call-chain traversal deferred for large project with {} source files.", file_count),
+                    "ambiguity": "",
+                    "missingEvidence": [{
+                        "kind": "large_project_deferred",
+                        "explanation": "Synchronous call_chains skipped full graph analysis to avoid blocking MCP."
+                    }],
+                    "generatedFrom": "large-project-deferred-static-discovery",
+                    "analysisSemantics": {
+                        "staticAnalysis": true,
+                        "targetCodeExecuted": false,
+                        "runtimeVerified": false,
+                        "scriptsExecuted": false
+                    },
+                    "nextActions": ask_large_project_next_actions(root, language, if query.is_empty() { None } else { Some(&query) }, "call_chains"),
+                    "detailHint": "Use codelattice_project(mode=job), then job_detail pages, before asking for deep call chains on this large project."
+                });
+                let content_text = serde_json::to_string_pretty(&result_body)
+                    .unwrap_or_else(|_| result_body.to_string());
+                return Ok(json!({
+                    "content": [{"type": "text", "text": content_text}],
+                }));
+            }
+
             let (
                 candidates,
                 call_chains,
@@ -20573,6 +20611,24 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             let symbol_param = params["symbol"].as_str().unwrap_or("").to_string();
             let file_param = params["file"].as_str().unwrap_or("").to_string();
             let action = params["action"].as_str().unwrap_or("").to_string();
+            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+                let query = if !symbol_param.is_empty() {
+                    symbol_param.clone()
+                } else {
+                    extract_symbol_from_question(&change)
+                };
+                let result_body = build_deferred_whatif_value(
+                    root,
+                    language,
+                    &change,
+                    &query,
+                    file_count,
+                    &sample_files,
+                );
+                let content_text = serde_json::to_string_pretty(&result_body)
+                    .unwrap_or_else(|_| result_body.to_string());
+                return Ok(json!({"content": [{"type": "text", "text": content_text}]}));
+            }
             let (
                 change_intent,
                 target_candidates,
@@ -21796,27 +21852,38 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let what_if = if intent == "before_edit" || intent == "whatif" {
             let query = target_query.as_ref().unwrap_or(&String::new()).clone();
             if !root.is_empty() && !query.is_empty() {
-                let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, ap) =
-                    build_whatif_result(root, language, &question, &query, "", "");
-                json!({
-                    "schemaVersion": "codelattice.whatIf.v1",
-                    "changeIntent": ci,
-                    "targetCandidates": tc,
-                    "directImpact": di,
-                    "indirectImpact": ii.into_iter().take(5).collect::<Vec<_>>(),
-                    "risk": risk,
-                    "safeAlternatives": sa,
-                    "testsToRun": tests,
-                    "readFirst": rf,
-                    "evidenceGaps": me,
-                    "actionPlan": ap,
-                    "analysisSemantics": {
-                        "staticAnalysisExecuted": true,
-                        "targetCodeExecuted": false,
-                        "runtimeVerified": false,
-                        "scriptsExecuted": false
-                    }
-                })
+                if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+                    build_deferred_whatif_value(
+                        root,
+                        language,
+                        &question,
+                        &query,
+                        file_count,
+                        &sample_files,
+                    )
+                } else {
+                    let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, ap) =
+                        build_whatif_result(root, language, &question, &query, "", "");
+                    json!({
+                        "schemaVersion": "codelattice.whatIf.v1",
+                        "changeIntent": ci,
+                        "targetCandidates": tc,
+                        "directImpact": di,
+                        "indirectImpact": ii.into_iter().take(5).collect::<Vec<_>>(),
+                        "risk": risk,
+                        "safeAlternatives": sa,
+                        "testsToRun": tests,
+                        "readFirst": rf,
+                        "evidenceGaps": me,
+                        "actionPlan": ap,
+                        "analysisSemantics": {
+                            "staticAnalysisExecuted": true,
+                            "targetCodeExecuted": false,
+                            "runtimeVerified": false,
+                            "scriptsExecuted": false
+                        }
+                    })
+                }
             } else {
                 Value::Null
             }
@@ -22619,6 +22686,195 @@ fn run_rust_analysis_if_available(root: &Path, language: &str) -> Option<Value> 
     run_analyze_subprocess(root, lang, "json", false).ok()
 }
 
+const ASK_SYNC_FILE_LIMIT: usize = 80;
+
+fn ask_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<String>)> {
+    if root.is_empty() {
+        return None;
+    }
+    let lang = if language == "auto" { "rust" } else { language };
+    let adapter = crate::engine_bridge::get_adapter_for_language(lang)?;
+    let files = adapter.discover_files(root).ok()?;
+    let file_count = files.len();
+    if file_count <= ASK_SYNC_FILE_LIMIT {
+        return None;
+    }
+
+    let root_path = Path::new(root);
+    let sample_files = files
+        .into_iter()
+        .take(8)
+        .map(|unit| {
+            let path = Path::new(&unit.path);
+            path.strip_prefix(root_path)
+                .unwrap_or(path)
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+    Some((file_count, sample_files))
+}
+
+fn ask_large_project_next_actions(
+    root: &str,
+    language: &str,
+    query: Option<&str>,
+    question: &str,
+) -> Vec<Value> {
+    let mut actions = vec![
+        json!({
+            "tool": "codelattice_project",
+            "mode": "job",
+            "why": "Run non-blocking Analysis Engine job for this large project",
+            "arguments": {"root": root, "language": language, "compact": true, "parallel": true}
+        }),
+        json!({
+            "tool": "codelattice_project",
+            "mode": "job_detail",
+            "why": "Page through the completed large-project analysis job",
+            "arguments": {"root": root, "language": language, "jobId": "<jobId from mode=job>", "page": 0, "pageSize": 50}
+        }),
+    ];
+
+    if let Some(symbol) = query.filter(|q| !q.is_empty()) {
+        actions.push(json!({
+            "tool": "codelattice_symbol",
+            "mode": "call_chains",
+            "why": format!("Trace '{}' after the project graph is available", symbol),
+            "arguments": {"root": root, "language": language, "query": symbol, "direction": "both", "maxDepth": 4, "compact": true}
+        }));
+        actions.push(json!({
+            "tool": "codelattice_change_review",
+            "mode": "impact",
+            "why": format!("Assess focused impact for '{}'", symbol),
+            "arguments": {"root": root, "language": language, "symbol": symbol, "compact": true}
+        }));
+    } else {
+        actions.push(json!({
+            "tool": "codelattice_workflow",
+            "mode": "ask",
+            "why": "Ask again with a specific symbol or file after orientation",
+            "arguments": {"root": root, "language": language, "question": question, "compact": true}
+        }));
+    }
+
+    actions
+}
+
+fn build_large_project_digest(
+    root: &str,
+    language: &str,
+    file_count: usize,
+    sample_files: &[String],
+) -> Value {
+    json!({
+        "root": root,
+        "language": language,
+        "sourceFileCount": file_count,
+        "symbolCount": Value::Null,
+        "callsEdgeCount": Value::Null,
+        "topFiles": sample_files.iter().map(|path| json!({
+            "path": path,
+            "kind": "source-file-sample"
+        })).collect::<Vec<_>>(),
+        "analysisDeferred": true,
+        "deferReason": "large_project",
+        "recommendedMode": "job",
+        "staticOnly": true,
+        "targetCodeExecuted": false
+    })
+}
+
+fn build_deferred_whatif_value(
+    root: &str,
+    language: &str,
+    change: &str,
+    query: &str,
+    file_count: usize,
+    sample_files: &[String],
+) -> Value {
+    let read_first = sample_files
+        .iter()
+        .take(3)
+        .map(|path| {
+            json!({
+                "kind": "source-sample",
+                "path": path,
+                "reason": "large project sample; run job_detail for complete graph evidence"
+            })
+        })
+        .collect::<Vec<_>>();
+    let mut action_plan = vec![
+        json!({
+            "action": "runJob",
+            "target": root,
+            "reason": format!("Large project has {} source files; synchronous whatif was deferred to avoid blocking MCP", file_count),
+            "confidence": 0.90,
+            "staticOnly": true
+        }),
+        json!({
+            "action": "readFirst",
+            "target": sample_files.first().cloned().unwrap_or_default(),
+            "reason": "Start with sampled project files while the job result is paged",
+            "confidence": 0.45,
+            "staticOnly": true
+        }),
+    ];
+    if !query.is_empty() {
+        action_plan.push(json!({
+            "action": "followUpImpact",
+            "target": query,
+            "reason": "Run focused impact/call-chain review after job graph is available",
+            "confidence": 0.60,
+            "staticOnly": true
+        }));
+    }
+
+    json!({
+        "schemaVersion": "codelattice.whatIf.v1",
+        "changeIntent": {
+            "rawChange": change,
+            "action": if change.contains("删除") || change.to_lowercase().contains("delete") { "delete" } else { "modify" },
+            "targetQuery": query,
+            "targetFile": "",
+            "confidence": if query.is_empty() { 0.0 } else { 0.55 }
+        },
+        "targetCandidates": [],
+        "directImpact": [],
+        "indirectImpact": [],
+        "risk": {
+            "level": "unknown",
+            "reasons": ["large project whatif deferred; run codelattice_project mode=job before trusting impact"],
+            "staticOnly": true,
+            "fanIn": Value::Null,
+            "fanOut": Value::Null,
+            "indirectCount": Value::Null
+        },
+        "safeAlternatives": [
+            {"suggestion": "Run non-blocking job analysis before editing this large project", "priority": "high"},
+            {"suggestion": "Prefer compatibility wrapper or incremental migration until impact is verified", "priority": "medium"}
+        ],
+        "testsToRun": [
+            {"suggestion": "Run targeted tests for affected modules after static job review", "automated": false}
+        ],
+        "readFirst": read_first,
+        "evidenceGaps": [
+            {
+                "kind": "large_project_deferred",
+                "explanation": format!("Synchronous ask/whatif skipped full graph analysis for {} files.", file_count)
+            }
+        ],
+        "actionPlan": action_plan.into_iter().take(5).collect::<Vec<_>>(),
+        "recommendedNextCalls": ask_large_project_next_actions(root, language, if query.is_empty() { None } else { Some(query) }, change),
+        "analysisSemantics": {
+            "staticAnalysisExecuted": true,
+            "targetCodeExecuted": false,
+            "runtimeVerified": false,
+            "scriptsExecuted": false
+        }
+    })
+}
+
 fn build_call_chains_result(
     root: &Path,
     language: &str,
@@ -23246,41 +23502,64 @@ fn route_ask_intent(
         };
         orchestration["stepsAttempted"] = json!(["intent-classification:explain_flow"]);
         if !root.is_empty() && !query.is_empty() {
-            let root_path = Path::new(root);
-            let (candidates, chains, rf, me, na, ro, fi, _, _, _) =
-                build_call_chains_result(root_path, language, &query, "both", 4, 8);
-            call_chains = chains;
-            read_first = rf;
-            missing_evidence = me;
-            next_actions = na;
-            next_actions.push(json!({
-                "tool": "codelattice_symbol",
-                "mode": "call_chains",
-                "why": format!("Get full call chains for '{}'", query),
-                "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-            }));
-            read_order_out = ro;
-            files_involved = fi;
-            orchestration["stepsAttempted"] =
-                json!(["intent-classification:explain_flow", "call_chains:executed"]);
-            if !candidates.is_empty() {
+            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
                 answer_summary = format!(
-                    "Found {} candidates and {} call chains for '{}'.",
-                    candidates.len(),
-                    call_chains.len(),
-                    query
+                    "Call-chain ask for '{}' deferred: project has {} source files. Start a non-blocking job first.",
+                    query, file_count
                 );
-                evidence.push(json!({
-                    "kind": "candidates_found",
-                    "count": candidates.len(),
-                    "topCandidate": candidates[0]
-                }));
-            } else {
-                answer_summary = format!("No symbols matching '{}' found in the graph.", query);
+                files_involved = sample_files.iter().cloned().map(Value::String).collect();
+                read_order_out = sample_files
+                    .iter()
+                    .take(5)
+                    .map(|path| json!({"kind": "source-sample", "path": path, "reason": "large project sample"}))
+                    .collect();
                 missing_evidence.push(json!({
-                    "kind": "symbol_not_found",
-                    "explanation": format!("'{}' not found in static graph", query)
+                    "kind": "large_project_deferred",
+                    "explanation": "Synchronous call-chain traversal skipped full graph analysis to avoid blocking MCP."
                 }));
+                next_actions =
+                    ask_large_project_next_actions(root, language, Some(&query), question);
+                orchestration["stepsSkipped"] = json!(["call_chains:deferred_large_project"]);
+                orchestration["resultsSummary"] = json!({
+                    "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
+                });
+            } else {
+                let root_path = Path::new(root);
+                let (candidates, chains, rf, me, na, ro, fi, _, _, _) =
+                    build_call_chains_result(root_path, language, &query, "both", 4, 8);
+                call_chains = chains;
+                read_first = rf;
+                missing_evidence = me;
+                next_actions = na;
+                next_actions.push(json!({
+                    "tool": "codelattice_symbol",
+                    "mode": "call_chains",
+                    "why": format!("Get full call chains for '{}'", query),
+                    "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
+                }));
+                read_order_out = ro;
+                files_involved = fi;
+                orchestration["stepsAttempted"] =
+                    json!(["intent-classification:explain_flow", "call_chains:executed"]);
+                if !candidates.is_empty() {
+                    answer_summary = format!(
+                        "Found {} candidates and {} call chains for '{}'.",
+                        candidates.len(),
+                        call_chains.len(),
+                        query
+                    );
+                    evidence.push(json!({
+                        "kind": "candidates_found",
+                        "count": candidates.len(),
+                        "topCandidate": candidates[0]
+                    }));
+                } else {
+                    answer_summary = format!("No symbols matching '{}' found in the graph.", query);
+                    missing_evidence.push(json!({
+                        "kind": "symbol_not_found",
+                        "explanation": format!("'{}' not found in static graph", query)
+                    }));
+                }
             }
         } else {
             answer_summary =
@@ -23317,83 +23596,110 @@ fn route_ask_intent(
         intent = "inspect_project".to_string();
         orchestration["stepsAttempted"] = json!(["intent-classification:inspect_project"]);
         if !root.is_empty() {
-            let root_path = Path::new(root);
-            let analyze_result = run_rust_analysis_if_available(root_path, language);
-            match analyze_result {
-                Some(graph_data) => {
-                    let graph = graph_data.get("graph").unwrap_or(&Value::Null);
-                    let nodes = graph
-                        .get("nodes")
-                        .and_then(|n| n.as_array())
-                        .cloned()
-                        .unwrap_or_default();
-                    let edges = graph
-                        .get("edges")
-                        .and_then(|e| e.as_array())
-                        .cloned()
-                        .unwrap_or_default();
-                    let source_files: Vec<Value> = nodes.iter().filter(|n| {
-                        n.get("label").and_then(|l| l.as_str()) == Some("source-file")
-                            || n.get("kind").and_then(|k| k.as_str()) == Some("source-file")
-                    }).map(|n| json!({
-                        "path": n["properties"]["sourcePath"].as_str().unwrap_or(n["id"].as_str().unwrap_or("")),
-                        "kind": "source-file"
-                    })).take(10).collect();
-                    let symbol_count = nodes
-                        .iter()
-                        .filter(|n| {
-                            n.get("label").and_then(|l| l.as_str()) == Some("symbol")
-                                || n.get("kind").and_then(|k| k.as_str()) == Some("symbol")
-                        })
-                        .count();
-                    let calls_count = edges
-                        .iter()
-                        .filter(|e| {
-                            e.get("type").and_then(|t| t.as_str()) == Some("CALLS")
-                                || e.get("properties")
-                                    .and_then(|p| p.get("callKind"))
-                                    .is_some()
-                        })
-                        .count();
-                    answer_summary = format!(
-                        "Project at {} ({}): {} source files, {} symbols, {} CALLS edges. Static analysis only.",
-                        root, language, source_files.len(), symbol_count, calls_count
-                    );
-                    project_digest = json!({
-                        "sourceFileCount": source_files.len(),
-                        "symbolCount": symbol_count,
-                        "callsEdgeCount": calls_count,
-                        "topFiles": source_files,
-                        "staticOnly": true
-                    });
-                    orchestration["stepsAttempted"] = json!([
-                        "intent-classification:inspect_project",
-                        "project_quick:executed"
-                    ]);
-                    orchestration["resultsSummary"] = json!({
-                        "project_quick": format!("{} files, {} symbols, {} CALLS", source_files.len(), symbol_count, calls_count)
-                    });
-                    evidence.push(json!({
-                        "kind": "project_digest",
-                        "sourceFileCount": source_files.len(),
-                        "symbolCount": symbol_count,
-                        "callsEdgeCount": calls_count
-                    }));
-                    missing_evidence.push(json!({
-                        "kind": "runtime_verification",
-                        "explanation": "Project overview is static-only. No tests were run, no build was attempted."
-                    }));
-                }
-                None => {
-                    answer_summary = format!(
-                        "Project overview for {} ({}). Could not run analysis.",
-                        root, language
-                    );
-                    orchestration["stepsSkipped"] = json!(["project_quick:no_analysis_data"]);
-                    missing_evidence.push(json!({
-                        "kind": "no_graph_data",
-                        "explanation": "Could not run static analysis for this project."
-                    }));
+            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+                answer_summary = format!(
+                    "Large project at {} ({}): {} source files discovered. Full graph analysis is deferred to job mode.",
+                    root, language, file_count
+                );
+                project_digest =
+                    build_large_project_digest(root, language, file_count, &sample_files);
+                orchestration["stepsAttempted"] = json!([
+                    "intent-classification:inspect_project",
+                    "project_quick:lightweight"
+                ]);
+                orchestration["stepsSkipped"] = json!(["full_graph:deferred_large_project"]);
+                orchestration["resultsSummary"] = json!({
+                    "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
+                });
+                evidence.push(json!({
+                    "kind": "large_project_digest",
+                    "sourceFileCount": file_count,
+                    "analysisDeferred": true
+                }));
+                missing_evidence.push(json!({
+                    "kind": "full_graph_deferred",
+                    "explanation": "Large project ask uses lightweight discovery; run codelattice_project(mode=job) for complete graph details."
+                }));
+                next_actions = ask_large_project_next_actions(root, language, None, question);
+            } else {
+                let root_path = Path::new(root);
+                let analyze_result = run_rust_analysis_if_available(root_path, language);
+                match analyze_result {
+                    Some(graph_data) => {
+                        let graph = graph_data.get("graph").unwrap_or(&Value::Null);
+                        let nodes = graph
+                            .get("nodes")
+                            .and_then(|n| n.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        let edges = graph
+                            .get("edges")
+                            .and_then(|e| e.as_array())
+                            .cloned()
+                            .unwrap_or_default();
+                        let source_files: Vec<Value> = nodes.iter().filter(|n| {
+                            n.get("label").and_then(|l| l.as_str()) == Some("source-file")
+                                || n.get("kind").and_then(|k| k.as_str()) == Some("source-file")
+                        }).map(|n| json!({
+                            "path": n["properties"]["sourcePath"].as_str().unwrap_or(n["id"].as_str().unwrap_or("")),
+                            "kind": "source-file"
+                        })).take(10).collect();
+                        let symbol_count = nodes
+                            .iter()
+                            .filter(|n| {
+                                n.get("label").and_then(|l| l.as_str()) == Some("symbol")
+                                    || n.get("kind").and_then(|k| k.as_str()) == Some("symbol")
+                            })
+                            .count();
+                        let calls_count = edges
+                            .iter()
+                            .filter(|e| {
+                                e.get("type").and_then(|t| t.as_str()) == Some("CALLS")
+                                    || e.get("properties")
+                                        .and_then(|p| p.get("callKind"))
+                                        .is_some()
+                            })
+                            .count();
+                        answer_summary = format!(
+                            "Project at {} ({}): {} source files, {} symbols, {} CALLS edges. Static analysis only.",
+                            root, language, source_files.len(), symbol_count, calls_count
+                        );
+                        project_digest = json!({
+                            "sourceFileCount": source_files.len(),
+                            "symbolCount": symbol_count,
+                            "callsEdgeCount": calls_count,
+                            "topFiles": source_files,
+                            "staticOnly": true
+                        });
+                        orchestration["stepsAttempted"] = json!([
+                            "intent-classification:inspect_project",
+                            "project_quick:executed"
+                        ]);
+                        orchestration["resultsSummary"] = json!({
+                            "project_quick": format!("{} files, {} symbols, {} CALLS", source_files.len(), symbol_count, calls_count)
+                        });
+                        evidence.push(json!({
+                            "kind": "project_digest",
+                            "sourceFileCount": source_files.len(),
+                            "symbolCount": symbol_count,
+                            "callsEdgeCount": calls_count
+                        }));
+                        missing_evidence.push(json!({
+                            "kind": "runtime_verification",
+                            "explanation": "Project overview is static-only. No tests were run, no build was attempted."
+                        }));
+                    }
+                    None => {
+                        answer_summary = format!(
+                            "Project overview for {} ({}). Could not run analysis.",
+                            root, language
+                        );
+                        orchestration["stepsSkipped"] = json!(["project_quick:no_analysis_data"]);
+                        missing_evidence.push(json!({
+                            "kind": "no_graph_data",
+                            "explanation": "Could not run static analysis for this project."
+                        }));
+                    }
                 }
             }
             next_actions.push(json!({
@@ -23427,74 +23733,120 @@ fn route_ask_intent(
         };
         orchestration["stepsAttempted"] = json!(["intent-classification:before_edit"]);
         if !root.is_empty() && !query.is_empty() {
-            let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na, _ap) =
-                build_whatif_result(root, language, &question, &query, "", "");
-            answer_summary = if !tc.is_empty() {
-                format!(
-                    "Whatif preview for '{}': {} direct impacts, {} indirect. Risk: {}. {}",
-                    query,
-                    di.len(),
-                    ii.len(),
-                    risk["level"].as_str().unwrap_or("unknown"),
-                    risk["reasons"]
-                        .as_array()
-                        .map(|r| r
-                            .iter()
-                            .filter_map(|v| v.as_str())
-                            .collect::<Vec<_>>()
-                            .join("; "))
-                        .unwrap_or_default()
-                )
+            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+                let deferred = build_deferred_whatif_value(
+                    root,
+                    language,
+                    question,
+                    &query,
+                    file_count,
+                    &sample_files,
+                );
+                answer_summary = format!(
+                    "Whatif preview for '{}' deferred: project has {} source files. Use job mode before editing.",
+                    query, file_count
+                );
+                orchestration["stepsAttempted"] = json!([
+                    "intent-classification:before_edit",
+                    "whatif:deferred_large_project"
+                ]);
+                orchestration["stepsSkipped"] = json!(["full_whatif:deferred_large_project"]);
+                orchestration["resultsSummary"] = json!({
+                    "whatif": {"riskLevel": "unknown", "analysisDeferred": true, "sourceFileCount": file_count}
+                });
+                evidence.push(json!({
+                    "kind": "whatif_deferred",
+                    "sourceFileCount": file_count,
+                    "risk": "unknown"
+                }));
+                read_order_out = deferred["readFirst"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .take(5)
+                    .collect();
+                files_involved = sample_files.into_iter().map(Value::String).collect();
+                missing_evidence = deferred["evidenceGaps"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                next_actions = deferred["recommendedNextCalls"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        ask_large_project_next_actions(root, language, Some(&query), question)
+                    });
             } else {
-                format!(
-                    "Whatif preview for '{}': no matching symbols found in graph.",
-                    query
-                )
-            };
-            orchestration["stepsAttempted"] =
-                json!(["intent-classification:before_edit", "whatif:executed"]);
-            orchestration["resultsSummary"] = json!({
-                "whatif": {
+                let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na, _ap) =
+                    build_whatif_result(root, language, &question, &query, "", "");
+                answer_summary = if !tc.is_empty() {
+                    format!(
+                        "Whatif preview for '{}': {} direct impacts, {} indirect. Risk: {}. {}",
+                        query,
+                        di.len(),
+                        ii.len(),
+                        risk["level"].as_str().unwrap_or("unknown"),
+                        risk["reasons"]
+                            .as_array()
+                            .map(|r| r
+                                .iter()
+                                .filter_map(|v| v.as_str())
+                                .collect::<Vec<_>>()
+                                .join("; "))
+                            .unwrap_or_default()
+                    )
+                } else {
+                    format!(
+                        "Whatif preview for '{}': no matching symbols found in graph.",
+                        query
+                    )
+                };
+                orchestration["stepsAttempted"] =
+                    json!(["intent-classification:before_edit", "whatif:executed"]);
+                orchestration["resultsSummary"] = json!({
+                    "whatif": {
+                        "targetCandidates": tc.len(),
+                        "directImpact": di.len(),
+                        "indirectImpact": ii.len(),
+                        "riskLevel": risk["level"]
+                    }
+                });
+                evidence.push(json!({
+                    "kind": "whatif_preview",
                     "targetCandidates": tc.len(),
                     "directImpact": di.len(),
-                    "indirectImpact": ii.len(),
-                    "riskLevel": risk["level"]
-                }
-            });
-            evidence.push(json!({
-                "kind": "whatif_preview",
-                "targetCandidates": tc.len(),
-                "directImpact": di.len(),
-                "risk": risk["level"]
-            }));
-            files_involved = rf
-                .iter()
-                .filter_map(|v| {
-                    v.get("path")
-                        .and_then(|p| p.as_str())
-                        .map(|s| Value::String(s.to_string()))
-                })
-                .collect();
-            read_order_out = rf.into_iter().take(5).collect();
-            missing_evidence.extend(me);
-            next_actions.push(json!({
-                "tool": "codelattice_change_review",
-                "mode": "whatif",
-                "why": format!("Get full whatif analysis for '{}'", query),
-                "arguments": {"change": question, "symbol": query, "language": language, "root": root, "compact": true}
-            }));
-            next_actions.push(json!({
-                "tool": "codelattice_change_review",
-                "mode": "impact",
-                "why": format!("Assess impact of changing '{}'", query),
-                "arguments": {"symbol": query, "language": language, "root": root, "compact": true}
-            }));
-            next_actions.push(json!({
-                "tool": "codelattice_symbol",
-                "mode": "call_chains",
-                "why": format!("Trace call chains for '{}'", query),
-                "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-            }));
+                    "risk": risk["level"]
+                }));
+                files_involved = rf
+                    .iter()
+                    .filter_map(|v| {
+                        v.get("path")
+                            .and_then(|p| p.as_str())
+                            .map(|s| Value::String(s.to_string()))
+                    })
+                    .collect();
+                read_order_out = rf.into_iter().take(5).collect();
+                missing_evidence.extend(me);
+                next_actions.push(json!({
+                    "tool": "codelattice_change_review",
+                    "mode": "whatif",
+                    "why": format!("Get full whatif analysis for '{}'", query),
+                    "arguments": {"change": question, "symbol": query, "language": language, "root": root, "compact": true}
+                }));
+                next_actions.push(json!({
+                    "tool": "codelattice_change_review",
+                    "mode": "impact",
+                    "why": format!("Assess impact of changing '{}'", query),
+                    "arguments": {"symbol": query, "language": language, "root": root, "compact": true}
+                }));
+                next_actions.push(json!({
+                    "tool": "codelattice_symbol",
+                    "mode": "call_chains",
+                    "why": format!("Trace call chains for '{}'", query),
+                    "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
+                }));
+            }
         } else {
             answer_summary = format!(
                 "Risk assessment for editing '{}'. Provide a root path for whatif preview.",
@@ -23518,7 +23870,48 @@ fn route_ask_intent(
             Some(query.clone())
         };
         orchestration["stepsAttempted"] = json!(["intent-classification:locate_issue"]);
-        if !root.is_empty() && !query.is_empty() {
+        let large_issue = ask_large_project_info(root, language);
+        if let Some((file_count, sample_files)) = &large_issue {
+            answer_summary = format!(
+                "Issue triage for '{}' deferred: project has {} source files. Start a non-blocking job, then inspect paged details.",
+                if query.is_empty() { question } else { &query },
+                file_count
+            );
+            read_order_out = sample_files
+                .iter()
+                .take(5)
+                .map(|path| json!({"kind": "source-sample", "path": path, "reason": "large project sample"}))
+                .collect();
+            files_involved = sample_files.iter().cloned().map(Value::String).collect();
+            triage_plan = json!({
+                "schemaVersion": "codelattice.issueTriage.v1",
+                "targetQuery": target_query.clone(),
+                "likelyAreas": [],
+                "readFirst": read_order_out,
+                "evidenceGaps": [{
+                    "kind": "large_project_deferred",
+                    "explanation": "Synchronous call-chain and project diagnosis skipped full graph analysis for a large project."
+                }],
+                "staticOnly": true,
+                "analysisDeferred": true,
+                "sourceFileCount": file_count
+            });
+            missing_evidence.push(json!({
+                "kind": "large_project_deferred",
+                "explanation": "Run codelattice_project(mode=job) for complete issue triage evidence."
+            }));
+            orchestration["stepsAttempted"] = json!([
+                "intent-classification:locate_issue",
+                "large_project:lightweight"
+            ]);
+            orchestration["stepsSkipped"] = json!([
+                "call_chains:deferred_large_project",
+                "project_diagnose:deferred_large_project"
+            ]);
+            orchestration["resultsSummary"] = json!({
+                "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
+            });
+        } else if !root.is_empty() && !query.is_empty() {
             let root_path = Path::new(root);
             let (_, chains, _, me, _, ro, fi, _, _, _) =
                 build_call_chains_result(root_path, language, &query, "both", 4, 8);
@@ -23549,7 +23942,7 @@ fn route_ask_intent(
             orchestration["stepsSkipped"] = json!(["call_chains:no_symbol"]);
         }
 
-        if !root.is_empty() {
+        if !root.is_empty() && large_issue.is_none() {
             let mut diagnose_params = json!({
                 "root": root,
                 "language": language,
@@ -23952,13 +24345,13 @@ fn build_whatif_result(
         "tool": "codelattice_symbol",
         "mode": "call_chains",
         "why": format!("Trace full call chains for '{}'", target_query),
-        "arguments": {"query": target_query, "language": language, "root": root}
+        "arguments": {"query": target_query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
     }));
     next_actions.push(json!({
         "tool": "codelattice_change_review",
         "mode": "impact",
         "why": "Get detailed impact analysis",
-        "arguments": {"symbol": target_query, "language": language, "root": root}
+        "arguments": {"symbol": target_query, "language": language, "root": root, "compact": true}
     }));
 
     let mut action_plan = Vec::new();

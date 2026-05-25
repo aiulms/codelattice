@@ -102,6 +102,33 @@ fn create_source_heavy_rust_project() -> tempfile::TempDir {
     dir
 }
 
+fn create_large_ask_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create large ask project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"large-ask\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "fn main() { helper(); }\nfn helper() {}\n",
+    )
+    .unwrap();
+
+    for idx in 0..90 {
+        std::fs::write(
+            root.join("src").join(format!("module_{idx}.rs")),
+            format!("pub fn module_{idx}() {{}}\n"),
+        )
+        .unwrap();
+    }
+
+    dir
+}
+
 #[allow(dead_code)]
 fn cangjie_portable_smoke_dir() -> std::path::PathBuf {
     workspace_root()
@@ -15135,6 +15162,144 @@ fn mcp_change_review_whatif_has_action_plan() {
     assert!(
         text.len() < 8192,
         "compact whatif output should be under 8KB, got {} bytes",
+        text.len()
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_large_project_inspect_defers_full_graph() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99053,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目结构是什么",
+            "compact": true
+        }),
+    );
+    assert_eq!(data["intent"].as_str(), Some("inspect_project"));
+    assert_eq!(
+        data["projectDigest"]["analysisDeferred"].as_bool(),
+        Some(true),
+        "large inspect should not run synchronous full graph: {data:?}"
+    );
+    let skipped = data["orchestration"]["stepsSkipped"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        skipped
+            .iter()
+            .any(|step| step.as_str() == Some("full_graph:deferred_large_project")),
+        "large inspect should mark full graph deferred: {data:?}"
+    );
+    let next = data["recommendedNextCalls"].as_array().unwrap();
+    assert!(
+        next.iter().any(|n| {
+            n["tool"].as_str() == Some("codelattice_project")
+                && n["mode"].as_str() == Some("job")
+                && n["arguments"]["root"].as_str() == large.path().to_str()
+        }),
+        "large inspect should recommend project job with root: {next:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_large_project_before_edit_defers_whatif() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99054,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "如果删除 helper 会影响什么",
+            "compact": true
+        }),
+    );
+    assert_eq!(data["intent"].as_str(), Some("before_edit"));
+    assert_eq!(
+        data["whatIf"]["risk"]["level"].as_str(),
+        Some("unknown"),
+        "large before_edit should return deferred whatIf risk: {data:?}"
+    );
+    assert!(
+        data["whatIf"]["actionPlan"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty() && items.len() <= 5),
+        "large before_edit should include compact actionPlan: {data:?}"
+    );
+    let next = data["recommendedNextCalls"].as_array().unwrap();
+    for n in next {
+        if n["tool"].as_str().unwrap_or("").starts_with("codelattice_") {
+            assert!(
+                n.get("arguments")
+                    .is_some_and(|args| args.get("root").is_some()),
+                "large before_edit follow-up must include root: {n:?}"
+            );
+        }
+    }
+    assert!(
+        next.iter().any(|n| {
+            n["tool"].as_str() == Some("codelattice_project") && n["mode"].as_str() == Some("job")
+        }),
+        "large before_edit should recommend project job: {next:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_call_chains_large_project_defers_to_job() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99055,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "call_chains",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.callChains.v1")
+    );
+    assert!(
+        data["chainSummary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("deferred")),
+        "large call_chains should be deferred: {data:?}"
+    );
+    assert!(
+        data["nextActions"]
+            .as_array()
+            .is_some_and(|next| next.iter().any(|n| {
+                n["tool"].as_str() == Some("codelattice_project")
+                    && n["mode"].as_str() == Some("job")
+            })),
+        "large call_chains should recommend project job: {data:?}"
+    );
+    let text = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        text.len() < 12000,
+        "deferred call_chains payload should stay compact, got {} bytes",
         text.len()
     );
 }
