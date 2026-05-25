@@ -1423,6 +1423,16 @@ fn mcp_project_workspace_auto_entry_prioritizes_main_projects() {
             .unwrap_or(false),
         "compact workspace auto-entry rootDiagnosis should expose only a short source-only preview: {data:?}"
     );
+    assert_eq!(
+        data["decisionGuidance"]["rootKind"].as_str(),
+        Some("workspace"),
+        "workspace auto-entry should make root classification explicit: {data:?}"
+    );
+    assert_eq!(
+        data["decisionGuidance"]["recommendedNextTool"].as_str(),
+        Some("codelattice_project"),
+        "workspace auto-entry should tell AI which facade to use after selecting a project root: {data:?}"
+    );
 }
 
 #[test]
@@ -1470,6 +1480,23 @@ fn mcp_project_compact_omits_root_diagnosis_source_only_entries() {
                 .unwrap_or(0),
         "compact rootDiagnosis should preserve full total while reporting a capped subset: {data:?}"
     );
+    assert_eq!(
+        data["decisionGuidance"]["toolRole"].as_str(),
+        Some("single-project structure and risk map"),
+        "facade output should explain the current tool boundary: {data:?}"
+    );
+    assert_eq!(
+        data["decisionGuidance"]["modeSemantics"]["mode"].as_str(),
+        Some("overview"),
+        "facade output should explain mode semantics: {data:?}"
+    );
+    assert!(
+        data["decisionGuidance"]["compactSemantics"]["omitted"]
+            .as_array()
+            .map(|items| items.iter().any(|v| v.as_str() == Some("result")))
+            .unwrap_or(false),
+        "compact output should say what was omitted: {data:?}"
+    );
 }
 
 #[test]
@@ -1502,6 +1529,29 @@ fn mcp_project_full_keeps_root_diagnosis_source_only_entries() {
     assert!(
         entries.len() > 5,
         "full rootDiagnosis should keep detailed source-only entries: {data:?}"
+    );
+    let source_only = entries
+        .iter()
+        .find(|entry| entry["category"].as_str() == Some("manifestless_source_directory"))
+        .expect("fixture should include manifestless source-only entries");
+    assert_eq!(
+        source_only["manifestBacked"].as_bool(),
+        Some(false),
+        "source-only entries must not look manifest-backed: {source_only:?}"
+    );
+    assert_eq!(
+        source_only["recommendedAsProjectRoot"].as_bool(),
+        Some(false),
+        "source-only entries should not claim to be project roots: {source_only:?}"
+    );
+    assert_eq!(
+        source_only["drillDownCandidate"].as_bool(),
+        Some(true),
+        "manifestless source-only entries can still be focused drill-down candidates: {source_only:?}"
+    );
+    assert!(
+        source_only["selectionGuidance"].is_string(),
+        "source-only entries should explain how AI should treat them: {source_only:?}"
     );
 }
 
@@ -1548,6 +1598,26 @@ fn mcp_project_quick_returns_compact_ai_digest() {
             .map(|items| !items.is_empty())
             .unwrap_or(false),
         "quick digest should tell AI how to go deeper: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["modeSemantics"]["mode"].as_str(),
+        Some("quick"),
+        "quick summary should define what quick mode does: {data:?}"
+    );
+    assert!(
+        data["summary"]["aiDigest"]["topRisks"]
+            .as_array()
+            .map(|items| {
+                !items.is_empty()
+                    && items.iter().all(|item| {
+                        item["priorityRank"].as_u64().unwrap_or(0) >= 1
+                            && item["relativePriority"].is_string()
+                            && item["riskDrivers"].is_array()
+                            && item["riskScoreInterpretation"].is_string()
+                    })
+            })
+            .unwrap_or(false),
+        "quick topRisks should be ranked and explain their risk drivers: {data:?}"
     );
 }
 

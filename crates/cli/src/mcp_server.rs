@@ -224,6 +224,31 @@ fn source_only_entry_category(p: &ProjectInfo) -> (&'static str, &'static str, &
 
 fn source_only_entry_json(p: &ProjectInfo) -> Value {
     let (category, reason, next_action) = source_only_entry_category(p);
+    let drill_down_candidate = matches!(
+        category,
+        "manifestless_source_directory" | "nested_source_directory"
+    );
+    let root_role = match category {
+        "manifestless_source_directory" | "nested_source_directory" => "focused_drill_down",
+        "script_directory" => "support_script_area",
+        "test_or_fixture_directory" => "validation_area",
+        _ => "source_only_area",
+    };
+    let selection_guidance = match category {
+        "manifestless_source_directory" => {
+            "Not a manifest-backed project root. Use only for focused drill-down after checking the nearest manifest-backed parent."
+        }
+        "nested_source_directory" => {
+            "Nested source directory. Prefer the nearest manifest-backed parent for project analysis; use this path only to narrow a known area."
+        }
+        "script_directory" => {
+            "Support scripts, not an application/project root. Analyze only when the task touches automation or operations."
+        }
+        "test_or_fixture_directory" => {
+            "Validation or fixture area. Do not treat as an architecture entry point or primary project root."
+        }
+        _ => "Source-only area without a manifest. Prefer a manifest-backed project root when available.",
+    };
     json!({
         "path": p.path,
         "relativePath": p.relative_path,
@@ -235,7 +260,12 @@ fn source_only_entry_json(p: &ProjectInfo) -> Value {
         "nextAction": next_action,
         "supported": p.supported,
         "analyzable": true,
-        "recommendedAsProjectRoot": category == "manifestless_source_directory"
+        "manifestBacked": false,
+        "rootRole": root_role,
+        "drillDownCandidate": drill_down_candidate,
+        "recommendedAsProjectRoot": false,
+        "recommendedAsFocusedRoot": drill_down_candidate,
+        "selectionGuidance": selection_guidance
     })
 }
 
@@ -253,13 +283,20 @@ where
 
 fn source_only_entry_preview_json(p: &ProjectInfo) -> Value {
     let (category, _, _) = source_only_entry_category(p);
+    let drill_down_candidate = matches!(
+        category,
+        "manifestless_source_directory" | "nested_source_directory"
+    );
     json!({
         "path": p.path,
         "relativePath": p.relative_path,
         "name": p.name,
         "language": p.language,
         "category": category,
-        "recommendedAsProjectRoot": category == "manifestless_source_directory"
+        "manifestBacked": false,
+        "drillDownCandidate": drill_down_candidate,
+        "recommendedAsProjectRoot": false,
+        "recommendedAsFocusedRoot": drill_down_candidate
     })
 }
 
@@ -430,6 +467,249 @@ where
             })
         })
         .collect()
+}
+
+fn mode_semantics(tool: &str, mode: &str) -> Value {
+    match (tool, mode) {
+        ("codelattice_project", "quick") => json!({
+            "mode": "quick",
+            "does": "Fast static orientation: entry candidates, read-first files, top components, and ranked risk hints.",
+            "doesNot": "Does not return full graph/file metrics, execute target code, run tests, or prove coverage.",
+            "stopWhen": "You only need to know where to start reading or which project area is probably risky.",
+            "goDeeperWith": "codelattice_project mode=standard"
+        }),
+        ("codelattice_project", "standard") => json!({
+            "mode": "standard",
+            "does": "Balanced project map with component risk, review-first areas, and enough static detail for planning edits.",
+            "doesNot": "Does not include every detailed metric or runtime/coverage proof.",
+            "stopWhen": "You can identify the module and symbols to inspect before editing.",
+            "goDeeperWith": "codelattice_project mode=deep"
+        }),
+        ("codelattice_project", "deep") => json!({
+            "mode": "deep",
+            "does": "Detailed static evidence for high-risk edits and manual review.",
+            "doesNot": "Still does not execute the target project or prove runtime behavior.",
+            "stopWhen": "You have enough static evidence and should switch to targeted tests or source edits.",
+            "goDeeperWith": "codelattice_change_review mode=impact for a concrete target"
+        }),
+        ("codelattice_project", "overview") => json!({
+            "mode": "overview",
+            "does": "Basic project/root overview and root diagnosis.",
+            "doesNot": "Does not provide the progressive read-first/risk map from quick/standard/deep.",
+            "goDeeperWith": "codelattice_project mode=quick"
+        }),
+        ("codelattice_change_review", "impact") => json!({
+            "mode": "impact",
+            "does": "Concrete pre-edit impact review for a known symbol or change target.",
+            "doesNot": "Does not replace project orientation; use workflow/project first when the target is unclear.",
+            "goDeeperWith": "codelattice_symbol mode=context or callers/callees"
+        }),
+        ("codelattice_workflow", "before_edit") => json!({
+            "mode": "before_edit",
+            "does": "Intent-level router for pre-edit safety when an AI is unsure which concrete review calls to make.",
+            "doesNot": "Does not replace codelattice_change_review once the target is concrete.",
+            "goDeeperWith": "codelattice_change_review mode=impact"
+        }),
+        _ => json!({
+            "mode": mode,
+            "does": "Runs the requested CodeLattice facade mode using static analysis only.",
+            "doesNot": "Does not execute target code, run tests, or provide coverage proof.",
+            "goDeeperWith": "Use nextActions or recommendedNextCalls from this response."
+        }),
+    }
+}
+
+fn tool_role(tool: &str) -> &'static str {
+    match tool {
+        "codelattice_workflow" => "intent router and workflow orchestration",
+        "codelattice_project" => "single-project structure and risk map",
+        "codelattice_symbol" => "symbol search, context, and call relationships",
+        "codelattice_change_review" => "concrete pre/post edit risk review",
+        "codelattice_workspace" => "workspace and cross-project boundary analysis",
+        "codelattice_cache" => "optional cache status and management",
+        _ => "CodeLattice static analysis facade",
+    }
+}
+
+fn recommended_next_tool(tool: &str, mode: &str, root_kind: &str) -> &'static str {
+    if root_kind == "workspace" || root_kind == "protected_live_workspace" {
+        return "codelattice_workspace";
+    }
+    match (tool, mode) {
+        ("codelattice_workflow", _) => "follow returned recommendedNextCalls",
+        ("codelattice_project", "quick") => "codelattice_project mode=standard",
+        ("codelattice_project", "standard") => "codelattice_symbol or codelattice_change_review",
+        ("codelattice_project", "deep") => "codelattice_change_review",
+        ("codelattice_project", _) => "codelattice_project mode=quick",
+        ("codelattice_symbol", _) => "codelattice_change_review",
+        ("codelattice_change_review", _) => "targeted tests or source review",
+        ("codelattice_workspace", _) => "codelattice_project",
+        _ => "codelattice_workflow",
+    }
+}
+
+fn compact_semantics(compact: bool) -> Value {
+    if compact {
+        json!({
+            "enabled": true,
+            "kept": ["summary", "rootDiagnosis", "decisionGuidance", "nextActions", "analysisSemantics"],
+            "omitted": ["result", "large arrays", "full sourceOnlyEntries"],
+            "lossPolicy": "Compact keeps decision-critical routing/risk hints and omits bulky evidence lists.",
+            "detailAvailableVia": "Re-run with compact=false, a deeper mode, or job_detail when the response provides a jobId."
+        })
+    } else {
+        json!({
+            "enabled": false,
+            "kept": ["summary", "result", "rootDiagnosis", "decisionGuidance", "nextActions", "analysisSemantics"],
+            "omitted": [],
+            "lossPolicy": "Full mode keeps detailed static evidence but can be large."
+        })
+    }
+}
+
+fn decision_guidance(tool: &str, mode: &str, root_diagnosis: &Value, compact: bool) -> Value {
+    let root_kind = root_diagnosis["kind"].as_str().unwrap_or("not_applicable");
+    let recommended_next = recommended_next_tool(tool, mode, root_kind);
+    let tool_boundary = if compact {
+        json!([
+            "workflow=router",
+            "project=orientation/risk",
+            "symbol=name/calls",
+            "change_review=concrete edit",
+            "workspace=monorepo"
+        ])
+    } else {
+        json!({
+            "workflow": "Use codelattice_workflow when intent is unclear or you want orchestration.",
+            "project": "Use codelattice_project for project structure, entry points, components, and risk orientation.",
+            "symbol": "Use codelattice_symbol when you know a symbol/name and need context or call relationships.",
+            "changeReview": "Use codelattice_change_review when you have a concrete edit target or changed symbols.",
+            "workspace": "Use codelattice_workspace for monorepos, project boundaries, and cross-project impact."
+        })
+    };
+    json!({
+        "toolRole": tool_role(tool),
+        "modeSemantics": mode_semantics(tool, mode),
+        "rootKind": root_kind,
+        "rootUseGuidance": match root_kind {
+            "workspace" | "protected_live_workspace" => "Use workspace-level tools first, then choose a manifest-backed project root before symbol/project review.",
+            "single_project" => "Safe to use project, symbol, and change_review facades against this root.",
+            "unsupported_or_mixed_workspace" => "Use workspace graph and pick supported project roots; unsupported entries are reported but not analyzed.",
+            _ => "Root classification is uncertain; prefer codelattice_workflow mode=explore or codelattice_workspace mode=graph."
+        },
+        "recommendedNextTool": recommended_next,
+        "toolBoundary": tool_boundary,
+        "compactSemantics": compact_semantics(compact)
+    })
+}
+
+fn project_risk_level_from_score(score: f64) -> &'static str {
+    if score >= 8.0 {
+        "high"
+    } else if score >= 3.0 {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
+fn relative_priority(rank: usize, score: f64, top_score: f64) -> &'static str {
+    if rank == 1 {
+        "top"
+    } else if top_score > 0.0 && score >= top_score * 0.8 {
+        "peer-high"
+    } else if score >= 3.0 {
+        "elevated"
+    } else {
+        "baseline"
+    }
+}
+
+fn risk_driver_tags(reasons: &[String], score: f64, kind: &str) -> Vec<String> {
+    let mut tags: Vec<String> = Vec::new();
+    for reason in reasons {
+        let lower = reason.to_lowercase();
+        let tag = if lower.contains("fan-in") {
+            "fan_in"
+        } else if lower.contains("fan-out") {
+            "fan_out"
+        } else if lower.contains("cross-file") {
+            "cross_file_impact"
+        } else if lower.contains("low-confidence") {
+            "low_confidence"
+        } else if lower.contains("diagnostic") {
+            "diagnostics"
+        } else if lower.contains("generated") || lower.contains("vendor") {
+            "generated_or_vendor"
+        } else {
+            "static_metric"
+        };
+        if !tags.iter().any(|t| t == tag) {
+            tags.push(tag.to_string());
+        }
+    }
+    if tags.is_empty() {
+        tags.push(if score > 0.0 {
+            "weak_static_signal".to_string()
+        } else {
+            "navigation_baseline".to_string()
+        });
+    }
+    if !tags.iter().any(|t| t == kind) {
+        tags.push(kind.to_string());
+    }
+    tags
+}
+
+fn risk_score_interpretation(score: f64, rank: usize, top_score: f64) -> String {
+    let level = project_risk_level_from_score(score);
+    let relative = relative_priority(rank, score, top_score);
+    format!(
+        "{level} static risk, relativePriority={relative}. Compare priorityRank before comparing equal-looking riskLevel values; this is not runtime proof."
+    )
+}
+
+fn enrich_risk_item(item: &Value, rank: usize, top_score: f64) -> Value {
+    let score = item["riskScore"].as_f64().unwrap_or(0.0);
+    let kind = item["kind"].as_str().unwrap_or("item");
+    let reasons: Vec<String> = item["reasons"]
+        .as_array()
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut enriched = item.clone();
+    if let Some(obj) = enriched.as_object_mut() {
+        obj.insert("priorityRank".to_string(), json!(rank));
+        obj.insert(
+            "relativePriority".to_string(),
+            json!(relative_priority(rank, score, top_score)),
+        );
+        obj.insert(
+            "riskLevel".to_string(),
+            json!(project_risk_level_from_score(score)),
+        );
+        obj.insert(
+            "riskDrivers".to_string(),
+            json!(risk_driver_tags(&reasons, score, kind)),
+        );
+        obj.insert(
+            "riskScoreInterpretation".to_string(),
+            json!(risk_score_interpretation(score, rank, top_score)),
+        );
+        obj.insert(
+            "whyTopRisk".to_string(),
+            json!(if reasons.is_empty() {
+                "Ranked by the strongest available static signal in this result set.".to_string()
+            } else {
+                reasons.join("; ")
+            }),
+        );
+    }
+    enriched
 }
 
 fn diagnose_stop_word(term: &str) -> bool {
@@ -651,7 +931,7 @@ fn build_workspace_auto_entry(root: &str, protected: bool, compact: bool) -> Opt
         .len()
         .saturating_sub(supported_manifest_projects.len());
     let source_only_entries =
-        source_only_entries_json(supported.iter().copied(), if compact { 5 } else { 50 });
+        source_only_entries_json(supported.iter().copied(), if compact { 3 } else { 50 });
     let source_only_summary = source_only_summary_json(&source_only_entries, source_only_count);
     let primary_project_roots =
         ranked_project_roots_json(supported_manifest_projects.iter().copied(), 8);
@@ -685,12 +965,33 @@ fn build_workspace_auto_entry(root: &str, protected: bool, compact: bool) -> Opt
         "sourceOnlySummary": source_only_summary,
         "sourceOnlyEntries": source_only_entries,
         "primaryProjectRoots": primary_project_roots,
+        "decisionGuidance": {
+            "toolRole": "workspace entry router",
+            "rootKind": if protected { "protected_live_workspace" } else { "workspace" },
+            "rootUseGuidance": if compact {
+                "Workspace root: pick primaryProjectRoots before project/symbol review."
+            } else {
+                "This is a workspace root. Use codelattice_workspace for cross-project questions, then choose a manifest-backed primaryProjectRoots entry for codelattice_project/codelattice_symbol/codelattice_change_review."
+            },
+            "recommendedNextTool": "codelattice_project",
+            "recommendedNextAction": recommended_first_step.clone(),
+            "toolBoundary": if compact {
+                json!(["workspace=boundaries", "project=selected root", "symbol=selected root"])
+            } else {
+                json!({
+                    "workspace": "Use codelattice_workspace for graph/impact across project boundaries.",
+                    "project": "Use codelattice_project only after selecting one manifest-backed project root.",
+                    "symbol": "Use codelattice_symbol only on a concrete project root, not the workspace root."
+                })
+            },
+            "compactSemantics": compact_semantics(compact)
+        },
         "progressiveExploration": {
             "recommendedFirstStep": recommended_first_step,
             "depthModel": [
-                {"depth": 1, "mode": "quick", "purpose": "orientation: entry points, top components, first files to read"},
-                {"depth": 2, "mode": "standard", "purpose": "module risk and review-first areas"},
-                {"depth": 3, "mode": "deep", "purpose": "full static detail and paged follow-up"}
+                {"depth": 1, "mode": "quick", "purpose": "orientation"},
+                {"depth": 2, "mode": "standard", "purpose": "module risk"},
+                {"depth": 3, "mode": "deep", "purpose": "full static detail"}
             ],
             "compactSourceOnlyEntries": compact
         },
@@ -714,14 +1015,14 @@ fn build_workspace_auto_entry(root: &str, protected: bool, compact: bool) -> Opt
         "failedProjects": [],
         "workspaceSummary": workspace_summary,
         "nextActions": [
-            "Use codelattice_workspace mode=graph to inspect project boundaries.",
-            "Use codelattice_workspace mode=impact with target.projectId or target.path.",
-            "Use WebUI workspace recommended analysis to generate per-project snapshots."
+            "Inspect boundaries with workspace graph.",
+            "Pick primaryProjectRoots before project/symbol calls.",
+            "Use impact mode for cross-project targets."
         ],
         "cautions": [
-            "protected workspace mode is static-only",
-            "no build/test/package-manager scripts are executed",
-            "unsupported modules are reported but not analyzed"
+            "static-only",
+            "no scripts executed",
+            "unsupported modules are reported only"
         ],
         "generatedFrom": {
             "staticAnalysis": true,
@@ -7694,6 +7995,15 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
         sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
     });
     risk_items.truncate(limit);
+    let top_risk_score = risk_items
+        .first()
+        .and_then(|item| item["riskScore"].as_f64())
+        .unwrap_or(0.0);
+    risk_items = risk_items
+        .iter()
+        .enumerate()
+        .map(|(idx, item)| enrich_risk_item(item, idx + 1, top_risk_score))
+        .collect();
 
     // ---------------------------------------------------------------
     // 7. Low confidence zones
@@ -8141,7 +8451,8 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
     let architecture_components: Vec<Value> = component_items
         .iter()
         .take(limit)
-        .map(|(component, cm)| {
+        .enumerate()
+        .map(|(idx, (component, cm))| {
             let risk_level = if cm.max_risk_score >= 8.0 || cm.diagnostic_count > 10 {
                 "high"
             } else if cm.max_risk_score >= 3.0
@@ -8171,6 +8482,18 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "diagnosticCount": cm.diagnostic_count,
                 "riskLevel": risk_level,
                 "riskScore": (cm.max_risk_score * 10.0).round() / 10.0,
+                "priorityRank": idx + 1,
+                "relativePriority": relative_priority(
+                    idx + 1,
+                    cm.max_risk_score,
+                    component_items.first().map(|(_, top)| top.max_risk_score).unwrap_or(0.0)
+                ),
+                "riskDrivers": risk_driver_tags(&cm.risk_reasons, cm.max_risk_score, "component"),
+                "riskScoreInterpretation": risk_score_interpretation(
+                    cm.max_risk_score,
+                    idx + 1,
+                    component_items.first().map(|(_, top)| top.max_risk_score).unwrap_or(0.0)
+                ),
                 "reason": reason,
                 "readFirstFiles": cm.representative_files,
                 "recommendedAction": match risk_level {
@@ -8203,13 +8526,7 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 })
                 .unwrap_or_default();
             let score = item["riskScore"].as_f64().unwrap_or(0.0);
-            let risk_level = if score >= 8.0 {
-                "high"
-            } else if score >= 3.0 {
-                "medium"
-            } else {
-                "low"
-            };
+            let risk_level = project_risk_level_from_score(score);
             let why = if reasons.is_empty() {
                 if score > 0.0 {
                     "highest available static signal in this project".to_string()
@@ -8227,7 +8544,12 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "line": item["line"],
                 "riskLevel": risk_level,
                 "riskScore": score,
+                "priorityRank": item["priorityRank"],
+                "relativePriority": item["relativePriority"],
+                "riskDrivers": item["riskDrivers"],
+                "riskScoreInterpretation": item["riskScoreInterpretation"],
                 "whySuspicious": why,
+                "whyTopRisk": item["whyTopRisk"],
                 "recommendedAction": item["suggestedReviewAction"].as_str().unwrap_or("inspect before editing"),
                 "staticOnly": true,
             })
@@ -9963,12 +10285,12 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_project",
-                "description": "Project-level analysis for a SINGLE project root. Prefer quick first for AI orientation, standard for module/risk review, deep for detailed static evidence, diagnose for issue localization, and job modes for large repos. For monorepo/workspace roots, use codelattice_workspace first, then switch to a sub-project root.",
+                "description": "Project-level analysis for a SINGLE project root. Use this for structure, entry points, components, and static risk orientation after root selection. Prefer quick first, standard for module/risk review, deep for detailed static evidence, diagnose for issue localization, and job modes for large repos. For monorepo/workspace roots, use codelattice_workspace or workflow explore first, then switch to a manifest-backed sub-project root.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root. Required for overview/quick/standard/deep/quality/insights/diagnose/ai_context/full/job; not needed for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail"], "default": "overview", "description": "Analysis mode. Use quick first for compact AI orientation, standard for component/risk map, deep for full static detail, diagnose when an AI has a symptom/error/query, and job for large projects." },
+                        "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail"], "default": "overview", "description": "Analysis mode. quick = orientation/read-first/top risks; standard = component and review-first map; deep = full static detail; diagnose = issue localization from symptom/error/query; job = non-blocking large project analysis." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "symptom": { "type": "string", "description": "Bug symptom or user report for diagnose mode" },
@@ -9985,12 +10307,12 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_symbol",
-                "description": "Symbol-level queries (search, context, callers, callees) for a SINGLE project root. For large projects, use mode=job to submit an engine-backed analysis job with progress tracking, then mode=job_status to check status, and mode=job_detail for paged results.",
+                "description": "Symbol-level queries for a SINGLE project root after root selection. Use search/context when you know a symbol or name; use callers/callees/call_chains for relationships and flow. For large projects, use mode=job to submit an engine-backed analysis job with progress tracking, then mode=job_status and mode=job_detail.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root. Required for search/context/callers/callees/graph/job; not needed for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "graph", "job", "job_status", "job_detail"], "default": "search", "description": "Query mode. Use job_status/job_detail with jobId only after a job response." },
+                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "call_chains", "graph", "job", "job_status", "job_detail"], "default": "search", "description": "Query mode. call_chains returns readable static paths; job_status/job_detail use jobId only after a job response." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
@@ -10007,7 +10329,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_change_review",
-                "description": "Pre-commit change review for a SINGLE project root: detect changed symbols, assess impact, check safety, breaking changes, consistency, cleanup review, release checks, root-cause evidence, or engine-backed job mode. root is required for review/job modes; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize.",
+                "description": "Concrete pre/post edit review for a SINGLE project root when the target is known. Use impact before editing a symbol/path, native_review after local diffs, breaking_change for public API concerns, and job modes for large repos. If the target is unclear, use codelattice_workflow first.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -10042,7 +10364,7 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_workspace",
-                "description": "Workspace/monorepo multi-project analysis: dependency graph, cross-project impact, overview, or engine-backed job mode. root is required for graph/impact/overview/full/job; job_status only requires jobId; job_detail requires jobId plus optional page/pageSize.",
+                "description": "Workspace/monorepo analysis for project boundaries, dependency graph, cross-project impact, overview, or engine-backed job mode. Use this on workspace roots; use codelattice_project only after selecting a manifest-backed project root.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -10095,11 +10417,11 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_workflow",
-                "description": "AI intent router. Use this FIRST when unsure which CodeLattice tool to call. Use mode=explore for progressive project/workspace orientation, then diagnose_issue or before_edit once you have a concrete question.",
+                "description": "AI intent router and orchestration layer. Use this FIRST when unsure which CodeLattice tool or root to call. Use ask for natural-language routing, explore for progressive project/workspace orientation, diagnose_issue for symptoms, and before_edit only once you have a concrete target.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["onboarding", "explore", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "diagnose_issue", "explain_symbol", "root_cause", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent. Use explore for progressive AI-first project navigation." },
+                        "mode": { "type": "string", "enum": ["ask", "onboarding", "explore", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "workspace_review", "cross_project_impact", "diagnose_issue", "explain_symbol", "root_cause", "docs_tests_sync", "config_examples_sync", "public_api_change", "framework_route_change"], "default": "onboarding", "description": "Workflow scenario / intent. ask routes a natural-language question; explore classifies root and recommends depth; before_edit routes to concrete review guidance." },
                         "intent": { "type": "string", "description": "Optional natural intent alias; when present it is treated like mode" },
                         "root": { "type": "string", "description": "Project or workspace root when a next action needs analysis" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
@@ -10112,6 +10434,7 @@ fn tools_list() -> Value {
                         "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Changed symbol names for after_edit flows" },
                         "depth": { "type": "integer", "default": 1, "minimum": 1, "maximum": 3, "description": "Progressive exploration depth for explore mode" },
                         "focus": { "type": "string", "description": "Optional component/file/symbol focus for explore mode" },
+                        "question": { "type": "string", "description": "Natural-language question for ask mode" },
                         "target": {
                             "type": "object",
                             "description": "Workspace impact target for cross_project_impact",
@@ -18878,6 +19201,7 @@ fn wrap_facade_output(
         "root": root,
         "rootDiagnosis": root_diagnosis,
         "analysisSemantics": build_analysis_semantics(),
+        "decisionGuidance": decision_guidance(tool, mode, &root_diagnosis, compact),
         "summary": summary,
         "result": inner,
         "nextActions": next_actions,
@@ -18903,6 +19227,7 @@ fn wrap_facade_output(
                 "detailHint".to_string(),
                 json!("Re-run with compact=false or a deeper mode when you need full result payloads."),
             );
+            obj.insert("compactSemantics".to_string(), compact_semantics(true));
         }
     }
     out
@@ -18988,6 +19313,7 @@ fn build_project_progressive_summary(insights: &Value, depth: &str, root: &str) 
         "riskLevel": summary["architectureRiskLevel"].as_str().unwrap_or("unknown"),
         "mode": depth,
         "analysisDepth": depth,
+        "modeSemantics": mode_semantics("codelattice_project", depth),
         "root": root,
         "language": summary["language"].clone(),
         "sourceFileCount": summary["sourceFileCount"].clone(),

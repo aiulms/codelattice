@@ -8,6 +8,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **MCP decision clarity pack**: facade responses now include `decisionGuidance` with tool role, mode semantics, root-use guidance, recommended next tool, and compact semantics so AI agents do not have to infer boundaries between workflow/project/symbol/change_review/workspace. Source-only entries are now explicitly `manifestBacked=false`, `recommendedAsProjectRoot=false`, and only marked as focused drill-down candidates when appropriate. Project risk lists now include `priorityRank`, `relativePriority`, `riskDrivers`, `whyTopRisk`, and `riskScoreInterpretation` so equal-looking high-risk lists remain sortable. This is dev-only for now; installed `CodeLattice-Tool` is not synced by this change.
+
 - **Compact payload hygiene**: `compact=true` facade responses now omit full `rootDiagnosis.sourceOnlyEntries` and expose `sourceOnlySummary` plus a bounded `sourceOnlyEntryPreview` instead. Full source-only diagnostics remain available with `compact=false`. Installed acceptance now checks compact call-chain/project payload shape and size so AI-facing responses do not quietly grow back into large diagnostic dumps.
 
 - **Installed sync runtime hardening**: local `CodeLattice-Tool` sync/promotion now builds the full-language runtime and points public `bin/codelattice` / `bin/codelattice-cli` links at the verified compat executable. This keeps the wrapper path stable while avoiding macOS kills seen when launching the full-language `codelattice` binary name directly from the installed tool directory.

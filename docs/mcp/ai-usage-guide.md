@@ -46,6 +46,20 @@ The full toolset is for debugging and development only. It exposes all internal 
 
 ## Recommended Workflows
 
+### Choosing The Right Facade
+
+If you are unsure, start with `codelattice_workflow(mode=ask)` or `codelattice_workflow(mode=explore)`.
+
+Use the facades by decision stage:
+
+| Stage | Use | Avoid |
+|-------|-----|-------|
+| Unsure what to ask | `codelattice_workflow` | Guessing between project/symbol/change_review |
+| Workspace or monorepo root | `codelattice_workspace` first | Passing workspace root directly to symbol/change_review |
+| Project orientation | `codelattice_project(mode=quick)` | Starting with deep/full payloads |
+| Known symbol or name | `codelattice_symbol` | Using project mode to hunt through long lists |
+| Concrete edit target | `codelattice_change_review(mode=impact)` | Treating workflow before_edit as the final review |
+
 ### New Project
 
 ```
@@ -77,7 +91,49 @@ codelattice_symbol(mode=call_chains, query="helper", direction="both")
 
 Use `compact=true` by default when asking for orientation, call chains, or issue triage. Compact facade responses intentionally keep `rootDiagnosis` small: they include `sourceOnlySummary` and at most five `sourceOnlyEntryPreview` items, but omit full `sourceOnlyEntries`.
 
+Compact facade responses include `decisionGuidance.compactSemantics`, which lists the fields that were kept and omitted. Treat compact output as safe for routing and first-pass risk decisions; switch to `compact=false`, `deep`, or `job_detail` when you need full evidence lists.
+
 Use `compact=false` only when you explicitly need full source-only directory diagnostics or full result payloads.
+
+## Decision Guidance Fields
+
+Most facade responses include `decisionGuidance`:
+
+```json
+{
+  "toolRole": "single-project structure and risk map",
+  "rootKind": "single_project",
+  "recommendedNextTool": "codelattice_project mode=standard",
+  "modeSemantics": {
+    "does": "Fast static orientation...",
+    "doesNot": "Does not run tests..."
+  }
+}
+```
+
+Use this object to avoid guessing tool boundaries. `workflow` is the router, `project` is orientation/risk mapping, `symbol` is symbol lookup and call relationships, `change_review` is concrete edit review, and `workspace` is monorepo boundary analysis.
+
+## Source-Only Entries
+
+`sourceOnlyEntries` are not manifest-backed projects. They are directories with analyzable source files but no supported project manifest. They now carry:
+
+- `manifestBacked=false`
+- `recommendedAsProjectRoot=false`
+- `drillDownCandidate=true` only when they are useful as focused sub-area roots
+- `selectionGuidance` explaining whether to prefer a parent manifest-backed project
+
+When choosing a project root, prefer `recommendedProjectRoots` or `primaryProjectRoots`. Use source-only entries only for focused drill-down after orientation.
+
+## Risk Ranking
+
+Risk lists can contain many `high` items in large projects. Prefer the ranking fields over the label alone:
+
+- `priorityRank`: lower is more urgent within that result set.
+- `relativePriority`: `top`, `peer-high`, `elevated`, or `baseline`.
+- `riskDrivers`: why the item ranked highly, such as `fan_in`, `fan_out`, `cross_file_impact`, `low_confidence`, or `diagnostics`.
+- `riskScoreInterpretation`: a short static-only explanation.
+
+Static risk is not runtime proof. Use it to decide read/review order, then confirm with source reads and targeted tests.
 
 ### Before Editing Code
 
