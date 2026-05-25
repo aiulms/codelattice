@@ -20573,8 +20573,6 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             let symbol_param = params["symbol"].as_str().unwrap_or("").to_string();
             let file_param = params["file"].as_str().unwrap_or("").to_string();
             let action = params["action"].as_str().unwrap_or("").to_string();
-            let root_path = PathBuf::from(root);
-
             let (
                 change_intent,
                 target_candidates,
@@ -20586,14 +20584,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 read_first,
                 missing,
                 next_actions,
-            ) = build_whatif_result(
-                &root_path,
-                language,
-                &change,
-                &symbol_param,
-                &file_param,
-                &action,
-            );
+            ) = build_whatif_result(root, language, &change, &symbol_param, &file_param, &action);
 
             let result_body = json!({
                 "schemaVersion": "codelattice.whatIf.v1",
@@ -21802,10 +21793,10 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let what_if = if intent == "before_edit" || intent == "whatif" {
             let query = target_query.as_ref().unwrap_or(&String::new()).clone();
             if !root.is_empty() && !query.is_empty() {
-                let root_path = Path::new(root);
                 let (ci, tc, di, ii, risk, sa, tests, rf, me, _na) =
-                    build_whatif_result(root_path, language, &question, &query, "", "");
+                    build_whatif_result(root, language, &question, &query, "", "");
                 json!({
+                    "schemaVersion": "codelattice.whatIf.v1",
                     "changeIntent": ci,
                     "targetCandidates": tc,
                     "directImpact": di,
@@ -21814,7 +21805,13 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     "safeAlternatives": sa,
                     "testsToRun": tests,
                     "readFirst": rf,
-                    "evidenceGaps": me
+                    "evidenceGaps": me,
+                    "analysisSemantics": {
+                        "staticAnalysisExecuted": true,
+                        "targetCodeExecuted": false,
+                        "runtimeVerified": false,
+                        "scriptsExecuted": false
+                    }
                 })
             } else {
                 Value::Null
@@ -21832,6 +21829,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "orchestration": orchestration,
             "callChains": call_chains,
             "readOrder": read_order,
+            "projectDigest": if intent == "inspect_project" { triage_plan.clone() } else { Value::Null },
             "triagePlan": triage_plan,
             "whatIf": what_if,
             "filesInvolved": files_involved,
@@ -23305,16 +23303,96 @@ fn route_ask_intent(
                 .to_string();
     } else if inspect_keywords.iter().any(|k| q.contains(k)) {
         intent = "inspect_project".to_string();
+        orchestration["stepsAttempted"] = json!(["intent-classification:inspect_project"]);
         if !root.is_empty() {
-            answer_summary = format!("Project overview for {} ({}).", root, language);
+            let root_path = Path::new(root);
+            let analyze_result = run_rust_analysis_if_available(root_path, language);
+            match analyze_result {
+                Some(graph_data) => {
+                    let graph = graph_data.get("graph").unwrap_or(&Value::Null);
+                    let nodes = graph
+                        .get("nodes")
+                        .and_then(|n| n.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let edges = graph
+                        .get("edges")
+                        .and_then(|e| e.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let source_files: Vec<Value> = nodes.iter().filter(|n| {
+                        n.get("label").and_then(|l| l.as_str()) == Some("source-file")
+                            || n.get("kind").and_then(|k| k.as_str()) == Some("source-file")
+                    }).map(|n| json!({
+                        "path": n["properties"]["sourcePath"].as_str().unwrap_or(n["id"].as_str().unwrap_or("")),
+                        "kind": "source-file"
+                    })).take(10).collect();
+                    let symbol_count = nodes
+                        .iter()
+                        .filter(|n| {
+                            n.get("label").and_then(|l| l.as_str()) == Some("symbol")
+                                || n.get("kind").and_then(|k| k.as_str()) == Some("symbol")
+                        })
+                        .count();
+                    let calls_count = edges
+                        .iter()
+                        .filter(|e| {
+                            e.get("type").and_then(|t| t.as_str()) == Some("CALLS")
+                                || e.get("properties")
+                                    .and_then(|p| p.get("callKind"))
+                                    .is_some()
+                        })
+                        .count();
+                    answer_summary = format!(
+                        "Project at {} ({}): {} source files, {} symbols, {} CALLS edges. Static analysis only.",
+                        root, language, source_files.len(), symbol_count, calls_count
+                    );
+                    triage_plan = json!({
+                        "sourceFileCount": source_files.len(),
+                        "symbolCount": symbol_count,
+                        "callsEdgeCount": calls_count,
+                        "topFiles": source_files,
+                        "staticOnly": true
+                    });
+                    orchestration["stepsAttempted"] = json!([
+                        "intent-classification:inspect_project",
+                        "project_quick:executed"
+                    ]);
+                    orchestration["resultsSummary"] = json!({
+                        "project_quick": format!("{} files, {} symbols, {} CALLS", source_files.len(), symbol_count, calls_count)
+                    });
+                    evidence.push(json!({
+                        "kind": "project_digest",
+                        "sourceFileCount": source_files.len(),
+                        "symbolCount": symbol_count,
+                        "callsEdgeCount": calls_count
+                    }));
+                    missing_evidence.push(json!({
+                        "kind": "runtime_verification",
+                        "explanation": "Project overview is static-only. No tests were run, no build was attempted."
+                    }));
+                }
+                None => {
+                    answer_summary = format!(
+                        "Project overview for {} ({}). Could not run analysis.",
+                        root, language
+                    );
+                    orchestration["stepsSkipped"] = json!(["project_quick:no_analysis_data"]);
+                    missing_evidence.push(json!({
+                        "kind": "no_graph_data",
+                        "explanation": "Could not run static analysis for this project."
+                    }));
+                }
+            }
             next_actions.push(json!({
                 "tool": "codelattice_project",
                 "mode": "quick",
-                "why": "Get project overview and key metrics",
+                "why": "Get more detailed project overview",
                 "arguments": {"root": root, "language": language}
             }));
         } else {
             answer_summary = "Please provide a root path to inspect.".to_string();
+            orchestration["stepsSkipped"] = json!(["project_quick:no_root"]);
             missing_evidence.push(json!({
                 "kind": "missing_input",
                 "explanation": "root path required"
@@ -23329,22 +23407,83 @@ fn route_ask_intent(
         } else {
             Some(query.clone())
         };
-        answer_summary = format!(
-            "Risk assessment for editing '{}'. This is a static heuristic, not a runtime proof.",
-            query
-        );
-        next_actions.push(json!({
-            "tool": "codelattice_symbol",
-            "mode": "context",
-            "why": format!("Get context for symbol '{}'", query),
-            "arguments": {"name": query, "language": language, "root": root}
-        }));
-        next_actions.push(json!({
-            "tool": "codelattice_change_review",
-            "mode": "impact",
-            "why": "Assess impact of the proposed change",
-            "arguments": {"symbol": query, "language": language, "root": root}
-        }));
+        orchestration["stepsAttempted"] = json!(["intent-classification:before_edit"]);
+        if !root.is_empty() && !query.is_empty() {
+            let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na) =
+                build_whatif_result(root, language, &question, &query, "", "");
+            answer_summary = if !tc.is_empty() {
+                format!(
+                    "Whatif preview for '{}': {} direct impacts, {} indirect. Risk: {}. {}",
+                    query,
+                    di.len(),
+                    ii.len(),
+                    risk["level"].as_str().unwrap_or("unknown"),
+                    risk["reasons"]
+                        .as_array()
+                        .map(|r| r
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join("; "))
+                        .unwrap_or_default()
+                )
+            } else {
+                format!(
+                    "Whatif preview for '{}': no matching symbols found in graph.",
+                    query
+                )
+            };
+            orchestration["stepsAttempted"] =
+                json!(["intent-classification:before_edit", "whatif:executed"]);
+            orchestration["resultsSummary"] = json!({
+                "whatif": {
+                    "targetCandidates": tc.len(),
+                    "directImpact": di.len(),
+                    "indirectImpact": ii.len(),
+                    "riskLevel": risk["level"]
+                }
+            });
+            evidence.push(json!({
+                "kind": "whatif_preview",
+                "targetCandidates": tc.len(),
+                "directImpact": di.len(),
+                "risk": risk["level"]
+            }));
+            files_involved = rf
+                .iter()
+                .filter_map(|v| {
+                    v.get("path")
+                        .and_then(|p| p.as_str())
+                        .map(|s| Value::String(s.to_string()))
+                })
+                .collect();
+            read_order_out = rf.into_iter().take(5).collect();
+            missing_evidence.extend(me);
+            next_actions.push(json!({
+                "tool": "codelattice_change_review",
+                "mode": "whatif",
+                "why": format!("Get full whatif analysis for '{}'", query),
+                "arguments": {"change": question, "symbol": query, "language": language, "root": root}
+            }));
+            next_actions.push(json!({
+                "tool": "codelattice_symbol",
+                "mode": "call_chains",
+                "why": format!("Trace call chains for '{}'", query),
+                "arguments": {"query": query, "language": language, "root": root}
+            }));
+        } else {
+            answer_summary = format!(
+                "Risk assessment for editing '{}'. Provide a root path for whatif preview.",
+                query
+            );
+            orchestration["stepsSkipped"] = json!(["whatif:no_root_or_symbol"]);
+            next_actions.push(json!({
+                "tool": "codelattice_change_review",
+                "mode": "whatif",
+                "why": "Run whatif preview",
+                "arguments": {"change": question, "language": language, "root": root}
+            }));
+        }
         ai_guidance = "Impact analysis is static-only. Review test coverage and runtime behavior manually before making changes.".to_string();
     } else if issue_keywords.iter().any(|k| q.contains(k)) {
         intent = "locate_issue".to_string();
@@ -23553,7 +23692,7 @@ fn extract_symbol_from_question(question: &str) -> String {
 }
 
 fn build_whatif_result(
-    root: &Path,
+    root: &str,
     language: &str,
     change: &str,
     symbol_param: &str,
@@ -23614,9 +23753,9 @@ fn build_whatif_result(
     let mut missing = Vec::new();
     let mut next_actions = Vec::new();
 
-    if !target_query.is_empty() && !root.as_os_str().is_empty() {
+    if !target_query.is_empty() && !root.is_empty() {
         let (candidates, chains, _, me, _, ro, fi, _, _, _) =
-            build_call_chains_result(root, language, &target_query, "both", 3, 10);
+            build_call_chains_result(Path::new(root), language, &target_query, "both", 3, 10);
 
         target_candidates = candidates;
 
@@ -23787,13 +23926,13 @@ fn build_whatif_result(
         "tool": "codelattice_symbol",
         "mode": "call_chains",
         "why": format!("Trace full call chains for '{}'", target_query),
-        "arguments": {"query": target_query, "language": language}
+        "arguments": {"query": target_query, "language": language, "root": root}
     }));
     next_actions.push(json!({
         "tool": "codelattice_change_review",
         "mode": "impact",
         "why": "Get detailed impact analysis",
-        "arguments": {"symbol": target_query, "language": language}
+        "arguments": {"symbol": target_query, "language": language, "root": root}
     }));
 
     (

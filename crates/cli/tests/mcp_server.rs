@@ -14842,3 +14842,179 @@ fn mcp_toolset_unchanged_after_whatif() {
     s2.send(&serde_json::json!({"jsonrpc":"2.0","id":99036,"method":"tools/list","params":{}}));
     let _ = s2.recv();
 }
+
+#[test]
+fn mcp_workflow_ask_inspect_project_executes_quick() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99040,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目结构是什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("inspect_project"),
+        "intent: {:?}",
+        data["intent"]
+    );
+    let pd = data.get("projectDigest");
+    assert!(
+        pd.is_some() && !pd.unwrap().is_null(),
+        "projectDigest should exist and not be null: keys={:?}",
+        data.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+    let steps = data["orchestration"]["stepsAttempted"].as_array();
+    assert!(
+        steps.is_some_and(|s| s
+            .iter()
+            .any(|step| step.as_str() == Some("project_quick:executed"))),
+        "stepsAttempted should contain project_quick:executed: {:?}",
+        steps
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_before_edit_has_whatif_orchestration() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99041,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "如果删除 helper 会影响什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    let intent = data["intent"].as_str().unwrap_or("");
+    assert!(
+        intent == "before_edit" || intent == "whatif",
+        "intent should be before_edit or whatif: {:?}",
+        intent
+    );
+    let steps = data["orchestration"]["stepsAttempted"].as_array();
+    assert!(
+        steps.is_some_and(|s| s
+            .iter()
+            .any(|step| step.as_str() == Some("whatif:executed"))),
+        "stepsAttempted should contain whatif:executed: {:?}",
+        steps
+    );
+    let next = data["recommendedNextCalls"].as_array();
+    assert!(
+        next.is_some_and(|a| a
+            .iter()
+            .any(|n| n["tool"].as_str() == Some("codelattice_change_review")
+                && n["mode"].as_str() == Some("whatif"))),
+        "recommendedNextCalls should include codelattice_change_review mode=whatif: {:?}",
+        next
+    );
+}
+
+#[test]
+fn mcp_change_review_whatif_recommended_next_has_root() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99042,
+        "codelattice_change_review",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "whatif",
+            "change": "删除 helper 函数"
+        }),
+    );
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.whatIf.v1")
+    );
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls should exist");
+    for n in next {
+        let tool = n["tool"].as_str().unwrap_or("");
+        if tool.starts_with("codelattice_") {
+            let args = n.get("arguments");
+            assert!(
+                args.is_some_and(|a| a.get("root").is_some()),
+                "CodeLattice follow-up '{}' must include root in arguments: {:?}",
+                tool,
+                n
+            );
+        }
+    }
+}
+
+#[test]
+fn mcp_full_toolset_is_forty_nine() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let _root = std::env::var("CODELATTICE_MCP_TOOLSET");
+    let output = std::process::Command::new(
+        "/Users/jiangxuanyang/Desktop/codelattice/target/debug/codelattice",
+    )
+    .env("CODELATTICE_MCP_TOOLSET", "full")
+    .arg("mcp")
+    .stdin(std::process::Stdio::piped())
+    .stdout(std::process::Stdio::piped())
+    .stderr(std::process::Stdio::null())
+    .spawn();
+    match output {
+        Ok(mut child) => {
+            use std::io::Write;
+            let stdin = child.stdin.as_mut().unwrap();
+            let init_msg = r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}"#;
+            let notif_msg = r#"{"jsonrpc":"2.0","method":"notifications/initialized"}"#;
+            let tools_msg = r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#;
+            writeln!(stdin, "{}", init_msg).unwrap();
+            writeln!(stdin, "{}", notif_msg).unwrap();
+            writeln!(stdin, "{}", tools_msg).unwrap();
+            drop(stdin);
+            let out = child.wait_with_output().unwrap();
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            for line in stdout.lines() {
+                if let Ok(d) = serde_json::from_str::<serde_json::Value>(line) {
+                    if d.get("id").and_then(|i| i.as_u64()) == Some(2) {
+                        let tools = d["result"]["tools"]
+                            .as_array()
+                            .expect("tools should be array");
+                        assert_eq!(
+                            tools.len(),
+                            49,
+                            "full toolset must be 49, got {}",
+                            tools.len()
+                        );
+                        return;
+                    }
+                }
+            }
+            panic!("Did not receive tools/list response with id=2");
+        }
+        Err(e) => {
+            panic!(
+                "Failed to start codelattice binary: {}. Run cargo build first.",
+                e
+            );
+        }
+    }
+}
