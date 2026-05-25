@@ -87,6 +87,23 @@ or directly:
 codelattice_symbol(mode=call_chains, query="helper", direction="both")
 ```
 
+### Locating A Bug Or Symptom
+
+For natural-language issue triage, use one `ask` call first:
+
+```
+codelattice_workflow(mode=ask, question="mission_loop 报错怎么定位", compact=true)
+```
+
+Issue-like questions return a compact `triagePlan` when CodeLattice has enough static evidence. The plan includes `likelyAreas`, `readFirst`, `hypotheses`, `impactHints`, and `evidenceGaps`. Treat this as a static investigation lead: CodeLattice did not reproduce the bug, run tests, execute the target project, or prove coverage.
+
+After choosing a likely symbol or file, continue with:
+
+```
+codelattice_symbol(mode=call_chains, query="mission_loop")
+codelattice_change_review(mode=impact, symbol="mission_loop")
+```
+
 ### Compact Payloads
 
 Use `compact=true` by default when asking for orientation, call chains, or issue triage. Compact facade responses intentionally keep `rootDiagnosis` small: they include `sourceOnlySummary` and at most five `sourceOnlyEntryPreview` items, but omit full `sourceOnlyEntries`.
@@ -130,6 +147,12 @@ Risk lists can contain many `high` items in large projects. Prefer the ranking f
 
 - `priorityRank`: lower is more urgent within that result set.
 - `relativePriority`: `top`, `peer-high`, `elevated`, or `baseline`.
+- `riskCalibration.rawRiskLevel`: the absolute static score bucket.
+- `riskCalibration.rankAdjustedRiskLevel`: the calibrated bucket after comparing peers in this result set.
+- `riskCalibration.calibratedRiskLevel`: same as rank-adjusted risk, kept for agents that look for a direct calibrated risk field.
+- `riskCalibration.calibratedPriorityBand`: `primary`, `secondary`, `watch`, or `baseline`.
+- `riskCalibration.percentileBand`: where the item sits in the returned list.
+- `riskCalibration.tieBreaker`: why this item appears before another equal-looking item.
 - `riskDrivers`: why the item ranked highly, such as `fan_in`, `fan_out`, `cross_file_impact`, `low_confidence`, or `diagnostics`.
 - `riskScoreInterpretation`: a short static-only explanation.
 

@@ -616,12 +616,65 @@ fn project_risk_level_from_score(score: f64) -> &'static str {
 fn relative_priority(rank: usize, score: f64, top_score: f64) -> &'static str {
     if rank == 1 {
         "top"
-    } else if top_score > 0.0 && score >= top_score * 0.8 {
+    } else if rank <= 3 && top_score > 0.0 && score >= top_score * 0.8 {
         "peer-high"
     } else if score >= 3.0 {
         "elevated"
     } else {
         "baseline"
+    }
+}
+
+fn calibrated_priority_label(rank: usize, total: usize) -> &'static str {
+    if rank == 1 {
+        "primary"
+    } else if rank <= 3 || (total > 0 && rank * 5 <= total) {
+        "secondary"
+    } else if rank <= 8 || (total > 0 && rank * 2 <= total) {
+        "watch"
+    } else {
+        "baseline"
+    }
+}
+
+fn calibrated_percentile_band(rank: usize, total: usize) -> &'static str {
+    if total <= 1 || rank == 1 {
+        "top"
+    } else if rank * 10 <= total {
+        "top_10_percent"
+    } else if rank * 5 <= total {
+        "top_20_percent"
+    } else if rank * 2 <= total {
+        "top_half"
+    } else {
+        "baseline_half"
+    }
+}
+
+fn rank_adjusted_risk_level(score: f64, rank: usize, top_score: f64, total: usize) -> &'static str {
+    if score <= 0.0 {
+        return "low";
+    }
+    let raw = project_risk_level_from_score(score);
+    match calibrated_priority_label(rank, total) {
+        "primary" => raw,
+        "secondary" if raw == "high" && top_score > 0.0 && score >= top_score * 0.65 => "medium",
+        "secondary" if raw == "medium" => "medium",
+        "watch" if raw == "high" => "medium",
+        "watch" if raw == "medium" => "low",
+        _ => "low",
+    }
+}
+
+fn risk_tie_breaker(score: f64, rank: usize, top_score: f64) -> String {
+    if rank == 1 {
+        "highest ranked static signal in this result set".to_string()
+    } else if top_score > 0.0 && (top_score - score).abs() < f64::EPSILON {
+        "raw score ties the top item; priorityRank breaks the tie deterministically by graph/file/symbol ordering".to_string()
+    } else if top_score > 0.0 && score >= top_score * 0.8 {
+        "raw score is close to the top item; inspect after lower priorityRank items".to_string()
+    } else {
+        "lower raw score or weaker drivers than earlier priorityRank items".to_string()
     }
 }
 
@@ -661,15 +714,15 @@ fn risk_driver_tags(reasons: &[String], score: f64, kind: &str) -> Vec<String> {
     tags
 }
 
-fn risk_score_interpretation(score: f64, rank: usize, top_score: f64) -> String {
-    let level = project_risk_level_from_score(score);
+fn risk_score_interpretation(score: f64, rank: usize, top_score: f64, total: usize) -> String {
+    let level = rank_adjusted_risk_level(score, rank, top_score, total);
     let relative = relative_priority(rank, score, top_score);
     format!(
-        "{level} static risk, relativePriority={relative}. Compare priorityRank before comparing equal-looking riskLevel values; this is not runtime proof."
+        "{level} rank-adjusted static risk, relativePriority={relative}. Compare priorityRank and riskCalibration before comparing equal-looking raw scores; this is not runtime proof."
     )
 }
 
-fn enrich_risk_item(item: &Value, rank: usize, top_score: f64) -> Value {
+fn enrich_risk_item(item: &Value, rank: usize, top_score: f64, total_items: usize) -> Value {
     let score = item["riskScore"].as_f64().unwrap_or(0.0);
     let kind = item["kind"].as_str().unwrap_or("item");
     let reasons: Vec<String> = item["reasons"]
@@ -681,16 +734,21 @@ fn enrich_risk_item(item: &Value, rank: usize, top_score: f64) -> Value {
                 .collect()
         })
         .unwrap_or_default();
+    let raw_level = project_risk_level_from_score(score);
+    let rank_adjusted_level = rank_adjusted_risk_level(score, rank, top_score, total_items);
     let mut enriched = item.clone();
     if let Some(obj) = enriched.as_object_mut() {
+        obj.insert("rawRiskScore".to_string(), json!(score));
+        obj.insert("rawRiskLevel".to_string(), json!(raw_level));
         obj.insert("priorityRank".to_string(), json!(rank));
         obj.insert(
             "relativePriority".to_string(),
             json!(relative_priority(rank, score, top_score)),
         );
+        obj.insert("riskLevel".to_string(), json!(rank_adjusted_level));
         obj.insert(
-            "riskLevel".to_string(),
-            json!(project_risk_level_from_score(score)),
+            "rankAdjustedRiskLevel".to_string(),
+            json!(rank_adjusted_level),
         );
         obj.insert(
             "riskDrivers".to_string(),
@@ -698,7 +756,25 @@ fn enrich_risk_item(item: &Value, rank: usize, top_score: f64) -> Value {
         );
         obj.insert(
             "riskScoreInterpretation".to_string(),
-            json!(risk_score_interpretation(score, rank, top_score)),
+            json!(risk_score_interpretation(
+                score,
+                rank,
+                top_score,
+                total_items
+            )),
+        );
+        obj.insert(
+            "riskCalibration".to_string(),
+            json!({
+                "rawRiskScore": score,
+                "rawRiskLevel": raw_level,
+                "rankAdjustedRiskLevel": rank_adjusted_level,
+                "calibratedRiskLevel": rank_adjusted_level,
+                "calibratedPriorityBand": calibrated_priority_label(rank, total_items),
+                "percentileBand": calibrated_percentile_band(rank, total_items),
+                "tieBreaker": risk_tie_breaker(score, rank, top_score),
+                "rankGuidance": "Use priorityRank first, then riskDrivers/rawRiskScore. Equal raw scores are intentionally separated by rank."
+            }),
         );
         obj.insert(
             "whyTopRisk".to_string(),
@@ -7999,10 +8075,11 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
         .first()
         .and_then(|item| item["riskScore"].as_f64())
         .unwrap_or(0.0);
+    let risk_item_count = risk_items.len();
     risk_items = risk_items
         .iter()
         .enumerate()
-        .map(|(idx, item)| enrich_risk_item(item, idx + 1, top_risk_score))
+        .map(|(idx, item)| enrich_risk_item(item, idx + 1, top_risk_score, risk_item_count))
         .collect();
 
     // ---------------------------------------------------------------
@@ -8492,7 +8569,8 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "riskScoreInterpretation": risk_score_interpretation(
                     cm.max_risk_score,
                     idx + 1,
-                    component_items.first().map(|(_, top)| top.max_risk_score).unwrap_or(0.0)
+                    component_items.first().map(|(_, top)| top.max_risk_score).unwrap_or(0.0),
+                    component_items.len()
                 ),
                 "reason": reason,
                 "readFirstFiles": cm.representative_files,
@@ -8542,11 +8620,15 @@ fn handle_project_insights(cache: &mut McpCache, params: &Value) -> Result<Value
                 "kind": item["kind"],
                 "file": item["file"],
                 "line": item["line"],
-                "riskLevel": risk_level,
+                "riskLevel": item["riskLevel"].as_str().unwrap_or(risk_level),
                 "riskScore": score,
+                "rawRiskScore": item["rawRiskScore"],
+                "rawRiskLevel": item["rawRiskLevel"],
+                "rankAdjustedRiskLevel": item["rankAdjustedRiskLevel"],
                 "priorityRank": item["priorityRank"],
                 "relativePriority": item["relativePriority"],
                 "riskDrivers": item["riskDrivers"],
+                "riskCalibration": item["riskCalibration"],
                 "riskScoreInterpretation": item["riskScoreInterpretation"],
                 "whySuspicious": why,
                 "whyTopRisk": item["whyTopRisk"],
@@ -21575,7 +21657,7 @@ fn workflow_execute_next_actions(
     )
 }
 
-fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["intent"]
         .as_str()
         .or_else(|| params["mode"].as_str())
@@ -21660,10 +21742,11 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             missing_evidence,
             files_involved,
             read_order,
+            triage_plan,
             orchestration,
             next_actions,
             _ai_guidance,
-        ) = route_ask_intent(root, language, &question, ask_compact, ask_execute);
+        ) = route_ask_intent(cache, root, language, &question, ask_compact, ask_execute);
 
         let ask_result = json!({
             "schemaVersion": "codelattice.ask.v2",
@@ -21674,6 +21757,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
             "orchestration": orchestration,
             "callChains": call_chains,
             "readOrder": read_order,
+            "triagePlan": triage_plan,
             "filesInvolved": files_involved,
             "missingEvidence": missing_evidence,
             "recommendedNextCalls": next_actions,
@@ -22209,7 +22293,7 @@ fn handle_workflow(_cache: &mut McpCache, params: &Value) -> Result<Value, Value
     }
 
     let (execution, completed_actions, failed_actions, skipped_actions, evidence, answer_summary) =
-        workflow_execute_next_actions(_cache, mode, execute, &missing_inputs, &next_actions);
+        workflow_execute_next_actions(cache, mode, execute, &missing_inputs, &next_actions);
     let evidence_found = workflow_evidence_found(&evidence, &completed_actions);
     let evidence_missing = workflow_evidence_missing(
         mode,
@@ -22828,7 +22912,163 @@ fn build_call_chains_result(
     )
 }
 
+fn issue_triage_from_project_diagnose(diagnose: &Value, target_query: Option<&str>) -> Value {
+    let likely_areas = take_json_items(&diagnose["likelyAreas"], 5);
+    let read_first = take_json_items(&diagnose["readFirst"], 5);
+    let impact_hints = take_json_items(&diagnose["impactHints"], 5);
+    let hypotheses: Vec<Value> = likely_areas
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(idx, area)| {
+            json!({
+                "priority": idx + 1,
+                "candidate": area.get("name").cloned().unwrap_or_else(|| json!("unknown")),
+                "file": area.get("file").cloned().unwrap_or(Value::Null),
+                "line": area.get("line").cloned().unwrap_or(Value::Null),
+                "confidence": area.get("confidence").cloned().unwrap_or(Value::Null),
+                "reason": area.get("reason").cloned().unwrap_or_else(|| json!("static ranking signal")),
+                "nextAction": area.get("nextAction").cloned().unwrap_or_else(|| json!("Read this candidate and confirm with targeted tests."))
+            })
+        })
+        .collect();
+
+    json!({
+        "schemaVersion": "codelattice.issueTriage.v1",
+        "targetQuery": target_query,
+        "summary": diagnose.get("summary").cloned().unwrap_or_else(|| json!({})),
+        "answerSummary": diagnose.get("answerSummary").cloned().unwrap_or_else(|| json!("Static issue triage generated from project diagnosis.")),
+        "likelyAreas": likely_areas,
+        "readFirst": read_first,
+        "impactHints": impact_hints,
+        "hypotheses": hypotheses,
+        "evidenceGaps": [
+            {
+                "kind": "runtime_reproduction",
+                "status": "not_checked",
+                "reason": "CodeLattice did not execute target project code.",
+                "nextAction": "Run the smallest reproduction or failing test outside CodeLattice."
+            },
+            {
+                "kind": "targeted_tests",
+                "status": "not_checked",
+                "reason": "Static diagnosis is not test or coverage proof.",
+                "nextAction": "Run targeted tests after choosing the likely file/symbol."
+            },
+            {
+                "kind": "dynamic_runtime_edges",
+                "status": "not_proven",
+                "reason": "Framework dispatch, dynamic calls, trait objects, and generated code may hide edges.",
+                "nextAction": "Confirm runtime/framework paths manually before editing."
+            }
+        ],
+        "staticOnly": true,
+        "targetCodeExecuted": false,
+        "runtimeVerified": false
+    })
+}
+
+fn issue_triage_from_call_context(
+    target_query: Option<&str>,
+    call_chains: &[Value],
+    read_order: &[Value],
+    files_involved: &[Value],
+) -> Value {
+    let likely_areas: Vec<Value> = read_order
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(idx, item)| {
+            json!({
+                "id": item.get("symbol").cloned().unwrap_or_else(|| json!(target_query.unwrap_or("unknown"))),
+                "name": item.get("symbol").cloned().unwrap_or_else(|| json!(target_query.unwrap_or("unknown"))),
+                "kind": item.get("kind").cloned().unwrap_or_else(|| json!("source")),
+                "file": item.get("path").or_else(|| item.get("file")).cloned().unwrap_or(Value::Null),
+                "line": item.get("line").cloned().unwrap_or(Value::Null),
+                "confidence": 0.7,
+                "reason": item.get("reason").cloned().unwrap_or_else(|| json!("call-chain evidence")),
+                "nextAction": "Read this file/symbol first, then inspect callers/callees before editing.",
+                "priority": idx + 1
+            })
+        })
+        .collect();
+    let read_first: Vec<Value> = read_order
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(idx, item)| {
+            json!({
+                "priority": idx + 1,
+                "kind": "file",
+                "file": item.get("path").or_else(|| item.get("file")).cloned().unwrap_or(Value::Null),
+                "symbol": item.get("symbol").cloned().unwrap_or(Value::Null),
+                "reason": item.get("reason").cloned().unwrap_or_else(|| json!("call-chain read order")),
+                "nextAction": "Read this before editing; confirm with runtime evidence or targeted tests."
+            })
+        })
+        .collect();
+    let hypotheses: Vec<Value> = likely_areas
+        .iter()
+        .take(5)
+        .enumerate()
+        .map(|(idx, area)| {
+            json!({
+                "priority": idx + 1,
+                "candidate": area.get("name").cloned().unwrap_or_else(|| json!("unknown")),
+                "file": area.get("file").cloned().unwrap_or(Value::Null),
+                "confidence": area.get("confidence").cloned().unwrap_or(Value::Null),
+                "reason": "call-chain context matched the issue target",
+                "nextAction": "Inspect this candidate and its immediate callers/callees."
+            })
+        })
+        .collect();
+
+    json!({
+        "schemaVersion": "codelattice.issueTriage.v1",
+        "targetQuery": target_query,
+        "summary": {
+            "likelyAreaCount": likely_areas.len(),
+            "readFirstCount": read_first.len(),
+            "callChainCount": call_chains.len(),
+            "fileCount": files_involved.len()
+        },
+        "answerSummary": format!(
+            "Static issue triage used call-chain context for {}.",
+            target_query.unwrap_or("the target")
+        ),
+        "likelyAreas": likely_areas,
+        "readFirst": read_first,
+        "impactHints": call_chains.iter().take(5).cloned().collect::<Vec<_>>(),
+        "hypotheses": hypotheses,
+        "filesInvolved": files_involved,
+        "evidenceGaps": [
+            {
+                "kind": "runtime_reproduction",
+                "status": "not_checked",
+                "reason": "CodeLattice did not execute target project code.",
+                "nextAction": "Run the smallest reproduction or failing test outside CodeLattice."
+            },
+            {
+                "kind": "targeted_tests",
+                "status": "not_checked",
+                "reason": "Static call-chain triage is not test or coverage proof.",
+                "nextAction": "Run targeted tests after choosing the likely file/symbol."
+            },
+            {
+                "kind": "dynamic_runtime_edges",
+                "status": "not_proven",
+                "reason": "Runtime dispatch can hide additional paths.",
+                "nextAction": "Confirm dynamic/framework behavior manually before editing."
+            }
+        ],
+        "staticOnly": true,
+        "targetCodeExecuted": false,
+        "runtimeVerified": false
+    })
+}
+
 fn route_ask_intent(
+    cache: &mut McpCache,
     root: &str,
     language: &str,
     question: &str,
@@ -22844,6 +23084,7 @@ fn route_ask_intent(
     Vec<Value>,
     Vec<Value>,
     Vec<Value>,
+    serde_json::Value,
     serde_json::Value,
     Vec<Value>,
     String,
@@ -22902,7 +23143,7 @@ fn route_ask_intent(
     ];
 
     let intent;
-    let answer_summary;
+    let mut answer_summary;
     let mut evidence = Vec::new();
     let mut call_chains = Vec::new();
     let mut read_first = Vec::new();
@@ -22912,6 +23153,7 @@ fn route_ask_intent(
     let mut target_query: Option<String> = None;
     let mut files_involved = Vec::new();
     let mut read_order_out = Vec::new();
+    let mut triage_plan = Value::Null;
     let mut orchestration = json!({"stepsAttempted": [], "stepsSkipped": []});
 
     if flow_keywords.iter().any(|k| q.contains(k)) {
@@ -23049,6 +23291,7 @@ fn route_ask_intent(
                 );
                 orchestration["stepsAttempted"] =
                     json!(["intent-classification:locate_issue", "call_chains:found"]);
+                call_chains = chains;
             } else {
                 answer_summary = format!(
                     "Symbol '{}' found but no call chains traced. Checking project context.",
@@ -23065,6 +23308,81 @@ fn route_ask_intent(
                 "Issue triage: provide a symbol or path to locate the problem.".to_string();
             orchestration["stepsAttempted"] = json!(["intent-classification:locate_issue"]);
             orchestration["stepsSkipped"] = json!(["call_chains:no_symbol"]);
+        }
+
+        if !root.is_empty() {
+            let mut diagnose_params = json!({
+                "root": root,
+                "language": language,
+                "mode": "diagnose",
+                "symptom": question,
+                "query": target_query.clone().unwrap_or_else(|| question.to_string()),
+                "limit": 5,
+                "compact": false
+            });
+            if let Some(ref tq) = target_query {
+                diagnose_params["query"] = json!(tq);
+            }
+            match build_project_diagnose(cache, &diagnose_params) {
+                Ok(diagnose) => {
+                    triage_plan =
+                        issue_triage_from_project_diagnose(&diagnose, target_query.as_deref());
+                    let triage_likely = take_json_items(&diagnose["likelyAreas"], 5);
+                    let triage_read_first = take_json_items(&diagnose["readFirst"], 5);
+                    if triage_likely.is_empty() && !call_chains.is_empty() {
+                        triage_plan = issue_triage_from_call_context(
+                            target_query.as_deref(),
+                            &call_chains,
+                            &read_order_out,
+                            &files_involved,
+                        );
+                    }
+                    if read_order_out.is_empty() {
+                        read_order_out = triage_read_first.clone();
+                    }
+                    if files_involved.is_empty() {
+                        files_involved = triage_read_first
+                            .iter()
+                            .filter_map(|item| {
+                                item.get("file")
+                                    .or_else(|| item.get("path"))
+                                    .and_then(|v| v.as_str())
+                                    .map(|s| json!(s))
+                            })
+                            .collect();
+                    }
+                    evidence.push(json!({
+                        "kind": "project_diagnose",
+                        "likelyAreaCount": triage_likely.len(),
+                        "readFirstCount": triage_read_first.len()
+                    }));
+                    orchestration["stepsAttempted"] = json!([
+                        "intent-classification:locate_issue",
+                        if call_chains.is_empty() {
+                            "call_chains:empty"
+                        } else {
+                            "call_chains:found"
+                        },
+                        "project_diagnose:executed"
+                    ]);
+                    if !triage_likely.is_empty() {
+                        answer_summary = format!(
+                            "Static triage found {} likely area(s); start with {}.",
+                            triage_likely.len(),
+                            triage_likely[0]["name"]
+                                .as_str()
+                                .unwrap_or("the first readFirst item")
+                        );
+                    }
+                }
+                Err(err) => {
+                    missing_evidence.push(json!({
+                        "kind": "project_diagnose_failed",
+                        "explanation": err
+                    }));
+                    orchestration["stepsSkipped"] = json!(["project_diagnose:failed"]);
+                }
+            }
         }
         next_actions.push(json!({
             "tool": "codelattice_project",
@@ -23114,6 +23432,7 @@ fn route_ask_intent(
         missing_evidence,
         files_involved,
         read_order_out,
+        triage_plan,
         orchestration,
         next_actions,
         ai_guidance,

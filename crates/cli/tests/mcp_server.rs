@@ -1622,6 +1622,56 @@ fn mcp_project_quick_returns_compact_ai_digest() {
 }
 
 #[test]
+fn mcp_project_quick_risks_include_calibrated_priority_bands() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42012,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "quick",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    let risks = data["summary"]["aiDigest"]["topRisks"]
+        .as_array()
+        .expect("quick digest should include topRisks");
+    assert!(!risks.is_empty(), "topRisks should not be empty: {data:?}");
+    assert!(
+        risks.iter().all(|item| {
+            item["rawRiskScore"].is_number()
+                && item["riskCalibration"]["calibratedRiskLevel"].is_string()
+                && item["riskCalibration"]["calibratedPriorityBand"].is_string()
+                && item["riskCalibration"]["percentileBand"].is_string()
+                && item["riskCalibration"]["tieBreaker"].is_string()
+                && item["riskCalibration"]["rankGuidance"].is_string()
+        }),
+        "every top risk should include calibrated relative priority metadata: {risks:?}"
+    );
+    if risks.len() >= 3 {
+        let levels = risks
+            .iter()
+            .filter_map(|item| item["riskCalibration"]["calibratedPriorityBand"].as_str())
+            .collect::<std::collections::BTreeSet<_>>();
+        assert!(
+            levels.len() >= 2,
+            "calibrated priority bands should not collapse every item into the same bucket: {risks:?}"
+        );
+    }
+}
+
+#[test]
 fn mcp_analyze_shell_portable_smoke() {
     let mut session = McpSession::start();
     session.initialize();
@@ -14501,4 +14551,68 @@ fn mcp_workflow_ask_v2_locate_issue_returns_triage_plan() {
         .as_array()
         .expect("recommendedNextCalls should exist");
     assert!(!next.is_empty(), "recommendedNextCalls should not be empty");
+}
+
+#[test]
+fn mcp_workflow_ask_v2_locate_issue_embeds_static_triage_plan() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99025,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 函数报错了怎么定位问题",
+            "compact": true
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("locate_issue"));
+    assert_eq!(
+        data["triagePlan"]["schemaVersion"].as_str(),
+        Some("codelattice.issueTriage.v1"),
+        "ask locate_issue should embed a compact static triage plan: {data:?}"
+    );
+    assert!(
+        data["triagePlan"]["likelyAreas"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "triage plan should include likely areas: {data:?}"
+    );
+    assert!(
+        data["triagePlan"]["readFirst"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "triage plan should include read-first files: {data:?}"
+    );
+    assert!(
+        data["triagePlan"]["evidenceGaps"]
+            .as_array()
+            .map(|items| {
+                items.iter().any(|item| {
+                    item["kind"].as_str() == Some("runtime_reproduction")
+                        && item["status"].as_str() == Some("not_checked")
+                })
+            })
+            .unwrap_or(false),
+        "triage plan must preserve static-only gaps: {data:?}"
+    );
+    assert!(
+        data["orchestration"]["stepsAttempted"]
+            .as_array()
+            .map(|steps| {
+                steps
+                    .iter()
+                    .any(|step| step.as_str() == Some("project_diagnose:executed"))
+            })
+            .unwrap_or(false),
+        "ask orchestration should show project diagnosis was executed: {data:?}"
+    );
 }
