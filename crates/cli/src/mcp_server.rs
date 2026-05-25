@@ -21796,7 +21796,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let what_if = if intent == "before_edit" || intent == "whatif" {
             let query = target_query.as_ref().unwrap_or(&String::new()).clone();
             if !root.is_empty() && !query.is_empty() {
-                let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, _ap) =
+                let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, ap) =
                     build_whatif_result(root, language, &question, &query, "", "");
                 json!({
                     "schemaVersion": "codelattice.whatIf.v1",
@@ -21809,6 +21809,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     "testsToRun": tests,
                     "readFirst": rf,
                     "evidenceGaps": me,
+                    "actionPlan": ap,
                     "analysisSemantics": {
                         "staticAnalysisExecuted": true,
                         "targetCodeExecuted": false,
@@ -23252,6 +23253,12 @@ fn route_ask_intent(
             read_first = rf;
             missing_evidence = me;
             next_actions = na;
+            next_actions.push(json!({
+                "tool": "codelattice_symbol",
+                "mode": "call_chains",
+                "why": format!("Get full call chains for '{}'", query),
+                "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
+            }));
             read_order_out = ro;
             files_involved = fi;
             orchestration["stepsAttempted"] =
@@ -23393,7 +23400,13 @@ fn route_ask_intent(
                 "tool": "codelattice_project",
                 "mode": "quick",
                 "why": "Get more detailed project overview",
-                "arguments": {"root": root, "language": language}
+                "arguments": {"root": root, "language": language, "compact": true}
+            }));
+            next_actions.push(json!({
+                "tool": "codelattice_project",
+                "mode": "standard",
+                "why": "Get comprehensive project analysis",
+                "arguments": {"root": root, "language": language, "compact": true}
             }));
         } else {
             answer_summary = "Please provide a root path to inspect.".to_string();
@@ -23468,13 +23481,19 @@ fn route_ask_intent(
                 "tool": "codelattice_change_review",
                 "mode": "whatif",
                 "why": format!("Get full whatif analysis for '{}'", query),
-                "arguments": {"change": question, "symbol": query, "language": language, "root": root}
+                "arguments": {"change": question, "symbol": query, "language": language, "root": root, "compact": true}
+            }));
+            next_actions.push(json!({
+                "tool": "codelattice_change_review",
+                "mode": "impact",
+                "why": format!("Assess impact of changing '{}'", query),
+                "arguments": {"symbol": query, "language": language, "root": root, "compact": true}
             }));
             next_actions.push(json!({
                 "tool": "codelattice_symbol",
                 "mode": "call_chains",
                 "why": format!("Trace call chains for '{}'", query),
-                "arguments": {"query": query, "language": language, "root": root}
+                "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
             }));
         } else {
             answer_summary = format!(
@@ -23486,7 +23505,7 @@ fn route_ask_intent(
                 "tool": "codelattice_change_review",
                 "mode": "whatif",
                 "why": "Run whatif preview",
-                "arguments": {"change": question, "language": language, "root": root}
+                "arguments": {"change": question, "language": language, "root": root, "compact": true}
             }));
         }
         ai_guidance = "Impact analysis is static-only. Review test coverage and runtime behavior manually before making changes.".to_string();
@@ -23608,7 +23627,7 @@ fn route_ask_intent(
             "tool": "codelattice_project",
             "mode": "quick",
             "why": "Get project overview for issue context",
-            "arguments": {"root": root, "language": language}
+            "arguments": {"root": root, "language": language, "compact": true}
         }));
         if let Some(ref tq) = target_query {
             if !tq.is_empty() {
@@ -23616,7 +23635,7 @@ fn route_ask_intent(
                     "tool": "codelattice_symbol",
                     "mode": "call_chains",
                     "why": format!("Trace call chains for '{}'", tq),
-                    "arguments": {"query": tq, "language": language, "root": root}
+                    "arguments": {"query": tq, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
                 }));
             }
         }
@@ -23624,7 +23643,7 @@ fn route_ask_intent(
             "tool": "codelattice_workflow",
             "mode": "diagnose_issue",
             "why": "Run structured diagnosis",
-            "arguments": {"root": root, "language": language, "symptom": question}
+            "arguments": {"root": root, "language": language, "symptom": question, "compact": true}
         }));
         ai_guidance = "Issue location is static-only. Check logs, runtime behavior, and test failures to confirm root cause.".to_string();
     } else {
