@@ -15607,3 +15607,144 @@ fn mcp_workflow_ask_job_followup_next_calls_has_more() {
         }
     }
 }
+
+#[test]
+fn mcp_project_diagnose_compact_returns_top_areas() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99080,
+        "codelattice_project",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "diagnose",
+            "symptom": "helper function error",
+            "compact": true
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    let ta = data["summary"]["topLikelyAreas"].as_array();
+    assert!(
+        ta.is_some(),
+        "topLikelyAreas should exist in compact summary: keys={:?}",
+        data["summary"]
+            .as_object()
+            .map(|o| o.keys().collect::<Vec<_>>())
+    );
+    let areas = ta.unwrap();
+    assert!(!areas.is_empty(), "topLikelyAreas should not be empty");
+    for area in areas {
+        assert!(area["name"].as_str().is_some(), "each area needs name");
+        assert!(
+            area.get("confidence").is_some(),
+            "each area needs confidence"
+        );
+        let reasons = area.get("reasons").and_then(|r| r.as_array());
+        assert!(
+            reasons.is_some_and(|r| !r.is_empty()),
+            "each area needs non-empty reasons"
+        );
+        assert_eq!(area["staticOnly"], true);
+    }
+    let ds = data["summary"]["diagnosisSummary"].as_str();
+    assert!(
+        ds.is_some_and(|s| !s.is_empty()),
+        "diagnosisSummary should exist"
+    );
+    let rf = data["summary"]["readFirst"].as_array();
+    assert!(rf.is_some(), "readFirst should exist");
+}
+
+#[test]
+fn mcp_workflow_diagnose_issue_executes_diagnosis() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99081,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "diagnose_issue",
+            "symptom": "helper function error",
+            "compact": true,
+            "execute": true
+        }),
+    );
+    let findings = data["findings"].as_array();
+    assert!(
+        findings.is_some_and(|f| !f.is_empty()),
+        "findings should not be empty when execute=true: {:?}",
+        data.get("findings")
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_locate_issue_returns_diagnosis() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99082,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 函数报错怎么定位问题"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("locate_issue"));
+    let tp = data["triagePlan"].as_object();
+    assert!(tp.is_some(), "triagePlan should exist");
+    let likely = data["triagePlan"]["likelyAreas"].as_array();
+    assert!(
+        likely.is_some_and(|a| !a.is_empty()),
+        "triagePlan.likelyAreas should be non-empty"
+    );
+    let steps = data["orchestration"]["stepsAttempted"].as_array();
+    assert!(
+        steps.is_some_and(|s| s
+            .iter()
+            .any(|step| step.as_str() == Some("project_diagnose:executed"))),
+        "stepsAttempted should contain project_diagnose:executed: {:?}",
+        steps
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_large_locate_issue_lightweight_areas() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99083,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "module_0 函数报错怎么定位"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("locate_issue"));
+    let payload = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        payload.len() < 16384,
+        "payload should be <16KB, got {}B",
+        payload.len()
+    );
+}

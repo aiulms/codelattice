@@ -19456,8 +19456,9 @@ struct DiagnoseCandidate {
     is_test_entry: bool,
 }
 
-fn diagnose_candidate_json(candidate: &DiagnoseCandidate) -> Value {
+fn diagnose_candidate_json(candidate: &DiagnoseCandidate, idx: usize) -> Value {
     json!({
+        "rank": idx + 1,
         "id": candidate.id,
         "name": candidate.name,
         "kind": candidate.kind,
@@ -19472,6 +19473,7 @@ fn diagnose_candidate_json(candidate: &DiagnoseCandidate) -> Value {
         "fanOut": candidate.fan_out,
         "entryKind": candidate.entry_kind,
         "isTestEntry": candidate.is_test_entry,
+        "staticOnly": true
     })
 }
 
@@ -19623,7 +19625,11 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
     });
     candidates.truncate(limit);
 
-    let likely_areas: Vec<Value> = candidates.iter().map(diagnose_candidate_json).collect();
+    let likely_areas: Vec<Value> = candidates
+        .iter()
+        .enumerate()
+        .map(|(i, c)| diagnose_candidate_json(c, i))
+        .collect();
 
     let mut read_first: Vec<Value> = Vec::new();
     let mut seen_files: Vec<String> = Vec::new();
@@ -20071,11 +20077,88 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             .get("summary")
             .cloned()
             .unwrap_or_else(|| json!({"riskLevel":"unknown"}));
+        let likely_areas = inner
+            .get("likelyAreas")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let read_first_items = inner
+            .get("readFirst")
+            .and_then(|a| a.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let top_areas: Vec<Value> = likely_areas
+            .iter()
+            .take(5)
+            .map(|area| {
+                let name = area.get("name").and_then(|v| v.as_str()).unwrap_or("");
+                let file = area.get("file").and_then(|v| v.as_str()).unwrap_or("");
+                let confidence = area
+                    .get("confidence")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0);
+                let reasons = area
+                    .get("reasons")
+                    .and_then(|r| r.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str().map(String::from))
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let rank = area.get("rank").and_then(|v| v.as_u64()).unwrap_or(0);
+                json!({
+                    "rank": rank,
+                    "name": name,
+                    "file": file,
+                    "symbol": name,
+                    "confidence": confidence,
+                    "reasons": reasons,
+                    "staticOnly": true
+                })
+            })
+            .collect();
+        let top_read: Vec<Value> = read_first_items.iter().take(3).cloned().collect();
+        let top_area_names: Vec<&str> = top_areas
+            .iter()
+            .take(3)
+            .filter_map(|a| a["name"].as_str())
+            .collect();
+        let diagnosis_summary_text = if top_areas.is_empty() {
+            "No likely areas found from symptom matching.".to_string()
+        } else {
+            format!(
+                "Found {} likely areas; start with {} because {}.",
+                top_areas.len(),
+                top_areas
+                    .first()
+                    .and_then(|a| a["file"].as_str())
+                    .unwrap_or("unknown file"),
+                top_areas
+                    .first()
+                    .and_then(|a| a["reasons"].as_array())
+                    .map(|r| r
+                        .iter()
+                        .filter_map(|v| v.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", "))
+                    .unwrap_or("highest score".to_string())
+            )
+        };
         json!({
             "riskLevel": diagnose_summary["riskLevel"].as_str().unwrap_or("unknown"),
             "mode": mode,
             "likelyAreaCount": diagnose_summary["likelyAreaCount"],
-            "topConfidence": diagnose_summary["topConfidence"]
+            "topConfidence": diagnose_summary["topConfidence"],
+            "topLikelyAreas": top_areas,
+            "readFirst": top_read,
+            "diagnosisSummary": diagnosis_summary_text,
+            "missingEvidence": [
+                {"kind": "runtime_verification", "explanation": "Diagnosis is static-only. No runtime logs, test results, or coverage data were used."},
+                {"kind": "no_code_execution", "explanation": "Target code was not executed. Verify hypotheses with targeted tests."}
+            ],
+            "detailHint": "Use compact=false or mode=job + job_detail for full diagnosis data.",
+            "suspectedSymbols": top_area_names
         })
     } else {
         json!({"riskLevel":"low","mode":mode})
@@ -21772,6 +21855,8 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         .unwrap_or("");
     let root_diagnosis = if root.is_empty() {
         json!({"kind": "not_applicable", "explanation": "No root path provided."})
+    } else if compact {
+        diagnose_root_compact(root, language)
     } else {
         diagnose_root(root, language)
     };
@@ -22314,46 +22399,79 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 .or_else(|| params["issue"].as_str())
                 .or_else(|| params["observedError"].as_str())
                 .unwrap_or("");
-            risk_level = if symptom.is_empty() {
+            let changed_path = params["changedPath"].as_str().unwrap_or("");
+            risk_level = if symptom.is_empty() && changed_path.is_empty() {
                 "unknown"
             } else {
                 "medium"
             };
-            situation = if symptom.is_empty() {
-                "Issue diagnosis needs a symptom, errorText, query, or changedPath. I will ask for the smallest useful clue instead of guessing."
+            situation = if symptom.is_empty() && changed_path.is_empty() {
+                "Issue diagnosis needs a symptom, errorText, query, or changedPath."
             } else {
-                "Diagnose likely files/symbols to read first from the static graph, then confirm hypotheses outside CodeLattice."
+                "Diagnose likely files/symbols to read first from the static graph."
             };
-            if symptom.is_empty() && params["changedPath"].as_str().unwrap_or("").is_empty() {
+            if symptom.is_empty() && changed_path.is_empty() {
                 missing_inputs.push(workflow_missing(
                     "symptom",
                     "Diagnosis needs at least a symptom, errorText, query, changedPath, issue, or observedError.",
                     "Pass symptom/errorText/query or changedPath, then retry diagnose_issue.",
                 ));
             }
-            let mut args = workflow_base_args(root, language, "diagnose");
+            let mut diag_args = workflow_base_args(root, language, "diagnose");
             if !symptom.is_empty() {
-                args["symptom"] = json!(symptom);
+                diag_args["symptom"] = json!(symptom);
             }
             if let Some(error_text) = params["errorText"].as_str() {
-                args["errorText"] = json!(error_text);
+                diag_args["errorText"] = json!(error_text);
             }
             if let Some(query) = params["query"].as_str() {
-                args["query"] = json!(query);
+                diag_args["query"] = json!(query);
             }
-            if let Some(changed_path) = params["changedPath"].as_str() {
-                args["changedPath"] = json!(changed_path);
+            if !changed_path.is_empty() {
+                diag_args["changedPath"] = json!(changed_path);
+            }
+            if execute && !root.is_empty() && (!symptom.is_empty() || !changed_path.is_empty()) {
+                let diag_result = execute_workflow_action(cache, "codelattice_project", &diag_args);
+                match diag_result {
+                    Ok(diag_value) => {
+                        let diag_facade = unwrap_tool_result(&diag_value);
+                        let diag_summary = diag_facade.get("summary");
+                        let diag_top_areas = diag_summary
+                            .and_then(|s| s.get("topLikelyAreas").and_then(|a| a.as_array()))
+                            .map(|arr| arr.iter().take(3).cloned().collect::<Vec<_>>())
+                            .unwrap_or_default();
+                        let diag_risk = diag_summary
+                            .and_then(|s| s["riskLevel"].as_str())
+                            .unwrap_or("unknown");
+                        let diag_area_count = diag_summary
+                            .and_then(|s| s.get("likelyAreaCount").cloned())
+                            .unwrap_or(json!(0));
+                        findings.push(json!({
+                            "tool": "codelattice_project",
+                            "mode": "diagnose",
+                            "riskLevel": diag_risk,
+                            "likelyAreaCount": diag_area_count,
+                            "topAreas": diag_top_areas
+                        }));
+                    }
+                    Err(e) => {
+                        missing_inputs.push(json!({
+                            "kind": "diagnosis_failed",
+                            "explanation": format!("Project diagnosis failed: {}", e["message"].as_str().unwrap_or("unknown error"))
+                        }));
+                    }
+                }
             }
             next_actions.push(workflow_action(
                 "codelattice_project",
-                args,
-                "Rank likely files/symbols, read-first order, entry points, and static impact hints for this issue.",
+                diag_args,
+                "Rank likely files/symbols, read-first order, and static impact hints.",
                 true,
             ));
             next_actions.push(workflow_action(
                 "codelattice_workflow",
                 json!({"mode":"before_edit","root":root,"language":language,"compact":true}),
-                "After choosing a likely symbol/file, run before_edit with a concrete symbol before modifying code.",
+                "After choosing a likely symbol, run before_edit before modifying code.",
                 false,
             ));
         }
