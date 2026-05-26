@@ -21827,6 +21827,8 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     let has_more = detail["hasMore"].as_bool().unwrap_or(false);
                     let summary = detail["summary"].as_str().unwrap_or("Job completed");
                     let items_on_page = detail["items"].as_array().map(|a| a.len()).unwrap_or(0);
+                    let job_root = status["root"].as_str().unwrap_or(root);
+                    let job_language = status["language"].as_str().unwrap_or(language);
 
                     let answer_summary = format!(
                         "Job {} ({}): {} total items, page {} shows {} items. {}",
@@ -21839,14 +21841,14 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                             "tool": "codelattice_workflow",
                             "mode": "ask",
                             "why": "Continue reading next page of job results",
-                            "arguments": {"jobId": job_id, "page": page + 1, "pageSize": page_size, "compact": true}
+                            "arguments": {"jobId": job_id, "root": job_root, "language": job_language, "page": page + 1, "pageSize": page_size, "compact": true}
                         }));
                     }
                     next_actions.push(json!({
                         "tool": "codelattice_project",
                         "mode": "job_status",
                         "why": "Check current job status",
-                        "arguments": {"jobId": job_id}
+                        "arguments": {"jobId": job_id, "root": job_root, "language": job_language, "compact": true}
                     }));
                     if let Some(q) = question.strip_prefix("继续") {
                         if !q.trim().is_empty() {
@@ -21854,7 +21856,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                                 "tool": "codelattice_symbol",
                                 "mode": "call_chains",
                                 "why": "Dive deeper into specific symbols",
-                                "arguments": {"query": q.trim(), "compact": true}
+                                "arguments": {"query": q.trim(), "root": job_root, "language": job_language, "direction": "both", "maxDepth": 4, "compact": true}
                             }));
                         }
                     }

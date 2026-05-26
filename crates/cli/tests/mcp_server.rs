@@ -15587,5 +15587,23 @@ fn mcp_workflow_ask_job_followup_next_calls_has_more() {
             has_next_page,
             "should recommend next page when hasMore=true"
         );
+        for n in next {
+            if n["tool"].as_str().unwrap_or("").starts_with("codelattice_") {
+                let args = &n["arguments"];
+                assert!(
+                    args.get("root").is_some(),
+                    "job follow-up next call should preserve root: {n:?}"
+                );
+                assert!(
+                    args.get("language").is_some(),
+                    "job follow-up next call should preserve language: {n:?}"
+                );
+                assert_eq!(
+                    args["compact"].as_bool(),
+                    Some(true),
+                    "job follow-up next call should preserve compact=true: {n:?}"
+                );
+            }
+        }
     }
 }
