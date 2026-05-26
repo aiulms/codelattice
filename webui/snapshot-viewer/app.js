@@ -1393,7 +1393,7 @@
   window.renderWorkspaceRuns = renderWorkspaceRuns;
   window.renderWorkspaceInsights = renderWorkspaceInsights;
   window.renderWorkspaceImpact = renderWorkspaceImpact;
-  window.workspaceRunImpact = workspaceRunImpact;
+  if (typeof workspaceRunImpact === "function") window.workspaceRunImpact = workspaceRunImpact;
   window.showWorkspaceOverview = showWorkspaceOverview;
   window.updateCautionBanner = updateCautionBanner;
   window.computeAndRenderDiff = computeAndRenderDiff;
@@ -1454,13 +1454,15 @@
       html += '<table class="workspace-table"><thead><tr><th>Name</th><th>Path</th><th>Language</th><th>Reason</th><th>Actions</th></tr></thead><tbody>';
       sp.forEach(function(p){
         var rl = p.recommended ? '<span class="badge badge-success">' + esc(t("projectRadar.recommended")) + '</span>' : "";
+        var analysisLang = (p.languages || []).filter(function(l){ return l.indexOf("unsupported:") !== 0; })[0] || "auto";
+        if (analysisLang === "c/cpp") analysisLang = "cpp";
         html += '<tr><td><label style="cursor:pointer;display:flex;align-items:center;gap:4px;">' +
           '<input type="checkbox" class="ws-checkbox" value="' + esc(p.relativePath || p.name) + '" ' + (p.recommended?"checked":"") + ' data-path="' + esc(p.relativePath || "") + '">' +
           esc(p.name) + ' ' + rl + '</label></td>' +
           '<td class="text-muted" style="font-size:0.85em;">' + esc(p.relativePath || "") + '</td>' +
           '<td>' + (p.languages || []).join(", ") + '</td>' +
           '<td class="text-muted" style="font-size:0.8em;">' + esc(p.reason || "") + '</td>' +
-          '<td><button class="btn btn-sm btn-primary" onclick="workspaceLoadProjectSnapshot(\'' + esc(p.relativePath || p.name) + '\',\'' + esc(p.path || "") + '\')">' + esc(t("workspace.viewSnapshot")) + '</button></td>' +
+          '<td><button class="btn btn-sm btn-primary" onclick="workspaceLoadProjectSnapshot(\'' + esc(p.relativePath || p.name) + '\',\'' + esc(p.path || "") + '\',\'' + esc(analysisLang) + '\')">' + esc(t("workspace.viewSnapshot")) + '</button></td>' +
           '</tr>';
       });
       html += '</tbody></table>';
@@ -1516,7 +1518,7 @@
           return '<span style="margin-right:8px;">' +
             '<span class="badge ' + cls + '" style="font-size:0.75em;">' + esc(t("workspace.status."+pj.status)) + '</span> ' +
             esc(pj.projectId||"?") + ' ' +
-            (pj.snapshotId ? '<a href="#" onclick="openWorkbenchSnapshot(null,\'' + esc(pj.snapshotId||"") + '\');return false;">' + esc(t("workspace.viewSnapshot")) + '</a>' : '') +
+            (pj.snapshotId ? '<a href="#" onclick="runnerLoadSnap(\'' + esc(pj.snapshotId||"") + '\',{tab:\'dashboard\'});return false;">' + esc(t("workspace.viewSnapshot")) + '</a>' : '') +
             (pj.status === "failed" ? '<span class="ws-fix-hint">' + esc(workspaceFixHint(pj)) + '</span>' : '') +
             '</span>';
         }).join("") +
@@ -2032,26 +2034,8 @@
         if (host) host.innerHTML = '<p class="text-muted">' + esc(t("workspace.noSupported")) + '</p>';
         return;
       }
-      renderWorkspace(inv);
-      workspaceLoadRuns(function(e, runs) {
-        if (!e && runs) { WORKSPACE.state.runs = runs; renderWorkspaceRuns(runs); }
-        var msg = document.getElementById("ws-no-runs-msg");
-        if (msg && runs && runs.length) msg.style.display = "none";
-        // Try loading insights from the latest run
-        if (runs && runs.length > 0) {
-          var latest = runs[0];
-          WORKSPACE.state.currentRun = latest;
-          WORKSPACE.state.currentRunId = latest.workspaceId || WORKSPACE.state.currentRunId;
-          if (latest.workspaceId) {
-            workspaceLoadInsights(latest.workspaceId, function(e2, ins) {
-              if (!e2 && ins) renderWorkspaceInsights(ins);
-              else renderWorkspaceInsights(null);
-            });
-          }
-        } else {
-          renderWorkspaceInsights(null);
-        }
-      });
+      if (typeof workspaceFocusInventory === "function") workspaceFocusInventory(inv, {scroll: false});
+      else renderWorkspace(inv);
     });
   }
 

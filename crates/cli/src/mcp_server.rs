@@ -21808,6 +21808,119 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let question = params["question"].as_str().unwrap_or("").to_string();
         let ask_compact = compact;
         let ask_execute = execute;
+        let ask_job_id = params["jobId"].as_str().unwrap_or("").to_string();
+        if !ask_job_id.is_empty() {
+            let job_status = crate::mcp_job::get_job_status(&ask_job_id);
+            let page = params["page"].as_u64().unwrap_or(0) as usize;
+            let page_size = params["pageSize"].as_u64().unwrap_or(50) as usize;
+            let job_detail = crate::mcp_job::MCP_JOBS.get_detail_page(
+                &ask_job_id,
+                page,
+                page_size.clamp(1, 200),
+            );
+
+            match (job_status, job_detail) {
+                (Some(status), Some(detail)) => {
+                    let job_id = status["jobId"].as_str().unwrap_or(&ask_job_id);
+                    let job_status_val = status["status"].as_str().unwrap_or("unknown");
+                    let total_items = detail["totalItems"].as_u64().unwrap_or(0);
+                    let has_more = detail["hasMore"].as_bool().unwrap_or(false);
+                    let summary = detail["summary"].as_str().unwrap_or("Job completed");
+                    let items_on_page = detail["items"].as_array().map(|a| a.len()).unwrap_or(0);
+
+                    let answer_summary = format!(
+                        "Job {} ({}): {} total items, page {} shows {} items. {}",
+                        job_id, job_status_val, total_items, page, items_on_page, summary
+                    );
+
+                    let mut next_actions = Vec::new();
+                    if has_more {
+                        next_actions.push(json!({
+                            "tool": "codelattice_workflow",
+                            "mode": "ask",
+                            "why": "Continue reading next page of job results",
+                            "arguments": {"jobId": job_id, "page": page + 1, "pageSize": page_size, "compact": true}
+                        }));
+                    }
+                    next_actions.push(json!({
+                        "tool": "codelattice_project",
+                        "mode": "job_status",
+                        "why": "Check current job status",
+                        "arguments": {"jobId": job_id}
+                    }));
+                    if let Some(q) = question.strip_prefix("继续") {
+                        if !q.trim().is_empty() {
+                            next_actions.push(json!({
+                                "tool": "codelattice_symbol",
+                                "mode": "call_chains",
+                                "why": "Dive deeper into specific symbols",
+                                "arguments": {"query": q.trim(), "compact": true}
+                            }));
+                        }
+                    }
+
+                    let job_followup = json!({
+                        "schemaVersion": "codelattice.ask.v2",
+                        "intent": "job_followup",
+                        "question": question,
+                        "targetQuery": null,
+                        "answerSummary": answer_summary,
+                        "orchestration": {"stepsAttempted": ["job_status:read", "job_detail:read"], "stepsSkipped": []},
+                        "job": {
+                            "submitted": true,
+                            "jobId": job_id,
+                            "status": job_status_val,
+                            "detailPageHint": format!("codelattice_project(mode=job_detail, jobId={}, page={}, pageSize={})", job_id, page, page_size)
+                        },
+                        "jobDigest": {
+                            "totalItems": total_items,
+                            "page": page,
+                            "pageSize": page_size,
+                            "hasMore": has_more,
+                            "summary": summary
+                        },
+                        "callChains": [],
+                        "readOrder": [],
+                        "projectDigest": Value::Null,
+                        "triagePlan": Value::Null,
+                        "whatIf": Value::Null,
+                        "filesInvolved": [],
+                        "missingEvidence": [{"kind": "static_only", "explanation": "Job results are from static analysis. No runtime execution or test verification was performed."}],
+                        "recommendedNextCalls": next_actions,
+                        "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false, "scriptsExecuted": false},
+                        "generatedFrom": {"engine": "intent-router", "version": "v2"}
+                    });
+                    let text = serde_json::to_string_pretty(&job_followup)
+                        .unwrap_or_else(|_| job_followup.to_string());
+                    return Ok(json!({"content": [{"type": "text", "text": text}]}));
+                }
+                _ => {
+                    let err_result = json!({
+                        "schemaVersion": "codelattice.ask.v2",
+                        "intent": "job_followup_error",
+                        "question": question,
+                        "targetQuery": null,
+                        "answerSummary": format!("Job '{}' not found or has no detail pages.", ask_job_id),
+                        "orchestration": {"stepsAttempted": ["job_status:lookup"], "stepsSkipped": ["job_detail:not_found"]},
+                        "job": {"submitted": false, "jobId": ask_job_id, "error": "Job not found in registry"},
+                        "jobDigest": Value::Null,
+                        "callChains": [],
+                        "readOrder": [],
+                        "projectDigest": Value::Null,
+                        "triagePlan": Value::Null,
+                        "whatIf": Value::Null,
+                        "filesInvolved": [],
+                        "missingEvidence": [{"kind": "job_not_found", "explanation": format!("No job with ID '{}' found. Submit a new analysis first.", ask_job_id)}],
+                        "recommendedNextCalls": [{"tool": "codelattice_workflow", "mode": "ask", "why": "Ask a new question to start fresh", "arguments": {"question": question}}],
+                        "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false, "scriptsExecuted": false},
+                        "generatedFrom": {"engine": "intent-router", "version": "v2"}
+                    });
+                    let text = serde_json::to_string_pretty(&err_result)
+                        .unwrap_or_else(|_| err_result.to_string());
+                    return Ok(json!({"content": [{"type": "text", "text": text}]}));
+                }
+            }
+        }
 
         if question.is_empty() {
             let empty_result = json!({
@@ -22796,7 +22909,6 @@ fn ask_job_next_actions(
     language: &str,
     job: &Value,
     query: Option<&str>,
-    question: &str,
 ) -> Vec<Value> {
     let mut actions = Vec::new();
     if job["submitted"].as_bool().unwrap_or(false) {
@@ -22805,13 +22917,13 @@ fn ask_job_next_actions(
             "tool": "codelattice_project",
             "mode": "job_status",
             "why": "Check auto-submitted job status",
-            "arguments": {"jobId": job_id}
+            "arguments": {"jobId": job_id, "root": root, "language": language, "compact": true}
         }));
         actions.push(json!({
             "tool": "codelattice_project",
             "mode": "job_detail",
             "why": "Page through the auto-submitted job results",
-            "arguments": {"jobId": job_id, "page": 0, "pageSize": 50}
+            "arguments": {"jobId": job_id, "page": 0, "pageSize": 50, "root": root, "language": language, "compact": true}
         }));
     } else {
         actions.push(json!({
@@ -23593,8 +23705,7 @@ fn route_ask_intent(
                     "explanation": "Synchronous call-chain traversal skipped full graph analysis to avoid blocking MCP."
                 }));
                 auto_job = ask_submit_auto_job(root, language);
-                next_actions =
-                    ask_job_next_actions(root, language, &auto_job, Some(&query), question);
+                next_actions = ask_job_next_actions(root, language, &auto_job, Some(&query));
                 orchestration["stepsSkipped"] = json!(["call_chains:deferred_large_project"]);
                 orchestration["resultsSummary"] = json!({
                     "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
@@ -23697,7 +23808,7 @@ fn route_ask_intent(
                     "explanation": "Large project ask uses lightweight discovery; run codelattice_project(mode=job) for complete graph details."
                 }));
                 auto_job = ask_submit_auto_job(root, language);
-                next_actions = ask_job_next_actions(root, language, &auto_job, None, question);
+                next_actions = ask_job_next_actions(root, language, &auto_job, None);
             } else {
                 let root_path = Path::new(root);
                 let analyze_result = run_rust_analysis_if_available(root_path, language);
@@ -23849,8 +23960,7 @@ fn route_ask_intent(
                     .cloned()
                     .unwrap_or_default();
                 auto_job = ask_submit_auto_job(root, language);
-                next_actions =
-                    ask_job_next_actions(root, language, &auto_job, Some(&query), question);
+                next_actions = ask_job_next_actions(root, language, &auto_job, Some(&query));
             } else {
                 let (_ci, tc, di, ii, risk, _sa, _tests, rf, me, _na, _ap) =
                     build_whatif_result(root, language, &question, &query, "", "");
@@ -23986,8 +24096,7 @@ fn route_ask_intent(
                 "largeProject": {"sourceFileCount": file_count, "recommendedMode": "job"}
             });
             auto_job = ask_submit_auto_job(root, language);
-            next_actions =
-                ask_job_next_actions(root, language, &auto_job, target_query.as_deref(), question);
+            next_actions = ask_job_next_actions(root, language, &auto_job, target_query.as_deref());
         } else if !root.is_empty() && !query.is_empty() {
             let root_path = Path::new(root);
             let (_, chains, _, me, _, ro, fi, _, _, _) =

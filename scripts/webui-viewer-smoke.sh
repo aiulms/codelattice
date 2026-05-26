@@ -151,6 +151,15 @@ grep -qF ".ws-ai-summary-actions" "$VD/styles.css" && chk "workspace AI summary 
 grep -qF ".ws-fix-hint" "$VD/styles.css" && chk "workspace fix hint css" yes yes || chk "workspace fix hint css" yes no
 grep -qF ".ws-backlog" "$VD/styles.css" && chk "workspace backlog css" yes yes || chk "workspace backlog css" yes no
 
+echo ""; echo "--- WebUI Usability Regression Checks ---"
+grep -qF "codelattice.webui.lastRoot" "$VD/runner.js" && chk "remember last project root" yes yes || chk "remember last project root" yes no
+grep -qF "rememberWorkbenchTarget" "$VD/runner.js" && chk "persist selected project target" yes yes || chk "persist selected project target" yes no
+grep -qF "restoreWorkbenchInputs" "$VD/runner.js" && chk "restore selected project on load" yes yes || chk "restore selected project on load" yes no
+grep -qF "runnerLoadSnap(snapshotId" "$VD/runner.js" && chk "workspace snapshot links fetch data" yes yes || chk "workspace snapshot links fetch data" yes no
+grep -qF '"javascript"' "$VD/runner.js" && grep -qF 'value="javascript"' "$VD/index.html" && chk "javascript language selectable" yes yes || chk "javascript language selectable" yes no
+if grep -qF "openWorkbenchSnapshot(null" "$VD/runner.js" "$VD/app.js"; then chk "no null snapshot open links" yes no; else chk "no null snapshot open links" yes yes; fi
+if grep -qF 'workspaceAnalyze(root,"recommended"' "$VD/runner.js"; then chk "multi-project generate avoids long auto-analysis" yes no; else chk "multi-project generate avoids long auto-analysis" yes yes; fi
+
 echo ""; echo "--- Graph Visual Checks ---"
 grep -qF "graph-visual" "$VD/index.html" && chk "graph visual html" yes yes || chk "graph visual html" yes no
 grep -qF "renderGraphVisual" "$VD/app.js" && chk "graph visual renderer" yes yes || chk "graph visual renderer" yes no
@@ -176,6 +185,10 @@ grep -qF "drag-canvas" "$VD/graph-g6.js" && chk "G6 drag canvas" yes yes || chk 
 grep -qF "zoom-canvas" "$VD/graph-g6.js" && chk "G6 zoom canvas" yes yes || chk "G6 zoom canvas" yes no
 grep -qF "zoomLocked" "$VD/graph-g6.js" && chk "G6 zoom lock" yes yes || chk "G6 zoom lock" yes no
 grep -qF "uniqueNodes" "$VD/graph-g6.js" && chk "G6 duplicate node guard" yes yes || chk "G6 duplicate node guard" yes no
+grep -qF "selectedEdgeIds" "$VD/graph-g6.js" && chk "G6 selected edge tracking" yes yes || chk "G6 selected edge tracking" yes no
+grep -qF "neighborNodeIds" "$VD/graph-g6.js" && chk "G6 neighbor node tracking" yes yes || chk "G6 neighbor node tracking" yes no
+grep -qF "selected: selectedEdgeIds.has" "$VD/graph-g6.js" && chk "G6 selected edge render styling" yes yes || chk "G6 selected edge render styling" yes no
+grep -qF "graph-shell-light" "$VD/graph-g6.js" && chk "G6 restrained visual shell" yes yes || chk "G6 restrained visual shell" yes no
 grep -qF "g6.min.js" "$VD/index.html" && chk "G6 script ref" yes yes || chk "G6 script ref" yes no
 grep -qF "MIT" "$VD/vendor/g6/LICENSE" && chk "G6 license" yes yes || chk "G6 license" yes no
 grep -qF "graph.engineG6" "$VD/i18n.js" && chk "G6 i18n" yes yes || chk "G6 i18n" yes no

@@ -15369,3 +15369,223 @@ fn mcp_toolset_unchanged_after_auto_job() {
     let tools = resp["result"]["tools"].as_array().expect("tools array");
     assert!(!tools.is_empty(), "toolset must not be empty");
 }
+
+#[test]
+fn mcp_workflow_ask_large_inspect_auto_job() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99070,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目结构是什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("inspect_project"));
+    let job = data["job"].as_object();
+    assert!(job.is_some(), "job should exist");
+    assert_eq!(
+        data["job"]["submitted"].as_bool(),
+        Some(true),
+        "job.submitted should be true"
+    );
+    let job_id = data["job"]["jobId"].as_str().unwrap_or("");
+    assert!(!job_id.is_empty(), "jobId should be non-empty");
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls");
+    assert!(next.len() >= 2, "should have at least 2 next calls");
+    assert_eq!(
+        next[0]["mode"].as_str(),
+        Some("job_status"),
+        "first should be job_status"
+    );
+    assert_eq!(
+        next[1]["mode"].as_str(),
+        Some("job_detail"),
+        "second should be job_detail"
+    );
+    assert_eq!(
+        next[0]["arguments"]["jobId"].as_str(),
+        Some(job_id),
+        "job_status should have same jobId"
+    );
+    assert_eq!(
+        next[1]["arguments"]["jobId"].as_str(),
+        Some(job_id),
+        "job_detail should have same jobId"
+    );
+    let payload = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        payload.len() < 16384,
+        "compact payload should be <16KB, got {}B",
+        payload.len()
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_large_before_edit_auto_job() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99071,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "如果删除 helper 会影响什么"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["job"]["submitted"].as_bool(),
+        Some(true),
+        "job.submitted should be true"
+    );
+    let job_id = data["job"]["jobId"].as_str().unwrap_or("");
+    assert!(!job_id.is_empty());
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls");
+    assert_eq!(next[0]["mode"].as_str(), Some("job_status"));
+    assert_eq!(next[0]["arguments"]["jobId"].as_str(), Some(job_id));
+    let payload = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        payload.len() < 16384,
+        "compact payload <16KB, got {}B",
+        payload.len()
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_job_followup_reads_job() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let first = call_tool_json(
+        &mut s,
+        99072,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目结构是什么"
+        }),
+    );
+    let job_id = first["job"]["jobId"]
+        .as_str()
+        .expect("should have jobId")
+        .to_string();
+    assert!(!job_id.is_empty());
+    let followup = call_tool_json(
+        &mut s,
+        99073,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "jobId": job_id,
+            "question": "继续总结这个项目结构",
+            "compact": true
+        }),
+    );
+    assert_eq!(
+        followup["schemaVersion"].as_str(),
+        Some("codelattice.ask.v2")
+    );
+    assert_eq!(followup["intent"].as_str(), Some("job_followup"));
+    assert_eq!(followup["job"]["jobId"].as_str(), Some(job_id.as_str()));
+    let jd = followup["jobDigest"].as_object();
+    assert!(jd.is_some(), "jobDigest should exist");
+    assert!(
+        jd.unwrap().contains_key("totalItems"),
+        "jobDigest should have totalItems"
+    );
+    let payload = serde_json::to_string(&followup).unwrap_or_default();
+    assert!(
+        payload.len() < 16384,
+        "followup payload <16KB, got {}B",
+        payload.len()
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_job_followup_invalid_job() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99074,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "jobId": "nonexistent_job_xyz",
+            "question": "继续"
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["job"]["submitted"].as_bool(), Some(false));
+    let me = data["missingEvidence"].as_array().expect("missingEvidence");
+    assert!(me
+        .iter()
+        .any(|m| m["kind"].as_str() == Some("job_not_found")));
+}
+
+#[test]
+fn mcp_workflow_ask_job_followup_next_calls_has_more() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let first = call_tool_json(
+        &mut s,
+        99075,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "这个项目结构是什么"
+        }),
+    );
+    let job_id = first["job"]["jobId"].as_str().expect("jobId").to_string();
+    let followup = call_tool_json(
+        &mut s,
+        99076,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "jobId": job_id,
+            "question": "继续",
+            "page": 0,
+            "pageSize": 5,
+            "compact": true
+        }),
+    );
+    let jd = followup["jobDigest"].as_object().expect("jobDigest");
+    let total = jd["totalItems"].as_u64().unwrap_or(0);
+    if total > 5 {
+        assert_eq!(jd["hasMore"], true);
+        let next = followup["recommendedNextCalls"].as_array().expect("next");
+        let has_next_page = next.iter().any(|n| {
+            n["mode"].as_str() == Some("ask") && n["arguments"]["page"].as_u64() == Some(1)
+        });
+        assert!(
+            has_next_page,
+            "should recommend next page when hasMore=true"
+        );
+    }
+}

@@ -31,8 +31,8 @@
   }
   function colorSet(layout) {
     var sets = {
-      galaxy: {bg:"#071225", text:"#e0f2fe", symbol:"#38bdf8", file:"#8b5cf6", package:"#fb923c", entry:"#34d399", risk:"#fb7185", edge:"#38bdf8"},
-      communities: {bg:"#081c16", text:"#dcfce7", symbol:"#86efac", file:"#38bdf8", package:"#fde047", entry:"#c084fc", risk:"#fb7185", edge:"#22c55e"},
+      galaxy: {bg:"#f8fbff", text:"#172033", symbol:"#7dd3fc", file:"#6366f1", package:"#f59e0b", entry:"#10b981", risk:"#ef4444", edge:"#94a3b8"},
+      communities: {bg:"#f7fdf9", text:"#163224", symbol:"#86efac", file:"#38bdf8", package:"#f59e0b", entry:"#8b5cf6", risk:"#ef4444", edge:"#16a34a"},
       flow: {bg:"#08111f", text:"#dbeafe", symbol:"#93c5fd", file:"#facc15", package:"#5eead4", entry:"#c4b5fd", risk:"#fda4af", edge:"#60a5fa"},
       blueprint: {bg:"#06142f", text:"#dbeafe", symbol:"#fde047", file:"#93c5fd", package:"#fb7185", entry:"#4ade80", risk:"#f97316", edge:"#facc15"},
       heatmap: {bg:"#061620", text:"#e0f2fe", symbol:"#e0f2fe", file:"#22d3ee", package:"#f59e0b", entry:"#a78bfa", risk:"#fb7185", edge:"#67e8f9"},
@@ -56,14 +56,34 @@
   function rankNodes(nodes, edges, limit, focusId) {
     var degree = degreeMap(edges);
     var priority = {package: 0, entry: 1, risk: 2, file: 3, symbol: 4};
-    return nodes.slice().sort(function (a, b) {
+    var sorted = nodes.slice().sort(function (a, b) {
       if (a.id === focusId) return -1;
       if (b.id === focusId) return 1;
       var pa = priority[a.kind] == null ? 9 : priority[a.kind];
       var pb = priority[b.kind] == null ? 9 : priority[b.kind];
       if (pa !== pb) return pa - pb;
       return (degree[b.id] || 0) - (degree[a.id] || 0);
-    }).slice(0, limit);
+    });
+    if (focusId) return sorted.slice(0, limit);
+    var caps = {package: 8, entry: 8, risk: 12, file: 58, symbol: 46};
+    var used = {};
+    var picked = [];
+    sorted.forEach(function (n) {
+      if (picked.length >= limit) return;
+      var cap = caps[n.kind] == null ? 18 : caps[n.kind];
+      used[n.kind] = used[n.kind] || 0;
+      if (used[n.kind] >= cap) return;
+      used[n.kind] += 1;
+      picked.push(n);
+    });
+    if (picked.length < Math.min(limit, sorted.length)) {
+      var have = new Set(picked.map(function (n) { return n.id; }));
+      sorted.forEach(function (n) {
+        if (picked.length >= limit || have.has(n.id)) return;
+        picked.push(n);
+      });
+    }
+    return picked.slice(0, limit);
   }
   function uniqueNodes(nodes) {
     var seen = new Set();
@@ -172,19 +192,19 @@
       packages.forEach(function (n, i) { pos[n.id] = {x: cx + (i - packages.length / 2) * 42, y: cy}; });
       var galaxyHubs = topFiles(Math.min(20, Math.max(8, files.length)));
       var hubSet = new Set(galaxyHubs.map(function (n) { return n.id; }));
-      ring(galaxyHubs, width * 0.38, height * 0.34, -Math.PI / 2);
+      ring(galaxyHubs, width * 0.36, height * 0.28, -Math.PI / 2);
       files.filter(function (n) { return !hubSet.has(n.id); }).forEach(function (n, i) {
         var a = (Math.PI * 2 * i / Math.max(1, files.length)) + 0.2;
-        pos[n.id] = {x: cx + Math.cos(a) * width * 0.46, y: cy + Math.sin(a) * height * 0.40};
+        pos[n.id] = {x: cx + Math.cos(a) * width * 0.44, y: cy + Math.sin(a) * height * 0.34};
       });
-      Object.keys(symbolsByFile).forEach(function (fid, idx) {
-        var anchor = pos[fid] || {x: cx, y: cy};
-        var group = symbolsByFile[fid].sort(function (a, b) { return (degree[b.id] || 0) - (degree[a.id] || 0); });
-        group.forEach(function (n, i) {
-          var a = (Math.PI * 2 * i / Math.max(1, group.length)) + idx * 0.23;
-          var r = 38 + Math.min(128, Math.sqrt(group.length) * 15 + i * 0.9);
-          pos[n.id] = {x: clamp(anchor.x + Math.cos(a) * r, 34, width - 34), y: clamp(anchor.y + Math.sin(a) * r, 32, height - 32)};
-        });
+      symbols.slice().sort(function (a, b) { return (degree[b.id] || 0) - (degree[a.id] || 0); }).forEach(function (n, i) {
+        var lane = i % 2;
+        var count = Math.ceil(symbols.length / 2);
+        var k = Math.floor(i / 2) / Math.max(1, count - 1);
+        var x = width * (0.12 + k * 0.76);
+        var y = lane === 0 ? height * 0.18 : height * 0.82;
+        var jitter = ((i * 37) % 29) - 14;
+        pos[n.id] = {x: clamp(x + jitter, 34, width - 34), y: clamp(y + (((i * 17) % 37) - 18), 32, height - 32)};
       });
       ring(others, width * 0.43, height * 0.38, Math.PI / 4);
     }
@@ -226,35 +246,47 @@
     var colors = colorSet(layout);
     var width = Math.max(960, host.clientWidth || 1040);
     var height = Math.max(620, host.clientHeight || 640);
-    var sourceNodes = uniqueNodes(rankNodes(options.nodes || [], options.edges || [], options.focusNodeId ? 220 : 180, options.focusNodeId));
+    var sourceNodes = uniqueNodes(rankNodes(options.nodes || [], options.edges || [], options.focusNodeId ? 220 : 120, options.focusNodeId));
     var visible = new Set(sourceNodes.map(function (n) { return n.id; }));
-    var sourceEdges = (options.edges || []).filter(function (e) { return visible.has(e.source) && visible.has(e.target); }).slice(0, options.focusNodeId ? 420 : 320);
+    var sourceEdges = (options.edges || []).filter(function (e) { return visible.has(e.source) && visible.has(e.target); }).slice(0, options.focusNodeId ? 420 : 260);
     var degree = degreeMap(sourceEdges);
+    var selectedId = options.selectedNodeId || "";
+    var neighborNodeIds = new Set();
+    var selectedEdgeIds = new Set();
+    sourceEdges.forEach(function (e) {
+      if (!selectedId || (e.source !== selectedId && e.target !== selectedId)) return;
+      neighborNodeIds.add(e.source);
+      neighborNodeIds.add(e.target);
+    });
     var pos = computePositions(sourceNodes, sourceEdges, layout, width, height);
     host.innerHTML = "";
-    host.className = "graph-visual graph-g6-host graph-layout-" + layout;
+    host.className = "graph-visual graph-g6-host graph-shell-light graph-layout-" + layout;
     host.style.background = colors.bg;
     var nodes = sourceNodes.map(function (n) {
       var p = pos[n.id] || {x: width / 2, y: height / 2};
       var size = sizeFor(n, degree, layout);
-      var showLabel = n.kind === "package" || n.kind === "file" || size >= 22 || n.id === options.selectedNodeId || n.id === options.focusNodeId;
+      var selected = selectedId && n.id === selectedId;
+      var neighbor = selectedId && neighborNodeIds.has(n.id);
+      var dimmed = selectedId && !selected && !neighbor;
+      var showLabel = selected || neighbor || n.kind === "package" || n.kind === "entry" || n.kind === "risk" || (n.kind === "file" && size >= 28 && !selectedId) || n.id === options.focusNodeId;
       return {
         id: n.id,
-        data: {raw: n, degree: degree[n.id] || 0, label: n.label || n.id, kind: n.kind},
+        data: {raw: n, degree: degree[n.id] || 0, label: n.label || n.id, kind: n.kind, neighbor: !!neighbor, selected: !!selected},
         style: {
           x: p.x,
           y: p.y,
-          size: size,
-          r: size / 2,
+          size: selected ? size + 8 : neighbor ? size + 3 : size,
+          r: (selected ? size + 8 : neighbor ? size + 3 : size) / 2,
           fill: nodeColor(n, colors),
-          stroke: layout === "blueprint" ? "rgba(219,234,254,0.85)" : "rgba(255,255,255,0.95)",
-          lineWidth: n.id === options.selectedNodeId ? 4 : 2,
+          opacity: dimmed ? 0.18 : 0.96,
+          stroke: selected ? "#0f172a" : neighbor ? "#2563eb" : layout === "blueprint" ? "rgba(219,234,254,0.85)" : "rgba(255,255,255,0.96)",
+          lineWidth: selected ? 4 : neighbor ? 3 : 1.6,
           labelText: showLabel ? labelText(n) : "",
           labelFill: colors.text,
-          labelFontSize: n.kind === "package" ? 18 : size >= 24 ? 14 : 11,
+          labelFontSize: n.kind === "package" ? 18 : selected ? 15 : neighbor ? 13 : size >= 28 ? 12 : 10,
           labelFontWeight: n.kind === "package" ? 700 : 500,
           labelBackground: true,
-          labelBackgroundFill: layout === "orbit" ? "rgba(255,255,255,0.76)" : "rgba(2,6,23,0.34)",
+          labelBackgroundFill: layout === "blueprint" || layout === "heatmap" ? "rgba(2,6,23,0.48)" : "rgba(255,255,255,0.82)",
           labelBackgroundRadius: 4,
           labelPadding: [2, 4]
         }
@@ -266,16 +298,20 @@
       var edgeId = baseId;
       if (usedEdgeIds.has(edgeId)) edgeId = baseId + "#" + i;
       usedEdgeIds.add(edgeId);
+      var selected = selectedId && (e.source === selectedId || e.target === selectedId);
+      if (selected) selectedEdgeIds.add(edgeId);
+      var dimmed = selectedId && !selected;
       return {
         id: edgeId,
         source: e.source,
         target: e.target,
-        data: {raw: e, kind: e.kind || "related"},
+        data: {raw: e, kind: e.kind || "related", selected: selectedEdgeIds.has(edgeId)},
         type: layout === "flow" || layout === "blueprint" ? "cubic-horizontal" : "line",
         style: {
-          stroke: edgeColor(e, colors),
-          lineWidth: e.kind === "calls" ? 1.8 : 1.05,
-          opacity: e.kind === "calls" ? 0.62 : 0.30
+          stroke: selected ? "#f59e0b" : edgeColor(e, colors),
+          lineWidth: selected ? 3.2 : e.kind === "calls" ? 1.6 : 0.9,
+          opacity: selected ? 0.96 : dimmed ? 0.055 : e.kind === "calls" ? 0.44 : 0.22,
+          zIndex: selected ? 5 : 1
         }
       };
     });
@@ -301,8 +337,9 @@
         },
         edge: {
           state: {
-            active: {lineWidth: 2.4, opacity: 0.82},
-            inactive: {opacity: 0.08}
+            active: {lineWidth: 3.2, opacity: 0.95, stroke: "#f59e0b"},
+            selected: {lineWidth: 3.2, opacity: 0.95, stroke: "#f59e0b"},
+            inactive: {opacity: 0.055}
           }
         },
         behaviors: [

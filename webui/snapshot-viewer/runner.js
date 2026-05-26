@@ -1,9 +1,11 @@
 // runner.js — CodeLattice WebUI Runner Client (Phase E: Workbench)
 var RUNNER=window.RUNNER||{}; window.RUNNER=RUNNER;
 RUNNER.base=""; RUNNER.connected=false; RUNNER.profiles=[]; RUNNER.snaps=[];
-var SUPPORTED_LANGS=["auto","rust","typescript","c","cpp","python","shell","arkts","cangjie"];
+var SUPPORTED_LANGS=["auto","rust","typescript","javascript","c","cpp","python","shell","arkts","cangjie"];
 var LAST_SNAPSHOT_KEY="codelattice.webui.lastSnapshotId";
 var LAST_TAB_KEY="codelattice.webui.lastTab";
+var LAST_ROOT_KEY="codelattice.webui.lastRoot";
+var LAST_LANG_KEY="codelattice.webui.lastLanguage";
 function tr(k,p){return window.CTL_I18N?CTL_I18N.t(k,p):k;}
 
 function rapi(path,opts){
@@ -28,6 +30,7 @@ function runnerCheckHealth(){
   return rapi("/api/health").then(function(d){
     RUNNER.connected=true; showBadge("runner"); showEl("runner-panel",true); showEl("live-mcp-panel",true);
     runnerLoadProfiles(); runnerLoadLibrary(); pickerLoadQuickRoots(); runnerLoadQuickRoots(); pickerRefresh();
+    restoreWorkbenchInputs();
     if(typeof liveCheckMcp==="function"){liveCheckMcp(); liveLoadTools();}
     setTimeout(restoreWorkbenchSnapshot, 150);
     return true;
@@ -69,6 +72,31 @@ function rememberWorkbenchTab(tab){
     window.history.replaceState(null,"",u.toString());
   }
 }
+function rememberWorkbenchTarget(root, lang){
+  root=(root||"").trim();
+  lang=(lang||"auto").trim();
+  if(!root)return;
+  if(SUPPORTED_LANGS.indexOf(lang)<0)lang="auto";
+  try{localStorage.setItem(LAST_ROOT_KEY,root);}catch(e){}
+  try{localStorage.setItem(LAST_LANG_KEY,lang);}catch(e){}
+}
+function restoreWorkbenchInputs(){
+  var root="",lang="auto";
+  try{root=localStorage.getItem(LAST_ROOT_KEY)||"";}catch(e){}
+  try{lang=localStorage.getItem(LAST_LANG_KEY)||"auto";}catch(e){}
+  if(SUPPORTED_LANGS.indexOf(lang)<0)lang="auto";
+  if(!root)return;
+  ["picker-path-input","runner-root-input"].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el&&!el.value)el.value=root;
+  });
+  ["picker-lang-select","runner-lang-select"].forEach(function(id){
+    var el=document.getElementById(id);
+    if(el)el.value=lang;
+  });
+  projectInventory(root,"picker");
+  projectInventory(root,"runner");
+}
 function openWorkbenchSnapshot(snapshot, sid, opts){
   opts=opts||{};
   currentSnapshot=snapshot;
@@ -84,9 +112,10 @@ function openWorkbenchSnapshot(snapshot, sid, opts){
 function restoreWorkbenchSnapshot(){
   if(RUNNER.restoreAttempted||window.currentSnapshot)return;
   RUNNER.restoreAttempted=true;
-  var sid=getUrlParam("snapshot")||localStorage.getItem(LAST_SNAPSHOT_KEY)||"";
+  var urlSid=getUrlParam("snapshot");
+  var sid=urlSid||localStorage.getItem(LAST_SNAPSHOT_KEY)||"";
   if(!sid)return;
-  runnerLoadSnap(sid,{remember:false,silent:true,tab:getUrlParam("tab")||localStorage.getItem(LAST_TAB_KEY)||"dashboard"}).catch(function(){
+  runnerLoadSnap(sid,{remember:!!urlSid,silent:true,tab:getUrlParam("tab")||localStorage.getItem(LAST_TAB_KEY)||"dashboard"}).catch(function(){
     try{localStorage.removeItem(LAST_SNAPSHOT_KEY);}catch(e){}
   });
 }
@@ -112,6 +141,7 @@ function selectProfile(pid){
     var pf=d.data; if(!pf)return;
     document.getElementById("runner-root-input").value=pf.root||"";
     document.getElementById("runner-lang-select").value=pf.language||"auto";
+    rememberWorkbenchTarget(pf.root||"",pf.language||"auto");
     runnerLoadLibrary();
     renderProfilesList();
   });
@@ -152,6 +182,7 @@ function runnerGenerate(){
   var root=document.getElementById("runner-root-input").value.trim();
   if(!root){alert(tr("error.missingRoot"));return;}
   var lang=document.getElementById("runner-lang-select").value;
+  rememberWorkbenchTarget(root,lang);
   var pid=RUNNER.selectedProfile||"";
   var st=document.getElementById("runner-status"); if(st)st.textContent=tr("gen.generating");
   return analyzeAfterInventory(root,lang,"runner",function(targetRoot,targetLang){
@@ -215,6 +246,7 @@ function runnerUseCandidate(path, lang){
   var sel=document.getElementById("runner-lang-select");
   if(input)input.value=path;
   if(sel&&SUPPORTED_LANGS.indexOf(lang)>=0)sel.value=lang;
+  rememberWorkbenchTarget(path,lang);
   runnerGenerate();
 }
 function pickerUseCandidate(path, lang){
@@ -222,6 +254,7 @@ function pickerUseCandidate(path, lang){
   var sel=document.getElementById("picker-lang-select");
   if(input)input.value=path;
   if(sel&&SUPPORTED_LANGS.indexOf(lang)>=0)sel.value=lang;
+  rememberWorkbenchTarget(path,lang);
   pickerAnalyzePath();
 }
 
@@ -296,32 +329,28 @@ function radarUseRoot(where,path,lang){
   var sel=document.getElementById(where==="picker"?"picker-lang-select":"runner-lang-select");
   if(input)input.value=path;
   if(sel&&SUPPORTED_LANGS.indexOf(lang)>=0)sel.value=lang;
+  rememberWorkbenchTarget(path,lang);
   if(where==="picker")pickerAnalyzePath(); else runnerGenerate();
 }
 function analyzeAfterInventory(root, lang, where, run){
   if(!RUNNER.connected)return run(root,lang);
+  rememberWorkbenchTarget(root,lang);
   return projectInventory(root,where).then(function(inv){
     if(!inv)return run(root,lang);
     if(lang==="auto"){
       if(inv.status==="multi_project"){
         var hint=where==="picker"?document.getElementById("picker-hint"):document.getElementById("runner-status");
-        if(hint)hint.textContent=tr("workspace.scanning");
+        if(hint)hint.textContent=radarStatusLabel(inv.status)+": "+(inv.message||tr("workspace.scanning"));
         return new Promise(function(resolve){
-          workspaceScanInventory(root,function(scanErr){
+          workspaceScanInventory(root,function(scanErr,scan){
             if(scanErr){
               if(hint)hint.textContent=tr("workspace.noSupported");
               resolve(null);
               return;
             }
-            workspaceAnalyze(root,"recommended",null,function(runErr,ws){
-              if(runErr){
-                if(hint)hint.textContent="Workspace analysis failed: "+(runErr.message||runErr);
-                resolve(null);
-                return;
-              }
-              workspaceFocusRun(ws,{scroll:true});
-              resolve(null);
-            });
+            workspaceFocusInventory(scan,{scroll:true});
+            if(hint)hint.textContent=radarStatusLabel(inv.status)+": "+(inv.message||"");
+            resolve(null);
           });
         });
       }
@@ -450,7 +479,8 @@ function runnerLoadSnap(sid, opts){
   opts=opts||{};
   if(!RUNNER.connected)return;
   return rapi("/api/snapshot/"+sid).then(function(d){
-    openWorkbenchSnapshot(d.data,sid,opts.tab?opts:{tab:"dashboard"});
+    if(!opts.tab)opts.tab="dashboard";
+    openWorkbenchSnapshot(d.data,sid,opts);
   }).catch(function(e){if(!opts.silent)alert(e.message); throw e;});
 }
 function runnerCompareSnap(sid){if(!RUNNER.connected)return;
@@ -620,6 +650,7 @@ function pickerBrowse(path){
 function pickerSelect(path){
   document.getElementById("picker-path-input").value=path;
   document.getElementById("picker-browse-list").innerHTML='<div style="padding:8px;color:#059669;">✅ '+esc(path)+' — '+esc(CTL_I18N.t("picker.selectedFolder"))+'</div>';
+  rememberWorkbenchTarget(path,document.getElementById("picker-lang-select").value||"auto");
   projectInventory(path,"picker");
 }
 
@@ -639,6 +670,7 @@ function pickerAnalyzePath(){
   var root=document.getElementById("picker-path-input").value.trim();
   if(!root){alert(tr("error.missingRoot")); return;}
   var lang=document.getElementById("picker-lang-select").value;
+  rememberWorkbenchTarget(root,lang);
   document.getElementById("picker-hint").textContent=tr("gen.generating");
   return analyzeAfterInventory(root,lang,"picker",function(targetRoot,targetLang){
     document.getElementById("picker-hint").textContent=tr("gen.generating");
@@ -654,11 +686,6 @@ function pickerAnalyzePath(){
         showWorkspaceOverview(root);
       }
     });
-  }).then(function(result) {
-    // analyzeAfterInventory may return null for multi_project
-    if (result === null && typeof showWorkspaceOverview === "function") {
-      showWorkspaceOverview(root);
-    }
   });
 }
 function pickerAnalyzeProfile(pid){
@@ -666,6 +693,7 @@ function pickerAnalyzeProfile(pid){
   rapi("/api/profile/"+pid).then(function(d){
     var p=d.data; document.getElementById("runner-root-input").value=p.root;
     document.getElementById("runner-lang-select").value=p.language;
+    rememberWorkbenchTarget(p.root,p.language);
     return rapi("/api/quick-analyze",{method:"POST",body:{root:p.root,language:p.language}});
   }).then(function(d){
     openWorkbenchSnapshot(d.data.snapshot,d.data.snapshotId,{tab:"dashboard"});
@@ -693,6 +721,54 @@ function workspaceScanInventory(root, cb) {
     if (hint) hint.textContent = tr("workspace.noSupported");
     console.error("workspace scan error:", e);
   });
+}
+
+function sameWorkspaceRoot(a, b) {
+  a = (a || "").replace(/\/+$/, "");
+  b = (b || "").replace(/\/+$/, "");
+  return !!a && !!b && a === b;
+}
+
+function filterWorkspaceRuns(runs, root) {
+  if (!root) return runs || [];
+  return (runs || []).filter(function(r) { return sameWorkspaceRoot(r.root, root); });
+}
+
+function workspaceFocusInventory(inv, opts) {
+  opts = opts || {};
+  if (!inv) return;
+  WORKSPACE.state.inventory = inv;
+  WORKSPACE.state.currentRun = null;
+  WORKSPACE.state.currentRunId = null;
+  WORKSPACE.state.insights = null;
+  rememberWorkbenchTarget(inv.root || "", "auto");
+  showEl("loaded-content", true);
+  showEl("welcome-view", false);
+  showEl("error-view", false);
+  show("workspace");
+  WORKSPACE.state.runs = [];
+  if (typeof renderWorkspace === "function") renderWorkspace(inv);
+  workspaceLoadRuns(function(e, runs) {
+    var scoped = filterWorkspaceRuns(e ? [] : runs, inv.root || "");
+    WORKSPACE.state.runs = scoped;
+    if (typeof renderWorkspaceRuns === "function") renderWorkspaceRuns(scoped);
+    var lastRunId = "";
+    try { lastRunId = localStorage.getItem("codelattice.workspace.lastRunId") || ""; } catch(err) {}
+    var latest = scoped.find(function(r) { return r.workspaceId === lastRunId; }) || scoped[0];
+    if (latest && latest.workspaceId) {
+      WORKSPACE.state.currentRun = latest;
+      WORKSPACE.state.currentRunId = latest.workspaceId;
+      workspaceLoadInsights(latest.workspaceId, function(e2, ins) {
+        if (typeof renderWorkspaceInsights === "function") renderWorkspaceInsights(e2 ? null : ins);
+      });
+    } else if (typeof renderWorkspaceInsights === "function") {
+      renderWorkspaceInsights(null);
+    }
+  });
+  if (opts.scroll !== false) {
+    var v = document.getElementById("view-workspace");
+    if (v && v.scrollIntoView) v.scrollIntoView({behavior: "smooth", block: "start"});
+  }
 }
 
 function workspaceAnalyze(root, mode, projectIds, cb) {
@@ -772,7 +848,8 @@ function workspaceFocusRun(ws, opts) {
     renderWorkspace(WORKSPACE.state.inventory);
   }
   workspaceLoadRuns(function(e, runs) {
-    if (!e && runs && typeof renderWorkspaceRuns === "function") renderWorkspaceRuns(runs);
+    var scoped = filterWorkspaceRuns(e ? [] : runs, (WORKSPACE.state.inventory || {}).root || ws.root || "");
+    if (!e && runs && typeof renderWorkspaceRuns === "function") renderWorkspaceRuns(scoped);
     workspaceLoadInsights(WORKSPACE.state.currentRunId, function(e2, ins) {
       if (typeof renderWorkspaceInsights === "function") renderWorkspaceInsights(e2 ? null : ins);
       if (opts.scroll !== false) {
@@ -787,7 +864,9 @@ function workspaceLoadProjectSnapshot(projId, projPath) {
   if (!RUNNER.connected) { alert(tr("runner.notConnected")); return; }
   var hint = document.getElementById("picker-hint");
   if (hint) hint.textContent = tr("gen.generating");
-  rapi("/api/quick-analyze", { method: "POST", body: { root: projPath, language: "auto" } }).then(function(d) {
+  var lang = arguments.length >= 3 ? arguments[2] : "auto";
+  rememberWorkbenchTarget(projPath, lang);
+  rapi("/api/quick-analyze", { method: "POST", body: { root: projPath, language: lang || "auto" } }).then(function(d) {
     openWorkbenchSnapshot(d.data.snapshot, d.data.snapshotId, { tab: "dashboard" });
     pickerRefresh();
   }).catch(function(e) {
@@ -906,7 +985,7 @@ function workspaceOpenInsightSnapshot(snapshotId, tab) {
     alert(tr("workspace.noSnapshot"));
     return;
   }
-  openWorkbenchSnapshot(null, snapshotId, {tab: tab || "dashboard"});
+  runnerLoadSnap(snapshotId, {tab: tab || "dashboard"});
 }
 
 // ── Workspace Cross-Project Graph ─────────────────────────────────
