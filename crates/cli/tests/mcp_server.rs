@@ -16111,6 +16111,7 @@ fn mcp_project_quick_no_new_job_after_succeeded() {
 
     if first_status == "analyzing" && !first_job_id.is_empty() {
         // 轮询直到 job succeeded
+        let mut final_job_status = serde_json::json!({});
         for _ in 0..60 {
             let js = call_tool_json(
                 &mut session,
@@ -16119,10 +16120,40 @@ fn mcp_project_quick_no_new_job_after_succeeded() {
                 serde_json::json!({"mode": "job_status", "jobId": &first_job_id}),
             );
             if js["status"].as_str() == Some("succeeded") {
+                final_job_status = js;
                 break;
             }
             std::thread::sleep(std::time::Duration::from_millis(200));
         }
+        assert_eq!(
+            final_job_status["status"].as_str(),
+            Some("succeeded"),
+            "job should finish before testing facade cache reuse"
+        );
+        assert_eq!(
+            final_job_status["summary"]["facadeCacheReady"].as_bool(),
+            Some(true),
+            "job must not report succeeded until facade graph cache is warm"
+        );
+
+        let mut active_analysis_count = 1u64;
+        for _ in 0..20 {
+            let cache_status = call_tool_json(
+                &mut session,
+                90004,
+                "codelattice_cache",
+                serde_json::json!({"mode": "status", "compact": true}),
+            );
+            active_analysis_count = cache_status["activeAnalysisCount"].as_u64().unwrap_or(0);
+            if active_analysis_count == 0 {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        assert_eq!(
+            active_analysis_count, 0,
+            "succeeded job should not leave facade cache warming in active analysis"
+        );
 
         // 第二次 quick：缓存应已被预热，不应创建新 job
         let second = call_tool_json(

@@ -41,10 +41,35 @@ struct McpCacheWarmer {
 }
 
 impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
-    fn warm(&self, root: &str, language: &str) {
-        if let Ok(mut cache) = self.cache.lock() {
-            let _ = cache.warm_from_subprocess(Path::new(root), language);
+    fn warm(&self, root: &str, language: &str) -> Result<(), String> {
+        let canonical = Path::new(root)
+            .canonicalize()
+            .map_err(|e| format!("canonicalize failed: {}", e))?;
+        let key = CacheKey {
+            root: canonical.to_string_lossy().to_string(),
+            language: language.to_string(),
+            strict: false,
+        };
+
+        {
+            let cache = self
+                .cache
+                .lock()
+                .map_err(|_| "facade cache lock poisoned".to_string())?;
+            if cache.entries.contains_key(&key) {
+                return Ok(());
+            }
         }
+
+        // 重分析和 GraphView 构建可能很慢，必须在 McpCache 锁外完成。
+        // 只在最后插入 entry 时短暂加锁，避免 AI 的后续 facade 调用卡在取锁上。
+        let (key, entry) = build_warm_cache_entry(&canonical, language)?;
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| "facade cache lock poisoned".to_string())?;
+        cache.entries.entry(key).or_insert(entry);
+        Ok(())
     }
 }
 use gitnexus_analysis_scheduler::{
@@ -1322,6 +1347,81 @@ const CACHE_MAX_ENTRIES: usize = 16;
 /// CodeLattice binary version, embedded in fingerprint for cross-version safety.
 const CODELATTICE_CACHE_VERSION: &str = "0.16.0-beta.1";
 
+/// 构建可写入 McpCache 的完整图谱缓存条目。
+///
+/// 注意：这个函数会运行 analyze 子进程并构建 GraphView，可能很慢；
+/// 调用方必须保证它不在 McpCache 锁内执行。
+fn build_warm_cache_entry(
+    canonical: &Path,
+    language: &str,
+) -> Result<(CacheKey, CacheEntry), String> {
+    let key = CacheKey {
+        root: canonical.to_string_lossy().to_string(),
+        language: language.to_string(),
+        strict: false,
+    };
+
+    let start = Instant::now();
+    let result = run_analyze_subprocess(canonical, language, "json", false)
+        .map_err(|e| format!("warm subprocess failed: {}", e))?;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    let mut graph_view = GraphView::build(&result);
+    let file_mtimes = scan_file_mtimes(canonical);
+    let manifest_hashes = compute_manifest_hashes(canonical);
+    let docs_mtimes: HashMap<String, u64> = file_mtimes
+        .iter()
+        .filter(|(p, _)| p.ends_with(".md"))
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+
+    let scheduler = build_scheduler_metadata(canonical, language, false, None, None);
+
+    graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(canonical)));
+
+    let mut result_with_meta = result.clone();
+    if let Some(obj) = result_with_meta.as_object_mut() {
+        obj.insert(
+            "__manifest_hashes".to_string(),
+            serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
+        );
+        obj.insert(
+            "__docs_mtimes".to_string(),
+            serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
+        );
+    }
+
+    let entry = CacheEntry {
+        analyze_result: result_with_meta,
+        graph_view,
+        scheduler: scheduler.value.clone(),
+        scheduler_files: scheduler.file_snapshot.clone(),
+        created_at: Instant::now(),
+        last_used_at: Instant::now(),
+        hit_count: 0,
+        analysis_duration_ms: duration_ms,
+        file_mtimes: file_mtimes.clone(),
+        root_canonical: canonical.to_string_lossy().to_string(),
+        stale_reason: None,
+    };
+
+    let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
+    save_persistent(
+        &cache_key_str,
+        &canonical.to_string_lossy(),
+        language,
+        &result,
+        &file_mtimes,
+        &manifest_hashes,
+        &docs_mtimes,
+        scheduler_fingerprint(&scheduler.value),
+        &scheduler.file_snapshot,
+        duration_ms,
+    );
+
+    Ok((key, entry))
+}
+
 /// Persistent cache schema version.
 const CACHE_SCHEMA_VERSION: u32 = 1;
 
@@ -2486,88 +2586,6 @@ impl McpCache {
                 stale_reason: None,
             },
         );
-    }
-
-    /// 由 job worker 完成后调用：运行 run_analyze_subprocess 把完整图谱灌入 McpCache。
-    /// 如果 McpCache 中已有该 root/language 的缓存条目，跳过（避免覆盖更新的结果）。
-    fn warm_from_subprocess(&mut self, root: &Path, language: &str) -> Result<(), String> {
-        let canonical = match root.canonicalize() {
-            Ok(c) => c,
-            Err(e) => return Err(format!("canonicalize failed: {}", e)),
-        };
-        let key = CacheKey {
-            root: canonical.to_string_lossy().to_string(),
-            language: language.to_string(),
-            strict: false,
-        };
-
-        if self.entries.contains_key(&key) {
-            return Ok(());
-        }
-
-        let start = Instant::now();
-        let result = run_analyze_subprocess(&canonical, language, "json", false)
-            .map_err(|e| format!("warm subprocess failed: {}", e))?;
-        let duration_ms = start.elapsed().as_millis() as u64;
-
-        let mut graph_view = GraphView::build(&result);
-        let root_path = canonical.as_path();
-
-        let file_mtimes = scan_file_mtimes(root_path);
-        let manifest_hashes = compute_manifest_hashes(root_path);
-        let docs_mtimes: HashMap<String, u64> = file_mtimes
-            .iter()
-            .filter(|(p, _)| p.ends_with(".md"))
-            .map(|(k, v)| (k.clone(), *v))
-            .collect();
-
-        let scheduler = build_scheduler_metadata(root_path, language, false, None, None);
-
-        graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
-
-        let mut result_with_meta = result.clone();
-        if let Some(obj) = result_with_meta.as_object_mut() {
-            obj.insert(
-                "__manifest_hashes".to_string(),
-                serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
-            );
-            obj.insert(
-                "__docs_mtimes".to_string(),
-                serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
-            );
-        }
-
-        let entry = CacheEntry {
-            analyze_result: result_with_meta.clone(),
-            graph_view,
-            scheduler: scheduler.value.clone(),
-            scheduler_files: scheduler.file_snapshot.clone(),
-            created_at: Instant::now(),
-            last_used_at: Instant::now(),
-            hit_count: 0,
-            analysis_duration_ms: duration_ms,
-            file_mtimes: file_mtimes.clone(),
-            root_canonical: canonical.to_string_lossy().to_string(),
-            stale_reason: None,
-        };
-
-        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
-        self.entries.insert(key.clone(), entry);
-
-        save_persistent(
-            &cache_key_str,
-            &canonical.to_string_lossy(),
-            language,
-            &result,
-            &file_mtimes,
-            &manifest_hashes,
-            &docs_mtimes,
-            scheduler_fingerprint(&scheduler.value),
-            &scheduler.file_snapshot,
-            duration_ms,
-        );
-
-        Ok(())
     }
 
     /// Get cache status for both memory and persistent layers.
@@ -20277,9 +20295,34 @@ fn facade_auto_job_check(
     if probe_status == "miss" {
         let succeeded_jobs = crate::mcp_job::MCP_JOBS.list_succeeded_jobs(root, language);
         if let Some(job) = succeeded_jobs.first() {
-            // succeeded job 存在但缓存仍 miss → 缓存预热可能失败
-            // 返回 None 让 facade 走同步路径（run_analyze_subprocess 会填充缓存）
-            return None;
+            // succeeded job 存在但缓存仍 miss，说明预热失败或缓存 key 不匹配。
+            // 不自动走同步大分析；否则 AI 在 job 完成后重试 quick/search 会再次卡住。
+            let warm_status = job
+                .summary
+                .as_ref()
+                .and_then(|s| s["facadeCacheWarmStatus"].as_str())
+                .unwrap_or("unknown");
+            let warm_error = job
+                .summary
+                .as_ref()
+                .and_then(|s| s["facadeCacheWarmError"].as_str())
+                .unwrap_or("");
+            return Some(json!({
+                "status": "analysis_ready_cache_unavailable",
+                "jobId": job.job_id,
+                "cacheProbe": probe,
+                "facadeCacheReady": false,
+                "facadeCacheWarmStatus": warm_status,
+                "facadeCacheWarmError": warm_error,
+                "message": "A matching background job succeeded, but the facade graph cache is not ready. CodeLattice will not run a synchronous large analysis automatically.",
+                "recommendedNextCalls": [
+                    {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": job.job_id, "root": root, "language": language, "compact": true}},
+                    {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job.job_id, "page": 0, "pageSize": 50, "root": root, "language": language, "compact": true}},
+                    {"tool": tool_name, "mode": mode, "arguments": {"root": root, "language": language, "compact": true, "asyncOnMiss": true}},
+                    {"tool": tool_name, "mode": mode, "arguments": {"root": root, "language": language, "compact": true, "forceSync": true}, "why": "Only use forceSync when the user explicitly accepts a blocking full analysis."}
+                ],
+                "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
+            }));
         }
     }
 

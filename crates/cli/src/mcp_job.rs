@@ -43,21 +43,30 @@ impl McpFacadeCacheSlot {
 
 /// facade 图谱缓存预热 trait：job worker 完成后调用 warm() 把分析结果灌入缓存。
 pub trait FacadeCacheWarmer {
-    fn warm(&self, root: &str, language: &str);
+    fn warm(&self, root: &str, language: &str) -> Result<(), String>;
 }
 
 /// 由 run_mcp_server() 调用，注册全局 facade 图谱缓存引用
 pub fn register_facade_cache(warmer: Box<dyn FacadeCacheWarmer + Send>) {
-    let _ = MCP_FACADE_CACHE.set(Mutex::new(McpFacadeCacheSlot::new(warmer)));
+    let slot = McpFacadeCacheSlot::new(warmer);
+    if let Some(existing) = MCP_FACADE_CACHE.get() {
+        if let Ok(mut existing) = existing.lock() {
+            *existing = slot;
+        }
+        return;
+    }
+    let _ = MCP_FACADE_CACHE.set(Mutex::new(slot));
 }
 
 /// job worker 完成后调用，尝试预热 facade 图谱缓存
-fn try_warm_facade_cache(root: &str, language: &str) {
-    if let Some(slot) = MCP_FACADE_CACHE.get() {
-        if let Ok(slot) = slot.lock() {
-            slot.inner.warm(root, language);
-        }
-    }
+fn try_warm_facade_cache(root: &str, language: &str) -> Result<(), String> {
+    let slot = MCP_FACADE_CACHE
+        .get()
+        .ok_or_else(|| "facade cache warmer not registered".to_string())?;
+    let slot = slot
+        .lock()
+        .map_err(|_| "facade cache warmer lock poisoned".to_string())?;
+    slot.inner.warm(root, language)
 }
 
 /// MCP-level job handle — tracks one engine-backed analysis invocation.
@@ -529,7 +538,7 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             SerialExecutor.execute(&plan, adapter.as_ref())
         };
 
-        let summary = serde_json::json!({
+        let mut summary = serde_json::json!({
             "engine": "1.3",
             "mode": mode_owned,
             "root": root_owned,
@@ -567,10 +576,41 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
         })).collect();
         MCP_JOBS.store_detail(&job_id, detail_items);
 
-        MCP_JOBS.set_summary(&job_id, summary);
+        MCP_JOBS.update_progress(
+            &job_id,
+            McpJobProgress {
+                stage: "warming_facade_cache".into(),
+                completed_units: result.completed,
+                total_units: result.total_tasks,
+                failed_units: result.failed,
+                elapsed_ms: result.total_duration_ms,
+                executor_mode: result.executor_mode.clone(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
 
-        // 闭环：job succeeded 后预热 facade 图谱缓存，使后续 facade 调用 cache hit
-        try_warm_facade_cache(&root_owned, &lang_owned);
+        // 闭环：只有 facade 图谱缓存完成预热后，job 才能对外宣称 succeeded。
+        // 否则 AI 会在 succeeded 后立即重试 quick/search，重新落入同步大分析。
+        let warm_result = try_warm_facade_cache(&root_owned, &lang_owned);
+        if let Some(obj) = summary.as_object_mut() {
+            obj.insert(
+                "facadeCacheReady".to_string(),
+                serde_json::json!(warm_result.is_ok()),
+            );
+            obj.insert(
+                "facadeCacheWarmStatus".to_string(),
+                serde_json::json!(if warm_result.is_ok() {
+                    "ready"
+                } else {
+                    "failed"
+                }),
+            );
+            if let Err(e) = &warm_result {
+                obj.insert("facadeCacheWarmError".to_string(), serde_json::json!(e));
+            }
+        }
+        MCP_JOBS.set_summary(&job_id, summary);
     });
 
     let handle = MCP_JOBS.get(&job_id_outer).unwrap();
@@ -835,7 +875,7 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
             );
         }
 
-        let summary = serde_json::json!({
+        let mut summary = serde_json::json!({
             "workspace": true,
             "root": root_owned,
             "totalProjects": inventory.len(),
@@ -855,10 +895,40 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
         let detail_items: Vec<Value> = aggregated.clone();
         MCP_JOBS.store_detail(&job_id, detail_items);
 
-        MCP_JOBS.set_summary(&job_id, summary);
+        MCP_JOBS.update_progress(
+            &job_id,
+            McpJobProgress {
+                stage: "warming_facade_cache".into(),
+                completed_units: completed + failed,
+                total_units: supported.len(),
+                failed_units: failed,
+                elapsed_ms: 0,
+                executor_mode: mode_owned.clone(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
 
         // workspace 闭环：预热 facade 图谱缓存
-        try_warm_facade_cache(&root_owned, "auto");
+        let warm_result = try_warm_facade_cache(&root_owned, "auto");
+        if let Some(obj) = summary.as_object_mut() {
+            obj.insert(
+                "facadeCacheReady".to_string(),
+                serde_json::json!(warm_result.is_ok()),
+            );
+            obj.insert(
+                "facadeCacheWarmStatus".to_string(),
+                serde_json::json!(if warm_result.is_ok() {
+                    "ready"
+                } else {
+                    "failed"
+                }),
+            );
+            if let Err(e) = &warm_result {
+                obj.insert("facadeCacheWarmError".to_string(), serde_json::json!(e));
+            }
+        }
+        MCP_JOBS.set_summary(&job_id, summary);
     });
 
     let handle = MCP_JOBS.get(&job_id_outer).unwrap();
