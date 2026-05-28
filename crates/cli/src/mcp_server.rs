@@ -3665,13 +3665,26 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
                             .unwrap_or(label);
 
                         if compact {
-                            matches.push(json!({
+                            let confidence = node
+                                .get("confidence")
+                                .and_then(|c| c.as_f64())
+                                .or_else(|| {
+                                    node["properties"]
+                                        .get("confidence")
+                                        .and_then(|c| c.as_f64())
+                                })
+                                .unwrap_or(0.0);
+                            let mut compact_obj = json!({
                                 "id": node["id"],
                                 "name": name,
                                 "kind": kind_val,
                                 "file": file_val,
                                 "line": line_val
-                            }));
+                            });
+                            if confidence > 0.0 {
+                                compact_obj["confidence"] = json!(confidence);
+                            }
+                            matches.push(compact_obj);
                         } else {
                             matches.push(json!({
                                 "id": node["id"],
@@ -19789,7 +19802,7 @@ fn build_cache_semantics(has_persistent: bool) -> Value {
         "persistentCacheAvailable": has_persistent,
         "analysisAvailableWithoutPersistentCache": true,
         "explanation": "Persistent cache is an optional performance layer. Disabled persistent cache does NOT prevent fresh static analysis — CodeLattice will still run analysis and cache results in memory for the current session.",
-        "enableHint": "Set CODELATTICE_CACHE_DIR=<writable-dir> to enable cross-session persistent cache."
+        "note": "Persistent cache defaults to ~/.cache/codelattice. Override with CODELATTICE_CACHE_DIR. Disable with CODELATTICE_CACHE=off."
     })
 }
 
@@ -19844,7 +19857,7 @@ fn wrap_facade_output(
     });
     if compact {
         if let Some(obj) = out.as_object_mut() {
-            obj.remove("result");
+            // Keep result in compact mode (handlers produce bounded output)
             obj.insert(
                 "detailHint".to_string(),
                 json!("Re-run with compact=false or a deeper mode when you need full result payloads."),
@@ -20486,6 +20499,10 @@ fn facade_auto_job_check(
     let force_sync = params["forceSync"].as_bool().unwrap_or(false);
 
     if force_sync || !async_on_miss {
+        return None;
+    }
+    // compact mode runs synchronously for immediate top-N results
+    if params["compact"].as_bool().unwrap_or(false) {
         return None;
     }
 

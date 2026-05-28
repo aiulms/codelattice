@@ -1629,8 +1629,8 @@ fn mcp_project_quick_returns_compact_ai_digest() {
     assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
     assert_eq!(data["mode"].as_str(), Some("quick"));
     assert!(
-        data.get("result").is_none(),
-        "compact project quick should not include full result payload: {data:?}"
+        data.get("result").is_some(),
+        "compact project quick should include bounded result: {data:?}"
     );
     assert_eq!(data["summary"]["analysisDepth"].as_str(), Some("quick"));
     assert!(

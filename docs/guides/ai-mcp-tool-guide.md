@@ -117,7 +117,7 @@ OpenCode 的日常配置示例：
 
 ## 持久化缓存（可选性能层）
 
-默认不开启持久化缓存，session 重启后需要重新分析。开启持久化缓存可以让分析结果跨 session 复用，显著加快重复查询。
+默认使用 `~/.cache/codelattice` 作为持久化缓存目录。缓存让分析结果跨 session 复用，显著加快重复查询。无需额外配置即可使用。
 
 ### 推荐配置
 
@@ -167,7 +167,7 @@ OpenCode 的日常配置示例：
   "persistentCache": {
     "enabled": false,
     "reason": "CODELATTICE_CACHE_DIR is not set or not writable. Persistent cache survives session restarts.",
-    "recommendation": "Set CODELATTICE_CACHE_DIR=/Users/jiangxuanyang/.cache/codelattice in MCP server env for cross-session persistent cache. Analysis works without it; this is an optional performance layer."
+    "explanation": "Default persistent cache at ~/.cache/codelattice. CODELATTICE_CACHE_DIR overrides, CODELATTICE_CACHE=off disables."
   }
 }
 ```

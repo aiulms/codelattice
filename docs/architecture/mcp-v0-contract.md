@@ -15,7 +15,7 @@ MCP v0 是 CodeLattice CLI 的 thin stdio wrapper：
 - **Multi-language** — 支持 Rust、Cangjie、ArkTS、TypeScript、C++
 - **Not GitNexus-RC replacement** — 不替代 GitNexus-RC MCP server
 - **Not default tool switch** — 显式 opt-in
-- **Persistent cache opt-in** — 通过 `CODELATTICE_CACHE_DIR` 环境变量启用持久化分析缓存
+- **Persistent cache default-on** — 默认使用 `~/.cache/codelattice`；`CODELATTICE_CACHE_DIR` 可覆盖路径，`CODELATTICE_CACHE=off` 可关闭
 - **No Cypher parser** — query_graph 仅支持参数化查询，不接受任意查询字符串
 - **No rename apply** — rename_preview 只预览，不写文件
 - **No cross-repo** — 不做跨仓库语义边
