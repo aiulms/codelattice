@@ -121,7 +121,19 @@ OpenCode 的日常配置示例：
 
 ### 推荐配置
 
-在 MCP server 的 `env` 中设置 `CODELATTICE_CACHE_DIR`：
+日常使用不需要配置 `env`。旧配置会自动使用默认持久化缓存目录：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"
+    }
+  }
+}
+```
+
+如果需要把缓存放到其他位置，再用 `CODELATTICE_CACHE_DIR` 覆盖默认路径：
 
 ```json
 {
@@ -129,7 +141,7 @@ OpenCode 的日常配置示例：
     "codelattice": {
       "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh",
       "env": {
-        "CODELATTICE_CACHE_DIR": "/Users/jiangxuanyang/.cache/codelattice"
+        "CODELATTICE_CACHE_DIR": "/path/to/codelattice-cache"
       }
     }
   }
@@ -153,20 +165,22 @@ OpenCode 的日常配置示例：
 {
   "persistentCache": {
     "enabled": true,
-    "reason": "CODELATTICE_CACHE_DIR is set and writable",
+    "source": "default",
+    "reason": "Using default cache directory ~/.cache/codelattice.",
     "recommendation": "",
     "cacheDir": "/Users/jiangxuanyang/.cache/codelattice"
   }
 }
 ```
 
-如果未启用：
+如果显式关闭：
 
 ```json
 {
   "persistentCache": {
     "enabled": false,
-    "reason": "CODELATTICE_CACHE_DIR is not set or not writable. Persistent cache survives session restarts.",
+    "source": "disabled",
+    "reason": "CODELATTICE_CACHE=off. Persistent cache is disabled.",
     "explanation": "Default persistent cache at ~/.cache/codelattice. CODELATTICE_CACHE_DIR overrides, CODELATTICE_CACHE=off disables."
   }
 }
