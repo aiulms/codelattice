@@ -16078,3 +16078,246 @@ fn mcp_default_toolset_six_tools() {
         tool_count
     );
 }
+
+// ============================================================
+// Stage 6: Cache miss → job → succeeded → facade reuse 闭环测试
+// ============================================================
+
+#[test]
+fn mcp_project_quick_no_new_job_after_succeeded() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 第一次 quick：cache miss → 应返回 analyzing 或直接同步结果
+    let first = call_tool_json(
+        &mut session,
+        90001,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+
+    let first_status = first["status"].as_str().unwrap_or("");
+    let first_job_id = first["jobId"].as_str().unwrap_or("").to_string();
+
+    if first_status == "analyzing" && !first_job_id.is_empty() {
+        // 轮询直到 job succeeded
+        for _ in 0..60 {
+            let js = call_tool_json(
+                &mut session,
+                90002,
+                "codelattice_project",
+                serde_json::json!({"mode": "job_status", "jobId": &first_job_id}),
+            );
+            if js["status"].as_str() == Some("succeeded") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+
+        // 第二次 quick：缓存应已被预热，不应创建新 job
+        let second = call_tool_json(
+            &mut session,
+            90003,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": root,
+                "language": "rust",
+                "compact": true,
+                "asyncOnMiss": true
+            }),
+        );
+
+        let second_status = second["status"].as_str().unwrap_or("");
+        let second_job_id = second["jobId"].as_str().unwrap_or("").to_string();
+
+        // 第二次不应返回 analyzing + 新 jobId
+        if second_status == "analyzing" && !second_job_id.is_empty() {
+            assert_ne!(
+                first_job_id, second_job_id,
+                "After job succeeded and cache warm, second quick should NOT create a new job"
+            );
+            panic!(
+                "Second quick returned analyzing with new jobId={}, expected cache hit or sync result",
+                second_job_id
+            );
+        }
+        // 应该返回正常 quick 结果或 cache hit
+        assert!(
+            second_status != "analyzing",
+            "Second quick should not return analyzing after job succeeded and cache warm"
+        );
+    }
+}
+
+#[test]
+fn mcp_symbol_search_no_repeat_job_after_succeeded() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 先用 project job 触发分析并等待完成
+    let job = call_tool_json(
+        &mut session,
+        90010,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root,
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().unwrap_or("").to_string();
+    if !job_id.is_empty() {
+        for _ in 0..60 {
+            let js = call_tool_json(
+                &mut session,
+                90011,
+                "codelattice_project",
+                serde_json::json!({"mode": "job_status", "jobId": &job_id}),
+            );
+            if js["status"].as_str() == Some("succeeded") {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+
+    // symbol search 应该能使用已有的缓存结果，不创建新 job
+    let search = call_tool_json(
+        &mut session,
+        90012,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root,
+            "language": "rust",
+            "query": "main",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+
+    let search_status = search["status"].as_str().unwrap_or("");
+    if search_status == "analyzing" {
+        let search_job_id = search["jobId"].as_str().unwrap_or("");
+        // 如果返回 analyzing，jobId 应该是已知的（不是新的）
+        assert!(
+            search_job_id == job_id || search_job_id.is_empty(),
+            "symbol search should not create new job after project analysis succeeded"
+        );
+    }
+}
+
+#[test]
+fn mcp_control_plane_not_busy_during_job() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // 提交 job
+    let job = call_tool_json(
+        &mut session,
+        90020,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().unwrap_or("").to_string();
+
+    // 在 job 运行期间，控制面调用不应返回 busy
+    let cache_status = call_tool_json(
+        &mut session,
+        90021,
+        "codelattice_cache",
+        serde_json::json!({"mode": "status", "compact": true}),
+    );
+    assert!(
+        cache_status["error"]
+            .as_str()
+            .is_none_or(|e| e != "mcp_server_busy"),
+        "cache status must not return busy during job execution"
+    );
+
+    if !job_id.is_empty() {
+        let job_status = call_tool_json(
+            &mut session,
+            90022,
+            "codelattice_project",
+            serde_json::json!({"mode": "job_status", "jobId": &job_id}),
+        );
+        assert!(
+            job_status["error"]
+                .as_str()
+                .is_none_or(|e| e != "mcp_server_busy"),
+            "job_status must not return busy during job execution"
+        );
+    }
+}
+
+#[test]
+fn mcp_singleflight_running_dedup_preserved() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 连续两个 quick 调用
+    let first = call_tool_json(
+        &mut session,
+        90030,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+    let first_status = first["status"].as_str().unwrap_or("");
+    let first_job_id = first["jobId"].as_str().unwrap_or("").to_string();
+
+    if first_status == "analyzing" && !first_job_id.is_empty() {
+        let second = call_tool_json(
+            &mut session,
+            90031,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": root,
+                "language": "rust",
+                "compact": true,
+                "asyncOnMiss": true
+            }),
+        );
+        let second_job_id = second["jobId"].as_str().unwrap_or("").to_string();
+
+        // 应该返回同一个 jobId（running dedup）
+        assert_eq!(
+            first_job_id, second_job_id,
+            "Second quick during running job should return same jobId (SingleFlight)"
+        );
+    }
+}

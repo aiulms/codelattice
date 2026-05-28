@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
 
@@ -24,6 +24,41 @@ use gitnexus_analysis_engine::executor::{
 use gitnexus_analysis_engine::job::{
     AnalysisJob, JobProgress, JobResultSummary, JobRuntime, JobStatus, PagedResult,
 };
+
+/// 全局 McpCache 引用，由 run_mcp_server() 在启动时设置。
+/// job worker 完成后通过此引用把分析结果灌入 McpCache 图谱缓存，
+/// 实现闭环：job succeeded → 后续 facade 复用已完成分析结果。
+static MCP_FACADE_CACHE: OnceLock<Mutex<McpFacadeCacheSlot>> = OnceLock::new();
+
+/// McpCache 的类型擦除槽位：存储 Arc<Mutex<impl FacadeCacheWarmer>>
+pub struct McpFacadeCacheSlot {
+    inner: Box<dyn FacadeCacheWarmer + Send>,
+}
+
+impl McpFacadeCacheSlot {
+    pub fn new(inner: Box<dyn FacadeCacheWarmer + Send>) -> Self {
+        Self { inner }
+    }
+}
+
+/// facade 图谱缓存预热 trait：job worker 完成后调用 warm() 把分析结果灌入缓存。
+pub trait FacadeCacheWarmer {
+    fn warm(&self, root: &str, language: &str);
+}
+
+/// 由 run_mcp_server() 调用，注册全局 facade 图谱缓存引用
+pub fn register_facade_cache(warmer: Box<dyn FacadeCacheWarmer + Send>) {
+    let _ = MCP_FACADE_CACHE.set(Mutex::new(McpFacadeCacheSlot::new(warmer)));
+}
+
+/// job worker 完成后调用，尝试预热 facade 图谱缓存
+fn try_warm_facade_cache(root: &str, language: &str) {
+    if let Some(slot) = MCP_FACADE_CACHE.get() {
+        if let Ok(slot) = slot.lock() {
+            slot.inner.warm(root, language);
+        }
+    }
+}
 
 /// MCP-level job handle — tracks one engine-backed analysis invocation.
 #[derive(Debug, Clone)]
@@ -261,6 +296,19 @@ impl McpJobRegistry {
                 mode: j.mode.clone(),
                 elapsed_ms: now_ms.saturating_sub(j.created_at_ms),
             })
+            .collect()
+    }
+
+    /// 列出匹配 root/language 的已 succeeded job，用于闭环检查
+    pub fn list_succeeded_jobs(&self, root: &str, language: &str) -> Vec<McpJobHandle> {
+        let jobs = self.jobs.lock().unwrap();
+        jobs.values()
+            .filter(|j| {
+                j.status == JobStatus::Succeeded
+                    && j.root == root
+                    && (j.language == language || j.language == "auto")
+            })
+            .cloned()
             .collect()
     }
 
@@ -520,6 +568,9 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
         MCP_JOBS.store_detail(&job_id, detail_items);
 
         MCP_JOBS.set_summary(&job_id, summary);
+
+        // 闭环：job succeeded 后预热 facade 图谱缓存，使后续 facade 调用 cache hit
+        try_warm_facade_cache(&root_owned, &lang_owned);
     });
 
     let handle = MCP_JOBS.get(&job_id_outer).unwrap();
@@ -805,6 +856,9 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
         MCP_JOBS.store_detail(&job_id, detail_items);
 
         MCP_JOBS.set_summary(&job_id, summary);
+
+        // workspace 闭环：预热 facade 图谱缓存
+        try_warm_facade_cache(&root_owned, "auto");
     });
 
     let handle = MCP_JOBS.get(&job_id_outer).unwrap();

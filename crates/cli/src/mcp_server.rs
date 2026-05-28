@@ -33,6 +33,20 @@
 //!         Tools advertise permission hints; source writes and project-code execution are not performed.
 
 use gitnexus_analysis_engine::job::JobStatus;
+
+/// McpCache 的 FacadeCacheWarmer 实现：job worker 完成后调用 run_analyze_subprocess
+/// 把完整图谱分析结果灌入 McpCache.entries，实现闭环。
+struct McpCacheWarmer {
+    cache: Arc<Mutex<McpCache>>,
+}
+
+impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
+    fn warm(&self, root: &str, language: &str) {
+        if let Ok(mut cache) = self.cache.lock() {
+            let _ = cache.warm_from_subprocess(Path::new(root), language);
+        }
+    }
+}
 use gitnexus_analysis_scheduler::{
     build_schedule, AnalysisRequest, AnalysisScope, CacheIntent, FileSnapshot,
 };
@@ -2472,6 +2486,88 @@ impl McpCache {
                 stale_reason: None,
             },
         );
+    }
+
+    /// 由 job worker 完成后调用：运行 run_analyze_subprocess 把完整图谱灌入 McpCache。
+    /// 如果 McpCache 中已有该 root/language 的缓存条目，跳过（避免覆盖更新的结果）。
+    fn warm_from_subprocess(&mut self, root: &Path, language: &str) -> Result<(), String> {
+        let canonical = match root.canonicalize() {
+            Ok(c) => c,
+            Err(e) => return Err(format!("canonicalize failed: {}", e)),
+        };
+        let key = CacheKey {
+            root: canonical.to_string_lossy().to_string(),
+            language: language.to_string(),
+            strict: false,
+        };
+
+        if self.entries.contains_key(&key) {
+            return Ok(());
+        }
+
+        let start = Instant::now();
+        let result = run_analyze_subprocess(&canonical, language, "json", false)
+            .map_err(|e| format!("warm subprocess failed: {}", e))?;
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        let mut graph_view = GraphView::build(&result);
+        let root_path = canonical.as_path();
+
+        let file_mtimes = scan_file_mtimes(root_path);
+        let manifest_hashes = compute_manifest_hashes(root_path);
+        let docs_mtimes: HashMap<String, u64> = file_mtimes
+            .iter()
+            .filter(|(p, _)| p.ends_with(".md"))
+            .map(|(k, v)| (k.clone(), *v))
+            .collect();
+
+        let scheduler = build_scheduler_metadata(root_path, language, false, None, None);
+
+        graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
+
+        let mut result_with_meta = result.clone();
+        if let Some(obj) = result_with_meta.as_object_mut() {
+            obj.insert(
+                "__manifest_hashes".to_string(),
+                serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
+            );
+            obj.insert(
+                "__docs_mtimes".to_string(),
+                serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
+            );
+        }
+
+        let entry = CacheEntry {
+            analyze_result: result_with_meta.clone(),
+            graph_view,
+            scheduler: scheduler.value.clone(),
+            scheduler_files: scheduler.file_snapshot.clone(),
+            created_at: Instant::now(),
+            last_used_at: Instant::now(),
+            hit_count: 0,
+            analysis_duration_ms: duration_ms,
+            file_mtimes: file_mtimes.clone(),
+            root_canonical: canonical.to_string_lossy().to_string(),
+            stale_reason: None,
+        };
+
+        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
+        self.entries.insert(key.clone(), entry);
+
+        save_persistent(
+            &cache_key_str,
+            &canonical.to_string_lossy(),
+            language,
+            &result,
+            &file_mtimes,
+            &manifest_hashes,
+            &docs_mtimes,
+            scheduler_fingerprint(&scheduler.value),
+            &scheduler.file_snapshot,
+            duration_ms,
+        );
+
+        Ok(())
     }
 
     /// Get cache status for both memory and persistent layers.
@@ -20154,6 +20250,39 @@ fn facade_auto_job_check(
         return None;
     }
 
+    // 检查是否有 running/succeeded 的同 root/language job（SingleFlight + 闭环）
+    let running_jobs = crate::mcp_job::get_running_jobs_info();
+    let matching_running = running_jobs
+        .iter()
+        .find(|j| j.root == root && (j.language == language || j.language == "auto"));
+    if let Some(running) = matching_running {
+        let estimate = crate::mcp_job::estimate_analysis_duration(0, language, probe_status);
+        return Some(json!({
+            "status": "analyzing",
+            "jobId": running.job_id,
+            "cacheProbe": probe,
+            "retryAfterSeconds": estimate["retryAfterSeconds"],
+            "message": "A matching analysis job is already running. Poll job_status until succeeded, then retry.",
+            "recommendedNextCalls": [
+                {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": running.job_id, "compact": true}},
+                {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": running.job_id, "page": 0, "pageSize": 50}}
+            ],
+            "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
+        }));
+    }
+
+    // 检查是否有 succeeded 的同 root/language job 且缓存已被预热
+    // 如果 succeeded job 已把结果灌入 McpCache，上面 probe 应该 hit
+    // 但 probe 仍 miss 可能是因为 canonicalize 差异，这里做二次确认
+    if probe_status == "miss" {
+        let succeeded_jobs = crate::mcp_job::MCP_JOBS.list_succeeded_jobs(root, language);
+        if let Some(job) = succeeded_jobs.first() {
+            // succeeded job 存在但缓存仍 miss → 缓存预热可能失败
+            // 返回 None 让 facade 走同步路径（run_analyze_subprocess 会填充缓存）
+            return None;
+        }
+    }
+
     let file_count = if let Some(adapter) = crate::engine_bridge::get_adapter_for_language(language)
     {
         adapter.discover_files(root).map(|f| f.len()).unwrap_or(0)
@@ -20572,7 +20701,15 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         return handle_facade_job(root, language, mode, "codelattice_symbol", params, compact);
     }
 
-    // 预诊 root：如果是 workspace root，提前收集推荐子项目供 fallback 使用
+    // 分析面 mode 的自动 job 化：大项目 cache miss → 异步 job
+    if matches!(mode, "search" | "context" | "callers" | "callees" | "graph") {
+        if let Some(auto_job_resp) =
+            facade_auto_job_check(cache, root, language, "codelattice_symbol", mode, params)
+        {
+            return Ok(tool_result(&auto_job_resp));
+        }
+    }
+
     let root_diag = diagnose_root(root, language);
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
@@ -20855,6 +20992,31 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             params,
             compact,
         );
+    }
+
+    // 分析面 mode 的自动 job 化：大项目 cache miss → 异步 job
+    if matches!(
+        mode,
+        "impact"
+            | "breaking_change"
+            | "consistency"
+            | "full_review"
+            | "native_review"
+            | "safe_cleanup_review"
+            | "dead_code"
+            | "reachability"
+            | "whatif"
+    ) {
+        if let Some(auto_job_resp) = facade_auto_job_check(
+            cache,
+            root,
+            language,
+            "codelattice_change_review",
+            mode,
+            params,
+        ) {
+            return Ok(tool_result(&auto_job_resp));
+        }
     }
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
@@ -23100,6 +23262,12 @@ pub fn run_mcp_server() -> Result<(), String> {
     eprintln!("[mcp] CodeLattice MCP v0.8 server starting on stdin/stdout");
 
     let cache = Arc::new(Mutex::new(McpCache::new()));
+
+    // 注册全局 facade 缓存预热器：job worker 完成后把分析结果灌入 McpCache
+    crate::mcp_job::register_facade_cache(Box::new(McpCacheWarmer {
+        cache: Arc::clone(&cache),
+    }));
+
     let active_tool_calls = Arc::new(AtomicUsize::new(0));
     let (request_tx, request_rx) = mpsc::channel::<Option<String>>();
     let (response_tx, response_rx) = mpsc::channel::<Value>();
