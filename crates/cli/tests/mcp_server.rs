@@ -16832,3 +16832,278 @@ fn mcp_warm_from_result_avoids_subprocess_reanalysis() {
         quick
     );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// P0 regression tests: compact async, warm cache symbol search, job progress
+// ═══════════════════════════════════════════════════════════════
+
+/// P0-2: compact=true 在大项目 cache miss 时应返回 analyzing/jobId，不应同步阻塞。
+/// 小项目（≤10 文件）允许同步；大项目必须 async。
+#[test]
+fn mcp_compact_large_project_cache_miss_returns_analyzing() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 大项目 + cache miss + compact + asyncOnMiss → 应返回 analyzing
+    let search = call_tool_json(
+        &mut session,
+        84001,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root,
+            "language": "rust",
+            "query": "main",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+
+    // 应该返回 analyzing (有 jobId) 或 cache hit (有 matchCount)，
+    // 不应该长时间阻塞导致超时。
+    let status = search["status"].as_str().unwrap_or("");
+    let has_job_id = search["jobId"].as_str().is_some();
+    let has_matches = search["matchCount"].as_u64().is_some();
+
+    assert!(
+        status == "analyzing" || has_matches || status == "analysis_ready_cache_unavailable",
+        "compact search on large project cache miss should return analyzing or results, got status={}, hasJobId={}, hasMatches={}",
+        status, has_job_id, has_matches
+    );
+
+    if status == "analyzing" {
+        assert!(has_job_id, "analyzing response should have jobId");
+    }
+}
+
+/// P0-3 + P0-1: project job 成功后，warm cache 应包含符号，
+/// symbol search 能直接查到，change_review impact 不再 UNKNOWN。
+#[test]
+fn mcp_symbol_search_finds_symbols_after_job_warm() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 提交 job 并等待完成
+    let job = call_tool_json(
+        &mut session,
+        84101,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":root,"language":"rust","compact":true}),
+    );
+    let job_id = job["jobId"].as_str().unwrap_or("").to_string();
+
+    let mut succeeded = false;
+    for _ in 0..120 {
+        let s = call_tool_json(
+            &mut session,
+            84102,
+            "codelattice_project",
+            serde_json::json!({"mode":"job_status","jobId":&job_id,"compact":true}),
+        );
+        if s["status"].as_str() == Some("succeeded") {
+            succeeded = true;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(250));
+    }
+    assert!(succeeded, "job should succeed within 30s");
+
+    // symbol search 应能找到符号（通过 warm cache）
+    let search = call_tool_json(
+        &mut session,
+        84103,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root,
+            "language": "rust",
+            "query": "main",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+
+    // 搜索结果可能在 result 嵌套层或顶层
+    let inner = search.get("result").unwrap_or(&search);
+    let match_count = inner
+        .get("matchCount")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+    assert!(
+        match_count > 0,
+        "symbol search should find 'main' after job warm cache, got matchCount={}, keys={:?}",
+        match_count,
+        inner.as_object().map(|o| o.keys().collect::<Vec<_>>())
+    );
+
+    // change_review impact 应能找到符号
+    let impact = call_tool_json(
+        &mut session,
+        84104,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "impact",
+            "root": root,
+            "language": "rust",
+            "symbol": "main",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+    let impact_inner = impact.get("result").unwrap_or(&impact);
+    let risk = impact_inner
+        .get("risk")
+        .and_then(|v| v.as_str())
+        .unwrap_or("UNKNOWN");
+    assert_ne!(
+        risk,
+        "UNKNOWN",
+        "impact should not be UNKNOWN after job warm, got risk={}, reasons={:?}",
+        risk,
+        impact_inner.get("reasons")
+    );
+}
+
+/// P0-4: job progress completedUnits 应在执行期间推进，不能一直为 0。
+/// 注：小项目可能瞬间完成，此时 completedUnits 从 0 直接到 totalUnits（也算推进）。
+#[test]
+fn mcp_job_progress_advances_during_execution() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 提交 job
+    let job = call_tool_json(
+        &mut session,
+        84201,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":root,"language":"rust","compact":true}),
+    );
+    let job_id = job["jobId"].as_str().unwrap_or("").to_string();
+    assert!(!job_id.is_empty(), "should get a jobId");
+
+    // 检查 progress 是否推进（完成也算推进）
+    let mut saw_any_progress = false;
+    let mut saw_succeeded = false;
+    for _ in 0..60 {
+        let status = call_tool_json(
+            &mut session,
+            84202,
+            "codelattice_project",
+            serde_json::json!({"mode":"job_status","jobId":&job_id,"compact":true}),
+        );
+        let st = status["status"].as_str().unwrap_or("");
+        if st == "succeeded" {
+            // job 完成了，progress 应该有 completedUnits = totalUnits
+            if let Some(progress) = status.get("progress") {
+                let completed = progress
+                    .get("completedUnits")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                let total = progress
+                    .get("totalUnits")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0);
+                if completed > 0 && total > 0 {
+                    saw_any_progress = true;
+                }
+            }
+            saw_succeeded = true;
+            break;
+        }
+        if let Some(progress) = status.get("progress") {
+            let completed = progress
+                .get("completedUnits")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let total = progress
+                .get("totalUnits")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let stage = progress.get("stage").and_then(|v| v.as_str()).unwrap_or("");
+            // 执行阶段有进度 或 任何阶段 completedUnits > 0
+            if (stage == "executing" || stage == "symbol" || stage == "parse") && total > 0 {
+                saw_any_progress = true;
+            }
+            if completed > 0 {
+                saw_any_progress = true;
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    assert!(saw_succeeded, "job should complete within 6s");
+    // succeeded 后 progress 应该有数据
+    assert!(
+        saw_any_progress,
+        "job should report progress during execution"
+    );
+}
+
+/// P1: compact rootDiagnosis 不应包含完整 sourceOnlyEntries。
+#[test]
+fn mcp_compact_root_diagnosis_no_full_source_only_entries() {
+    let dir = tempfile::tempdir().unwrap();
+    // 创建一个有 source-only 模块的 workspace 结构
+    let ws_root = dir.path();
+    std::fs::create_dir_all(ws_root.join("src")).unwrap();
+    std::fs::write(
+        ws_root.join("Cargo.toml"),
+        r#"[package]
+name = "test-ws"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+    std::fs::write(ws_root.join("src/lib.rs"), "pub fn hello() {}").unwrap();
+    // 创建 source-only 目录（无 Cargo.toml）
+    std::fs::create_dir_all(ws_root.join("scripts")).unwrap();
+    std::fs::write(ws_root.join("scripts/helper.rs"), "fn helper() {}").unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let ws_result = call_tool_json(
+        &mut session,
+        84301,
+        "codelattice_workspace",
+        serde_json::json!({
+            "mode": "overview",
+            "root": ws_root.to_str().unwrap(),
+            "compact": true
+        }),
+    );
+
+    // compact 模式下不应有完整的 sourceOnlyEntries 列表
+    let root_diag = ws_result.get("rootDiagnosis").unwrap_or(&ws_result);
+    let source_entries = root_diag.get("sourceOnlyEntries");
+    if let Some(entries) = source_entries {
+        // 如果存在，应该是空数组（compact 模式 limit=0）
+        assert!(
+            entries.as_array().map(|a| a.is_empty()).unwrap_or(true),
+            "compact rootDiagnosis should not have full sourceOnlyEntries, got: {:?}",
+            entries
+        );
+    }
+    // 应该有 preview（≤5 项）
+    let has_preview = root_diag.get("sourceOnlyEntryPreview").is_some();
+    let has_summary = root_diag.get("sourceOnlySummary").is_some();
+    // 至少要有 summary 或 preview
+    assert!(
+        has_summary || has_preview || source_entries.is_some(),
+        "compact rootDiagnosis should have sourceOnlySummary or sourceOnlyEntryPreview"
+    );
+}

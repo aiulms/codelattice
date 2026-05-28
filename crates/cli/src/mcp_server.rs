@@ -1515,6 +1515,24 @@ fn build_warm_cache_entry_from_result(
     let root_str = canonical.to_string_lossy();
     let analyze_value = convert_job_result_to_analyze_format(result, language, &root_str);
 
+    // 如果转换后的 graph 为空（job artifacts 没有足够数据），fallback 到 CLI analyze
+    let graph_node_count = analyze_value
+        .get("graph")
+        .and_then(|g| g.get("nodes"))
+        .and_then(|n| n.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+
+    let analyze_value = if graph_node_count == 0 {
+        // Fallback: 使用 CLI analyze 子进程获取完整 graph
+        match run_analyze_subprocess(canonical, language, "json", false) {
+            Ok(v) => v,
+            Err(_) => analyze_value, // 保持空结果，不做硬性阻断
+        }
+    } else {
+        analyze_value
+    };
+
     let mut graph_view = GraphView::build(&analyze_value);
     let file_mtimes = scan_file_mtimes(canonical);
     let manifest_hashes = compute_manifest_hashes(canonical);
