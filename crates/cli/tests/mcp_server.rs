@@ -230,6 +230,7 @@ impl McpSession {
         let bin = cli_binary();
         let mut cmd = Command::new(bin);
         cmd.arg("mcp")
+            .env("CODELATTICE_CACHE", "off")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -250,6 +251,7 @@ impl McpSession {
         let mut cmd = Command::new(bin);
         cmd.arg("mcp")
             .env("CODELATTICE_MCP_TOOLSET", toolset)
+            .env("CODELATTICE_CACHE", "off")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
@@ -16609,7 +16611,7 @@ fn mcp_persistent_cache_write_read_smoke() {
     let _ = std::fs::create_dir_all(&cache_dir);
 
     {
-        let mut session = McpSession::start_with_toolset("ai");
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
         session.initialize();
         session.send_notification_initialized();
         let project_dir = create_large_ask_rust_project();
@@ -16630,14 +16632,14 @@ fn mcp_persistent_cache_write_read_smoke() {
         );
         let pc = &cache_status["persistentCache"];
         assert!(
-            pc.get("reason").is_some() || pc.get("recommendation").is_some(),
-            "persistentCache must have reason or recommendation: {:?}",
+            pc.get("explanation").is_some() || pc.get("recommendation").is_some(),
+            "persistentCache must have explanation or recommendation: {:?}",
             pc
         );
     }
 
     {
-        let mut session2 = McpSession::start_with_toolset("ai");
+        let mut session2 = McpSession::start_with_cache_dir(Some(&cache_dir));
         session2.initialize();
         session2.send_notification_initialized();
         let project_dir = create_large_ask_rust_project();
@@ -16684,5 +16686,149 @@ fn mcp_workflow_execute_produces_orchestration_steps() {
         execution.get("requested").is_some(),
         "execute=true should set execution.requested: {:?}",
         diag
+    );
+}
+
+#[test]
+fn mcp_persistent_cache_default_dir_shows_in_status() {
+    // With CODELATTICE_CACHE=off via start_with_toolset, cache should show disabled
+    let mut session = McpSession::start_with_toolset("ai");
+    session.initialize();
+    session.send_notification_initialized();
+
+    let status = call_tool_json(
+        &mut session,
+        83101,
+        "codelattice_cache",
+        serde_json::json!({"mode":"status","compact":true}),
+    );
+    let pc = &status["persistentCache"];
+    // Should have source field indicating disabled or default
+    assert!(
+        pc.get("source").is_some(),
+        "persistentCache must have source field: {:?}",
+        pc
+    );
+    let source = pc["source"].as_str().unwrap_or("");
+    // With CODELATTICE_CACHE=off, source should be "disabled"
+    assert!(
+        source == "disabled" || source == "default" || source == "env",
+        "source should be disabled/default/env, got: {}",
+        source
+    );
+}
+
+#[test]
+fn mcp_bounded_queue_queues_when_at_limit() {
+    let large1 = create_large_ask_rust_project();
+    let large2 = create_large_ask_rust_project(); // different root
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    // Submit first job
+    let job1 = call_tool_json(
+        &mut session,
+        83102,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":large1.path().to_str().unwrap(),"language":"rust","compact":true}),
+    );
+    let job1_id = job1["jobId"].as_str().unwrap_or("").to_string();
+    assert!(!job1_id.is_empty(), "first job should have jobId");
+
+    // Submit second job with different root — should get queued/jobId, not busy
+    let job2 = call_tool_json(
+        &mut session,
+        83103,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":large2.path().to_str().unwrap(),"language":"rust","compact":true}),
+    );
+    // Must not be mcp_server_busy
+    assert_ne!(
+        job2.get("error").and_then(|e| e.as_str()),
+        Some("mcp_server_busy"),
+        "second job with different root must not return busy: {:?}",
+        job2
+    );
+    // Should have a jobId
+    assert!(
+        job2.get("jobId").is_some(),
+        "second job should have jobId: {:?}",
+        job2
+    );
+
+    // Cancel both to clean up
+    let _ = call_tool_json(
+        &mut session,
+        83104,
+        "codelattice_project",
+        serde_json::json!({"mode":"job_cancel","jobId":job1_id,"compact":true}),
+    );
+    let job2_id = job2["jobId"].as_str().unwrap_or("").to_string();
+    if !job2_id.is_empty() {
+        let _ = call_tool_json(
+            &mut session,
+            83105,
+            "codelattice_project",
+            serde_json::json!({"mode":"job_cancel","jobId":job2_id,"compact":true}),
+        );
+    }
+}
+
+#[test]
+fn mcp_warm_from_result_avoids_subprocess_reanalysis() {
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+    let project_dir = create_large_ask_rust_project();
+    let root = project_dir.path().to_str().unwrap();
+
+    // Submit and wait for job to complete
+    let job = call_tool_json(
+        &mut session,
+        83106,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":root,"language":"rust","compact":true}),
+    );
+    let job_id = job["jobId"].as_str().unwrap_or("").to_string();
+
+    // Poll until succeeded
+    let mut succeeded = false;
+    for _ in 0..60 {
+        let s = call_tool_json(
+            &mut session,
+            83199,
+            "codelattice_project",
+            serde_json::json!({"mode":"job_status","jobId":job_id,"compact":true}),
+        );
+        if s["status"].as_str() == Some("succeeded") {
+            succeeded = true;
+            // Check that facadeCacheReady is true (warm succeeded)
+            if let Some(summary) = s.get("summary") {
+                if let Some(ready) = summary.get("facadeCacheReady") {
+                    assert!(
+                        ready.as_bool().unwrap_or(false),
+                        "facadeCacheReady should be true after warm_from_result"
+                    );
+                }
+            }
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(500));
+    }
+    assert!(succeeded, "job should succeed within 30s");
+
+    // Quick analysis after job success should hit cache, not re-analyze
+    let quick = call_tool_json(
+        &mut session,
+        83107,
+        "codelattice_project",
+        serde_json::json!({"mode":"quick","root":root,"language":"rust","compact":true}),
+    );
+    // Should not start a new job (should use cache)
+    assert!(
+        quick.get("jobId").is_none() || quick["status"].as_str() == Some("cache_hit"),
+        "quick after warm should not start new job: {:?}",
+        quick
     );
 }

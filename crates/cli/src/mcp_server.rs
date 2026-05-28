@@ -32,6 +32,7 @@
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         Tools advertise permission hints; source writes and project-code execution are not performed.
 
+use gitnexus_analysis_engine::executor::SerializableResult;
 use gitnexus_analysis_engine::job::JobStatus;
 
 /// McpCache 的 FacadeCacheWarmer 实现：job worker 完成后调用 run_analyze_subprocess
@@ -69,6 +70,43 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
             .lock()
             .map_err(|_| "facade cache lock poisoned".to_string())?;
         cache.entries.entry(key).or_insert(entry);
+        Ok(())
+    }
+
+    fn warm_from_result(
+        &self,
+        root: &str,
+        language: &str,
+        result: &SerializableResult,
+    ) -> Result<(), String> {
+        let canonical = Path::new(root)
+            .canonicalize()
+            .map_err(|e| format!("canonicalize failed: {}", e))?;
+        let key = CacheKey {
+            root: canonical.to_string_lossy().to_string(),
+            language: language.to_string(),
+            strict: false,
+        };
+
+        {
+            let cache = self
+                .cache
+                .lock()
+                .map_err(|_| "facade cache lock poisoned".to_string())?;
+            if cache.entries.contains_key(&key) {
+                return Ok(());
+            }
+        }
+
+        // Build cache entry directly from job artifacts — no subprocess re-analysis
+        let entry = build_warm_cache_entry_from_result(&canonical, language, result)?;
+        let mut cache = self
+            .cache
+            .lock()
+            .map_err(|_| "facade cache lock poisoned".to_string())?;
+        if !cache.entries.contains_key(&key) {
+            cache.entries.insert(key, entry);
+        }
         Ok(())
     }
 }
@@ -1351,6 +1389,56 @@ const CODELATTICE_CACHE_VERSION: &str = "0.16.0-beta.1";
 ///
 /// 注意：这个函数会运行 analyze 子进程并构建 GraphView，可能很慢；
 /// 调用方必须保证它不在 McpCache 锁内执行。
+fn build_warm_cache_entry_from_result(
+    canonical: &Path,
+    language: &str,
+    result: &SerializableResult,
+) -> Result<CacheEntry, String> {
+    let start = Instant::now();
+    // Convert job result to the Value format that GraphView::build expects
+    let analyze_value =
+        serde_json::to_value(result).map_err(|e| format!("serialize result: {}", e))?;
+
+    let mut graph_view = GraphView::build(&analyze_value);
+    let file_mtimes = scan_file_mtimes(canonical);
+    let manifest_hashes = compute_manifest_hashes(canonical);
+    let docs_mtimes: HashMap<String, u64> = file_mtimes
+        .iter()
+        .filter(|(p, _)| p.ends_with(".md"))
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+
+    let scheduler = build_scheduler_metadata(canonical, language, false, None, None);
+    graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(canonical)));
+
+    let mut result_with_meta = analyze_value.clone();
+    if let Some(obj) = result_with_meta.as_object_mut() {
+        obj.insert(
+            "__manifest_hashes".to_string(),
+            serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
+        );
+        obj.insert(
+            "__docs_mtimes".to_string(),
+            serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
+        );
+    }
+
+    let duration_ms = start.elapsed().as_millis() as u64;
+    Ok(CacheEntry {
+        analyze_result: result_with_meta,
+        graph_view,
+        scheduler: scheduler.value.clone(),
+        scheduler_files: scheduler.file_snapshot.clone(),
+        created_at: Instant::now(),
+        last_used_at: Instant::now(),
+        hit_count: 0,
+        analysis_duration_ms: duration_ms,
+        file_mtimes: file_mtimes.clone(),
+        root_canonical: canonical.to_string_lossy().to_string(),
+        stale_reason: None,
+    })
+}
+
 fn build_warm_cache_entry(
     canonical: &Path,
     language: &str,
@@ -1729,28 +1817,27 @@ fn persistent_cache_filename(root: &str, language: &str) -> String {
 }
 
 /// Get the persistent cache directory.
-/// Controlled by CODELATTICE_CACHE_DIR env. If not set, persistent cache is disabled.
+/// Controlled by CODELATTICE_CACHE_DIR env. Defaults to ~/.cache/codelattice.
 /// Disable explicitly with CODELATTICE_CACHE=off.
-/// Returns None if persistent caching is disabled.
+/// Returns None if persistent caching is explicitly disabled.
 fn get_persistent_cache_dir() -> Option<PathBuf> {
-    // Check if caching is disabled
+    // Check if caching is explicitly disabled
     if std::env::var("CODELATTICE_CACHE").as_deref() == Ok("off") {
         return None;
     }
 
-    // Only enable persistent cache if explicitly configured
-    match std::env::var("CODELATTICE_CACHE_DIR") {
-        Ok(custom) => {
-            let dir = PathBuf::from(custom);
-            let _ = std::fs::create_dir_all(&dir);
-            Some(dir)
-        }
+    let dir = match std::env::var("CODELATTICE_CACHE_DIR") {
+        Ok(custom) => PathBuf::from(custom),
         Err(_) => {
-            // No explicit cache dir — persistent cache disabled by default
-            // This ensures test isolation and avoids surprising disk writes
-            None
+            // Default to ~/.cache/codelattice when not explicitly set
+            let home = std::env::var("HOME")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/tmp"));
+            home.join(".cache").join("codelattice")
         }
-    }
+    };
+    let _ = std::fs::create_dir_all(&dir);
+    Some(dir)
 }
 
 /// A serialized persistent cache entry stored on disk.
@@ -15170,23 +15257,29 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
             match mode {
                 "status" => {
                     let stats = crate::mcp_job::cache_stats();
-                    let persistent_enabled = get_persistent_cache_dir().is_some();
+                    let cache_disabled = std::env::var("CODELATTICE_CACHE").as_deref() == Ok("off");
+                    let is_custom = std::env::var("CODELATTICE_CACHE_DIR").is_ok();
+                    let persistent_available = !cache_disabled;
+                    let cache_dir = if persistent_available {
+                        get_persistent_cache_dir().map(|p| p.display().to_string())
+                    } else {
+                        None
+                    };
                     let body = json!({
                         "schemaVersion": "codelattice.cacheStatus.v1",
                         "cache": stats,
                         "persistentCache": {
-                            "enabled": persistent_enabled,
-                            "reason": if persistent_enabled {
-                                "CODELATTICE_CACHE_DIR is set and writable"
+                            "available": persistent_available,
+                            "cacheDir": cache_dir,
+                            "source": if cache_disabled { "disabled" }
+                                else if is_custom { "env" } else { "default" },
+                            "explanation": if cache_disabled {
+                                "CODELATTICE_CACHE=off. Persistent cache is disabled."
+                            } else if is_custom {
+                                "CODELATTICE_CACHE_DIR is set explicitly."
                             } else {
-                                "CODELATTICE_CACHE_DIR is not set or not writable. Persistent cache survives session restarts."
+                                "Using default cache directory ~/.cache/codelattice. Set CODELATTICE_CACHE=off to disable, or CODELATTICE_CACHE_DIR to override."
                             },
-                            "recommendation": if !persistent_enabled {
-                                "Set CODELATTICE_CACHE_DIR=/Users/jiangxuanyang/.cache/codelattice in MCP server env for cross-session persistent cache. Analysis works without it; this is an optional performance layer."
-                            } else {
-                                ""
-                            },
-                            "cacheDir": get_persistent_cache_dir().map(|p| p.display().to_string()),
                         },
                         "activeAnalysisCount": crate::mcp_job::active_analysis_count(),
                         "generatedFrom": {"staticAnalysis": false, "targetCodeExecuted": false}
@@ -23635,6 +23728,9 @@ pub fn run_mcp_server() -> Result<(), String> {
                 .unwrap_or(json!({}));
 
             // 控制面调用：不需要 McpCache 锁，不受 busy guard 限制，主线程同步处理
+            let root_str = arguments["root"].as_str().unwrap_or("");
+            let lang_str = arguments["language"].as_str().unwrap_or("auto");
+            let mode_str = arguments["mode"].as_str().unwrap_or("");
             if is_control_plane_call(tool_name, &arguments) {
                 let response = match handle_control_plane_call(tool_name, &arguments) {
                     Some(Ok(result)) => make_response(&id, result),
@@ -23653,9 +23749,24 @@ pub fn run_mcp_server() -> Result<(), String> {
                 continue;
             }
 
-            // 分析面调用：检查 busy guard（串行化分析面调用以保护共享 cache）
-            if active_tool_calls.load(Ordering::SeqCst) > 0 {
-                let response = make_busy_response(&id, tool_name);
+            // 分析面调用：检查并发上限
+            let max_jobs = std::env::var("CODELATTICE_MCP_MAX_ANALYSIS_JOBS")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .unwrap_or(2);
+            let active_count = crate::mcp_job::active_analysis_count();
+            // 只在活跃 job 数达到上限且不是已有 job 的 singleflight 时才排队
+            let is_singleflight = crate::mcp_job::MCP_JOBS
+                .running_jobs_info()
+                .iter()
+                .any(|j| j.root == root_str && (j.language == lang_str || j.language == "auto"));
+            if active_count >= max_jobs && !is_singleflight {
+                // 达到并发上限且非 singleflight：返回 queued/jobId 而不是 busy
+                let queued = crate::mcp_job::MCP_JOBS.submit_queue(root_str, lang_str, mode_str);
+                let response = make_response(
+                    &id,
+                    json!({"content": [{"type": "text", "text": serde_json::to_string(&queued).unwrap_or_default()}]}),
+                );
                 let response_str = serde_json::to_string(&response).unwrap_or_default();
                 let _ = writeln!(stdout, "{}", response_str);
                 let _ = stdout.flush();

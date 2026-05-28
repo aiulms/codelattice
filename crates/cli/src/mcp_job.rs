@@ -44,6 +44,12 @@ impl McpFacadeCacheSlot {
 /// facade 图谱缓存预热 trait：job worker 完成后调用 warm() 把分析结果灌入缓存。
 pub trait FacadeCacheWarmer {
     fn warm(&self, root: &str, language: &str) -> Result<(), String>;
+    fn warm_from_result(
+        &self,
+        root: &str,
+        language: &str,
+        result: &SerializableResult,
+    ) -> Result<(), String>;
 }
 
 /// 由 run_mcp_server() 调用，注册全局 facade 图谱缓存引用
@@ -67,6 +73,22 @@ fn try_warm_facade_cache(root: &str, language: &str) -> Result<(), String> {
         .lock()
         .map_err(|_| "facade cache warmer lock poisoned".to_string())?;
     slot.inner.warm(root, language)
+}
+
+/// Warm facade cache directly from job artifacts (no subprocess re-analysis).
+/// This is the fast path used by job workers after analysis completes.
+fn try_warm_facade_cache_from_result(
+    root: &str,
+    language: &str,
+    result: &SerializableResult,
+) -> Result<(), String> {
+    let slot = MCP_FACADE_CACHE
+        .get()
+        .ok_or_else(|| "facade cache warmer not registered".to_string())?;
+    let slot = slot
+        .lock()
+        .map_err(|_| "facade cache warmer lock poisoned".to_string())?;
+    slot.inner.warm_from_result(root, language, result)
 }
 
 /// MCP-level job handle — tracks one engine-backed analysis invocation.
@@ -318,6 +340,33 @@ impl McpJobRegistry {
                 vec!["All pages fetched".to_string()]
             },
         }))
+    }
+
+    pub fn submit_queue(&self, root: &str, language: &str, mode: &str) -> Value {
+        let handle = self.submit(root, language, mode);
+        // If it's a new queued job (not singleflight), mark it as queued
+        if !handle.reused_existing_job {
+            let job_id = handle.job_id.clone();
+            self.update_status(&job_id, JobStatus::Queued);
+            // Return queued response with position info
+            let active = self.active_analysis_count();
+            let running = self.running_jobs_info();
+            return serde_json::json!({
+                "schemaVersion": "codelattice.queuedJob.v1",
+                "jobId": job_id,
+                "status": "queued",
+                "queuePosition": running.len() + 1,
+                "activeAnalysisCount": active + 1,
+                "root": root,
+                "language": language,
+                "message": format!("Analysis job queued ({} active job(s)). Poll job_status until running.", active),
+                "recommendedNextCalls": [
+                    {"tool": "codelattice_project", "mode": "job_status", "arguments": {"jobId": job_id}},
+                    {"tool": "codelattice_project", "mode": "job_cancel", "arguments": {"jobId": job_id}}
+                ]
+            });
+        }
+        self.to_response(&handle)
     }
 
     pub fn active_analysis_count(&self) -> usize {
@@ -696,7 +745,7 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
 
         // 闭环：只有 facade 图谱缓存完成预热后，job 才能对外宣称 succeeded。
         // 否则 AI 会在 succeeded 后立即重试 quick/search，重新落入同步大分析。
-        let warm_result = try_warm_facade_cache(&root_owned, &lang_owned);
+        let warm_result = try_warm_facade_cache_from_result(&root_owned, &lang_owned, &result);
         if let Some(obj) = summary.as_object_mut() {
             obj.insert(
                 "facadeCacheReady".to_string(),
@@ -1013,7 +1062,7 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
             },
         );
 
-        // workspace 闭环：预热 facade 图谱缓存
+        // workspace 闭环：预热 facade 图谱缓存（workspace 无单一 result，暂用慢路径）
         let warm_result = try_warm_facade_cache(&root_owned, "auto");
         if let Some(obj) = summary.as_object_mut() {
             obj.insert(
