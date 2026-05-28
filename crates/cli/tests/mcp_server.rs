@@ -14989,6 +14989,52 @@ fn mcp_workflow_ask_before_edit_routes_to_whatif() {
 }
 
 #[test]
+fn mcp_workflow_ask_api_routes_finds_nested_src_api_handlers() {
+    let project = create_small_helper_rust_project();
+    let api_dir = project.path().join("src/api");
+    std::fs::create_dir_all(&api_dir).unwrap();
+    std::fs::write(
+        api_dir.join("mission_plan_handler.rs"),
+        "pub fn list_mission_plans() {}\n",
+    )
+    .unwrap();
+
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut s,
+        990331,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": project.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "What are the main API routes?"
+        }),
+    );
+
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("inspect_routes"));
+    let files = data["filesInvolved"]
+        .as_array()
+        .expect("filesInvolved array");
+    assert!(
+        files.iter().any(|file| file
+            .as_str()
+            .is_some_and(|path| path.ends_with("src/api/mission_plan_handler.rs"))),
+        "nested src/api handler should be surfaced in filesInvolved: {data:?}"
+    );
+    assert!(
+        data["answerSummary"]
+            .as_str()
+            .is_some_and(|summary| summary.contains("handler/candidate")),
+        "ask should answer with route candidates instead of only routing advice: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_change_review_whatif_missing_symbol() {
     let mut s = McpSession::start();
     s.initialize();
@@ -16504,4 +16550,55 @@ fn mcp_singleflight_running_dedup_preserved() {
             "Second quick during running job should return same jobId (SingleFlight)"
         );
     }
+}
+
+#[test]
+fn mcp_job_cancel_and_progress_smoke() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        81001,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":large.path().to_str().unwrap(),"language":"rust","compact":true}),
+    );
+    let job_id = data["jobId"].as_str().expect("must have jobId");
+
+    // 1. Progress: elapsedMs should be present
+    let status = call_tool_json(
+        &mut session,
+        81002,
+        "codelattice_project",
+        serde_json::json!({"mode":"job_status","jobId":job_id,"compact":true}),
+    );
+    assert!(
+        status["progress"].get("elapsedMs").is_some(),
+        "progress must include elapsedMs: {:?}",
+        status["progress"]
+    );
+
+    // 2. Cancel: must succeed and return schema
+    let cancel = call_tool_json(
+        &mut session,
+        81003,
+        "codelattice_project",
+        serde_json::json!({"mode":"job_cancel","jobId":job_id,"compact":true}),
+    );
+    assert_eq!(
+        cancel.get("schemaVersion"),
+        Some(&serde_json::json!("codelattice.cancelJob.v1")),
+        "cancel must return expected schemaVersion: {:?}",
+        cancel
+    );
+
+    // 3. Control plane: cancel must not be busy
+    assert_ne!(
+        cancel.get("error"),
+        Some(&serde_json::json!("mcp_server_busy")),
+        "job_cancel must never return busy: {:?}",
+        cancel
+    );
 }

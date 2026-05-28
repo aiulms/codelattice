@@ -10634,7 +10634,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root. Required for overview/quick/standard/deep/quality/insights/diagnose/ai_context/full/job; not needed for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail"], "default": "overview", "description": "Analysis mode. quick = orientation/read-first/top risks; standard = component and review-first map; deep = full static detail; diagnose = issue localization from symptom/error/query; job = non-blocking large project analysis." },
+                        "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "overview", "description": "Analysis mode. quick = orientation/read-first/top risks; standard = component and review-first map; deep = full static detail; diagnose = issue localization from symptom/error/query; job = non-blocking large project analysis." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "symptom": { "type": "string", "description": "Bug symptom or user report for diagnose mode" },
@@ -10656,7 +10656,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root. Required for search/context/callers/callees/graph/job; not needed for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "call_chains", "graph", "job", "job_status", "job_detail"], "default": "search", "description": "Query mode. call_chains returns readable static paths; job_status/job_detail use jobId only after a job response." },
+                        "mode": { "type": "string", "enum": ["search", "context", "callers", "callees", "call_chains", "graph", "job", "job_status", "job_detail", "job_cancel"], "default": "search", "description": "Query mode. call_chains returns readable static paths; job_status/job_detail use jobId only after a job response." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
@@ -10678,7 +10678,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root — must be a single project directory, not a workspace root. Required except for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review", "safe_cleanup_review", "dead_code", "reachability", "external_api", "framework_entries", "release_check", "docs_tests", "config_examples", "root_cause", "job", "job_status", "job_detail"], "default": "impact", "description": "Review mode. job_status/job_detail use jobId and do not need root." },
+                        "mode": { "type": "string", "enum": ["changed_symbols", "impact", "production_assist", "breaking_change", "consistency", "full_review", "native_review", "safe_cleanup_review", "dead_code", "reachability", "external_api", "framework_entries", "release_check", "docs_tests", "config_examples", "root_cause", "job", "job_status", "job_detail", "job_cancel"], "default": "impact", "description": "Review mode. job_status/job_detail use jobId and do not need root." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
@@ -10713,7 +10713,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to workspace root. Required except for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "full", "job", "job_status", "job_detail"], "default": "graph", "description": "Analysis mode. Use job for large workspaces, then job_status/job_detail with jobId." },
+                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "graph", "description": "Analysis mode. Use job for large workspaces, then job_status/job_detail with jobId." },
                         "compact": { "type": "boolean", "default": false },
                         "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
                         "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
@@ -15152,7 +15152,10 @@ fn is_control_plane_call(tool_name: &str, params: &Value) -> bool {
         | "codelattice_symbol"
         | "codelattice_change_review"
         | "codelattice_workspace" => {
-            matches!(params["mode"].as_str(), Some("job_status" | "job_detail"))
+            matches!(
+                params["mode"].as_str(),
+                Some("job_status" | "job_detail" | "job_cancel")
+            )
         }
         _ => false,
     }
@@ -15167,9 +15170,24 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
             match mode {
                 "status" => {
                     let stats = crate::mcp_job::cache_stats();
+                    let persistent_enabled = get_persistent_cache_dir().is_some();
                     let body = json!({
                         "schemaVersion": "codelattice.cacheStatus.v1",
                         "cache": stats,
+                        "persistentCache": {
+                            "enabled": persistent_enabled,
+                            "reason": if persistent_enabled {
+                                "CODELATTICE_CACHE_DIR is set and writable"
+                            } else {
+                                "CODELATTICE_CACHE_DIR is not set or not writable. Persistent cache survives session restarts."
+                            },
+                            "recommendation": if !persistent_enabled {
+                                "Set CODELATTICE_CACHE_DIR=/Users/jiangxuanyang/.cache/codelattice in MCP server env for cross-session persistent cache. Analysis works without it; this is an optional performance layer."
+                            } else {
+                                ""
+                            },
+                            "cacheDir": get_persistent_cache_dir().map(|p| p.display().to_string()),
+                        },
                         "activeAnalysisCount": crate::mcp_job::active_analysis_count(),
                         "generatedFrom": {"staticAnalysis": false, "targetCodeExecuted": false}
                     });
@@ -15209,6 +15227,18 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                             "facade": tool_name
                         })))),
                     }
+                }
+                "job_cancel" => {
+                    let job_id = params["jobId"].as_str().unwrap_or("");
+                    if job_id.is_empty() {
+                        return Some(Err(mcp_error(
+                            "missing_parameter",
+                            "jobId required for job_cancel mode",
+                        )));
+                    }
+                    Some(Ok(tool_result(
+                        &crate::mcp_job::MCP_JOBS.cancel_job(job_id),
+                    )))
                 }
                 "job_detail" => {
                     let job_id = params["jobId"].as_str().unwrap_or("");
@@ -15296,6 +15326,7 @@ fn make_busy_response(id: &Value, tool_name: &str) -> Value {
         ],
         "canCallCacheStatus": true,
         "canCallJobStatus": true,
+        "canCallJobCancel": true,
         "recommendedNextCalls": if running_job_id.is_some() {
             vec![
                 json!({"tool": "codelattice_project", "mode": "job_status", "arguments": {"jobId": running_job_id}}),
@@ -20291,6 +20322,12 @@ fn handle_facade_job(
     _compact: bool,
 ) -> Result<Value, Value> {
     match mode {
+        "job_cancel" => {
+            let job_id = params["jobId"]
+                .as_str()
+                .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
+            Ok(tool_result(&crate::mcp_job::MCP_JOBS.cancel_job(job_id)))
+        }
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
             let engine_mode = if parallel { "parallel" } else { "serial" };
@@ -20473,6 +20510,12 @@ fn handle_project_job(
     _compact: bool,
 ) -> Result<Value, Value> {
     match mode {
+        "job_cancel" => {
+            let job_id = params["jobId"]
+                .as_str()
+                .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
+            Ok(tool_result(&crate::mcp_job::MCP_JOBS.cancel_job(job_id)))
+        }
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
             let engine_mode = if parallel { "parallel" } else { "serial" };
@@ -20534,18 +20577,19 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             "job",
             "job_status",
             "job_detail",
+            "job_cancel",
         ],
         "codelattice_project",
     )?;
 
     // ═══ Analysis Engine 1.3 job runtime modes ═══
-    if matches!(mode, "job_status" | "job_detail") {
+    if matches!(mode, "job_status" | "job_detail" | "job_cancel") {
         return handle_project_job("", requested_language, mode, params, compact);
     }
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
-    if matches!(mode, "job" | "job_status" | "job_detail") {
+    if matches!(mode, "job" | "job_status" | "job_detail" | "job_cancel") {
         return handle_project_job(root, requested_language, mode, params, compact);
     }
 
@@ -20849,11 +20893,12 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             "job",
             "job_status",
             "job_detail",
+            "job_cancel",
         ],
         "codelattice_symbol",
     )?;
 
-    if matches!(mode, "job_status" | "job_detail") {
+    if matches!(mode, "job_status" | "job_detail" | "job_cancel") {
         return handle_facade_job(
             "",
             requested_language,
@@ -20866,7 +20911,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
-    if matches!(mode, "job" | "job_status" | "job_detail") {
+    if matches!(mode, "job" | "job_status" | "job_detail" | "job_cancel") {
         return handle_facade_job(
             root,
             requested_language,
@@ -21158,7 +21203,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
     )?;
 
     // ═══ Engine 1.3 job runtime ═══
-    if matches!(mode, "job_status" | "job_detail") {
+    if matches!(mode, "job_status" | "job_detail" | "job_cancel") {
         return handle_facade_job(
             "",
             requested_language,
@@ -21610,12 +21655,13 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
             "job",
             "job_status",
             "job_detail",
+            "job_cancel",
         ],
         "codelattice_workspace",
     )?;
 
     // ═══ Engine 1.3 job runtime ═══
-    if matches!(mode, "job_status" | "job_detail") {
+    if matches!(mode, "job_status" | "job_detail" | "job_cancel") {
         return handle_facade_job("", "auto", mode, "codelattice_workspace", params, compact);
     }
     let root = params["root"]
@@ -23805,6 +23851,127 @@ fn ask_job_next_actions(
     actions
 }
 
+/// 检测路由/handler 候选文件：搜索 api/routes/handlers 目录中的源文件
+#[allow(clippy::too_many_arguments)]
+fn collect_source_files(
+    dir: &std::path::Path,
+    language: &str,
+    max_depth: usize,
+    out: &mut Vec<String>,
+    depth: usize,
+) {
+    if depth > max_depth || out.len() >= 30 {
+        return;
+    }
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let fname = path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_lowercase())
+                .unwrap_or_default();
+            if fname == "target" || fname == "node_modules" || fname.starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                collect_source_files(&path, language, max_depth, out, depth + 1);
+            } else if path.is_file() {
+                let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                let valid = matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx");
+                let is_route = fname.contains("route")
+                    || fname.contains("handler")
+                    || fname.contains("controller")
+                    || fname.contains("api")
+                    || path.to_string_lossy().to_lowercase().contains("/api/")
+                    || path.to_string_lossy().to_lowercase().contains("/routes/")
+                    || path.to_string_lossy().to_lowercase().contains("/handlers/")
+                    || path
+                        .to_string_lossy()
+                        .to_lowercase()
+                        .contains("/controllers/");
+                if valid
+                    && is_route
+                    && !fname.ends_with(".d.ts")
+                    && !fname.contains(".test.")
+                    && !fname.contains(".spec.")
+                {
+                    out.push(path.display().to_string());
+                }
+            }
+        }
+    }
+}
+
+fn detect_route_handlers(root: &str, language: &str, _strict: bool) -> Value {
+    let mut route_files: Vec<String> = Vec::new();
+    let path_patterns = [
+        "api",
+        "routes",
+        "handlers",
+        "controllers",
+        "handler",
+        "route",
+    ];
+    collect_source_files(std::path::Path::new(root), language, 4, &mut route_files, 0);
+    if let Ok(dir) = std::fs::read_dir(root) {
+        for entry in dir.flatten() {
+            let name = entry.file_name().to_string_lossy().to_lowercase();
+            for pat in &path_patterns {
+                if name.contains(pat) && entry.path().is_dir() {
+                    collect_source_files(&entry.path(), language, 3, &mut route_files, 0);
+                }
+            }
+            // Also check the root dir itself for handler-like files
+            if entry.path().is_file() {
+                let fname = entry.file_name().to_string_lossy().to_lowercase();
+                if fname.contains("route")
+                    || fname.contains("handler")
+                    || fname.contains("controller")
+                    || fname.contains("api")
+                {
+                    let ext = std::path::Path::new(&fname)
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("");
+                    let valid = matches!(ext, "rs" | "ts" | "tsx" | "js" | "jsx");
+                    if valid && !fname.ends_with(".d.ts") {
+                        route_files.push(entry.path().display().to_string());
+                    }
+                }
+            }
+        }
+    }
+    route_files.sort();
+    route_files.dedup();
+    // 截断到合理数量
+    route_files.truncate(20);
+    let read_order: Vec<Value> = route_files
+        .iter()
+        .take(10)
+        .map(|p| {
+            json!({
+                "kind": "handler_candidate", "path": p,
+                "reason": "file lives in api/routes/handlers directory"
+            })
+        })
+        .collect();
+    let next_actions: Vec<Value> = route_files.iter().take(3).map(|p| json!({
+        "tool": "codelattice_symbol", "mode": "search",
+        "why": format!("Search symbols inside handler candidate: {}", p),
+        "arguments": {"root": root, "language": language, "query": "", "kind": "Function", "compact": true}
+    })).collect();
+    json!({
+        "routeCandidates": route_files,
+        "callChains": [],
+        "filesInvolved": route_files,
+        "readOrder": read_order,
+        "recommendedNextCalls": next_actions,
+        "analysisSemantics": {
+            "staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false
+        }
+    })
+}
+
 fn build_large_project_digest(
     root: &str,
     language: &str,
@@ -24503,6 +24670,19 @@ fn route_ask_intent(
         "architecture",
         "这个项目",
     ];
+    let route_keywords = [
+        "api route",
+        "route handler",
+        "路由",
+        "api endpoint",
+        "show api",
+        "有哪些 api",
+        "有哪些路由",
+        "handler",
+        "api handler",
+        "route list",
+        "endpoint",
+    ];
     let edit_keywords = [
         "如果改",
         "删除",
@@ -24770,6 +24950,53 @@ fn route_ask_intent(
             }));
         }
         ai_guidance = "Use codelattice_project(mode=quick) for a fast project overview, or mode=standard for more detail.".to_string();
+    } else if route_keywords.iter().any(|k| q.contains(k)) {
+        intent = "inspect_routes".to_string();
+        answer_summary =
+            "Searching for API routes and handler functions — static analysis only.".to_string();
+        orchestration["stepsAttempted"] = json!(["intent-classification:inspect_routes"]);
+        if !root.is_empty() {
+            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+                // 大项目：提交异步 job + 回退建议
+                files_involved = sample_files.iter().cloned().map(Value::String).collect();
+                auto_job = ask_submit_auto_job(root, language);
+                next_actions = ask_job_next_actions(root, language, &auto_job, None);
+                answer_summary = format!("Route inspection deferred: project has {} source files. Submit a job first, then re-ask.", file_count);
+                ai_guidance =
+                    "Route inspection deferred to background job. Poll job_status until complete."
+                        .to_string();
+            } else {
+                let route_hints = detect_route_handlers(root, language, false);
+                call_chains = route_hints["callChains"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                files_involved = route_hints["filesInvolved"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|v| Value::String(v.as_str().unwrap_or("").to_string()))
+                    .collect();
+                read_order_out = route_hints["readOrder"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default();
+                next_actions = route_hints["recommendedNextCalls"]
+                    .as_array()
+                    .cloned()
+                    .unwrap_or_default()
+                    .into_iter()
+                    .map(|v| v.clone())
+                    .collect();
+                if !files_involved.is_empty() {
+                    answer_summary = format!("Found {} handler/candidate files in {}. Use recommendedNextCalls to inspect further.", files_involved.len(), root);
+                }
+                ai_guidance = "Route inspection is static-only. Framework routing configs and dynamic dispatch may register additional handlers not visible in static analysis.".to_string();
+            }
+        } else {
+            ai_guidance = "Provide a project root to inspect API routes and handlers.".to_string();
+        }
     } else if edit_keywords.iter().any(|k| q.contains(k)) {
         intent = "before_edit".to_string();
         let query = extract_symbol_from_question(question);

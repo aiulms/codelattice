@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::Value;
@@ -115,6 +115,31 @@ pub struct McpJobRegistry {
     detail_pages: Mutex<HashMap<String, Vec<Value>>>,
     next_id: AtomicU64,
     active_analysis_count: AtomicUsize,
+    cancellation_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+fn is_terminal_status(status: JobStatus) -> bool {
+    matches!(
+        status,
+        JobStatus::Succeeded | JobStatus::Failed | JobStatus::Cancelled
+    )
+}
+
+fn job_status_str(status: JobStatus) -> &'static str {
+    match status {
+        JobStatus::Queued => "queued",
+        JobStatus::Running => "running",
+        JobStatus::Succeeded => "succeeded",
+        JobStatus::Failed => "failed",
+        JobStatus::Cancelled => "cancelled",
+    }
 }
 
 impl McpJobRegistry {
@@ -125,6 +150,7 @@ impl McpJobRegistry {
             detail_pages: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             active_analysis_count: AtomicUsize::new(0),
+            cancellation_flags: Mutex::new(HashMap::new()),
         }
     }
 
@@ -151,11 +177,12 @@ impl McpJobRegistry {
             }
         }
 
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
+        let now = now_ms();
         let job_id = self.next_job_id();
+        {
+            let mut flags = self.cancellation_flags.lock().unwrap();
+            flags.insert(job_id.clone(), Arc::new(AtomicBool::new(false)));
+        }
         let handle = McpJobHandle {
             job_id: job_id.clone(),
             root: root.to_string(),
@@ -176,14 +203,12 @@ impl McpJobRegistry {
     pub fn update_status(&self, job_id: &str, status: JobStatus) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(j) = jobs.get_mut(job_id) {
+                if is_terminal_status(j.status) && j.status != status {
+                    return;
+                }
                 j.status = status;
-                if status == JobStatus::Succeeded || status == JobStatus::Failed {
-                    j.completed_at_ms = Some(
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_millis() as u64,
-                    );
+                if is_terminal_status(status) {
+                    j.completed_at_ms = Some(now_ms());
                 }
             }
         }
@@ -192,6 +217,9 @@ impl McpJobRegistry {
     pub fn update_progress(&self, job_id: &str, progress: McpJobProgress) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(j) = jobs.get_mut(job_id) {
+                if is_terminal_status(j.status) {
+                    return;
+                }
                 j.progress = Some(progress);
                 j.status = JobStatus::Running;
             }
@@ -201,14 +229,12 @@ impl McpJobRegistry {
     pub fn set_summary(&self, job_id: &str, summary: Value) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(j) = jobs.get_mut(job_id) {
+                if is_terminal_status(j.status) {
+                    return;
+                }
                 j.summary = Some(summary);
                 j.status = JobStatus::Succeeded;
-                j.completed_at_ms = Some(
-                    std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default()
-                        .as_millis() as u64,
-                );
+                j.completed_at_ms = Some(now_ms());
             }
         }
     }
@@ -216,8 +242,12 @@ impl McpJobRegistry {
     pub fn set_error(&self, job_id: &str, error: String) {
         if let Ok(mut jobs) = self.jobs.lock() {
             if let Some(j) = jobs.get_mut(job_id) {
+                if is_terminal_status(j.status) {
+                    return;
+                }
                 j.error = Some(error);
                 j.status = JobStatus::Failed;
+                j.completed_at_ms = Some(now_ms());
             }
         }
     }
@@ -234,8 +264,12 @@ impl McpJobRegistry {
 
     pub fn get_detail_page(&self, job_id: &str, page: usize, page_size: usize) -> Option<Value> {
         let handle = self.get(job_id)?;
-        let dp = self.detail_pages.lock().ok()?;
-        let items = dp.get(job_id)?;
+        let items = self
+            .detail_pages
+            .lock()
+            .ok()
+            .and_then(|dp| dp.get(job_id).cloned())
+            .unwrap_or_default();
         let total = items.len();
         let page_size = page_size.clamp(1, 200);
         let total_pages = if total == 0 {
@@ -245,11 +279,18 @@ impl McpJobRegistry {
         };
         let start = page.saturating_mul(page_size);
         let end = (start + page_size).min(total);
-        let page_items: Vec<&Value> = items[start..end].iter().collect();
+        let page_items: Vec<Value> = if start >= total {
+            vec![]
+        } else {
+            items[start..end].to_vec()
+        };
+        let partial = matches!(handle.status, JobStatus::Queued | JobStatus::Running);
 
         Some(serde_json::json!({
             "schemaVersion": "codelattice.pagedDetail.v1",
             "jobId": job_id,
+            "status": job_status_str(handle.status),
+            "partial": partial,
             "page": page,
             "pageSize": page_size,
             "totalItems": total,
@@ -257,6 +298,7 @@ impl McpJobRegistry {
             "hasMore": page + 1 < total_pages,
             "hasPrev": page > 0,
             "items": page_items,
+            "progress": handle.progress,
             "summary": handle.summary,
             "generatedFrom": {
                 "staticAnalysis": true,
@@ -288,6 +330,60 @@ impl McpJobRegistry {
 
     pub fn decrement_active_analysis(&self) {
         self.active_analysis_count.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    pub fn cancel_job(&self, job_id: &str) -> Value {
+        let handle = match self.get(job_id) {
+            Some(h) => h,
+            None => {
+                return serde_json::json!({
+                    "schemaVersion": "codelattice.cancelJob.v1",
+                    "jobId": job_id, "cancelled": false,
+                    "reason": "Job not found",
+                    "analysisSemantics": {
+                        "staticAnalysisExecuted": false, "targetCodeExecuted": false,
+                        "targetScriptsExecuted": false, "runtimeProof": false, "coverageProof": false
+                    }
+                })
+            }
+        };
+        let (cancelled, reason) = match handle.status {
+            JobStatus::Succeeded | JobStatus::Failed | JobStatus::Cancelled => (
+                false,
+                format!("Job already in terminal state: {:?}", handle.status),
+            ),
+            _ => {
+                if let Ok(flags) = self.cancellation_flags.lock() {
+                    if let Some(flag) = flags.get(job_id) {
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                }
+                self.update_status(job_id, JobStatus::Cancelled);
+                (true, "Job cancelled by user request".to_string())
+            }
+        };
+        serde_json::json!({
+            "schemaVersion": "codelattice.cancelJob.v1",
+            "jobId": job_id, "cancelled": cancelled, "reason": reason,
+            "status": match self.get(job_id).map(|h| h.status) {
+                Some(JobStatus::Cancelled) => "cancelled", Some(JobStatus::Succeeded) => "succeeded",
+                Some(JobStatus::Failed) => "failed", Some(JobStatus::Running) => "running",
+                Some(JobStatus::Queued) => "queued", _ => "unknown",
+            },
+            "analysisSemantics": {
+                "staticAnalysisExecuted": true, "targetCodeExecuted": false,
+                "targetScriptsExecuted": false, "runtimeProof": false, "coverageProof": false
+            }
+        })
+    }
+
+    pub fn is_cancelled(&self, job_id: &str) -> bool {
+        if let Ok(flags) = self.cancellation_flags.lock() {
+            if let Some(flag) = flags.get(job_id) {
+                return flag.load(Ordering::SeqCst);
+            }
+        }
+        false
     }
 
     pub fn running_jobs_info(&self) -> Vec<RunningJobInfo> {
@@ -335,16 +431,18 @@ impl McpJobRegistry {
                 JobStatus::Failed => "failed",
                 JobStatus::Cancelled => "cancelled",
             },
-            "progress": handle.progress.as_ref().map(|p| serde_json::json!({
-                "stage": p.stage,
-                "completedUnits": p.completed_units,
-                "totalUnits": p.total_units,
-                "failedUnits": p.failed_units,
-                "elapsedMs": p.elapsed_ms,
-                "executorMode": p.executor_mode,
-                "cacheHits": p.cache_hits,
-                "cacheMisses": p.cache_misses,
-            })),
+            "progress": handle.progress.as_ref().map(|p| {
+                let wall_ms = if matches!(handle.status, JobStatus::Running | JobStatus::Queued) {
+                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+                    std::cmp::max(p.elapsed_ms, now.saturating_sub(handle.created_at_ms))
+                } else { p.elapsed_ms };
+                serde_json::json!({
+                    "stage": p.stage, "completedUnits": p.completed_units,
+                    "totalUnits": p.total_units, "failedUnits": p.failed_units,
+                    "elapsedMs": wall_ms, "executorMode": p.executor_mode,
+                    "cacheHits": p.cache_hits, "cacheMisses": p.cache_misses,
+                })
+            }),
             "summary": handle.summary,
             "error": handle.error,
             "createdAtMs": handle.created_at_ms,
@@ -460,6 +558,9 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             }
         };
 
+        if MCP_JOBS.is_cancelled(&job_id) {
+            return;
+        }
         let files = match adapter.discover_files(&root_owned) {
             Ok(f) => f,
             Err(e) => {
@@ -488,6 +589,9 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             },
         );
 
+        if MCP_JOBS.is_cancelled(&job_id) {
+            return;
+        }
         let tasks: Vec<AnalysisTask> = files
             .iter()
             .flat_map(|f| {
@@ -973,4 +1077,69 @@ pub fn estimate_analysis_duration(file_count: usize, language: &str, cache_statu
         "language": language,
         "cacheStatus": cache_status,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn progress(stage: &str) -> McpJobProgress {
+        McpJobProgress {
+            stage: stage.to_string(),
+            completed_units: 0,
+            total_units: 10,
+            failed_units: 0,
+            elapsed_ms: 0,
+            executor_mode: "serial".to_string(),
+            cache_hits: 0,
+            cache_misses: 0,
+        }
+    }
+
+    #[test]
+    fn cancelled_job_ignores_late_worker_updates() {
+        let registry = McpJobRegistry::new();
+        let job = registry.submit("/tmp/codelattice-cancel", "rust", "serial");
+        let job_id = job.job_id;
+
+        let cancel = registry.cancel_job(&job_id);
+        assert_eq!(cancel["cancelled"], true);
+
+        registry.update_progress(&job_id, progress("late-progress"));
+        registry.set_summary(&job_id, serde_json::json!({"late": "summary"}));
+        registry.set_error(&job_id, "late error".to_string());
+
+        let handle = registry.get(&job_id).expect("job should still exist");
+        assert_eq!(handle.status, JobStatus::Cancelled);
+        assert!(
+            handle.summary.is_none(),
+            "late worker summary must not overwrite a cancelled job"
+        );
+        assert!(
+            handle.error.is_none(),
+            "late worker error must not overwrite a cancelled job"
+        );
+    }
+
+    #[test]
+    fn running_detail_page_returns_partial_without_items() {
+        let registry = McpJobRegistry::new();
+        let job = registry.submit("/tmp/codelattice-partial", "rust", "serial");
+        let job_id = job.job_id;
+        registry.update_progress(&job_id, progress("executing"));
+
+        let detail = registry
+            .get_detail_page(&job_id, 0, 50)
+            .expect("running job should expose a partial detail page");
+
+        assert_eq!(detail["schemaVersion"], "codelattice.pagedDetail.v1");
+        assert_eq!(detail["jobId"], job_id);
+        assert_eq!(detail["status"], "running");
+        assert_eq!(detail["partial"], true);
+        assert_eq!(detail["totalItems"], 0);
+        assert!(detail["items"]
+            .as_array()
+            .is_some_and(|items| items.is_empty()));
+        assert_eq!(detail["progress"]["stage"], "executing");
+    }
 }
