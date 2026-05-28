@@ -22070,6 +22070,17 @@ fn workflow_evidence(tool: &str, args: &Value, result: &Value) -> Value {
         if let Some(metrics) = result.get("impactMetrics") {
             obj.insert("impactMetrics".to_string(), metrics.clone());
         }
+        // Include callers/callees summaries if present (before_edit context)
+        if let Some(callers) = result.get("callers") {
+            if let Some(arr) = callers.as_array() {
+                obj.insert("callerCount".to_string(), json!(arr.len()));
+            }
+        }
+        if let Some(callees) = result.get("callees") {
+            if let Some(arr) = callees.as_array() {
+                obj.insert("calleeCount".to_string(), json!(arr.len()));
+            }
+        }
         let likely_areas =
             workflow_take_array(result, &[&["result", "likelyAreas"], &["likelyAreas"]], 5);
         if !likely_areas.is_empty() {
@@ -22115,16 +22126,22 @@ fn workflow_answer_summary(mode: &str, completed: &[Value], failed: &[Value]) ->
     if completed.is_empty() && failed.is_empty() {
         return format!("{mode}: no actions were executed.");
     }
+    let executed_tools: Vec<&str> = completed
+        .iter()
+        .filter_map(|c| c["tool"].as_str())
+        .collect();
+    let tool_list = executed_tools.join(", ");
     if failed.is_empty() {
         format!(
-            "{mode}: executed {} CodeLattice action(s); review evidence and cautions before editing.",
-            completed.len()
+            "{mode}: executed {} CodeLattice action(s) — {}. Review evidence and cautions before editing.",
+            completed.len(), tool_list
         )
     } else {
         format!(
-            "{mode}: executed {} action(s), {} action(s) failed; treat the result as partial.",
+            "{mode}: executed {} action(s), {} action(s) failed — {}. Treat the result as partial.",
             completed.len(),
-            failed.len()
+            failed.len(),
+            tool_list
         )
     }
 }

@@ -115,6 +115,63 @@ OpenCode 的日常配置示例：
 
 `job_status` 只需要 `jobId`。`job_detail` 只需要 `jobId`，以及可选的 `page` / `pageSize`。不要给这两个模式补一个猜测出来的 `root`。
 
+## 持久化缓存（可选性能层）
+
+默认不开启持久化缓存，session 重启后需要重新分析。开启持久化缓存可以让分析结果跨 session 复用，显著加快重复查询。
+
+### 推荐配置
+
+在 MCP server 的 `env` 中设置 `CODELATTICE_CACHE_DIR`：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh",
+      "env": {
+        "CODELATTICE_CACHE_DIR": "/Users/jiangxuanyang/.cache/codelattice"
+      }
+    }
+  }
+}
+```
+
+- 不要设置 `CODELATTICE_MCP_TOOLSET=full`，日常仅用 6 个 facade 入口。
+- 改配置后需要重启 MCP session（关掉 AI 客户端重开，或在 OpenCode 中禁用再启用 codelattice MCP）。
+- 缓存目录不存时会自动创建；如果目录不可写，缓存静默回退为 memory-only（不影响分析）。
+- 调用 `codelattice_cache(mode=status)` 可以查看 `persistentCache.enabled`、`cacheDir`、`recommendation`。
+
+### 检查缓存状态
+
+```json
+{"mode":"status","compact":true}
+```
+
+返回的 `persistentCache` 块：
+
+```json
+{
+  "persistentCache": {
+    "enabled": true,
+    "reason": "CODELATTICE_CACHE_DIR is set and writable",
+    "recommendation": "",
+    "cacheDir": "/Users/jiangxuanyang/.cache/codelattice"
+  }
+}
+```
+
+如果未启用：
+
+```json
+{
+  "persistentCache": {
+    "enabled": false,
+    "reason": "CODELATTICE_CACHE_DIR is not set or not writable. Persistent cache survives session restarts.",
+    "recommendation": "Set CODELATTICE_CACHE_DIR=/Users/jiangxuanyang/.cache/codelattice in MCP server env for cross-session persistent cache. Analysis works without it; this is an optional performance layer."
+  }
+}
+```
+
 ## 示例调用参数
 
 ```json

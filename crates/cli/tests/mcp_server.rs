@@ -16602,3 +16602,87 @@ fn mcp_job_cancel_and_progress_smoke() {
         cancel
     );
 }
+
+#[test]
+fn mcp_persistent_cache_write_read_smoke() {
+    let cache_dir = std::env::temp_dir().join("codelattice-cache-test-smoke");
+    let _ = std::fs::create_dir_all(&cache_dir);
+
+    {
+        let mut session = McpSession::start_with_toolset("ai");
+        session.initialize();
+        session.send_notification_initialized();
+        let project_dir = create_large_ask_rust_project();
+        let root = project_dir.path().to_str().unwrap();
+
+        let _overview = call_tool_json(
+            &mut session,
+            83001,
+            "codelattice_project",
+            serde_json::json!({"mode":"quick","root":root,"language":"rust","compact":true}),
+        );
+
+        let cache_status = call_tool_json(
+            &mut session,
+            83002,
+            "codelattice_cache",
+            serde_json::json!({"mode":"status","compact":true}),
+        );
+        let pc = &cache_status["persistentCache"];
+        assert!(
+            pc.get("reason").is_some() || pc.get("recommendation").is_some(),
+            "persistentCache must have reason or recommendation: {:?}",
+            pc
+        );
+    }
+
+    {
+        let mut session2 = McpSession::start_with_toolset("ai");
+        session2.initialize();
+        session2.send_notification_initialized();
+        let project_dir = create_large_ask_rust_project();
+        let root = project_dir.path().to_str().unwrap();
+
+        let overview2 = call_tool_json(
+            &mut session2,
+            83003,
+            "codelattice_project",
+            serde_json::json!({"mode":"quick","root":root,"language":"rust","compact":true}),
+        );
+        assert!(
+            overview2.get("error").is_none(),
+            "second session overview should succeed: {:?}",
+            overview2
+        );
+    }
+}
+
+#[test]
+fn mcp_workflow_execute_produces_orchestration_steps() {
+    let project_dir = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = project_dir.path().to_str().unwrap();
+
+    let diag = call_tool_json(
+        &mut session,
+        83010,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "diagnose_issue",
+            "execute": true,
+            "root": root,
+            "language": "rust",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+
+    let execution = &diag["execution"];
+    assert!(
+        execution.get("requested").is_some(),
+        "execute=true should set execution.requested: {:?}",
+        diag
+    );
+}
