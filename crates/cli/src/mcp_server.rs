@@ -1389,15 +1389,131 @@ const CODELATTICE_CACHE_VERSION: &str = "0.16.0-beta.1";
 ///
 /// 注意：这个函数会运行 analyze 子进程并构建 GraphView，可能很慢；
 /// 调用方必须保证它不在 McpCache 锁内执行。
+/// 将 job engine 的 SerializableResult 转换为 CLI analyze 输出格式
+/// （{graph: {nodes: [...], edges: [...]}, summary: {...}}），
+/// 以便 GraphView::build 能正确索引符号和边。
+fn convert_job_result_to_analyze_format(
+    result: &SerializableResult,
+    language: &str,
+    root: &str,
+) -> Value {
+    let mut nodes = Vec::new();
+    let mut edges = Vec::new();
+    let mut symbol_count = 0usize;
+    let mut source_files = std::collections::HashSet::new();
+
+    for artifact in &result.artifacts {
+        if artifact.error.is_some() {
+            continue;
+        }
+        match artifact.stage {
+            gitnexus_analysis_engine::dag::AnalysisStage::Symbol => {
+                // artifact.data 是 SymbolOutput: {unitId, symbolCount, symbols: [{name, kind, startLine, endLine, signature}]}
+                if let Some(symbols) = artifact.data.get("symbols").and_then(|s| s.as_array()) {
+                    let unit_id = artifact
+                        .data
+                        .get("unitId")
+                        .or_else(|| artifact.data.get("unit_id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&artifact.unit_id);
+                    source_files.insert(unit_id.to_string());
+
+                    for sym in symbols {
+                        let name = sym.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                        let kind = sym
+                            .get("kind")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+                        let line_start = sym
+                            .get("startLine")
+                            .or_else(|| sym.get("start_line"))
+                            .and_then(|v| v.as_u64());
+                        let line_end = sym
+                            .get("endLine")
+                            .or_else(|| sym.get("end_line"))
+                            .and_then(|v| v.as_u64());
+
+                        let node_id = format!("symbol:{}::{}", unit_id, name);
+                        nodes.push(json!({
+                            "id": node_id,
+                            "label": "symbol",
+                            "properties": {
+                                "name": name,
+                                "symbolKind": kind,
+                                "sourcePath": unit_id,
+                                "lineStart": line_start,
+                                "lineEnd": line_end,
+                                "visibility": "unknown",
+                            }
+                        }));
+                        symbol_count += 1;
+                    }
+                }
+            }
+            gitnexus_analysis_engine::dag::AnalysisStage::Reference => {
+                // artifact.data 是 ReferenceOutput: {calls: [{caller, callee, confidence, reason}]}
+                if let Some(calls) = artifact.data.get("calls").and_then(|c| c.as_array()) {
+                    for call in calls {
+                        let caller = call.get("caller").and_then(|v| v.as_str()).unwrap_or("");
+                        let callee = call.get("callee").and_then(|v| v.as_str()).unwrap_or("");
+                        let confidence = call
+                            .get("confidence")
+                            .and_then(|v| v.as_f64())
+                            .unwrap_or(0.5);
+                        let reason = call
+                            .get("reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("job-engine");
+
+                        if !caller.is_empty() && !callee.is_empty() {
+                            edges.push(json!({
+                                "source": caller,
+                                "target": callee,
+                                "type": "CALLS",
+                                "properties": {
+                                    "confidence": confidence,
+                                    "reason": reason,
+                                }
+                            }));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    json!({
+        "language": language,
+        "root": root,
+        "schemaVersion": "0.3.0",
+        "summary": {
+            "nodeCount": nodes.len(),
+            "edgeCount": edges.len(),
+            "symbolCount": symbol_count,
+            "sourceFileCount": source_files.len(),
+        },
+        "graph": {
+            "nodes": nodes,
+            "edges": edges,
+            "diagnostics": [],
+            "stats": {
+                "nodeCount": nodes.len(),
+                "edgeCount": edges.len(),
+            }
+        }
+    })
+}
+
 fn build_warm_cache_entry_from_result(
     canonical: &Path,
     language: &str,
     result: &SerializableResult,
 ) -> Result<CacheEntry, String> {
     let start = Instant::now();
-    // Convert job result to the Value format that GraphView::build expects
-    let analyze_value =
-        serde_json::to_value(result).map_err(|e| format!("serialize result: {}", e))?;
+    // 将 job artifacts 转换为 CLI analyze 输出格式，GraphView::build 才能正确索引
+    let root_str = canonical.to_string_lossy();
+    let analyze_value = convert_job_result_to_analyze_format(result, language, &root_str);
 
     let mut graph_view = GraphView::build(&analyze_value);
     let file_mtimes = scan_file_mtimes(canonical);
@@ -3092,7 +3208,8 @@ fn run_analyze_subprocess(
         args.push("--strict".to_string());
     }
     let arg_refs: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_subcommand_with_timeout(&arg_refs, Duration::from_secs(60))
+    // 大项目（如 open-nwe/backend 43K nodes 56MB JSON）可能需要 3-5 分钟
+    run_subcommand_with_timeout(&arg_refs, Duration::from_secs(300))
 }
 
 // ============================================================
@@ -3554,150 +3671,71 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
     let compact = params["compact"].as_bool().unwrap_or(false);
     check_language_feature(language)?;
 
-    let (_gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+    let (gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
-    let query_lower = query.to_lowercase();
+    // 使用 GraphView::find_symbols（已建索引），避免重复扫描原始 JSON
+    let raw_matches = gv.find_symbols(query, kind_filter, limit);
+
     let mut matches = Vec::new();
+    for node in &raw_matches {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
 
-    if let Some(graph) = result.get("graph") {
-        if let Some(nodes) = graph["nodes"].as_array() {
-            for node in nodes {
-                // Only search symbol-like nodes (covers both Rust and Cangjie naming)
-                let kind = node["kind"].as_str().unwrap_or("");
-                let label = node["label"].as_str().unwrap_or("");
-                let is_searchable = kind == "symbol"
-                    || kind == "function"
-                    || kind == "method"
-                    || kind == "associated-function"
-                    || kind == "class"
-                    || kind == "struct"
-                    || kind == "enum"
-                    || kind == "trait"
-                    || kind == "const"
-                    || kind == "static"
-                    || kind == "package"
-                    || kind == "source-file"
-                    || kind == "sourceFile"
-                    || label == "symbol";
-                if !is_searchable {
-                    continue;
-                }
+        // Name is already resolved by find_symbols
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+            .unwrap_or("");
 
-                // Kind filter
-                if let Some(filter) = kind_filter {
-                    let node_kind = node["properties"]["symbolKind"]
-                        .as_str()
-                        .or_else(|| node["properties"]["kind"].as_str())
-                        .unwrap_or(label);
-                    if node_kind.to_lowercase() != filter.to_lowercase() {
-                        continue;
-                    }
-                }
-
-                // Name extraction: try properties.name, then label (Cangjie uses label for display name),
-                // then parse from id (Rust uses ::, Cangjie uses :).
-                let name = node["properties"]["name"]
+        let file_val = node["properties"]["sourcePath"]
+            .as_str()
+            .map(|s| json!(s))
+            .or_else(|| {
+                node["properties"]["manifestPath"]
                     .as_str()
-                    .or_else(|| {
-                        // For Cangjie nodes, label holds the display name
-                        if kind == "symbol" && !label.is_empty() && !label.contains('/') {
-                            Some(label)
-                        } else {
-                            None
-                        }
-                    })
-                    .or_else(|| {
-                        // Parse from id: Rust uses "::" separator, Cangjie uses ":"
-                        node["id"].as_str().and_then(|id| {
-                            // Try Rust-style "::" first
-                            if let Some(rust_name) = id.split("::").last() {
-                                if !rust_name.is_empty() {
-                                    return Some(rust_name);
-                                }
-                            }
-                            // Try Cangjie-style ":" — take the part before #arity
-                            let without_arity = id.split('#').next().unwrap_or(id);
-                            if let Some(cj_name) = without_arity.rsplit(':').next() {
-                                if !cj_name.is_empty() {
-                                    return Some(cj_name);
-                                }
-                            }
-                            None
-                        })
-                    })
-                    .unwrap_or("");
+                    .map(|s| json!(s))
+            })
+            .unwrap_or(Value::Null);
 
-                // Case-insensitive contains match
-                if name.to_lowercase().contains(&query_lower) {
-                    if matches.len() < limit {
-                        // File path: try properties.sourcePath, then manifestPath,
-                        // then parse from Cangjie-style id (sym:<file>:Kind:name)
-                        let file_val = node["properties"]["sourcePath"]
-                            .as_str()
-                            .map(|s| json!(s))
-                            .or_else(|| {
-                                node["properties"]["manifestPath"]
-                                    .as_str()
-                                    .map(|s| json!(s))
-                            })
-                            .or_else(|| {
-                                // Cangjie: extract file from id like "sym:src/foo.cj:Function:name#1"
-                                node["id"].as_str().and_then(|id| {
-                                    let parts: Vec<&str> = id.splitn(4, ':').collect();
-                                    if parts.len() >= 3 && parts[0] == "sym" {
-                                        Some(json!(parts[1]))
-                                    } else {
-                                        None
-                                    }
-                                })
-                            })
-                            .unwrap_or(Value::Null);
+        let line_val = node["properties"]["lineStart"]
+            .as_u64()
+            .or_else(|| node["properties"]["startLine"].as_u64());
 
-                        // Line: try properties.lineStart, then startLine (Cangjie)
-                        let line_val = node["properties"]["lineStart"]
-                            .as_u64()
-                            .or_else(|| node["properties"]["startLine"].as_u64());
+        let kind_val = node["properties"]["symbolKind"]
+            .as_str()
+            .or_else(|| node["properties"]["kind"].as_str())
+            .unwrap_or(label);
 
-                        // Kind: try symbolKind, then kind, then label
-                        let kind_val = node["properties"]["symbolKind"]
-                            .as_str()
-                            .or_else(|| node["properties"]["kind"].as_str())
-                            .unwrap_or(label);
-
-                        if compact {
-                            let confidence = node
-                                .get("confidence")
-                                .and_then(|c| c.as_f64())
-                                .or_else(|| {
-                                    node["properties"]
-                                        .get("confidence")
-                                        .and_then(|c| c.as_f64())
-                                })
-                                .unwrap_or(0.0);
-                            let mut compact_obj = json!({
-                                "id": node["id"],
-                                "name": name,
-                                "kind": kind_val,
-                                "file": file_val,
-                                "line": line_val
-                            });
-                            if confidence > 0.0 {
-                                compact_obj["confidence"] = json!(confidence);
-                            }
-                            matches.push(compact_obj);
-                        } else {
-                            matches.push(json!({
-                                "id": node["id"],
-                                "name": name,
-                                "kind": kind_val,
-                                "file": file_val,
-                                "line": line_val,
-                                "label": label
-                            }));
-                        }
-                    }
-                }
+        if compact {
+            let confidence = node
+                .get("confidence")
+                .and_then(|c| c.as_f64())
+                .or_else(|| {
+                    node["properties"]
+                        .get("confidence")
+                        .and_then(|c| c.as_f64())
+                })
+                .unwrap_or(0.0);
+            let mut compact_obj = json!({
+                "id": node["id"],
+                "name": name,
+                "kind": kind_val,
+                "file": file_val,
+                "line": line_val
+            });
+            if confidence > 0.0 {
+                compact_obj["confidence"] = json!(confidence);
             }
+            matches.push(compact_obj);
+        } else {
+            matches.push(json!({
+                "id": node["id"],
+                "name": name,
+                "kind": kind_val,
+                "file": file_val,
+                "line": line_val,
+                "label": label
+            }));
         }
     }
 
@@ -20501,10 +20539,10 @@ fn facade_auto_job_check(
     if force_sync || !async_on_miss {
         return None;
     }
-    // compact mode runs synchronously for immediate top-N results
-    if params["compact"].as_bool().unwrap_or(false) {
-        return None;
-    }
+    // compact 模式不再强制同步阻塞：
+    // - 小项目 (≤10 文件) cache miss 仍可同步（由下面 small_project_threshold 控制）
+    // - 大项目 cache miss 走 async job，返回 analyzing/jobId
+    // - 大项目 cache hit 时 get_or_analyze 直接返回 top-N（无需走本函数）
 
     let probe = cache.probe_analysis_cache(Path::new(root), language, false);
     let probe_status = probe["status"].as_str().unwrap_or("miss");

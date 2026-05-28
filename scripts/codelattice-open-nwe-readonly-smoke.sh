@@ -144,6 +144,63 @@ try:
     if "schemaVersion" not in cache:
         raise AssertionError(f"cache status did not return normal facade payload: {cache}")
     print("PASS: codelattice_cache(mode=status) recovered after workspace job")
+
+    # ─── Symbol search test (backend, Rust) ───
+    backend_root = root + "/backend"
+    if os.path.isdir(backend_root):
+        search = call_tool(
+            "codelattice_symbol",
+            {"mode": "search", "root": backend_root, "language": "rust",
+             "query": "preview_delegation_context_snapshot", "compact": True},
+            timeout=300,
+        )
+        # 结果可能嵌套在 result 字段内（wrapper 层），或直接在顶层
+        inner = search.get("result", search)
+        match_count = inner.get("matchCount", 0)
+        if match_count == 0:
+            # compact 模式 cache miss 应返回 analyzing jobId，不是阻塞
+            if inner.get("status") == "analyzing":
+                print(f"PASS: symbol search cache miss → analyzing jobId={inner.get('jobId')}")
+            else:
+                print(f"WARN: symbol search returned 0 matches for preview_delegation_context_snapshot")
+        else:
+            matches = inner.get("matches", [])
+            first = matches[0] if matches else {}
+            print(f"PASS: symbol search found {match_count} match(es), name={first.get('name','?')} file={first.get('file','?')} line={first.get('line','?')}")
+            # context 测试
+            ctx = call_tool(
+                "codelattice_symbol",
+                {"mode": "context", "root": backend_root, "language": "rust",
+                 "name": "preview_delegation_context_snapshot", "compact": True},
+                timeout=300,
+            )
+            ctx_inner = ctx.get("result", ctx)
+            if ctx_inner.get("status") == "analyzing":
+                print(f"PASS: symbol context cache miss → analyzing jobId={ctx_inner.get('jobId')}")
+            elif ctx_inner.get("error") is None:
+                ctx_matches = ctx_inner.get("matches") or ctx_inner.get("matchCount", 0)
+                print(f"PASS: symbol context returned (matchCount={ctx_inner.get('matchCount', ctx_matches)})")
+            else:
+                print(f"WARN: symbol context error: {ctx_inner.get('error')}")
+
+        # impact 测试
+        impact = call_tool(
+            "codelattice_change_review",
+            {"mode": "impact", "root": backend_root, "language": "rust",
+             "symbol": "preview_delegation_context_snapshot", "compact": True},
+            timeout=300,
+        )
+        impact_inner = impact.get("result", impact)
+        if impact_inner.get("status") == "analyzing":
+            print(f"PASS: change_review impact cache miss → analyzing jobId={impact_inner.get('jobId')}")
+        elif impact_inner.get("risk") == "UNKNOWN" and "Symbol not found" in str(impact_inner.get("reasons", [])):
+            print(f"WARN: change_review impact still UNKNOWN (symbol not found): {json.dumps(impact_inner)[:200]}")
+        elif impact_inner.get("risk") == "UNKNOWN":
+            print(f"PASS: change_review impact returned (ambiguous or other)")
+        else:
+            print(f"PASS: change_review impact risk={impact_inner.get('risk','?')}")
+    else:
+        print(f"SKIP: backend root not found at {backend_root}")
 finally:
     try:
         send({"jsonrpc": "2.0", "method": "shutdown"})

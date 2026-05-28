@@ -14,7 +14,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use gitnexus_analysis_engine::cache::{ArtifactCache, CacheExplainEntry, CacheKey, CacheStatus};
 use gitnexus_analysis_engine::dag::{AnalysisArtifact, AnalysisPlan, AnalysisStage, AnalysisTask};
@@ -688,7 +688,62 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
         let result = if is_parallel {
             ParallelExecutor::new(4).execute(&plan, Arc::from(adapter))
         } else {
-            SerialExecutor.execute(&plan, adapter.as_ref())
+            // 逐 task 执行，每完成一个更新 progress，避免 completedUnits 长期为 0
+            let start = std::time::Instant::now();
+            let mut artifacts = Vec::new();
+            let mut completed = 0usize;
+            let mut failed = 0usize;
+            let mut stage_times = std::collections::HashMap::new();
+            let total = plan.total_tasks;
+            for (idx, task) in plan.tasks.iter().enumerate() {
+                if MCP_JOBS.is_cancelled(&job_id) {
+                    break;
+                }
+                match gitnexus_analysis_engine::executor::run_single_task_public(
+                    task,
+                    adapter.as_ref(),
+                ) {
+                    Ok(art) => {
+                        *stage_times
+                            .entry(task.stage.name().to_string())
+                            .or_insert(0u64) += art.duration_ms;
+                        artifacts.push(art);
+                        completed += 1;
+                    }
+                    Err(e) => {
+                        artifacts.push(
+                            gitnexus_analysis_engine::executor::make_error_artifact_public(task, e),
+                        );
+                        failed += 1;
+                    }
+                }
+                // 每完成一个 task 更新 progress（至少每 10 个 task 更新一次，减少锁争用）
+                if idx % 10 == 0 || idx == total - 1 {
+                    let elapsed = start.elapsed().as_millis() as u64;
+                    MCP_JOBS.update_progress(
+                        &job_id,
+                        McpJobProgress {
+                            stage: task.stage.name().to_string(),
+                            completed_units: completed + failed,
+                            total_units: total,
+                            failed_units: failed,
+                            elapsed_ms: elapsed,
+                            executor_mode: "serial".into(),
+                            cache_hits: 0,
+                            cache_misses: 0,
+                        },
+                    );
+                }
+            }
+            gitnexus_analysis_engine::executor::SerializableResult {
+                total_tasks: total,
+                completed,
+                failed,
+                total_duration_ms: start.elapsed().as_millis() as u64,
+                artifacts,
+                stage_times,
+                executor_mode: "serial".into(),
+            }
         };
 
         let mut summary = serde_json::json!({
@@ -727,7 +782,94 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             "error": a.error, "durationMs": a.duration_ms,
             "symbolCount": a.data.get("symbols").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0) as u64,
         })).collect();
+
+        // P1: 生成 compact AI digest，提高 job_detail 信息密度
+        let mut ai_digest = serde_json::json!({
+            "sourceFileCount": nf,
+            "symbolCount": 0u64,
+            "failedUnits": result.failed,
+            "callEdgeCount": 0u64,
+        });
+        // 从 symbol artifacts 提取 top symbols
+        let mut all_symbols: Vec<Value> = Vec::new();
+        let mut file_symbol_counts: HashMap<String, usize> = HashMap::new();
+        for art in &result.artifacts {
+            if art.stage == gitnexus_analysis_engine::dag::AnalysisStage::Symbol
+                && art.error.is_none()
+            {
+                if let Some(syms) = art.data.get("symbols").and_then(|s| s.as_array()) {
+                    let file_id = art
+                        .data
+                        .get("unitId")
+                        .or_else(|| art.data.get("unit_id"))
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(&art.unit_id);
+                    *file_symbol_counts.entry(file_id.to_string()).or_insert(0) += syms.len();
+                    for sym in syms.iter().take(50) {
+                        all_symbols.push(sym.clone());
+                    }
+                }
+            }
+            if art.stage == gitnexus_analysis_engine::dag::AnalysisStage::Reference
+                && art.error.is_none()
+            {
+                if let Some(calls) = art.data.get("calls").and_then(|c| c.as_array()) {
+                    if let Some(obj) = ai_digest.as_object_mut() {
+                        obj.insert("callEdgeCount".to_string(), json!(calls.len() as u64));
+                    }
+                }
+            }
+        }
+        if let Some(obj) = ai_digest.as_object_mut() {
+            obj.insert("symbolCount".to_string(), json!(all_symbols.len() as u64));
+        }
+        // top files by symbol count
+        let mut top_files: Vec<(&String, &usize)> = file_symbol_counts.iter().collect();
+        top_files.sort_by(|a, b| b.1.cmp(a.1));
+        if let Some(obj) = ai_digest.as_object_mut() {
+            obj.insert(
+                "topFiles".to_string(),
+                json!(top_files
+                    .iter()
+                    .take(10)
+                    .map(|(f, c)| json!({
+                        "file": f, "symbolCount": c
+                    }))
+                    .collect::<Vec<_>>()),
+            );
+        }
+        // top symbols（按 kind 分组计数）
+        let kind_counts: HashMap<String, usize> = all_symbols
+            .iter()
+            .filter_map(|s| {
+                s.get("kind")
+                    .and_then(|k| k.as_str())
+                    .map(|k| k.to_string())
+            })
+            .fold(HashMap::new(), |mut acc, k| {
+                *acc.entry(k).or_insert(0) += 1;
+                acc
+            });
+        if let Some(obj) = ai_digest.as_object_mut() {
+            obj.insert("symbolKinds".to_string(), json!(kind_counts));
+            // 只保留前 20 个符号名称作为预览
+            let preview: Vec<Value> = all_symbols
+                .iter()
+                .take(20)
+                .filter_map(|s| {
+                    let name = s.get("name").and_then(|n| n.as_str())?;
+                    let kind = s.get("kind").and_then(|k| k.as_str()).unwrap_or("?");
+                    Some(json!({"name": name, "kind": kind}))
+                })
+                .collect();
+            obj.insert("topSymbolsPreview".to_string(), json!(preview));
+        }
+
         MCP_JOBS.store_detail(&job_id, detail_items);
+        // 在 job summary 中嵌入 AI digest
+        if let Some(obj) = summary.as_object_mut() {
+            obj.insert("aiDigest".to_string(), ai_digest);
+        }
 
         MCP_JOBS.update_progress(
             &job_id,

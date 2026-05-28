@@ -69,6 +69,14 @@ pub struct SerializableResult {
     pub executor_mode: String,
 }
 
+/// Public wrapper for run_single_task, used by MCP job worker for per-task progress.
+pub fn run_single_task_public(
+    task: &AnalysisTask,
+    adapter: &dyn LanguageAdapter,
+) -> Result<AnalysisArtifact, String> {
+    run_single_task(task, adapter)
+}
+
 fn run_single_task(
     task: &AnalysisTask,
     adapter: &dyn LanguageAdapter,
@@ -108,6 +116,11 @@ fn run_single_task(
         duration_ms: start.elapsed().as_millis() as u64,
         generated_from: ArtifactSemantics::default(),
     })
+}
+
+/// Public wrapper for make_error_artifact, used by MCP job worker.
+pub fn make_error_artifact_public(task: &AnalysisTask, error: String) -> AnalysisArtifact {
+    make_error_artifact(task, error)
 }
 
 fn make_error_artifact(task: &AnalysisTask, error: String) -> AnalysisArtifact {
