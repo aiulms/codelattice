@@ -102,6 +102,25 @@ fn create_source_heavy_rust_project() -> tempfile::TempDir {
     dir
 }
 
+fn create_small_helper_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create small helper project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"small-helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "fn main() { helper(); }\nfn helper() {}\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_large_ask_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create large ask project");
     let root = dir.path();
@@ -1640,7 +1659,8 @@ fn mcp_project_quick_returns_compact_ai_digest() {
                         item["priorityRank"].as_u64().unwrap_or(0) >= 1
                             && item["relativePriority"].is_string()
                             && item["riskDrivers"].is_array()
-                            && item["riskScoreInterpretation"].is_string()
+                            && item["priorityBand"].is_string()
+                            && item["riskNote"].is_string()
                     })
             })
             .unwrap_or(false),
@@ -1678,24 +1698,59 @@ fn mcp_project_quick_risks_include_calibrated_priority_bands() {
     assert!(
         risks.iter().all(|item| {
             item["rawRiskScore"].is_number()
-                && item["riskCalibration"]["calibratedRiskLevel"].is_string()
-                && item["riskCalibration"]["calibratedPriorityBand"].is_string()
-                && item["riskCalibration"]["percentileBand"].is_string()
-                && item["riskCalibration"]["tieBreaker"].is_string()
-                && item["riskCalibration"]["rankGuidance"].is_string()
+                && item["priorityBand"].is_string()
+                && item["riskNote"].is_string()
         }),
-        "every top risk should include calibrated relative priority metadata: {risks:?}"
+        "every compact top risk should include concise calibrated priority metadata: {risks:?}"
     );
     if risks.len() >= 3 {
         let levels = risks
             .iter()
-            .filter_map(|item| item["riskCalibration"]["calibratedPriorityBand"].as_str())
+            .filter_map(|item| item["priorityBand"].as_str())
             .collect::<std::collections::BTreeSet<_>>();
         assert!(
             levels.len() >= 2,
             "calibrated priority bands should not collapse every item into the same bucket: {risks:?}"
         );
     }
+}
+
+#[test]
+fn mcp_project_quick_compact_digest_omits_verbose_risk_calibration() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42013,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "quick",
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    let risks = data["summary"]["aiDigest"]["topRisks"]
+        .as_array()
+        .expect("quick digest should include topRisks");
+    assert!(!risks.is_empty(), "topRisks should not be empty: {data:?}");
+    assert!(
+        risks.iter().all(|item| {
+            item.get("riskCalibration").is_none()
+                && item.get("riskScoreInterpretation").is_none()
+                && item["priorityBand"].is_string()
+                && item["riskNote"].is_string()
+        }),
+        "compact topRisks should keep concise priority fields without repeating verbose calibration: {risks:?}"
+    );
 }
 
 #[test]
@@ -4775,6 +4830,104 @@ fn mcp_compact_symbol_search_retains_identity() {
     assert!(
         first["label"].is_null(),
         "compact match should not have 'label'"
+    );
+}
+
+#[test]
+fn mcp_facade_symbol_auto_detects_single_project_language() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 40011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol",
+            "arguments": {
+                "mode": "search",
+                "root": root.to_string_lossy(),
+                "language": "auto",
+                "query": "helper",
+                "compact": false
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(
+        data["language"].as_str(),
+        Some("rust"),
+        "facade symbol should resolve language=auto for a single Rust project: {data:?}"
+    );
+    assert_eq!(
+        data["result"]["language"].as_str(),
+        Some("rust"),
+        "inner symbol result should report detected language: {data:?}"
+    );
+    assert!(
+        data["result"]["matchCount"].as_u64().unwrap_or(0) > 0,
+        "symbol search should still return matches after auto detection: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_auto_cache_reused_by_symbol_search() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let project_dir = create_small_helper_rust_project();
+    let root = project_dir.path();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 40012,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_project",
+            "arguments": {
+                "mode": "quick",
+                "root": root.to_string_lossy(),
+                "language": "auto",
+                "compact": true
+            }
+        }
+    }));
+    let project = extract_tool_data(&session.recv());
+    assert_eq!(
+        project["language"].as_str(),
+        Some("rust"),
+        "project quick should store/cache under the detected concrete language: {project:?}"
+    );
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 40013,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol",
+            "arguments": {
+                "mode": "search",
+                "root": root.to_string_lossy(),
+                "language": "auto",
+                "query": "helper",
+                "compact": false
+            }
+        }
+    }));
+
+    let symbol = extract_tool_data(&session.recv());
+    assert_eq!(
+        symbol["result"]["cacheHit"].as_bool(),
+        Some(true),
+        "symbol search should reuse the project quick graph cache: {symbol:?}"
+    );
+    assert_eq!(
+        symbol["result"]["cacheLayer"].as_str(),
+        Some("memory"),
+        "cross-facade cache reuse should come from process memory: {symbol:?}"
     );
 }
 

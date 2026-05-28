@@ -2940,6 +2940,49 @@ fn check_language_feature(language: &str) -> Result<(), Value> {
     Ok(())
 }
 
+/// Resolve facade `language=auto` to a concrete single-project language.
+///
+/// Facade tools share `McpCache` by `(canonical root, concrete language, strict)`.
+/// Keeping `auto` in the key makes `project(auto)` and `symbol(rust)` look like
+/// unrelated analyses, and job adapters cannot execute an `auto` language.
+fn resolve_auto_language_for_root(root: &Path, language: &str) -> Result<String, Value> {
+    if language != "auto" {
+        check_language_feature(language)?;
+        return Ok(language.to_string());
+    }
+
+    let detected = crate::language_detect::detect_language(root);
+    let resolved = match detected {
+        crate::unified_types::DetectedLanguage::Rust
+        | crate::unified_types::DetectedLanguage::Cangjie
+        | crate::unified_types::DetectedLanguage::ArkTS
+        | crate::unified_types::DetectedLanguage::TypeScript
+        | crate::unified_types::DetectedLanguage::JavaScript
+        | crate::unified_types::DetectedLanguage::C
+        | crate::unified_types::DetectedLanguage::Cpp
+        | crate::unified_types::DetectedLanguage::Python
+        | crate::unified_types::DetectedLanguage::Shell => detected.as_str(),
+        crate::unified_types::DetectedLanguage::Ambiguous => {
+            return Err(mcp_error_with_hint(
+                "auto_language_ambiguous",
+                "language=auto found multiple project languages",
+                "Use codelattice_workspace on workspace roots, or pass a manifest-backed project root with an explicit language.",
+                "For example: language=rust with root=/path/to/backend, or language=typescript with root=/path/to/frontend.",
+            ));
+        }
+        crate::unified_types::DetectedLanguage::Unknown => {
+            return Err(mcp_error_with_hint(
+                "auto_language_unknown",
+                "language=auto could not infer a supported language",
+                "CodeLattice needs a supported manifest or recognizable source files for auto detection.",
+                "Pass language explicitly or select a supported project root.",
+            ));
+        }
+    };
+    check_language_feature(resolved)?;
+    Ok(resolved.to_string())
+}
+
 /// Run the CLI analyze subcommand and return parsed JSON.
 /// Used by multiple tools that need the full analyze output.
 fn run_analyze_subprocess(
@@ -3408,7 +3451,7 @@ fn handle_unresolved_report(_cache: &mut McpCache, params: &Value) -> Result<Val
     }
 }
 
-fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
@@ -3424,7 +3467,7 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
     let compact = params["compact"].as_bool().unwrap_or(false);
     check_language_feature(language)?;
 
-    let result = run_analyze_subprocess(&validated, language, "json", false)?;
+    let (_gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let query_lower = query.to_lowercase();
     let mut matches = Vec::new();
@@ -3558,12 +3601,15 @@ fn handle_symbol_search(_cache: &mut McpCache, params: &Value) -> Result<Value, 
         }
     }
 
-    Ok(tool_result(&json!({
-        "language": result["language"],
-        "query": query,
-        "matchCount": matches.len(),
-        "matches": matches
-    })))
+    Ok(merge_cache_and_result(
+        &json!({
+            "language": result["language"],
+            "query": query,
+            "matchCount": matches.len(),
+            "matches": matches
+        }),
+        &cache_meta,
+    ))
 }
 
 fn handle_export_bridge(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -19722,12 +19768,64 @@ fn project_depth_next_actions(depth: &str) -> Vec<&'static str> {
     }
 }
 
+fn compact_digest_component_item(item: &Value) -> Value {
+    json!({
+        "component": item["component"],
+        "role": item["role"],
+        "fileCount": item["fileCount"],
+        "symbolCount": item["symbolCount"],
+        "edgeCount": item["edgeCount"],
+        "riskLevel": item["riskLevel"],
+        "riskScore": item["riskScore"],
+        "priorityRank": item["priorityRank"],
+        "relativePriority": item["relativePriority"],
+        "riskDrivers": item["riskDrivers"],
+        "readFirstFiles": item["readFirstFiles"],
+        "recommendedAction": item["recommendedAction"],
+    })
+}
+
+fn compact_digest_risk_item(item: &Value) -> Value {
+    let priority_band = item["riskCalibration"]["calibratedPriorityBand"]
+        .as_str()
+        .or_else(|| item["relativePriority"].as_str())
+        .unwrap_or("unknown");
+    let risk_note = item["whyTopRisk"]
+        .as_str()
+        .or_else(|| item["whySuspicious"].as_str())
+        .unwrap_or("Static risk hint; not runtime proof.");
+    json!({
+        "id": item["id"],
+        "name": item["name"],
+        "kind": item["kind"],
+        "file": item["file"],
+        "line": item["line"],
+        "riskLevel": item["riskLevel"],
+        "riskScore": item["riskScore"],
+        "rawRiskScore": item["rawRiskScore"],
+        "priorityRank": item["priorityRank"],
+        "priorityBand": priority_band,
+        "relativePriority": item["relativePriority"],
+        "riskDrivers": item["riskDrivers"],
+        "riskNote": risk_note,
+        "recommendedAction": item["recommendedAction"],
+        "staticOnly": true,
+    })
+}
+
 fn build_project_ai_digest(insights: &Value, depth: &str, limit: usize) -> Value {
-    let components = take_json_items(&insights["architectureMap"]["components"], limit.min(6));
+    let components: Vec<Value> =
+        take_json_items(&insights["architectureMap"]["components"], limit.min(6))
+            .iter()
+            .map(compact_digest_component_item)
+            .collect();
     let read_first = take_json_items(&insights["readFirst"], limit.min(6));
     let review_first = take_json_items(&insights["reviewFirst"], limit.min(6));
     let entry_points = take_json_items(&insights["entryPointCandidates"], limit.min(6));
-    let suspicious = take_json_items(&insights["suspiciousAreas"], limit.min(6));
+    let suspicious: Vec<Value> = take_json_items(&insights["suspiciousAreas"], limit.min(6))
+        .iter()
+        .map(compact_digest_risk_item)
+        .collect();
     let missing = take_json_items(&insights["missingEvidence"], 3);
 
     json!({
@@ -20420,7 +20518,7 @@ fn handle_project_job(
 fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("overview");
     let compact = params["compact"].as_bool().unwrap_or(false);
-    let language = params["language"].as_str().unwrap_or("auto");
+    let requested_language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
         &[
@@ -20442,16 +20540,16 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
     // ═══ Analysis Engine 1.3 job runtime modes ═══
     if matches!(mode, "job_status" | "job_detail") {
-        return handle_project_job("", language, mode, params, compact);
+        return handle_project_job("", requested_language, mode, params, compact);
     }
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     if matches!(mode, "job" | "job_status" | "job_detail") {
-        return handle_project_job(root, language, mode, params, compact);
+        return handle_project_job(root, requested_language, mode, params, compact);
     }
 
-    if language == "auto" {
+    if requested_language == "auto" {
         if let Ok((validated, protected)) = validate_workspace_root_path(root) {
             if let Some(workspace) =
                 build_workspace_auto_entry(&validated.to_string_lossy(), protected, compact)
@@ -20461,25 +20559,37 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         }
     }
 
+    let validated_root = validate_root_path(root)?;
+    let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
+    let language = language_owned.as_str();
+    let mut effective_params = params.clone();
+    effective_params["language"] = json!(language);
+    let analysis_params = &effective_params;
+
     // 分析面 mode 的自动 job 化：cache miss/stale + 大项目 → 异步 job
     if matches!(
         mode,
         "quick" | "standard" | "deep" | "insights" | "diagnose" | "full" | "ai_context"
     ) {
-        if let Some(auto_job_resp) =
-            facade_auto_job_check(cache, root, language, "codelattice_project", mode, params)
-        {
+        if let Some(auto_job_resp) = facade_auto_job_check(
+            cache,
+            root,
+            language,
+            "codelattice_project",
+            mode,
+            analysis_params,
+        ) {
             return Ok(tool_result(&auto_job_resp));
         }
     }
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "overview" => {
-            let r = handle_project_overview(cache, params)?;
+            let r = handle_project_overview(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_project_overview"])
         }
         "quick" | "standard" | "deep" => {
-            let mut insight_params = params.clone();
+            let mut insight_params = analysis_params.clone();
             insight_params["mode"] = json!("onboarding");
             insight_params["compact"] = json!(true);
             insight_params["limit"] = json!(project_depth_limit(mode));
@@ -20510,15 +20620,15 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             )
         }
         "quality" => {
-            let r = handle_quality(cache, params)?;
+            let r = handle_quality(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_quality"])
         }
         "insights" => {
-            let r = handle_project_insights(cache, params)?;
+            let r = handle_project_insights(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_project_insights"])
         }
         "diagnose" => {
-            let r = build_project_diagnose(cache, params)?;
+            let r = build_project_diagnose(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec![
@@ -20529,23 +20639,32 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             )
         }
         "ai_context" => {
-            let r = handle_ai_context_pack(cache, params)?;
+            let r = handle_ai_context_pack(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_ai_context_pack"])
         }
         "full" => {
             let mut merged = json!({});
             let mut errors = Vec::new();
             safe_insert_tool(&mut merged, &mut errors, "overview", "overview", || {
-                Ok(unwrap_tool_result(&handle_project_overview(cache, params)?))
+                Ok(unwrap_tool_result(&handle_project_overview(
+                    cache,
+                    analysis_params,
+                )?))
             });
             safe_insert_tool(&mut merged, &mut errors, "quality", "quality", || {
-                Ok(unwrap_tool_result(&handle_quality(cache, params)?))
+                Ok(unwrap_tool_result(&handle_quality(cache, analysis_params)?))
             });
             safe_insert_tool(&mut merged, &mut errors, "insights", "insights", || {
-                Ok(unwrap_tool_result(&handle_project_insights(cache, params)?))
+                Ok(unwrap_tool_result(&handle_project_insights(
+                    cache,
+                    analysis_params,
+                )?))
             });
             safe_insert_tool(&mut merged, &mut errors, "aiContext", "ai_context", || {
-                Ok(unwrap_tool_result(&handle_ai_context_pack(cache, params)?))
+                Ok(unwrap_tool_result(&handle_ai_context_pack(
+                    cache,
+                    analysis_params,
+                )?))
             });
             if let Some(obj) = merged.as_object_mut() {
                 if !errors.is_empty() {
@@ -20717,7 +20836,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("search");
     let compact = params["compact"].as_bool().unwrap_or(false);
-    let language = params["language"].as_str().unwrap_or("auto");
+    let requested_language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
         &[
@@ -20735,20 +20854,46 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     )?;
 
     if matches!(mode, "job_status" | "job_detail") {
-        return handle_facade_job("", language, mode, "codelattice_symbol", params, compact);
+        return handle_facade_job(
+            "",
+            requested_language,
+            mode,
+            "codelattice_symbol",
+            params,
+            compact,
+        );
     }
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     if matches!(mode, "job" | "job_status" | "job_detail") {
-        return handle_facade_job(root, language, mode, "codelattice_symbol", params, compact);
+        return handle_facade_job(
+            root,
+            requested_language,
+            mode,
+            "codelattice_symbol",
+            params,
+            compact,
+        );
     }
+
+    let validated_root = validate_root_path(root)?;
+    let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
+    let language = language_owned.as_str();
+    let mut effective_params = params.clone();
+    effective_params["language"] = json!(language);
+    let analysis_params = &effective_params;
 
     // 分析面 mode 的自动 job 化：大项目 cache miss → 异步 job
     if matches!(mode, "search" | "context" | "callers" | "callees" | "graph") {
-        if let Some(auto_job_resp) =
-            facade_auto_job_check(cache, root, language, "codelattice_symbol", mode, params)
-        {
+        if let Some(auto_job_resp) = facade_auto_job_check(
+            cache,
+            root,
+            language,
+            "codelattice_symbol",
+            mode,
+            analysis_params,
+        ) {
             return Ok(tool_result(&auto_job_resp));
         }
     }
@@ -20757,15 +20902,15 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "search" => {
-            let r = handle_symbol_search(cache, params)?;
+            let r = handle_symbol_search(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_symbol_search"])
         }
         "context" => {
-            let r = handle_symbol_context(cache, params)?;
+            let r = handle_symbol_context(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_symbol_context"])
         }
         "callers" => {
-            let mut call_params = params.clone();
+            let mut call_params = analysis_params.clone();
             if call_params.get("symbol").and_then(|v| v.as_str()).is_none() {
                 if let Some(name) = call_params.get("name").and_then(|v| v.as_str()) {
                     call_params["symbol"] = json!(name);
@@ -20775,7 +20920,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             (unwrap_tool_result(&r), vec!["codelattice_calls_to"])
         }
         "callees" => {
-            let mut call_params = params.clone();
+            let mut call_params = analysis_params.clone();
             if call_params.get("symbol").and_then(|v| v.as_str()).is_none() {
                 if let Some(name) = call_params.get("name").and_then(|v| v.as_str()) {
                     call_params["symbol"] = json!(name);
@@ -20785,16 +20930,16 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             (unwrap_tool_result(&r), vec!["codelattice_calls_from"])
         }
         "graph" => {
-            let r = handle_query_graph(cache, params)?;
+            let r = handle_query_graph(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_query_graph"])
         }
         "call_chains" => {
-            let direction = params["direction"].as_str().unwrap_or("both");
-            let max_depth = params["maxDepth"].as_u64().unwrap_or(4).min(6) as usize;
-            let limit = params["limit"].as_u64().unwrap_or(8).min(20) as usize;
-            let query = params["query"]
+            let direction = analysis_params["direction"].as_str().unwrap_or("both");
+            let max_depth = analysis_params["maxDepth"].as_u64().unwrap_or(4).min(6) as usize;
+            let limit = analysis_params["limit"].as_u64().unwrap_or(8).min(20) as usize;
+            let query = analysis_params["query"]
                 .as_str()
-                .or_else(|| params["name"].as_str())
+                .or_else(|| analysis_params["name"].as_str())
                 .unwrap_or("")
                 .to_string();
             let root_path = PathBuf::from(root);
@@ -20984,7 +21129,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
 fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("impact");
     let compact = params["compact"].as_bool().unwrap_or(false);
-    let language = params["language"].as_str().unwrap_or("auto");
+    let requested_language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
         &[
@@ -21016,7 +21161,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
     if matches!(mode, "job_status" | "job_detail") {
         return handle_facade_job(
             "",
-            language,
+            requested_language,
             mode,
             "codelattice_change_review",
             params,
@@ -21029,13 +21174,20 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
     if matches!(mode, "job" | "job_status" | "job_detail") {
         return handle_facade_job(
             root,
-            language,
+            requested_language,
             mode,
             "codelattice_change_review",
             params,
             compact,
         );
     }
+
+    let validated_root = validate_root_path(root)?;
+    let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
+    let language = language_owned.as_str();
+    let mut effective_params = params.clone();
+    effective_params["language"] = json!(language);
+    let analysis_params = &effective_params;
 
     // 分析面 mode 的自动 job 化：大项目 cache miss → 异步 job
     if matches!(
@@ -21056,7 +21208,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             language,
             "codelattice_change_review",
             mode,
-            params,
+            analysis_params,
         ) {
             return Ok(tool_result(&auto_job_resp));
         }
@@ -21064,29 +21216,29 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "changed_symbols" => {
-            let r = handle_changed_symbols(cache, params)?;
+            let r = handle_changed_symbols(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_changed_symbols"])
         }
         "impact" => {
-            let r = handle_impact_preview(cache, params)?;
+            let r = handle_impact_preview(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_impact_preview"])
         }
         "production_assist" => {
-            let r = handle_production_assist(cache, params)?;
+            let r = handle_production_assist(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_production_assist"],
             )
         }
         "breaking_change" => {
-            let r = handle_breaking_change_review(cache, params)?;
+            let r = handle_breaking_change_review(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_breaking_change_review"],
             )
         }
         "consistency" => {
-            let r = handle_consistency_review(cache, params)?;
+            let r = handle_consistency_review(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_consistency_review"],
@@ -21097,31 +21249,31 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
         | "reachability"
         | "external_api"
         | "framework_entries" => {
-            let mut cleanup_params = params.clone();
+            let mut cleanup_params = analysis_params.clone();
             cleanup_params["mode"] = json!(mode);
             let r = handle_cleanup(cache, &cleanup_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_cleanup"])
         }
         "release_check" => {
-            let mut release_params = params.clone();
+            let mut release_params = analysis_params.clone();
             release_params["mode"] = json!("full");
             let r = handle_release_check(cache, &release_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_release_check"])
         }
         "docs_tests" => {
-            let mut release_params = params.clone();
+            let mut release_params = analysis_params.clone();
             release_params["mode"] = json!("docs_tests");
             let r = handle_release_check(cache, &release_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_release_check"])
         }
         "config_examples" => {
-            let mut release_params = params.clone();
+            let mut release_params = analysis_params.clone();
             release_params["mode"] = json!("config");
             let r = handle_release_check(cache, &release_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_release_check"])
         }
         "root_cause" => {
-            let r = handle_root_cause_assistant(cache, params)?;
+            let r = handle_root_cause_assistant(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_root_cause_assistant"],
@@ -21135,10 +21287,18 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 &mut errors,
                 "changedSymbols",
                 "changed_symbols",
-                || Ok(unwrap_tool_result(&handle_changed_symbols(cache, params)?)),
+                || {
+                    Ok(unwrap_tool_result(&handle_changed_symbols(
+                        cache,
+                        analysis_params,
+                    )?))
+                },
             );
             safe_insert_tool(&mut merged, &mut errors, "impact", "impact", || {
-                Ok(unwrap_tool_result(&handle_impact_preview(cache, params)?))
+                Ok(unwrap_tool_result(&handle_impact_preview(
+                    cache,
+                    analysis_params,
+                )?))
             });
             safe_insert_tool(
                 &mut merged,
@@ -21147,7 +21307,8 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 "breaking_change",
                 || {
                     Ok(unwrap_tool_result(&handle_breaking_change_review(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -21158,7 +21319,8 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 "consistency",
                 || {
                     Ok(unwrap_tool_result(&handle_consistency_review(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -21194,7 +21356,12 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 &mut errors,
                 "changedSymbols",
                 "changed_symbols",
-                || Ok(unwrap_tool_result(&handle_changed_symbols(cache, params)?)),
+                || {
+                    Ok(unwrap_tool_result(&handle_changed_symbols(
+                        cache,
+                        analysis_params,
+                    )?))
+                },
             );
             safe_insert_tool(
                 &mut merged,
@@ -21203,7 +21370,8 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 "production_assist",
                 || {
                     Ok(unwrap_tool_result(&handle_production_assist(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -21231,10 +21399,10 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             )));
         }
         "whatif" => {
-            let change = params["change"].as_str().unwrap_or("").to_string();
-            let symbol_param = params["symbol"].as_str().unwrap_or("").to_string();
-            let file_param = params["file"].as_str().unwrap_or("").to_string();
-            let action = params["action"].as_str().unwrap_or("").to_string();
+            let change = analysis_params["change"].as_str().unwrap_or("").to_string();
+            let symbol_param = analysis_params["symbol"].as_str().unwrap_or("").to_string();
+            let file_param = analysis_params["file"].as_str().unwrap_or("").to_string();
+            let action = analysis_params["action"].as_str().unwrap_or("").to_string();
             if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
                 let query = if !symbol_param.is_empty() {
                     symbol_param.clone()
