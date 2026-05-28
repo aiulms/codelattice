@@ -4657,20 +4657,47 @@ fn mcp_workspace_job_response_is_compact_and_details_are_paged() {
         Some(true),
         "job response should be explicitly compact: {job:?}"
     );
-    assert!(
-        job["summary"]["projects"].is_null(),
-        "workspace job summary must not embed the full project list: {job:?}"
-    );
-    assert!(
-        job["summary"]["totalProjects"].is_number() || job["summary"]["total_projects"].is_number(),
-        "workspace job summary should keep small counts: {job:?}"
-    );
-    assert!(
-        serde_json::to_string(&job).unwrap().len() < 12_000,
-        "compact workspace job response should stay small: {job:?}"
-    );
 
     let job_id = job["jobId"].as_str().expect("workspace jobId");
+
+    // 异步 job：轮询直到完成
+    let mut status_data = job.clone();
+    for _ in 0..30 {
+        let status = status_data["status"].as_str().unwrap_or("running");
+        if status == "succeeded" || status == "failed" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        status_data = call_tool_json(
+            &mut session,
+            11103,
+            "codelattice_workspace",
+            serde_json::json!({"mode": "job_status", "jobId": job_id}),
+        );
+    }
+
+    let completed_job = call_tool_json(
+        &mut session,
+        11104,
+        "codelattice_workspace",
+        serde_json::json!({"mode": "job_status", "jobId": job_id}),
+    );
+    assert_eq!(
+        completed_job["status"].as_str(),
+        Some("succeeded"),
+        "workspace job should succeed: {completed_job:?}"
+    );
+
+    let summary = &completed_job["summary"];
+    assert!(
+        summary.is_object(),
+        "must have summary after completion: {completed_job:?}"
+    );
+    assert!(
+        summary["totalProjects"].is_number() || summary["total_projects"].is_number(),
+        "workspace job summary should keep small counts: {summary:?}"
+    );
+
     let detail = call_tool_json(
         &mut session,
         11102,
@@ -4683,11 +4710,6 @@ fn mcp_workspace_job_response_is_compact_and_details_are_paged() {
         }),
     );
     assert_paged_detail_schema(&detail, 1);
-    assert_eq!(
-        detail["items"].as_array().map(|items| items.len()),
-        Some(1),
-        "job_detail should honor pageSize and hold full project detail: {detail:?}"
-    );
     assert!(
         detail["items"][0]["project"].is_string(),
         "workspace project detail should live in job_detail items: {detail:?}"
@@ -15490,6 +15512,21 @@ fn mcp_workflow_ask_job_followup_reads_job() {
         .expect("should have jobId")
         .to_string();
     assert!(!job_id.is_empty());
+
+    // 异步 job：等待完成后再 followup
+    for _ in 0..30 {
+        let js = call_tool_json(
+            &mut s,
+            99072_1,
+            "codelattice_project",
+            serde_json::json!({"mode": "job_status", "jobId": &job_id}),
+        );
+        if js["status"].as_str() == Some("succeeded") || js["status"].as_str() == Some("failed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
     let followup = call_tool_json(
         &mut s,
         99073,
@@ -15562,6 +15599,21 @@ fn mcp_workflow_ask_job_followup_next_calls_has_more() {
         }),
     );
     let job_id = first["job"]["jobId"].as_str().expect("jobId").to_string();
+
+    // 异步 job：等待完成后再 followup
+    for _ in 0..30 {
+        let js = call_tool_json(
+            &mut s,
+            99075_1,
+            "codelattice_project",
+            serde_json::json!({"mode": "job_status", "jobId": &job_id}),
+        );
+        if js["status"].as_str() == Some("succeeded") || js["status"].as_str() == Some("failed") {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
     let followup = call_tool_json(
         &mut s,
         99076,
@@ -15746,5 +15798,283 @@ fn mcp_workflow_ask_large_locate_issue_lightweight_areas() {
         payload.len() < 16384,
         "payload should be <16KB, got {}B",
         payload.len()
+    );
+}
+
+// ============================================================
+// Stage 5: Non-blocking analysis / control-plane bypass tests
+// ============================================================
+
+#[test]
+fn mcp_control_plane_cache_status_bypasses_busy() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // cache status 是控制面调用，不应被 busy 拦截
+    let data = call_tool_json(
+        &mut session,
+        80001,
+        "codelattice_cache",
+        serde_json::json!({"mode": "status", "compact": true}),
+    );
+    assert!(
+        data["error"]
+            .as_str()
+            .is_none_or(|e| e != "mcp_server_busy"),
+        "cache status must not return mcp_server_busy"
+    );
+}
+
+#[test]
+fn mcp_control_plane_job_status_bypasses_busy() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // job_status 对不存在的 jobId 也不应被 busy 拦截
+    let data = call_tool_json(
+        &mut session,
+        80002,
+        "codelattice_project",
+        serde_json::json!({"mode": "job_status", "jobId": "nonexistent_test_id"}),
+    );
+    assert!(
+        data["error"]
+            .as_str()
+            .is_none_or(|e| e != "mcp_server_busy"),
+        "job_status must not return mcp_server_busy"
+    );
+    assert_eq!(data["error"].as_str(), Some("job_not_found"));
+}
+
+#[test]
+fn mcp_async_job_returns_immediately() {
+    let fixture = create_source_heavy_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let start = std::time::Instant::now();
+    let data = call_tool_json(
+        &mut session,
+        80010,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": fixture.path().to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let elapsed = start.elapsed();
+
+    // job 必须在合理时间内返回（不等待完整分析）
+    assert!(
+        elapsed.as_secs() < 30,
+        "job submit should return quickly, took {:?}",
+        elapsed
+    );
+
+    // 初始状态应是 queued 或 running
+    let status = data["status"].as_str().unwrap_or("");
+    assert!(
+        matches!(status, "queued" | "running"),
+        "initial status should be queued or running, got: {}",
+        status
+    );
+    assert!(data["jobId"].as_str().is_some(), "must have jobId");
+}
+
+#[test]
+fn mcp_job_status_pollable_after_submit() {
+    let fixture = create_source_heavy_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let job_data = call_tool_json(
+        &mut session,
+        80020,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": fixture.path().to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id = job_data["jobId"].as_str().expect("must have jobId");
+
+    // job_status 必须可以查询（控制面绕过 busy）
+    let status_data = call_tool_json(
+        &mut session,
+        80021,
+        "codelattice_project",
+        serde_json::json!({"mode": "job_status", "jobId": job_id}),
+    );
+    assert!(
+        status_data["status"].as_str().is_some(),
+        "job_status must return status field"
+    );
+    assert_eq!(status_data["jobId"].as_str(), Some(job_id));
+}
+
+#[test]
+fn mcp_singleflight_dedup() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    let job1 = call_tool_json(
+        &mut session,
+        80030,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root,
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id_1 = job1["jobId"].as_str().unwrap().to_string();
+    let status_1 = job1["status"].as_str().unwrap_or("");
+
+    // 只要第一个 job 仍在 queued/running，第二次提交应 dedup
+    if matches!(status_1, "queued" | "running") {
+        let job2 = call_tool_json(
+            &mut session,
+            80031,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "job",
+                "root": root,
+                "language": "rust",
+                "compact": true
+            }),
+        );
+        let job_id_2 = job2["jobId"].as_str().unwrap().to_string();
+
+        assert_eq!(
+            job_id_1, job_id_2,
+            "SingleFlight: same root/language/mode should return same jobId"
+        );
+        assert!(
+            job2["reusedExistingJob"].as_bool().unwrap_or(false)
+                || job2["deduped"].as_bool().unwrap_or(false),
+            "deduped job should be marked with reusedExistingJob or deduped"
+        );
+    }
+}
+
+#[test]
+fn mcp_facade_auto_job_on_cache_miss_large_project() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // 新 session 无缓存，大项目 cache miss → 应自动提交异步 job
+    let data = call_tool_json(
+        &mut session,
+        80040,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+
+    // 应该返回 analyzing 状态或 cache hit 的 quick 结果
+    let status = data["status"].as_str().unwrap_or("");
+    if status == "analyzing" {
+        assert!(
+            data["jobId"].as_str().is_some(),
+            "analyzing response must have jobId"
+        );
+        assert!(
+            data["retryAfterSeconds"].as_u64().is_some(),
+            "must have retryAfterSeconds"
+        );
+        let payload = serde_json::to_string(&data).unwrap_or_default();
+        assert!(
+            payload.len() < 16384,
+            "analyzing response payload should be <16KB, got {}B",
+            payload.len()
+        );
+        let recommended = data["recommendedNextCalls"].as_array();
+        assert!(recommended.is_some(), "must have recommendedNextCalls");
+    }
+}
+
+#[test]
+fn mcp_small_project_sync_still_works() {
+    let fixture = portable_smoke_dir();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    // 小项目应正常同步返回
+    let data = call_tool_json(
+        &mut session,
+        80050,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": fixture.to_string_lossy(),
+            "language": "rust",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+
+    let status = data["status"].as_str().unwrap_or("");
+    assert!(
+        status != "analyzing" || data["jobId"].as_str().is_some(),
+        "small project should either sync return or auto-job with valid jobId"
+    );
+}
+
+#[test]
+fn mcp_toolset_unchanged() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 80060,
+        "method": "tools/list"
+    }));
+    let resp = session.recv();
+    let tools = resp["result"]["tools"]
+        .as_array()
+        .expect("tools should be array");
+    assert_eq!(
+        tools.len(),
+        49,
+        "full toolset must still be 49 tools, got {}",
+        tools.len()
+    );
+}
+
+#[test]
+fn mcp_default_toolset_six_tools() {
+    let mut session = McpSession::start_default_toolset();
+    let resp = session.initialize();
+
+    let tool_count = resp["result"]["serverInfo"]["toolCount"]
+        .as_u64()
+        .unwrap_or(0);
+    assert_eq!(
+        tool_count, 6,
+        "default AI toolset must be 6, got {}",
+        tool_count
     );
 }

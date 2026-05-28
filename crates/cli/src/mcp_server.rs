@@ -32,6 +32,7 @@
 //! Safety: path deny list, output path restrictions (/tmp only for export).
 //!         Tools advertise permission hints; source writes and project-code execution are not performed.
 
+use gitnexus_analysis_engine::job::JobStatus;
 use gitnexus_analysis_scheduler::{
     build_schedule, AnalysisRequest, AnalysisScope, CacheIntent, FileSnapshot,
 };
@@ -2340,6 +2341,107 @@ impl McpCache {
             }
         }
         Ok((graph_view, result, meta))
+    }
+
+    /// 轻量 cache 探测：只检查缓存是否存在且新鲜，不触发分析子进程。
+    /// 用于 facade 自动 job 化决策：hit 可同步返回，miss/stale 应提交异步 job。
+    fn probe_analysis_cache(&self, root: &Path, language: &str, strict: bool) -> Value {
+        let canonical = match root.canonicalize() {
+            Ok(c) => c,
+            Err(_) => {
+                return json!({
+                    "status": "miss",
+                    "cacheLayer": "none",
+                    "staleReason": "path_not_found",
+                });
+            }
+        };
+        let key = CacheKey {
+            root: canonical.to_string_lossy().to_string(),
+            language: language.to_string(),
+            strict,
+        };
+        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
+
+        if let Some(entry) = self.entries.get(&key) {
+            let root_path = Path::new(&entry.root_canonical);
+            if let Some(reason) = check_stale(root_path, &entry.file_mtimes) {
+                return json!({
+                    "status": "stale",
+                    "cacheLayer": "memory",
+                    "cacheKey": cache_key_str,
+                    "staleReason": reason.reason_code(),
+                });
+            }
+            let manifest_stale = check_manifest_stale(
+                root_path,
+                &entry
+                    .analyze_result
+                    .get("__manifest_hashes")
+                    .and_then(|v| serde_json::from_value(v.clone()).ok())
+                    .unwrap_or_default(),
+            );
+            let docs_stale = check_docs_stale(
+                root_path,
+                &entry
+                    .file_mtimes
+                    .iter()
+                    .filter(|(p, _)| p.ends_with(".md"))
+                    .map(|(k, v)| (k.clone(), *v))
+                    .collect(),
+            );
+            if manifest_stale.is_some() || docs_stale.is_some() {
+                return json!({
+                    "status": "stale",
+                    "cacheLayer": "memory",
+                    "cacheKey": cache_key_str,
+                    "staleReason": manifest_stale.or(docs_stale).map(|r| r.reason_code().to_string()).unwrap_or_else(|| "unknown".to_string()),
+                });
+            }
+            let scheduler = build_scheduler_metadata(
+                root_path,
+                language,
+                strict,
+                scheduler_fingerprint(&entry.scheduler),
+                Some(entry.scheduler_files.clone()),
+            );
+            if scheduler_decision_action(&scheduler.value) != Some("reuse") {
+                return json!({
+                    "status": "stale",
+                    "cacheLayer": "memory",
+                    "cacheKey": cache_key_str,
+                    "staleReason": "scheduler_fingerprint_changed",
+                });
+            }
+            return json!({
+                "status": "hit",
+                "cacheLayer": "memory",
+                "cacheKey": cache_key_str,
+                "schedulerSummary": scheduler.value,
+            });
+        }
+
+        if try_load_persistent(
+            &cache_key_str,
+            language,
+            strict,
+            &canonical,
+            &mut PersistentStaleContext::default(),
+        )
+        .is_some()
+        {
+            json!({
+                "status": "hit",
+                "cacheLayer": "persistent",
+                "cacheKey": cache_key_str,
+            })
+        } else {
+            json!({
+                "status": "miss",
+                "cacheLayer": "none",
+                "cacheKey": cache_key_str,
+            })
+        }
     }
 
     /// Insert entry into memory cache (helper for persistent → memory promotion).
@@ -14879,21 +14981,175 @@ fn make_error_response(id: &Value, code: i64, message: &str) -> Value {
     })
 }
 
+/// 控制面调用判定：这些调用只读 job registry 或 cache stats，不触发分析，
+/// 必须绕过 busy guard，永远快速返回。
+fn is_control_plane_call(tool_name: &str, params: &Value) -> bool {
+    match tool_name {
+        "codelattice_cache" => {
+            matches!(params["mode"].as_str(), Some("status" | "explain"))
+        }
+        "codelattice_project"
+        | "codelattice_symbol"
+        | "codelattice_change_review"
+        | "codelattice_workspace" => {
+            matches!(params["mode"].as_str(), Some("job_status" | "job_detail"))
+        }
+        _ => false,
+    }
+}
+
+/// 控制面直接处理：不需要 McpCache 锁，只读全局 MCP_JOBS registry。
+/// 返回 None 表示不是控制面调用，需要走分析面路径。
+fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<Value, Value>> {
+    match tool_name {
+        "codelattice_cache" => {
+            let mode = params["mode"].as_str().unwrap_or("status");
+            match mode {
+                "status" => {
+                    let stats = crate::mcp_job::cache_stats();
+                    let body = json!({
+                        "schemaVersion": "codelattice.cacheStatus.v1",
+                        "cache": stats,
+                        "activeAnalysisCount": crate::mcp_job::active_analysis_count(),
+                        "generatedFrom": {"staticAnalysis": false, "targetCodeExecuted": false}
+                    });
+                    Some(Ok(tool_result(&body)))
+                }
+                "explain" => {
+                    let body = json!({
+                        "layers": ["memory", "persistent"],
+                        "disable": "CODELATTICE_CACHE=off",
+                        "clear": "Use mode=clear",
+                        "prewarm": "Use codelattice_cache_prewarm"
+                    });
+                    Some(Ok(tool_result(&body)))
+                }
+                _ => None,
+            }
+        }
+        "codelattice_project"
+        | "codelattice_symbol"
+        | "codelattice_change_review"
+        | "codelattice_workspace" => {
+            let mode = params["mode"].as_str().unwrap_or("");
+            match mode {
+                "job_status" => {
+                    let job_id = params["jobId"].as_str().unwrap_or("");
+                    if job_id.is_empty() {
+                        return Some(Err(mcp_error(
+                            "missing_parameter",
+                            "jobId required for job_status mode",
+                        )));
+                    }
+                    match crate::mcp_job::get_job_status(job_id) {
+                        Some(job) => Some(Ok(tool_result(&job))),
+                        None => Some(Ok(tool_result(&json!({
+                            "error": "job_not_found",
+                            "jobId": job_id,
+                            "facade": tool_name
+                        })))),
+                    }
+                }
+                "job_detail" => {
+                    let job_id = params["jobId"].as_str().unwrap_or("");
+                    if job_id.is_empty() {
+                        return Some(Err(mcp_error(
+                            "missing_parameter",
+                            "jobId required for job_detail mode",
+                        )));
+                    }
+                    let page = params["page"].as_u64().unwrap_or(0) as usize;
+                    let page_size =
+                        params["pageSize"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
+                    if crate::mcp_job::MCP_JOBS.get(job_id).is_none() {
+                        return Some(Ok(tool_result(&json!({
+                            "error": "job_not_found",
+                            "jobId": job_id,
+                            "facade": tool_name
+                        }))));
+                    }
+                    match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
+                        Some(page_result) => Some(Ok(tool_result(&page_result))),
+                        None => {
+                            let handle = crate::mcp_job::MCP_JOBS.get(job_id);
+                            let status_str = handle
+                                .as_ref()
+                                .map(|h| match h.status {
+                                    JobStatus::Queued => "queued",
+                                    JobStatus::Running => "running",
+                                    JobStatus::Succeeded => "succeeded",
+                                    JobStatus::Failed => "failed",
+                                    JobStatus::Cancelled => "cancelled",
+                                })
+                                .unwrap_or("unknown");
+                            if matches!(
+                                handle.as_ref().map(|h| h.status),
+                                Some(JobStatus::Running) | Some(JobStatus::Queued)
+                            ) {
+                                Some(Ok(tool_result(&json!({
+                                    "schemaVersion": "codelattice.jobNotReady.v1",
+                                    "status": "job_not_ready",
+                                    "jobId": job_id,
+                                    "jobStatus": status_str,
+                                    "message": "Job is still running. Detail pages will be available after job succeeds.",
+                                    "retryAfterSeconds": 3,
+                                    "recommendedNextCalls": [
+                                        {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": job_id}},
+                                        {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job_id, "page": page, "pageSize": page_size}}
+                                    ]
+                                }))))
+                            } else {
+                                Some(Ok(tool_result(&json!({
+                                    "error": "job_detail_unavailable",
+                                    "jobId": job_id,
+                                    "facade": tool_name
+                                }))))
+                            }
+                        }
+                    }
+                }
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
 fn make_busy_response(id: &Value, tool_name: &str) -> Value {
+    let running_jobs = crate::mcp_job::get_running_jobs_info();
+    let running_job_id = running_jobs.first().map(|j| j.job_id.clone());
+    let retry_after = 5u64;
     let body = json!({
-        "schemaVersion": "codelattice.mcpBusy.v1",
+        "schemaVersion": "codelattice.mcpBusy.v2",
         "error": "mcp_server_busy",
+        "backpressureKind": "analysis_in_progress",
         "tool": tool_name,
-        "message": "Another CodeLattice tools/call is still running in this MCP session. This is a concurrency guard, not a server crash. The server intentionally rejects overlapping calls instead of queuing them until the client times out.",
-        "retry": "Wait for the current CodeLattice call to finish, then retry this tool call in the same MCP session.",
-        "recovery": "If busy responses continue after the long call should have finished, the MCP client may still have a stale in-flight request. Restart the MCP session/client connection and retry.",
-        "recommendedLargeProjectPath": "For large projects or monorepos, prefer mode=job, then poll mode=job_status with jobId, then fetch mode=job_detail pages. This avoids long synchronous calls.",
+        "runningJobId": running_job_id,
+        "retryAfterSeconds": retry_after,
+        "message": "An analysis job is running in the background. Control-plane calls (cache status, job_status, job_detail) are still available.",
+        "allowedControlCalls": [
+            "codelattice_cache(mode=status)",
+            "codelattice_project(mode=job_status, jobId=...)",
+            "codelattice_project(mode=job_detail, jobId=...)",
+            "codelattice_symbol(mode=job_status, jobId=...)",
+            "codelattice_workspace(mode=job_status, jobId=...)"
+        ],
+        "canCallCacheStatus": true,
+        "canCallJobStatus": true,
+        "recommendedNextCalls": if running_job_id.is_some() {
+            vec![
+                json!({"tool": "codelattice_project", "mode": "job_status", "arguments": {"jobId": running_job_id}}),
+                json!({"tool": "codelattice_cache", "mode": "status", "arguments": {"compact": true}})
+            ]
+        } else {
+            vec![]
+        },
+        "retry": format!("Wait {} seconds and retry, or use control-plane calls to check progress.", retry_after),
         "aiGuidance": [
-            "Do not issue parallel CodeLattice MCP tool calls in the same session.",
-            "Treat mcp_server_busy as backpressure from the current session, not as data corruption or a locked cache.",
-            "Do not keep retrying in a tight loop; wait briefly and retry once.",
-            "Use codelattice_workflow with execute=true when you want CodeLattice to orchestrate multiple steps.",
-            "For large workspaces, start with codelattice_workspace(mode=job, root=..., language=auto, compact=true), then use job_status and job_detail."
+            "Analysis now runs in background threads. The MCP event loop is not blocked.",
+            "Use job_status/job_detail to poll progress — these always work even during analysis.",
+            "Use codelattice_cache(mode=status) to check cache state — always available.",
+            "Do not keep retrying analysis calls in a tight loop; poll job_status instead."
         ],
         "generatedFrom": {
             "staticAnalysis": false,
@@ -19872,6 +20128,73 @@ fn handle_facade_job(
     }
 }
 
+/// Facade 自动 job 化决策：
+/// cache hit → 调用者同步返回；cache miss/stale + asyncOnMiss → 自动提交异步 job。
+/// 返回 None 表示 cache hit，调用者应继续同步执行。
+/// 返回 Some(Value) 表示已提交异步 job 或应返回 backpressure。
+fn facade_auto_job_check(
+    cache: &McpCache,
+    root: &str,
+    language: &str,
+    tool_name: &str,
+    mode: &str,
+    params: &Value,
+) -> Option<Value> {
+    let async_on_miss = params["asyncOnMiss"].as_bool().unwrap_or(true);
+    let force_sync = params["forceSync"].as_bool().unwrap_or(false);
+
+    if force_sync || !async_on_miss {
+        return None;
+    }
+
+    let probe = cache.probe_analysis_cache(Path::new(root), language, false);
+    let probe_status = probe["status"].as_str().unwrap_or("miss");
+
+    if probe_status == "hit" {
+        return None;
+    }
+
+    let file_count = if let Some(adapter) = crate::engine_bridge::get_adapter_for_language(language)
+    {
+        adapter.discover_files(root).map(|f| f.len()).unwrap_or(0)
+    } else {
+        0
+    };
+
+    // 小项目允许同步跑，避免过度 job 化
+    let small_project_threshold = 10usize;
+    if file_count <= small_project_threshold && probe_status == "miss" {
+        return None;
+    }
+
+    let estimate = crate::mcp_job::estimate_analysis_duration(file_count, language, probe_status);
+
+    match crate::mcp_job::submit_project_job(root, language, "serial") {
+        Ok(job_resp) => {
+            let job_id = job_resp["jobId"].as_str().unwrap_or("").to_string();
+            Some(json!({
+                "status": "analyzing",
+                "jobId": job_id,
+                "cacheProbe": probe,
+                "estimatedSeconds": estimate["estimatedSeconds"],
+                "retryAfterSeconds": estimate["retryAfterSeconds"],
+                "estimatedClass": estimate["estimatedClass"],
+                "message": "Analysis is running in background. Use job_status/job_detail; retry this facade after job succeeds.",
+                "recommendedNextCalls": [
+                    {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": job_id, "root": root, "language": language, "compact": true}},
+                    {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job_id, "page": 0, "pageSize": 50, "root": root, "language": language, "compact": true}}
+                ],
+                "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
+            }))
+        }
+        Err(e) => Some(json!({
+            "error": "auto_job_submit_failed",
+            "message": e,
+            "cacheProbe": probe,
+        })),
+    }
+}
+
 fn handle_project_job(
     root: &str,
     language: &str,
@@ -19965,6 +20288,19 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             }
         }
     }
+
+    // 分析面 mode 的自动 job 化：cache miss/stale + 大项目 → 异步 job
+    if matches!(
+        mode,
+        "quick" | "standard" | "deep" | "insights" | "diagnose" | "full" | "ai_context"
+    ) {
+        if let Some(auto_job_resp) =
+            facade_auto_job_check(cache, root, language, "codelattice_project", mode, params)
+        {
+            return Ok(tool_result(&auto_job_resp));
+        }
+    }
+
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "overview" => {
             let r = handle_project_overview(cache, params)?;
@@ -22850,9 +23186,33 @@ pub fn run_mcp_server() -> Result<(), String> {
         if request["method"].as_str() == Some("tools/call") {
             let id = request.get("id").cloned().unwrap_or(Value::Null);
             let tool_name = request["params"]["name"].as_str().unwrap_or("");
+            let arguments = request
+                .get("params")
+                .and_then(|p| p.get("arguments"))
+                .cloned()
+                .unwrap_or(json!({}));
+
+            // 控制面调用：不需要 McpCache 锁，不受 busy guard 限制，主线程同步处理
+            if is_control_plane_call(tool_name, &arguments) {
+                let response = match handle_control_plane_call(tool_name, &arguments) {
+                    Some(Ok(result)) => make_response(&id, result),
+                    Some(Err(err)) => make_response(
+                        &id,
+                        json!({
+                            "content": [{ "type": "text", "text": serde_json::to_string(&err).unwrap_or_default() }],
+                            "isError": true
+                        }),
+                    ),
+                    None => make_error_response(&id, -32603, "Control plane handler returned None"),
+                };
+                let response_str = serde_json::to_string(&response).unwrap_or_default();
+                let _ = writeln!(stdout, "{}", response_str);
+                let _ = stdout.flush();
+                continue;
+            }
+
+            // 分析面调用：检查 busy guard（串行化分析面调用以保护共享 cache）
             if active_tool_calls.load(Ordering::SeqCst) > 0 {
-                // CodeLattice 的 MCP 工具调用共享进程内 cache。客户端并行
-                // 发起 tools/call 时直接返回 busy，避免旧实现的 stdio 断连。
                 let response = make_busy_response(&id, tool_name);
                 let response_str = serde_json::to_string(&response).unwrap_or_default();
                 let _ = writeln!(stdout, "{}", response_str);
