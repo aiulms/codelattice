@@ -110,7 +110,8 @@ try:
         timeout=240,
     )
     serialized = json.dumps(job, separators=(",", ":"))
-    if job.get("summary", {}).get("projects") is not None:
+    summary = job.get("summary") or {}
+    if summary.get("projects") is not None:
         raise AssertionError("workspace job response embedded full projects list")
     if len(serialized) > 60000:
         raise AssertionError(f"workspace compact job response too large: {len(serialized)} bytes")
