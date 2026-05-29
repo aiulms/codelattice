@@ -16995,6 +16995,87 @@ fn mcp_symbol_search_finds_symbols_after_job_warm() {
 }
 
 #[test]
+fn mcp_change_review_impact_accepts_symbol_search_id() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    let search = call_tool_json(
+        &mut session,
+        84110,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+    let search_inner = search.get("result").unwrap_or(&search);
+    let symbol_id = search_inner["matches"]
+        .as_array()
+        .and_then(|m| m.first())
+        .and_then(|m| m["id"].as_str())
+        .expect("symbol search should return an id")
+        .to_string();
+
+    let impact = call_tool_json(
+        &mut session,
+        84111,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "impact",
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "symbol": symbol_id,
+            "compact": true
+        }),
+    );
+    let impact_inner = impact.get("result").unwrap_or(&impact);
+    assert_ne!(
+        impact_inner["risk"].as_str(),
+        Some("UNKNOWN"),
+        "impact must accept the id returned by symbol search: {impact:?}"
+    );
+    assert_eq!(
+        impact_inner["targetId"].as_str(),
+        Some(symbol_id.as_str()),
+        "impact should resolve the searched symbol id directly: {impact:?}"
+    );
+}
+
+#[test]
+fn mcp_cache_status_default_persistent_cache_enables_engine_cache() {
+    let mut session = McpSession::start_with_cache_dir(None);
+    session.initialize();
+    session.send_notification_initialized();
+
+    let status = call_tool_json(
+        &mut session,
+        84112,
+        "codelattice_cache",
+        serde_json::json!({"mode":"status","compact":true}),
+    );
+
+    assert_eq!(
+        status["persistentCache"]["available"].as_bool(),
+        Some(true),
+        "default persistent cache should be available: {status:?}"
+    );
+    assert_eq!(
+        status["cache"]["persistent"].as_bool(),
+        Some(true),
+        "engine artifact cache should use the same default persistent cache directory: {status:?}"
+    );
+    assert!(
+        status["cache"]["cacheDir"].as_str().is_some(),
+        "cache.cacheDir should show the effective persistent cache directory: {status:?}"
+    );
+}
+
+#[test]
 fn mcp_project_job_summary_exposes_facade_digest() {
     let root = portable_smoke_dir();
     let mut session = McpSession::start_with_toolset("full");

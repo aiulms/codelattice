@@ -552,21 +552,33 @@ impl McpJobRegistry {
 pub static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> =
     std::sync::LazyLock::new(McpJobRegistry::new);
 
+fn effective_persistent_cache_dir() -> Option<std::path::PathBuf> {
+    if std::env::var("CODELATTICE_CACHE").as_deref() == Ok("off") {
+        return None;
+    }
+    if let Ok(custom) = std::env::var("CODELATTICE_CACHE_DIR") {
+        return Some(std::path::PathBuf::from(custom));
+    }
+    let home = std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"));
+    Some(home.join(".cache").join("codelattice"))
+}
+
 pub static ENGINE_CACHE: std::sync::LazyLock<std::sync::Mutex<ArtifactCache>> =
     std::sync::LazyLock::new(|| {
-        let cache_dir = std::env::var("CODELATTICE_CACHE_DIR")
-            .ok()
-            .map(std::path::PathBuf::from);
+        let cache_dir = effective_persistent_cache_dir();
         std::sync::Mutex::new(ArtifactCache::new(cache_dir))
     });
 
 pub fn cache_stats() -> serde_json::Value {
     if let Ok(cache) = ENGINE_CACHE.lock() {
         let (hits, misses, stale, rebuilt) = cache.stats();
+        let cache_dir = effective_persistent_cache_dir().map(|p| p.display().to_string());
         serde_json::json!({
             "enabled": true,
             "persistent": cache.persistent_enabled(),
-            "cacheDir": std::env::var("CODELATTICE_CACHE_DIR").ok(),
+            "cacheDir": cache_dir,
             "totalArtifacts": cache.entry_count(),
             "hits": hits, "misses": misses, "stale": stale, "rebuilt": rebuilt,
             "analysisAvailableWithoutPersistentCache": true,

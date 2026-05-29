@@ -4190,6 +4190,42 @@ impl GraphView {
     /// Find symbols by name (case-insensitive substring match).
     /// Returns matching nodes, optionally filtered by kind.
     fn find_symbols(&self, query: &str, kind: Option<&str>, limit: usize) -> Vec<Value> {
+        let query = query.trim();
+        if query.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+
+        // Search results expose stable graph ids. Accept those ids directly so
+        // downstream tools such as impact/context/callers can consume the exact
+        // value returned by codelattice_symbol without asking the AI to strip it
+        // back to a display name.
+        if let Some(node) = self.nodes_by_id.get(query) {
+            let node_kind = node["properties"]["symbolKind"]
+                .as_str()
+                .or_else(|| node["properties"]["kind"].as_str())
+                .unwrap_or("");
+            let label = node["label"].as_str().unwrap_or("");
+            let kind_matches = kind
+                .map(|k| node_kind.eq_ignore_ascii_case(k) || label.eq_ignore_ascii_case(k))
+                .unwrap_or(true);
+            let is_symbol_like = label == "symbol"
+                || matches!(
+                    node_kind,
+                    "function"
+                        | "method"
+                        | "associated-function"
+                        | "class"
+                        | "struct"
+                        | "enum"
+                        | "trait"
+                        | "const"
+                        | "static"
+                );
+            if kind_matches && is_symbol_like {
+                return vec![node.clone()];
+            }
+        }
+
         let query_lower = query.to_lowercase();
         let mut results = Vec::new();
 
