@@ -7,3 +7,27 @@ pub fn main_fn() {
     let y = helper();
     println!("{}", x + y);
 }
+
+pub fn stale_test_fn() {}
+
+mod delta_target;
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}

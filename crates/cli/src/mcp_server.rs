@@ -136,6 +136,7 @@ use gitnexus_analysis_scheduler::{
 };
 use gitnexus_workspace_model::impact::{cross_project_impact, ImpactDirection, ImpactTarget};
 use gitnexus_workspace_model::{build_workspace_graph, scan_workspace_inventory, ProjectInfo};
+use serde::Serialize;
 use serde_json::{json, Value};
 use std::collections::{BTreeSet, HashMap};
 use std::io::{BufRead, Read, Write};
@@ -147,6 +148,17 @@ use std::sync::{
 };
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Freshness {
+    FreshSnapshot,
+    StaleBaseline,
+    FreshDelta,
+    FreshDeltaPlusStaleBaseline,
+    BackgroundRefreshRunning,
+    PartialResult,
+}
 
 // ============================================================
 // Path Safety
@@ -2677,15 +2689,11 @@ impl McpCache {
         // Layer 1: Check process-local memory cache
         if let Some(entry) = self.entries.get_mut(&key) {
             let root_path = Path::new(&entry.root_canonical);
-            if let Some(reason) = check_stale(root_path, &entry.file_mtimes) {
-                // Stale — invalidate and fall through
-                previous_scheduler_fingerprint_for_fresh = scheduler_fingerprint(&entry.scheduler);
-                previous_scheduler_files_for_fresh = Some(entry.scheduler_files.clone());
-                stale_reason_for_meta = Some(reason.reason_code().to_string());
-                entry.stale_reason = Some(reason.reason_code().to_string());
-                self.entries.remove(&key);
+            // stale baseline 辅助：返回过时缓存数据，不删除条目
+            let file_stale_reason = check_stale(root_path, &entry.file_mtimes);
+            let stale_reason_code: Option<String> = if let Some(reason) = &file_stale_reason {
+                Some(reason.reason_code().to_string())
             } else {
-                // Also check manifest and docs
                 let manifest_stale = check_manifest_stale(
                     root_path,
                     &entry
@@ -2704,17 +2712,8 @@ impl McpCache {
                         .collect(),
                 );
                 if let Some(reason) = manifest_stale.or(docs_stale) {
-                    previous_scheduler_fingerprint_for_fresh =
-                        scheduler_fingerprint(&entry.scheduler);
-                    previous_scheduler_files_for_fresh = Some(entry.scheduler_files.clone());
-                    stale_reason_for_meta = Some(reason.reason_code().to_string());
-                    entry.stale_reason = Some(reason.reason_code().to_string());
-                    self.entries.remove(&key);
+                    Some(reason.reason_code().to_string())
                 } else {
-                    // Scheduler fingerprint is the broad cache reuse gate. It
-                    // covers project-local files that the legacy source mtime
-                    // map intentionally ignored, while still skipping hidden
-                    // and generated directories.
                     let previous_fingerprint = scheduler_fingerprint(&entry.scheduler);
                     let scheduler = build_scheduler_metadata(
                         root_path,
@@ -2724,12 +2723,11 @@ impl McpCache {
                         Some(entry.scheduler_files.clone()),
                     );
                     if scheduler_decision_action(&scheduler.value) != Some("reuse") {
-                        previous_scheduler_fingerprint_for_fresh = previous_fingerprint;
-                        previous_scheduler_files_for_fresh = Some(entry.scheduler_files.clone());
-                        let reason = StaleReason::SchedulerFingerprintChanged;
-                        stale_reason_for_meta = Some(reason.reason_code().to_string());
-                        entry.stale_reason = Some(reason.reason_code().to_string());
-                        self.entries.remove(&key);
+                        Some(
+                            StaleReason::SchedulerFingerprintChanged
+                                .reason_code()
+                                .to_string(),
+                        )
                     } else {
                         // Fresh memory hit
                         entry.scheduler = scheduler.value.clone();
@@ -2743,6 +2741,7 @@ impl McpCache {
                             "cacheKey": cache_key_str,
                             "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
                             "analysisDurationMs": entry.analysis_duration_ms,
+                            "freshness": "fresh_snapshot",
                             "schedule": scheduler.value,
                         });
                         return Ok((
@@ -2752,6 +2751,120 @@ impl McpCache {
                         ));
                     }
                 }
+            };
+
+            // Stale baseline：保留条目，返回过时数据 + 增量提取新/改文件的符号
+            if let Some(ref reason_code) = stale_reason_code {
+                entry.stale_reason = Some(reason_code.clone());
+
+                let mut delta_symbol_count: u32 = 0;
+                let mut delta_files: Vec<String> = Vec::new();
+
+                let files_to_extract: Vec<String> = match &file_stale_reason {
+                    Some(StaleReason::FileAdded(files)) => files
+                        .iter()
+                        .filter(|f| f.ends_with(".rs"))
+                        .cloned()
+                        .collect(),
+                    Some(StaleReason::FileModified(files)) => files
+                        .iter()
+                        .filter(|f| f.ends_with(".rs"))
+                        .cloned()
+                        .collect(),
+                    _ => Vec::new(),
+                };
+
+                if !files_to_extract.is_empty() {
+                    let delta_result: Result<(), String> = (|| {
+                        let extractor = gitnexus_project_model::item::create_best_extractor();
+                        let mut inputs = Vec::new();
+                        for rel_path in &files_to_extract {
+                            let abs_path = root_path.join(rel_path);
+                            let content = std::fs::read_to_string(&abs_path)
+                                .map_err(|e| format!("read {}: {}", rel_path, e))?;
+                            inputs.push(gitnexus_project_model::item::ItemExtractionInput {
+                                source_path: rel_path.clone(),
+                                source_text: content,
+                                package_name: String::new(),
+                                target_name: None,
+                                module_path: None,
+                            });
+                        }
+                        let output = gitnexus_project_model::item::extract_symbols_from_files(
+                            extractor.as_ref(),
+                            &inputs,
+                        );
+                        for sym in &output.symbols {
+                            let sym_node_id = format!("symbol:{}", sym.id);
+                            let sym_node = json!({
+                                "id": sym_node_id,
+                                "label": "symbol",
+                                "properties": {
+                                    "name": sym.name,
+                                    "symbolKind": sym.symbol_kind,
+                                    "sourcePath": sym.source_path,
+                                    "packageName": sym.package_name,
+                                    "targetName": sym.target_name,
+                                    "modulePath": sym.module_path,
+                                    "visibility": sym.visibility,
+                                    "lineStart": sym.line_start,
+                                    "lineEnd": sym.line_end,
+                                    "genericParams": sym.generic_params,
+                                    "isAsync": sym.is_async,
+                                    "isUnsafe": sym.is_unsafe,
+                                    "isConstFn": sym.is_const_fn,
+                                    "isPub": sym.is_pub,
+                                    "implDetails": sym.impl_details,
+                                }
+                            });
+                            entry
+                                .graph_view
+                                .nodes_by_id
+                                .insert(sym_node_id.clone(), sym_node.clone());
+                            let name_lower = sym.name.to_lowercase();
+                            entry
+                                .graph_view
+                                .symbols_by_name
+                                .entry(name_lower)
+                                .or_default()
+                                .push(sym_node);
+                            delta_symbol_count += 1;
+                        }
+                        Ok(())
+                    })();
+                    if delta_result.is_ok() {
+                        delta_files = files_to_extract;
+                    }
+                }
+
+                let freshness = if delta_symbol_count > 0 {
+                    "fresh_delta_plus_stale_baseline"
+                } else {
+                    "stale_baseline"
+                };
+                let mut meta = json!({
+                    "cacheHit": true,
+                    "cacheLayer": "memory_stale",
+                    "cacheKey": cache_key_str,
+                    "freshness": freshness,
+                    "staleReason": reason_code,
+                    "staleBaseline": true,
+                    "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
+                    "analysisDurationMs": entry.analysis_duration_ms,
+                });
+                if delta_symbol_count > 0 {
+                    meta.as_object_mut()
+                        .unwrap()
+                        .insert("deltaSymbolCount".to_string(), json!(delta_symbol_count));
+                    meta.as_object_mut()
+                        .unwrap()
+                        .insert("deltaFiles".to_string(), json!(delta_files));
+                }
+                return Ok((
+                    entry.graph_view.clone_shallow(),
+                    entry.analyze_result.clone(),
+                    meta,
+                ));
             }
         }
 
@@ -2909,6 +3022,7 @@ impl McpCache {
             "cacheHit": false,
             "cacheLayer": "none",
             "cacheKey": cache_key_str,
+            "freshness": "fresh_snapshot",
             "analysisDurationMs": duration_ms,
             "schedule": scheduler.value,
         });
@@ -21071,6 +21185,8 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         }
     }
 
+    let mut quick_freshness: Option<String> = None;
+
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "overview" => {
             let r = handle_project_overview(cache, analysis_params)?;
@@ -21086,6 +21202,9 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             }
             let r = handle_project_insights(cache, &insight_params)?;
             let insights = unwrap_tool_result(&r);
+            if mode == "quick" {
+                quick_freshness = insights["freshness"].as_str().map(String::from);
+            }
             let progressive = json!({
                 "schemaVersion": "codelattice.projectProgressiveMap.v1",
                 "analysisDepth": mode,
@@ -21306,17 +21425,77 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         next_actions = new_next_actions;
     }
 
-    Ok(tool_result(&wrap_facade_output(
-        inner,
-        "codelattice_project",
-        mode,
-        language,
-        root,
-        summary,
-        next_actions,
-        underlying,
-        compact,
-    )))
+    Ok(tool_result(&if mode == "quick" && compact {
+        let facade = wrap_facade_output(
+            inner,
+            "codelattice_project",
+            mode,
+            language,
+            root,
+            summary,
+            next_actions,
+            underlying,
+            compact,
+        );
+        let freshness = quick_freshness.as_deref().unwrap_or("fresh_snapshot");
+        let evidence: Vec<Value> = facade
+            .get("result")
+            .and_then(|r| r.get("aiDigest"))
+            .and_then(|d| d.get("topRisks"))
+            .and_then(|v| v.as_array())
+            .map(|arr| arr.iter().take(5).cloned().collect())
+            .unwrap_or_default();
+        let symbol_count = facade
+            .get("result")
+            .and_then(|r| r.get("summary"))
+            .and_then(|s| s.get("symbolCount"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let risk_level = facade
+            .get("summary")
+            .and_then(|s| s.get("riskLevel"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let confidence_level = match risk_level {
+            "high" | "critical" => "high",
+            "medium" => "medium",
+            _ => "low",
+        };
+        let answer_bytes = facade.to_string().len();
+        json!({
+            "answer": facade,
+            "freshness": freshness,
+            "evidence": evidence,
+            "confidence": {
+                "level": confidence_level,
+                "missingEvidence": [
+                    {"kind": "runtime_verification", "explanation": "No runtime logs, test results, or coverage data were used."},
+                    {"kind": "no_code_execution", "explanation": "Target code was not executed. Verify hypotheses with targeted tests."}
+                ],
+            },
+            "omitted": {
+                "fields": ["fileMetrics", "qualityMetrics", "docsSignals", "riskMap"],
+                "detailAvailableVia": "codelattice_project mode=standard compact=false",
+            },
+            "tokenBudget": {
+                "used": answer_bytes,
+                "max": 8192,
+            },
+            "symbolCount": symbol_count,
+        })
+    } else {
+        wrap_facade_output(
+            inner,
+            "codelattice_project",
+            mode,
+            language,
+            root,
+            summary,
+            next_actions,
+            underlying,
+            compact,
+        )
+    }))
 }
 
 // ── codelattice_symbol ───────────────────────────────────────────────

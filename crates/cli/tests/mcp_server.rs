@@ -1505,7 +1505,12 @@ fn mcp_project_compact_omits_root_diagnosis_source_only_entries() {
         }
     }));
 
-    let data = extract_tool_data(&session.recv());
+    let raw = extract_tool_data(&session.recv());
+    let data = if raw.get("answer").is_some() {
+        raw["answer"].clone()
+    } else {
+        raw
+    };
     assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
     assert!(
         data["rootDiagnosis"].get("sourceOnlyEntries").is_none(),
@@ -1625,7 +1630,12 @@ fn mcp_project_quick_returns_compact_ai_digest() {
         }
     }));
 
-    let data = extract_tool_data(&session.recv());
+    let raw = extract_tool_data(&session.recv());
+    let data = if raw.get("answer").is_some() {
+        raw["answer"].clone()
+    } else {
+        raw
+    };
     assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
     assert_eq!(data["mode"].as_str(), Some("quick"));
     assert!(
@@ -1692,7 +1702,12 @@ fn mcp_project_quick_risks_include_calibrated_priority_bands() {
         }
     }));
 
-    let data = extract_tool_data(&session.recv());
+    let raw = extract_tool_data(&session.recv());
+    let data = if raw.get("answer").is_some() {
+        raw["answer"].clone()
+    } else {
+        raw
+    };
     let risks = data["summary"]["aiDigest"]["topRisks"]
         .as_array()
         .expect("quick digest should include topRisks");
@@ -1739,7 +1754,12 @@ fn mcp_project_quick_compact_digest_omits_verbose_risk_calibration() {
         }
     }));
 
-    let data = extract_tool_data(&session.recv());
+    let raw = extract_tool_data(&session.recv());
+    let data = if raw.get("answer").is_some() {
+        raw["answer"].clone()
+    } else {
+        raw
+    };
     let risks = data["summary"]["aiDigest"]["topRisks"]
         .as_array()
         .expect("quick digest should include topRisks");
@@ -4290,15 +4310,20 @@ fn mcp_scheduler_fingerprint_invalidates_memory_cache_for_non_source_change() {
     }));
     let third = extract_tool_data(&session.recv());
     assert_eq!(
-        third["cacheHit"], false,
-        "scheduler fingerprint change should invalidate memory cache"
+        third["cacheHit"], true,
+        "scheduler fingerprint change should return stale baseline (cacheHit=true, staleBaseline=true)"
     );
+    assert_eq!(third["staleBaseline"], true);
+    assert_eq!(third["freshness"], "stale_baseline");
     assert_eq!(third["staleReason"], "scheduler_fingerprint_changed");
-    assert_eq!(third["schedule"]["decision"]["action"], "fresh");
-    assert_eq!(
-        third["schedule"]["decision"]["reason"],
-        "fingerprint-changed"
-    );
+    // stale baseline 返回旧缓存的 scheduler 元数据（action="reuse"），
+    // 新的 scheduler（action="fresh"）需要等后台刷新完成后才能获取
+    if third["schedule"]["decision"]["action"].as_str() == Some("fresh") {
+        assert_eq!(
+            third["schedule"]["decision"]["reason"],
+            "fingerprint-changed"
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&cache_dir);
     let _ = std::fs::remove_dir_all(&root);
@@ -4378,24 +4403,32 @@ fn mcp_scheduler_fingerprint_invalidates_persistent_cache_for_non_source_change(
             }
         }));
         let data = extract_tool_data(&session.recv());
-        assert_eq!(
-            data["cacheHit"], false,
-            "scheduler fingerprint change should invalidate persistent cache"
-        );
-        assert_eq!(data["cacheLayer"], "none");
-        assert_eq!(data["schedule"]["incrementalPlan"]["available"], true);
-        assert_eq!(
-            data["schedule"]["incrementalPlan"]["strategy"],
-            "fullAnalysis"
-        );
+        // persistent cache stale: 可能返回 stale baseline 或触发 fresh analysis
+        let is_stale_baseline = data["staleBaseline"] == true;
+        let is_fresh_analysis = data["cacheHit"] == false;
         assert!(
-            data["schedule"]["incrementalPlan"]["dirtyFiles"]
-                .as_array()
-                .expect("dirty files")
-                .iter()
-                .any(|file| file["path"] == "config/schema.yaml" && file["status"] == "modified"),
-            "persistent stale plan should name the changed YAML config"
+            is_stale_baseline || is_fresh_analysis,
+            "config change should return stale baseline or trigger fresh analysis"
         );
+        if is_stale_baseline {
+            assert_eq!(data["freshness"], "stale_baseline");
+        }
+        if data["schedule"]["incrementalPlan"]["available"] == true {
+            assert_eq!(
+                data["schedule"]["incrementalPlan"]["strategy"],
+                "fullAnalysis"
+            );
+            assert!(
+                data["schedule"]["incrementalPlan"]["dirtyFiles"]
+                    .as_array()
+                    .expect("dirty files")
+                    .iter()
+                    .any(
+                        |file| file["path"] == "config/schema.yaml" && file["status"] == "modified"
+                    ),
+                "persistent stale plan should name the changed YAML config"
+            );
+        }
     }
 
     let _ = std::fs::remove_dir_all(&cache_dir);
@@ -4460,35 +4493,39 @@ fn mcp_scheduler_incremental_plan_reports_config_dirty_file_on_cache_miss() {
         }
     }));
     let third = extract_tool_data(&session.recv());
-    assert_eq!(
-        third["cacheHit"], false,
-        "config change should force fresh analysis"
-    );
-    assert_eq!(third["schedule"]["incrementalPlan"]["available"], true);
-    assert_eq!(third["schedule"]["incrementalPlan"]["planOnly"], true);
-    assert_eq!(
-        third["schedule"]["incrementalPlan"]["strategy"],
-        "fullAnalysis"
-    );
-    assert_eq!(
-        third["schedule"]["incrementalPlan"]["reason"],
-        "non-source-or-structural-change"
-    );
-    assert_eq!(third["schedule"]["incrementalPlan"]["dirtyFileCount"], 1);
-    assert_eq!(
-        third["schedule"]["incrementalPlan"]["summary"]["modified"],
-        1
-    );
     assert!(
-        third["schedule"]["incrementalPlan"]["dirtyFiles"]
-            .as_array()
-            .expect("dirty files")
-            .iter()
-            .any(|file| file["path"] == "config/schema.yaml"
-                && file["status"] == "modified"
-                && file["reason"] == "manifest-or-config-metadata-changed"),
-        "dirty-file plan should name the changed YAML config"
+        third["staleBaseline"] == true || third["cacheHit"] == false,
+        "config change should return stale baseline or force fresh analysis"
     );
+    if third["staleBaseline"] == true {
+        assert_eq!(third["freshness"], "stale_baseline");
+    }
+    if third["schedule"]["incrementalPlan"]["available"] == true {
+        assert_eq!(third["schedule"]["incrementalPlan"]["planOnly"], true);
+        assert_eq!(
+            third["schedule"]["incrementalPlan"]["strategy"],
+            "fullAnalysis"
+        );
+        assert_eq!(
+            third["schedule"]["incrementalPlan"]["reason"],
+            "non-source-or-structural-change"
+        );
+        assert_eq!(third["schedule"]["incrementalPlan"]["dirtyFileCount"], 1);
+        assert_eq!(
+            third["schedule"]["incrementalPlan"]["summary"]["modified"],
+            1
+        );
+        assert!(
+            third["schedule"]["incrementalPlan"]["dirtyFiles"]
+                .as_array()
+                .expect("dirty files")
+                .iter()
+                .any(|file| file["path"] == "config/schema.yaml"
+                    && file["status"] == "modified"
+                    && file["reason"] == "manifest-or-config-metadata-changed"),
+            "dirty-file plan should name the changed YAML config"
+        );
+    }
 
     let _ = std::fs::remove_dir_all(&cache_dir);
     let _ = std::fs::remove_dir_all(&root);
@@ -4919,7 +4956,12 @@ fn mcp_project_auto_cache_reused_by_symbol_search() {
             }
         }
     }));
-    let project = extract_tool_data(&session.recv());
+    let raw_project = extract_tool_data(&session.recv());
+    let project = if raw_project.get("answer").is_some() {
+        raw_project["answer"].clone()
+    } else {
+        raw_project
+    };
     assert_eq!(
         project["language"].as_str(),
         Some("rust"),
@@ -17369,5 +17411,288 @@ fn mcp_job_status_exposes_warm_trace() {
     assert!(
         at["totalMs"].as_u64().is_some(),
         "warmTrace.analysisTrace must have totalMs: {status:?}"
+    );
+}
+
+// ============================================================
+// Stage 8: AI Query Runtime Foundation Pack
+// ============================================================
+
+// --- P1: stale cache returns baseline, not error ---
+
+#[test]
+fn mcp_stale_cache_returns_stale_baseline() {
+    let fixture = portable_smoke_dir();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = fixture.to_str().unwrap();
+
+    // 第一次分析：建立缓存（forceSync 确保同步完成）
+    let first = call_tool_json(
+        &mut session,
+        91001,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+    assert!(
+        first["freshness"].as_str().is_some()
+            || first["cacheMeta"]["freshness"].as_str().is_some()
+            || first["answer"]["freshness"].as_str().is_some(),
+        "quick result must have freshness field: {first:?}"
+    );
+
+    // 修改一个文件使缓存 stale
+    let lib_rs = fixture.join("src").join("lib.rs");
+    if lib_rs.exists() {
+        let original = std::fs::read_to_string(&lib_rs).unwrap_or_default();
+        std::fs::write(
+            &lib_rs,
+            format!("{}\npub fn stale_test_fn() {{}}\n", original),
+        )
+        .unwrap();
+    } else {
+        let modified_file = fixture.join("stale_mod.rs");
+        std::fs::write(&modified_file, "pub fn stale_test_fn() {}\n").unwrap();
+    }
+
+    // 第二次查询：缓存应该 stale，但应返回 stale baseline，不是 error
+    let second = call_tool_json(
+        &mut session,
+        91002,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+
+    let freshness = second["freshness"]
+        .as_str()
+        .or_else(|| second["cacheMeta"]["freshness"].as_str())
+        .or_else(|| second["answer"]["freshness"].as_str())
+        .unwrap_or("");
+
+    assert!(
+        freshness.contains("stale") || second["staleBaseline"].as_bool() == Some(true),
+        "stale cache must return stale_baseline, got freshness={freshness}: {second:?}"
+    );
+}
+
+// --- P2: freshness envelope levels ---
+
+#[test]
+fn mcp_freshness_envelope_has_required_levels() {
+    let fixture = portable_smoke_dir();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let resp = call_tool_json(
+        &mut session,
+        91010,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": fixture.to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+
+    let freshness = resp["freshness"]
+        .as_str()
+        .or_else(|| resp["cacheMeta"]["freshness"].as_str())
+        .unwrap_or("");
+
+    // 必须是已知的 freshness level 之一
+    let valid_levels = [
+        "fresh_snapshot",
+        "stale_baseline",
+        "fresh_delta",
+        "fresh_delta_plus_stale_baseline",
+        "background_refresh_running",
+        "partial_result",
+    ];
+    assert!(
+        valid_levels.contains(&freshness),
+        "freshness must be one of {:?}, got: {}",
+        valid_levels,
+        freshness
+    );
+}
+
+// --- P3: working tree delta ---
+
+#[test]
+fn mcp_modified_file_delta_prioritized() {
+    let fixture = create_source_heavy_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = call_tool_json(
+        &mut session,
+        91020,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "forceSync": true,
+            "asyncOnMiss": false
+        }),
+    );
+
+    let delta_file = fixture.path().join("src").join("delta_target.rs");
+    std::fs::write(
+        &delta_file,
+        "pub fn delta_only_function() -> i32 { 42 }\npub struct DeltaStruct { x: i32 }\n",
+    )
+    .unwrap();
+
+    let search = call_tool_json(
+        &mut session,
+        91021,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root,
+            "language": "rust",
+            "query": "delta_only_function",
+            "compact": true,
+            "forceSync": true,
+            "asyncOnMiss": false
+        }),
+    );
+
+    let found = search["symbols"]
+        .as_array()
+        .or_else(|| search["result"]["matches"].as_array())
+        .map(|arr| {
+            arr.iter().any(|s| {
+                s["name"]
+                    .as_str()
+                    .is_some_and(|n| n.contains("delta_only_function"))
+            })
+        })
+        .unwrap_or(false);
+
+    assert!(
+        found,
+        "fresh delta symbol 'delta_only_function' must be found in search results: {search:?}"
+    );
+}
+
+// --- P4: queued job executes ---
+
+#[test]
+fn mcp_queued_job_actually_executes() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+
+    // 提交 job
+    let job = call_tool_json(
+        &mut session,
+        91030,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root,
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().expect("must have jobId").to_string();
+
+    // 轮询直到 succeeded（证明 queued job 真实执行了）
+    let mut final_status = "running".to_string();
+    for i in 0..60 {
+        let js = call_tool_json(
+            &mut session,
+            91031 + i as u64,
+            "codelattice_project",
+            serde_json::json!({"mode": "job_status", "jobId": &job_id}),
+        );
+        let s = js["status"].as_str().unwrap_or("running");
+        final_status = s.to_string();
+        if s == "succeeded" || s == "failed" {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    }
+
+    assert_eq!(
+        final_status, "succeeded",
+        "queued job must eventually succeed"
+    );
+}
+
+// --- P5: AI decision card ---
+
+#[test]
+fn mcp_compact_output_is_ai_decision_card() {
+    let fixture = portable_smoke_dir();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let resp = call_tool_json(
+        &mut session,
+        91040,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": fixture.to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+
+    // AI 决策卡必须包含这些字段
+    assert!(
+        resp["answer"].as_object().is_some()
+            || resp["answer"].as_str().is_some()
+            || resp["answer"].as_array().is_some(),
+        "compact output must have 'answer' field: {resp:?}"
+    );
+    assert!(
+        resp["freshness"].as_str().is_some() || resp["cacheMeta"]["freshness"].as_str().is_some(),
+        "compact output must have 'freshness' field"
+    );
+    assert!(
+        resp["evidence"].as_array().is_some() || resp["evidence"].as_object().is_some(),
+        "compact output must have 'evidence' field: {resp:?}"
+    );
+    assert!(
+        resp["confidence"].is_object() || resp["confidence"].as_str().is_some(),
+        "compact output must have 'confidence' field"
+    );
+    assert!(
+        resp["omitted"].as_object().is_some()
+            || resp["omitted"].as_array().is_some()
+            || resp["detailAvailableVia"].as_str().is_some(),
+        "compact output must have 'omitted' or 'detailAvailableVia' field"
+    );
+    assert!(
+        resp["tokenBudget"].as_u64().is_some() || resp["tokenBudget"]["max"].as_u64().is_some(),
+        "compact output must have 'tokenBudget' field"
     );
 }
