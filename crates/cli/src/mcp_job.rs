@@ -49,7 +49,7 @@ pub trait FacadeCacheWarmer {
         root: &str,
         language: &str,
         result: &SerializableResult,
-    ) -> Result<(), String>;
+    ) -> Result<crate::mcp_server::WarmCacheMeta, String>;
 }
 
 /// 由 run_mcp_server() 调用，注册全局 facade 图谱缓存引用
@@ -77,11 +77,12 @@ fn try_warm_facade_cache(root: &str, language: &str) -> Result<(), String> {
 
 /// Warm facade cache directly from job artifacts (no subprocess re-analysis).
 /// This is the fast path used by job workers after analysis completes.
+/// 从 job artifacts 预热 facade cache。返回缓存质量元数据。
 fn try_warm_facade_cache_from_result(
     root: &str,
     language: &str,
     result: &SerializableResult,
-) -> Result<(), String> {
+) -> Result<crate::mcp_server::WarmCacheMeta, String> {
     let slot = MCP_FACADE_CACHE
         .get()
         .ok_or_else(|| "facade cache warmer not registered".to_string())?;
@@ -885,24 +886,46 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             },
         );
 
-        // 闭环：只有 facade 图谱缓存完成预热后，job 才能对外宣称 succeeded。
-        // 否则 AI 会在 succeeded 后立即重试 quick/search，重新落入同步大分析。
+        // 闭环：只有 facade 图谱缓存完成预热后（且有真实符号），job 才能对外宣称 succeeded。
         let warm_result = try_warm_facade_cache_from_result(&root_owned, &lang_owned, &result);
+
+        // 从 warm_from_result 获取真实缓存质量数据
+        let facade_symbol_count = warm_result.as_ref().map(|m| m.symbol_count).unwrap_or(0);
+        let used_cli_fallback = warm_result
+            .as_ref()
+            .map(|m| m.used_cli_fallback)
+            .unwrap_or(false);
+        let facade_cache_ready = warm_result.is_ok() && facade_symbol_count > 0;
+
         if let Some(obj) = summary.as_object_mut() {
             obj.insert(
                 "facadeCacheReady".to_string(),
-                serde_json::json!(warm_result.is_ok()),
+                serde_json::json!(facade_cache_ready),
             );
             obj.insert(
                 "facadeCacheWarmStatus".to_string(),
-                serde_json::json!(if warm_result.is_ok() {
-                    "ready"
+                serde_json::json!(if facade_cache_ready {
+                    if used_cli_fallback {
+                        "ready_via_cli_fallback"
+                    } else {
+                        "ready"
+                    }
+                } else if warm_result.is_err() {
+                    "warm_failed"
                 } else {
-                    "failed"
+                    "warm_ok_empty_graph"
                 }),
             );
             if let Err(e) = &warm_result {
                 obj.insert("facadeCacheWarmError".to_string(), serde_json::json!(e));
+            }
+            // 用真实 facade graph 数据更新 aiDigest
+            if let Some(digest) = obj.get_mut("aiDigest") {
+                if let Some(digest_obj) = digest.as_object_mut() {
+                    digest_obj.insert("facadeSymbolCount".to_string(), json!(facade_symbol_count));
+                    digest_obj.insert("facadeCacheReady".to_string(), json!(facade_cache_ready));
+                    digest_obj.insert("usedCliFallback".to_string(), json!(used_cli_fallback));
+                }
             }
         }
         MCP_JOBS.set_summary(&job_id, summary);

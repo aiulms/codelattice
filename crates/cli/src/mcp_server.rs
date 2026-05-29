@@ -73,12 +73,13 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
         Ok(())
     }
 
+    /// Warm facade cache from job result. Returns (symbol_count, used_cli_fallback).
     fn warm_from_result(
         &self,
         root: &str,
         language: &str,
         result: &SerializableResult,
-    ) -> Result<(), String> {
+    ) -> Result<WarmCacheMeta, String> {
         let canonical = Path::new(root)
             .canonicalize()
             .map_err(|e| format!("canonicalize failed: {}", e))?;
@@ -93,13 +94,18 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
                 .cache
                 .lock()
                 .map_err(|_| "facade cache lock poisoned".to_string())?;
-            if cache.entries.contains_key(&key) {
-                return Ok(());
+            if let Some(existing) = cache.entries.get(&key) {
+                // 已有缓存，返回其符号统计
+                let (_, _, sc) = existing.graph_view.stats();
+                return Ok(WarmCacheMeta {
+                    symbol_count: sc,
+                    used_cli_fallback: false,
+                });
             }
         }
 
-        // Build cache entry directly from job artifacts — no subprocess re-analysis
-        let entry = build_warm_cache_entry_from_result(&canonical, language, result)?;
+        // Build cache entry directly from job artifacts
+        let (entry, meta) = build_warm_cache_entry_from_result(&canonical, language, result)?;
         let mut cache = self
             .cache
             .lock()
@@ -107,7 +113,7 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
         if !cache.entries.contains_key(&key) {
             cache.entries.insert(key, entry);
         }
-        Ok(())
+        Ok(meta)
     }
 }
 use gitnexus_analysis_scheduler::{
@@ -1505,35 +1511,54 @@ fn convert_job_result_to_analyze_format(
     })
 }
 
+pub struct WarmCacheMeta {
+    pub symbol_count: usize,
+    pub used_cli_fallback: bool,
+}
+
 fn build_warm_cache_entry_from_result(
     canonical: &Path,
     language: &str,
     result: &SerializableResult,
-) -> Result<CacheEntry, String> {
+) -> Result<(CacheEntry, WarmCacheMeta), String> {
     let start = Instant::now();
-    // 将 job artifacts 转换为 CLI analyze 输出格式，GraphView::build 才能正确索引
+    // 将 job artifacts 转换为 CLI analyze 输出格式
     let root_str = canonical.to_string_lossy();
-    let analyze_value = convert_job_result_to_analyze_format(result, language, &root_str);
+    let converted = convert_job_result_to_analyze_format(result, language, &root_str);
 
-    // 如果转换后的 graph 为空（job artifacts 没有足够数据），fallback 到 CLI analyze
-    let graph_node_count = analyze_value
+    // 检查转换后是否产生了真实符号（label="symbol" 的节点）
+    let converted_symbol_count = converted
         .get("graph")
         .and_then(|g| g.get("nodes"))
         .and_then(|n| n.as_array())
-        .map(|a| a.len())
+        .map(|a| {
+            a.iter()
+                .filter(|n| n["label"].as_str() == Some("symbol"))
+                .count()
+        })
         .unwrap_or(0);
 
-    let analyze_value = if graph_node_count == 0 {
-        // Fallback: 使用 CLI analyze 子进程获取完整 graph
+    // 如果转换后无真实符号，必须 fallback 到 CLI analyze 子进程
+    // Rust engine adapter 的 extract_symbols 可能返回空数组（adapter 使用旧格式），
+    // 此时只有 CLI analyze 能生成完整 graph。
+    let (analyze_value, used_cli_fallback) = if converted_symbol_count == 0 {
         match run_analyze_subprocess(canonical, language, "json", false) {
-            Ok(v) => v,
-            Err(_) => analyze_value, // 保持空结果，不做硬性阻断
+            Ok(cli_result) => (cli_result, true),
+            Err(e) => {
+                // CLI fallback 也失败了，保持转换后的空结果
+                eprintln!(
+                    "[warm_from_result] CLI analyze fallback failed for {}: {}",
+                    root_str, e
+                );
+                (converted, false)
+            }
         }
     } else {
-        analyze_value
+        (converted, false)
     };
 
     let mut graph_view = GraphView::build(&analyze_value);
+    let (_, _, real_symbol_count) = graph_view.stats();
     let file_mtimes = scan_file_mtimes(canonical);
     let manifest_hashes = compute_manifest_hashes(canonical);
     let docs_mtimes: HashMap<String, u64> = file_mtimes
@@ -1558,19 +1583,25 @@ fn build_warm_cache_entry_from_result(
     }
 
     let duration_ms = start.elapsed().as_millis() as u64;
-    Ok(CacheEntry {
-        analyze_result: result_with_meta,
-        graph_view,
-        scheduler: scheduler.value.clone(),
-        scheduler_files: scheduler.file_snapshot.clone(),
-        created_at: Instant::now(),
-        last_used_at: Instant::now(),
-        hit_count: 0,
-        analysis_duration_ms: duration_ms,
-        file_mtimes: file_mtimes.clone(),
-        root_canonical: canonical.to_string_lossy().to_string(),
-        stale_reason: None,
-    })
+    Ok((
+        CacheEntry {
+            analyze_result: result_with_meta,
+            graph_view,
+            scheduler: scheduler.value.clone(),
+            scheduler_files: scheduler.file_snapshot.clone(),
+            created_at: Instant::now(),
+            last_used_at: Instant::now(),
+            hit_count: 0,
+            analysis_duration_ms: duration_ms,
+            file_mtimes: file_mtimes.clone(),
+            root_canonical: canonical.to_string_lossy().to_string(),
+            stale_reason: None,
+        },
+        WarmCacheMeta {
+            symbol_count: real_symbol_count,
+            used_cli_fallback,
+        },
+    ))
 }
 
 fn build_warm_cache_entry(

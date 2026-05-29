@@ -145,60 +145,76 @@ try:
         raise AssertionError(f"cache status did not return normal facade payload: {cache}")
     print("PASS: codelattice_cache(mode=status) recovered after workspace job")
 
-    # ─── Symbol search test (backend, Rust) ───
+    # ─── Symbol search 闭环测试 (backend, Rust) ───
     backend_root = root + "/backend"
     if os.path.isdir(backend_root):
-        search = call_tool(
+        # Step 1: symbol search cache miss → analyzing/jobId
+        search1 = call_tool(
             "codelattice_symbol",
             {"mode": "search", "root": backend_root, "language": "rust",
              "query": "preview_delegation_context_snapshot", "compact": True},
             timeout=300,
         )
-        # 结果可能嵌套在 result 字段内（wrapper 层），或直接在顶层
-        inner = search.get("result", search)
-        match_count = inner.get("matchCount", 0)
-        if match_count == 0:
-            # compact 模式 cache miss 应返回 analyzing jobId，不是阻塞
-            if inner.get("status") == "analyzing":
-                print(f"PASS: symbol search cache miss → analyzing jobId={inner.get('jobId')}")
-            else:
-                print(f"WARN: symbol search returned 0 matches for preview_delegation_context_snapshot")
+        inner1 = search1.get("result", search1)
+        if inner1.get("matchCount", 0) > 0:
+            print(f"PASS: symbol search immediate hit matchCount={inner1['matchCount']}")
         else:
-            matches = inner.get("matches", [])
-            first = matches[0] if matches else {}
-            print(f"PASS: symbol search found {match_count} match(es), name={first.get('name','?')} file={first.get('file','?')} line={first.get('line','?')}")
-            # context 测试
-            ctx = call_tool(
+            job_id = inner1.get("jobId") or search1.get("jobId")
+            assert job_id, f"cache miss should return analyzing/jobId, got status={inner1.get('status')} keys={list(inner1.keys())}"
+            print(f"PASS: symbol search cache miss → jobId={job_id}")
+
+            # Step 2: poll job_status until succeeded
+            for attempt in range(120):
+                time.sleep(1)
+                js = call_tool("codelattice_project",
+                    {"mode": "job_status", "jobId": job_id, "compact": True},
+                    timeout=60)
+                js_inner = js.get("result", js)
+                st = js_inner.get("status", js.get("status"))
+                if st == "succeeded":
+                    summary = js_inner.get("summary") or js.get("summary") or {}
+                    ready = summary.get("facadeCacheReady", False)
+                    symbol_count = summary.get("aiDigest", {}).get("facadeSymbolCount", 0)
+                    print(f"PASS: job succeeded, facadeCacheReady={ready}, facadeSymbolCount={symbol_count}")
+                    break
+                if st == "failed":
+                    raise AssertionError(f"job failed: {js}")
+            else:
+                raise AssertionError(f"job did not complete in 120s")
+
+            # Step 3: retry symbol search (should hit cache)
+            search2 = call_tool(
                 "codelattice_symbol",
-                {"mode": "context", "root": backend_root, "language": "rust",
-                 "name": "preview_delegation_context_snapshot", "compact": True},
+                {"mode": "search", "root": backend_root, "language": "rust",
+                 "query": "preview_delegation_context_snapshot", "compact": True},
                 timeout=300,
             )
-            ctx_inner = ctx.get("result", ctx)
-            if ctx_inner.get("status") == "analyzing":
-                print(f"PASS: symbol context cache miss → analyzing jobId={ctx_inner.get('jobId')}")
-            elif ctx_inner.get("error") is None:
-                ctx_matches = ctx_inner.get("matches") or ctx_inner.get("matchCount", 0)
-                print(f"PASS: symbol context returned (matchCount={ctx_inner.get('matchCount', ctx_matches)})")
-            else:
-                print(f"WARN: symbol context error: {ctx_inner.get('error')}")
+            inner2 = search2.get("result", search2)
+            match_count = inner2.get("matchCount", 0)
+            assert match_count >= 1, f"symbol search after job should find >= 1 match, got {match_count}"
+            matches = inner2.get("matches", [])
+            first = matches[0] if matches else {}
+            name = first.get("name", "?")
+            file = first.get("file", "?")
+            line = first.get("line", "?")
+            assert "delegation_context_snapshot_handlers" in str(file), \
+                f"expected file to include delegation_context_snapshot_handlers.rs, got {file}"
+            assert str(line) == "55", f"expected line 55, got {line}"
+            print(f"PASS: symbol search found {match_count} match(es): name={name} file={file} line={line}")
 
-        # impact 测试
-        impact = call_tool(
-            "codelattice_change_review",
-            {"mode": "impact", "root": backend_root, "language": "rust",
-             "symbol": "preview_delegation_context_snapshot", "compact": True},
-            timeout=300,
-        )
-        impact_inner = impact.get("result", impact)
-        if impact_inner.get("status") == "analyzing":
-            print(f"PASS: change_review impact cache miss → analyzing jobId={impact_inner.get('jobId')}")
-        elif impact_inner.get("risk") == "UNKNOWN" and "Symbol not found" in str(impact_inner.get("reasons", [])):
-            print(f"WARN: change_review impact still UNKNOWN (symbol not found): {json.dumps(impact_inner)[:200]}")
-        elif impact_inner.get("risk") == "UNKNOWN":
-            print(f"PASS: change_review impact returned (ambiguous or other)")
-        else:
-            print(f"PASS: change_review impact risk={impact_inner.get('risk','?')}")
+            # Step 4: change_review impact must not be "Symbol not found"
+            impact = call_tool(
+                "codelattice_change_review",
+                {"mode": "impact", "root": backend_root, "language": "rust",
+                 "symbol": "preview_delegation_context_snapshot", "compact": True},
+                timeout=300,
+            )
+            impact_inner = impact.get("result", impact)
+            risk = impact_inner.get("risk", "UNKNOWN")
+            reasons = impact_inner.get("reasons", [])
+            assert risk != "UNKNOWN" or "Symbol not found" not in str(reasons), \
+                f"impact should not be UNKNOWN/Symbol not found, got risk={risk} reasons={reasons}"
+            print(f"PASS: change_review impact risk={risk}")
     else:
         print(f"SKIP: backend root not found at {backend_root}")
 finally:
