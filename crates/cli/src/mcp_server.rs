@@ -97,9 +97,20 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
             if let Some(existing) = cache.entries.get(&key) {
                 // 已有缓存，返回其符号统计
                 let (_, _, sc) = existing.graph_view.stats();
+                let digest = build_facade_digest(
+                    &canonical,
+                    language,
+                    &existing.graph_view,
+                    false,
+                    0,
+                    json!({"cacheHit": true, "totalWarmMs": 0}),
+                );
                 return Ok(WarmCacheMeta {
                     symbol_count: sc,
+                    call_edge_count: digest["callEdgeCount"].as_u64().unwrap_or(0) as usize,
                     used_cli_fallback: false,
+                    warm_duration_ms: 0,
+                    facade_digest: digest,
                 });
             }
         }
@@ -1513,7 +1524,94 @@ fn convert_job_result_to_analyze_format(
 
 pub struct WarmCacheMeta {
     pub symbol_count: usize,
+    pub call_edge_count: usize,
     pub used_cli_fallback: bool,
+    pub warm_duration_ms: u64,
+    pub facade_digest: Value,
+}
+
+fn build_facade_digest(
+    canonical: &Path,
+    language: &str,
+    graph_view: &GraphView,
+    used_cli_fallback: bool,
+    warm_duration_ms: u64,
+    timing: Value,
+) -> Value {
+    let (node_count, edge_count, symbol_count) = graph_view.stats();
+    let call_edge_count = graph_view
+        .outgoing
+        .values()
+        .flatten()
+        .filter(|edge| edge["type"].as_str() == Some("CALLS"))
+        .count();
+
+    let mut symbols: Vec<&Value> = graph_view
+        .nodes_by_id
+        .values()
+        .filter(|node| node["label"].as_str() == Some("symbol"))
+        .collect();
+    symbols.sort_by(|a, b| {
+        let af = a["properties"]["sourcePath"].as_str().unwrap_or("");
+        let bf = b["properties"]["sourcePath"].as_str().unwrap_or("");
+        let al = a["properties"]["lineStart"].as_u64().unwrap_or(0);
+        let bl = b["properties"]["lineStart"].as_u64().unwrap_or(0);
+        let an = a["properties"]["name"].as_str().unwrap_or("");
+        let bn = b["properties"]["name"].as_str().unwrap_or("");
+        af.cmp(bf).then(al.cmp(&bl)).then(an.cmp(bn))
+    });
+
+    let mut file_symbol_counts: HashMap<String, usize> = HashMap::new();
+    for node in &symbols {
+        if let Some(file) = node["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| node["properties"]["manifestPath"].as_str())
+        {
+            *file_symbol_counts.entry(file.to_string()).or_insert(0) += 1;
+        }
+    }
+    let mut top_files: Vec<(String, usize)> = file_symbol_counts.into_iter().collect();
+    top_files.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+
+    let mut kind_counts: HashMap<String, usize> = HashMap::new();
+    for node in &symbols {
+        let kind = node["properties"]["symbolKind"]
+            .as_str()
+            .or_else(|| node["properties"]["kind"].as_str())
+            .unwrap_or("symbol");
+        *kind_counts.entry(kind.to_string()).or_insert(0) += 1;
+    }
+
+    json!({
+        "root": canonical.to_string_lossy(),
+        "language": language,
+        "nodeCount": node_count,
+        "edgeCount": edge_count,
+        "symbolCount": symbol_count,
+        "callEdgeCount": call_edge_count,
+        "sourceFileCount": top_files.len(),
+        "symbolKinds": kind_counts,
+        "topFiles": top_files
+            .iter()
+            .take(10)
+            .map(|(file, count)| json!({"file": file, "symbolCount": count}))
+            .collect::<Vec<_>>(),
+        "topSymbolsPreview": symbols
+            .iter()
+            .take(20)
+            .map(|node| json!({
+                "name": node["properties"]["name"],
+                "kind": node["properties"]["symbolKind"],
+                "file": node["properties"]["sourcePath"],
+                "line": node["properties"]["lineStart"],
+                "id": node["id"],
+            }))
+            .collect::<Vec<_>>(),
+        "usedCliFallback": used_cli_fallback,
+        "warmDurationMs": warm_duration_ms,
+        "timing": timing,
+        "generatedFrom": "facade-graph-view",
+    })
 }
 
 fn build_warm_cache_entry_from_result(
@@ -1523,6 +1621,7 @@ fn build_warm_cache_entry_from_result(
 ) -> Result<(CacheEntry, WarmCacheMeta), String> {
     let start = Instant::now();
     let root_str = canonical.to_string_lossy();
+    let analysis_start = Instant::now();
 
     // ── 策略选择 ──
     // Rust: engine adapter extract_symbols 有 bug（字段名不匹配 + 逐文件调用
@@ -1600,9 +1699,14 @@ fn build_warm_cache_entry_from_result(
             }
         }
     };
+    let analysis_ms = analysis_start.elapsed().as_millis() as u64;
 
+    let graph_build_start = Instant::now();
     let mut graph_view = GraphView::build(&analyze_value);
+    let graph_build_ms = graph_build_start.elapsed().as_millis() as u64;
     let (_, _, real_symbol_count) = graph_view.stats();
+
+    let metadata_start = Instant::now();
     let file_mtimes = scan_file_mtimes(canonical);
     let manifest_hashes = compute_manifest_hashes(canonical);
     let docs_mtimes: HashMap<String, u64> = file_mtimes
@@ -1612,7 +1716,10 @@ fn build_warm_cache_entry_from_result(
         .collect();
 
     let scheduler = build_scheduler_metadata(canonical, language, false, None, None);
+    let metadata_ms = metadata_start.elapsed().as_millis() as u64;
+    let doc_scan_start = Instant::now();
     graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(canonical)));
+    let doc_scan_ms = doc_scan_start.elapsed().as_millis() as u64;
 
     let mut result_with_meta = analyze_value.clone();
     if let Some(obj) = result_with_meta.as_object_mut() {
@@ -1627,6 +1734,22 @@ fn build_warm_cache_entry_from_result(
     }
 
     let duration_ms = start.elapsed().as_millis() as u64;
+    let timing = json!({
+        "analysisMs": analysis_ms,
+        "graphBuildMs": graph_build_ms,
+        "metadataMs": metadata_ms,
+        "docScanMs": doc_scan_ms,
+        "totalWarmMs": duration_ms,
+    });
+    let facade_digest = build_facade_digest(
+        canonical,
+        language,
+        &graph_view,
+        used_cli_fallback,
+        duration_ms,
+        timing,
+    );
+    let call_edge_count = facade_digest["callEdgeCount"].as_u64().unwrap_or(0) as usize;
     Ok((
         CacheEntry {
             analyze_result: result_with_meta,
@@ -1643,7 +1766,10 @@ fn build_warm_cache_entry_from_result(
         },
         WarmCacheMeta {
             symbol_count: real_symbol_count,
+            call_edge_count,
             used_cli_fallback,
+            warm_duration_ms: duration_ms,
+            facade_digest,
         },
     ))
 }
@@ -21397,13 +21523,28 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         )));
     }
 
+    let mut summary = json!({"riskLevel":"low","mode":mode});
+    if compact && mode == "search" {
+        if let Some(obj) = summary.as_object_mut() {
+            if let Some(count) = inner.get("matchCount") {
+                obj.insert("matchCount".to_string(), count.clone());
+            }
+            let top_matches = inner
+                .get("matches")
+                .and_then(|v| v.as_array())
+                .map(|items| items.iter().take(5).cloned().collect::<Vec<_>>())
+                .unwrap_or_default();
+            obj.insert("topMatches".to_string(), json!(top_matches));
+        }
+    }
+
     Ok(tool_result(&wrap_facade_output(
         inner,
         "codelattice_symbol",
         mode,
         language,
         root,
-        json!({"riskLevel":"low","mode":mode}),
+        summary,
         next_actions,
         underlying,
         compact,

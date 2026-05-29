@@ -4561,6 +4561,28 @@ fn call_tool_json(
     extract_tool_data(&resp)
 }
 
+fn wait_for_job_succeeded(
+    session: &mut McpSession,
+    id_start: u64,
+    facade: &str,
+    job_id: &str,
+) -> serde_json::Value {
+    for attempt in 0..120 {
+        let status = call_tool_json(
+            session,
+            id_start + attempt,
+            facade,
+            serde_json::json!({"mode": "job_status", "jobId": job_id, "compact": true}),
+        );
+        match status["status"].as_str() {
+            Some("succeeded") => return status,
+            Some("failed") => panic!("job failed: {status:?}"),
+            _ => std::thread::sleep(std::time::Duration::from_millis(250)),
+        }
+    }
+    panic!("job {job_id} did not succeed in time");
+}
+
 fn assert_paged_detail_schema(data: &serde_json::Value, expected_page_size: u64) {
     assert_eq!(
         data["schemaVersion"].as_str(),
@@ -16969,6 +16991,105 @@ fn mcp_symbol_search_finds_symbols_after_job_warm() {
         "impact should not be UNKNOWN after job warm, got risk={}, reasons={:?}",
         risk,
         impact_inner.get("reasons")
+    );
+}
+
+#[test]
+fn mcp_project_job_summary_exposes_facade_digest() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    let job = call_tool_json(
+        &mut session,
+        84120,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().expect("jobId").to_string();
+    let status = wait_for_job_succeeded(&mut session, 84121, "codelattice_project", &job_id);
+    let summary = &status["summary"];
+    let facade_digest = &summary["facadeDigest"];
+
+    assert!(
+        facade_digest["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "facadeDigest should expose real GraphView symbols: {summary:?}"
+    );
+    assert!(
+        facade_digest["callEdgeCount"].as_u64().unwrap_or(0) > 0,
+        "facadeDigest should expose real GraphView CALLS edges: {summary:?}"
+    );
+    assert!(
+        !facade_digest["topSymbolsPreview"]
+            .as_array()
+            .unwrap_or(&vec![])
+            .is_empty(),
+        "facadeDigest should include topSymbolsPreview: {summary:?}"
+    );
+    let first = &facade_digest["topSymbolsPreview"][0];
+    assert!(
+        first["name"].is_string(),
+        "symbol preview should include name"
+    );
+    assert!(
+        first["file"].is_string(),
+        "symbol preview should include file"
+    );
+    assert!(
+        first["line"].is_number(),
+        "symbol preview should include line"
+    );
+
+    assert!(
+        summary["aiDigest"]["symbolCount"].as_u64().unwrap_or(0) > 0,
+        "aiDigest should reflect facade graph symbols after warm: {summary:?}"
+    );
+    assert!(
+        summary["aiDigest"]["callEdgeCount"].as_u64().unwrap_or(0) > 0,
+        "aiDigest should reflect facade graph CALLS after warm: {summary:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_compact_summary_exposes_top_matches() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_with_toolset("full");
+    session.initialize();
+    session.send_notification_initialized();
+
+    let search = call_tool_json(
+        &mut session,
+        84150,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+
+    assert!(
+        search["summary"]["matchCount"].as_u64().unwrap_or(0) >= 1,
+        "compact symbol facade summary should expose matchCount: {search:?}"
+    );
+    let top_matches = search["summary"]["topMatches"]
+        .as_array()
+        .expect("summary.topMatches should be an array");
+    assert!(
+        !top_matches.is_empty() && top_matches.len() <= 5,
+        "summary.topMatches should contain a bounded preview: {search:?}"
+    );
+    assert_eq!(
+        search["result"]["matchCount"], search["summary"]["matchCount"],
+        "summary.matchCount should mirror result.matchCount"
     );
 }
 

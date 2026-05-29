@@ -42,6 +42,8 @@ pub fn extract_and_resolve_calls(
     symbols: &[Symbol],
     imports: &[ImportUse],
 ) -> CallExtractionResult {
+    let trace_timings = std::env::var_os("CODELATTICE_CALLS_TRACE").is_some();
+    let trace_start = std::time::Instant::now();
     let mut symbol_index = build_callee_index(symbols, source_ownership);
     let import_bindings = build_import_binding_table(imports);
     let caller_index = build_caller_index(symbols);
@@ -59,6 +61,11 @@ pub fn extract_and_resolve_calls(
     let all_diagnostics = Vec::new();
 
     for so in source_ownership {
+        let file_start = if trace_timings {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
         if so.package.is_none() {
             continue;
         }
@@ -95,6 +102,26 @@ pub fn extract_and_resolve_calls(
         );
 
         all_calls.extend(calls);
+        if let Some(file_start) = file_start {
+            let elapsed_ms = file_start.elapsed().as_millis();
+            if elapsed_ms >= 100 {
+                eprintln!(
+                    "[calls-trace] file={} calls_so_far={} elapsed_ms={}",
+                    so.source_path,
+                    all_calls.len(),
+                    elapsed_ms
+                );
+            }
+        }
+    }
+
+    if trace_timings {
+        eprintln!(
+            "[calls-trace] total_files={} total_calls={} elapsed_ms={}",
+            source_ownership.len(),
+            all_calls.len(),
+            trace_start.elapsed().as_millis()
+        );
     }
 
     all_calls.sort_by(|a, b| {
@@ -114,6 +141,7 @@ pub fn extract_and_resolve_calls(
 // CalleeIndex — 与 imports.rs SymbolIndex 对称
 // ============================================================
 
+#[derive(Clone)]
 struct CalleeMatch {
     id: String,
     symbol_kind: String,
@@ -128,6 +156,11 @@ struct CalleeMatch {
 
 struct CalleeIndex {
     by_module_and_name: HashMap<(String, String), Vec<CalleeMatch>>,
+    by_id: HashMap<String, CalleeMatch>,
+    methods_by_name: HashMap<String, Vec<CalleeMatch>>,
+    by_source_name_kind: HashMap<(String, String, String), Vec<CalleeMatch>>,
+    functions_by_package_name: HashMap<(String, String), Vec<CalleeMatch>>,
+    types_by_package_name: HashMap<(String, String), Vec<CalleeMatch>>,
     /// source_path → package_name 映射，用于跨文件 same-crate 搜索
     source_to_package: HashMap<String, String>,
     /// caller source_path → wildcard-imported module original_path 集合
@@ -137,26 +170,12 @@ struct CalleeIndex {
 
 fn build_callee_index(symbols: &[Symbol], source_ownership: &[SourceOwnership]) -> CalleeIndex {
     let mut index: HashMap<(String, String), Vec<CalleeMatch>> = HashMap::new();
-
-    for sym in symbols {
-        match sym.symbol_kind.as_str() {
-            "module" => continue,
-            _ => {}
-        }
-
-        let mp = sym.module_path.as_deref().unwrap_or("crate").to_string();
-        let key = (mp.clone(), sym.name.clone());
-
-        index.entry(key).or_default().push(CalleeMatch {
-            id: sym.id.clone(),
-            symbol_kind: sym.symbol_kind.clone(),
-            name: sym.name.clone(),
-            source_path: sym.source_path.clone(),
-            module_path: mp,
-            parent_id: sym.parent_id.clone(),
-            impl_details: sym.impl_details.clone(),
-        });
-    }
+    let mut by_id: HashMap<String, CalleeMatch> = HashMap::new();
+    let mut methods_by_name: HashMap<String, Vec<CalleeMatch>> = HashMap::new();
+    let mut by_source_name_kind: HashMap<(String, String, String), Vec<CalleeMatch>> =
+        HashMap::new();
+    let mut functions_by_package_name: HashMap<(String, String), Vec<CalleeMatch>> = HashMap::new();
+    let mut types_by_package_name: HashMap<(String, String), Vec<CalleeMatch>> = HashMap::new();
 
     // 构建 source_path → package_name 映射（用于跨文件 same-crate 搜索）
     let source_to_package: HashMap<String, String> = source_ownership
@@ -168,8 +187,63 @@ fn build_callee_index(symbols: &[Symbol], source_ownership: &[SourceOwnership]) 
         })
         .collect();
 
+    for sym in symbols {
+        match sym.symbol_kind.as_str() {
+            "module" => continue,
+            _ => {}
+        }
+
+        let mp = sym.module_path.as_deref().unwrap_or("crate").to_string();
+        let key = (mp.clone(), sym.name.clone());
+
+        let callee = CalleeMatch {
+            id: sym.id.clone(),
+            symbol_kind: sym.symbol_kind.clone(),
+            name: sym.name.clone(),
+            source_path: sym.source_path.clone(),
+            module_path: mp,
+            parent_id: sym.parent_id.clone(),
+            impl_details: sym.impl_details.clone(),
+        };
+
+        by_id.insert(callee.id.clone(), callee.clone());
+        if callee.symbol_kind == "method" {
+            methods_by_name
+                .entry(callee.name.clone())
+                .or_default()
+                .push(callee.clone());
+        }
+        by_source_name_kind
+            .entry((
+                callee.source_path.clone(),
+                callee.name.clone(),
+                callee.symbol_kind.clone(),
+            ))
+            .or_default()
+            .push(callee.clone());
+        if let Some(package) = source_to_package.get(&callee.source_path) {
+            if callee.symbol_kind == "function" {
+                functions_by_package_name
+                    .entry((package.clone(), callee.name.clone()))
+                    .or_default()
+                    .push(callee.clone());
+            } else if callee.symbol_kind == "struct" || callee.symbol_kind == "enum" {
+                types_by_package_name
+                    .entry((package.clone(), callee.name.clone()))
+                    .or_default()
+                    .push(callee.clone());
+            }
+        }
+        index.entry(key).or_default().push(callee);
+    }
+
     CalleeIndex {
         by_module_and_name: index,
+        by_id,
+        methods_by_name,
+        by_source_name_kind,
+        functions_by_package_name,
+        types_by_package_name,
         source_to_package,
         wildcard_modules: HashMap::new(),
     }
@@ -184,25 +258,17 @@ impl CalleeIndex {
     }
 
     fn lookup_by_id(&self, symbol_id: &str) -> Option<&CalleeMatch> {
-        for matches in self.by_module_and_name.values() {
-            for m in matches {
-                if m.id == symbol_id {
-                    return Some(m);
-                }
-            }
-        }
-        None
+        self.by_id.get(symbol_id)
     }
 
     /// 按 name-only 查找所有 method symbol（不验证 receiver type）
     /// blind method name resolution：唯一匹配时解析，confidence 0.65
     /// 不要求 receiver type 匹配 — 这是 type-inference stop-line 的 heuristic bridge
     fn lookup_method_by_name(&self, name: &str) -> Vec<&CalleeMatch> {
-        self.by_module_and_name
-            .values()
-            .flatten()
-            .filter(|m| m.symbol_kind == "method" && m.name == name)
-            .collect()
+        self.methods_by_name
+            .get(name)
+            .map(|matches| matches.iter().collect())
+            .unwrap_or_default()
     }
 
     /// 同文件 fallback 查找：按 source_path + name + symbol_kind 过滤
@@ -214,11 +280,10 @@ impl CalleeIndex {
         name: &str,
         kind: &str,
     ) -> Vec<&CalleeMatch> {
-        self.by_module_and_name
-            .values()
-            .flatten()
-            .filter(|m| m.source_path == source_path && m.name == name && m.symbol_kind == kind)
-            .collect()
+        self.by_source_name_kind
+            .get(&(source_path.to_string(), name.to_string(), kind.to_string()))
+            .map(|matches| matches.iter().collect())
+            .unwrap_or_default()
     }
 
     /// 跨文件 same-crate function 搜索
@@ -234,16 +299,15 @@ impl CalleeIndex {
             None => return vec![],
         };
 
-        self.by_module_and_name
-            .values()
-            .flatten()
-            .filter(|m| {
-                m.symbol_kind == "function"
-                    && m.name == name
-                    && m.source_path != caller_source_path
-                    && self.source_to_package.get(&m.source_path) == Some(caller_package)
+        self.functions_by_package_name
+            .get(&(caller_package.clone(), name.to_string()))
+            .map(|matches| {
+                matches
+                    .iter()
+                    .filter(|m| m.source_path != caller_source_path)
+                    .collect()
             })
-            .collect()
+            .unwrap_or_default()
     }
 
     /// 跨文件 same-crate type 搜索（用于 associated function 的 type 查找）
@@ -254,16 +318,15 @@ impl CalleeIndex {
             None => return vec![],
         };
 
-        self.by_module_and_name
-            .values()
-            .flatten()
-            .filter(|m| {
-                (m.symbol_kind == "struct" || m.symbol_kind == "enum")
-                    && m.name == name
-                    && m.source_path != caller_source_path
-                    && self.source_to_package.get(&m.source_path) == Some(caller_package)
+        self.types_by_package_name
+            .get(&(caller_package.clone(), name.to_string()))
+            .map(|matches| {
+                matches
+                    .iter()
+                    .filter(|m| m.source_path != caller_source_path)
+                    .collect()
             })
-            .collect()
+            .unwrap_or_default()
     }
 }
 
@@ -416,6 +479,14 @@ fn build_caller_index(symbols: &[Symbol]) -> CallerIndex {
             line_end: sym.line_end,
         });
     }
+    for callers in index.values_mut() {
+        callers.sort_by(|a, b| {
+            a.line_start
+                .cmp(&b.line_start)
+                .then(a.line_end.cmp(&b.line_end))
+                .then(a.name.cmp(&b.name))
+        });
+    }
 
     CallerIndex { by_file: index }
 }
@@ -426,12 +497,17 @@ impl CallerIndex {
         let mut best: Option<&CallerInfo> = None;
         let mut best_span = u32::MAX;
 
-        for caller in callers {
+        let upper = callers.partition_point(|caller| caller.line_start <= line);
+        for caller in callers[..upper].iter().rev() {
             if line >= caller.line_start && line <= caller.line_end {
                 let span = caller.line_end - caller.line_start;
                 if span < best_span {
                     best_span = span;
                     best = Some(caller);
+                }
+                // 从最近的 start_line 往前扫，普通 Rust 函数不嵌套；第一个命中通常就是最窄 scope。
+                if span == 0 || caller.line_start < line {
+                    break;
                 }
             }
         }
@@ -443,6 +519,28 @@ impl CallerIndex {
 // ============================================================
 // tree-sitter 提取
 // ============================================================
+
+#[cfg(feature = "tree-sitter-extraction")]
+struct LineIndex {
+    starts: Vec<usize>,
+}
+
+#[cfg(feature = "tree-sitter-extraction")]
+impl LineIndex {
+    fn new(source_text: &str) -> Self {
+        let mut starts = vec![0];
+        for (idx, byte) in source_text.bytes().enumerate() {
+            if byte == b'\n' {
+                starts.push(idx + 1);
+            }
+        }
+        Self { starts }
+    }
+
+    fn line_for_byte(&self, byte_offset: usize) -> u32 {
+        self.starts.partition_point(|start| *start <= byte_offset) as u32
+    }
+}
 
 fn extract_calls_from_file(
     source_text: &str,
@@ -534,11 +632,26 @@ fn extract_calls_tree_sitter(
     let language = tree_sitter_rust::LANGUAGE;
     parser.set_language(&language.into()).ok()?;
 
+    let trace_timings = std::env::var_os("CODELATTICE_CALLS_TRACE").is_some();
+    let parse_start = if trace_timings {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
     let tree = parser.parse(source_text, None)?;
+    let parse_ms = parse_start
+        .map(|start| start.elapsed().as_millis())
+        .unwrap_or(0);
     let root = tree.root_node();
     let source_bytes = source_text.as_bytes();
+    let line_index = LineIndex::new(source_text);
 
     let mut calls = Vec::new();
+    let collect_start = if trace_timings {
+        Some(std::time::Instant::now())
+    } else {
+        None
+    };
     collect_call_expressions(
         &root,
         source_bytes,
@@ -550,8 +663,21 @@ fn extract_calls_tree_sitter(
         import_bindings,
         caller_index,
         dependency_names,
+        &line_index,
         &mut calls,
     );
+    if let Some(collect_start) = collect_start {
+        let collect_ms = collect_start.elapsed().as_millis();
+        if parse_ms + collect_ms >= 100 {
+            eprintln!(
+                "[calls-trace] tree_sitter file={} calls={} parse_ms={} collect_ms={}",
+                source_path,
+                calls.len(),
+                parse_ms,
+                collect_ms
+            );
+        }
+    }
 
     Some(calls)
 }
@@ -568,6 +694,7 @@ fn collect_call_expressions<'a>(
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
     dependency_names: &HashSet<String>,
+    line_index: &LineIndex,
     calls: &mut Vec<CallSite>,
 ) {
     if node.kind() == "call_expression" {
@@ -582,6 +709,7 @@ fn collect_call_expressions<'a>(
             import_bindings,
             caller_index,
             dependency_names,
+            line_index,
         ) {
             calls.push(call_site);
         }
@@ -603,6 +731,7 @@ fn collect_call_expressions<'a>(
                     import_bindings,
                     caller_index,
                     dependency_names,
+                    line_index,
                     calls,
                 );
             }
@@ -621,6 +750,7 @@ fn collect_call_expressions<'a>(
             repo_root,
             symbol_index,
             import_bindings,
+            line_index,
         ) {
             calls.push(call_site);
         }
@@ -642,6 +772,7 @@ fn collect_call_expressions<'a>(
                     import_bindings,
                     caller_index,
                     dependency_names,
+                    line_index,
                     calls,
                 );
             }
@@ -662,6 +793,7 @@ fn collect_call_expressions<'a>(
             import_bindings,
             caller_index,
             dependency_names,
+            line_index,
             calls,
         );
     }
@@ -679,9 +811,10 @@ fn process_call_expression(
     import_bindings: &ImportBindingTable,
     caller_index: &CallerIndex,
     dependency_names: &HashSet<String>,
+    line_index: &LineIndex,
 ) -> Option<CallSite> {
-    let line_start = byte_to_line(source_bytes, node.start_byte());
-    let line_end = byte_to_line(source_bytes, node.end_byte());
+    let line_start = line_index.line_for_byte(node.start_byte());
+    let line_end = line_index.line_for_byte(node.end_byte());
     let raw_text = node.utf8_text(source_bytes).unwrap_or("").to_string();
 
     let mut cursor = node.walk();
@@ -792,9 +925,10 @@ fn process_method_call_expression(
     repo_root: &Path,
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
+    line_index: &LineIndex,
 ) -> Option<CallSite> {
-    let line_start = byte_to_line(source_bytes, node.start_byte());
-    let line_end = byte_to_line(source_bytes, node.end_byte());
+    let line_start = line_index.line_for_byte(node.start_byte());
+    let line_end = line_index.line_for_byte(node.end_byte());
     let raw_text = node.utf8_text(source_bytes).unwrap_or("").to_string();
 
     let mut cursor = node.walk();
@@ -1010,25 +1144,27 @@ fn resolve_call_site(
                     // Phase 2: receiver-type-aware resolution
                     // 从 raw_text 提取 receiver variable name（e.g., "x.push(1)" → "x"）
                     // 扫描 same-function let 绑定类型注解，查 STDLIB_TYPE_METHODS 表
-                    if let Some(dot_pos) = call.raw_text.find('.') {
-                        let receiver = &call.raw_text[..dot_pos];
-                        // 只处理简单 identifier receiver（不是 literal 或 path）
-                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                            if let Some(base_type) = scan_variable_type_annotation(
-                                source_text,
-                                call.span.byte_start,
-                                receiver,
-                            ) {
-                                if let Some(resolved_path) =
-                                    lookup_receiver_type_method(&base_type, &call.callee_name)
-                                {
-                                    call.resolved_symbol_id = Some(resolved_path);
-                                    call.confidence = 0.65;
-                                    call.reason =
-                                        CallResolutionReason::CallReceiverTypeMethodResolved
-                                            .as_str()
-                                            .to_string();
-                                    return;
+                    if is_known_receiver_type_method(&call.callee_name) {
+                        if let Some(dot_pos) = call.raw_text.find('.') {
+                            let receiver = &call.raw_text[..dot_pos];
+                            // 只处理简单 identifier receiver（不是 literal 或 path）
+                            if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                                if let Some(base_type) = scan_variable_type_annotation(
+                                    source_text,
+                                    call.span.byte_start,
+                                    receiver,
+                                ) {
+                                    if let Some(resolved_path) =
+                                        lookup_receiver_type_method(&base_type, &call.callee_name)
+                                    {
+                                        call.resolved_symbol_id = Some(resolved_path);
+                                        call.confidence = 0.65;
+                                        call.reason =
+                                            CallResolutionReason::CallReceiverTypeMethodResolved
+                                                .as_str()
+                                                .to_string();
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -1052,24 +1188,26 @@ fn resolve_call_site(
                     }
                     // Phase 2c: receiver type scan（与 [] 分支对称），
                     // 从 raw_text 提取 receiver variable name，扫描类型注解查 STDLIB_TYPE_METHODS 表
-                    if let Some(dot_pos) = call.raw_text.find('.') {
-                        let receiver = &call.raw_text[..dot_pos];
-                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                            if let Some(base_type) = scan_variable_type_annotation(
-                                source_text,
-                                call.span.byte_start,
-                                receiver,
-                            ) {
-                                if let Some(resolved_path) =
-                                    lookup_receiver_type_method(&base_type, &call.callee_name)
-                                {
-                                    call.resolved_symbol_id = Some(resolved_path);
-                                    call.confidence = 0.65;
-                                    call.reason =
-                                        CallResolutionReason::CallReceiverTypeMethodResolved
-                                            .as_str()
-                                            .to_string();
-                                    return;
+                    if is_known_receiver_type_method(&call.callee_name) {
+                        if let Some(dot_pos) = call.raw_text.find('.') {
+                            let receiver = &call.raw_text[..dot_pos];
+                            if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                                if let Some(base_type) = scan_variable_type_annotation(
+                                    source_text,
+                                    call.span.byte_start,
+                                    receiver,
+                                ) {
+                                    if let Some(resolved_path) =
+                                        lookup_receiver_type_method(&base_type, &call.callee_name)
+                                    {
+                                        call.resolved_symbol_id = Some(resolved_path);
+                                        call.confidence = 0.65;
+                                        call.reason =
+                                            CallResolutionReason::CallReceiverTypeMethodResolved
+                                                .as_str()
+                                                .to_string();
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -2070,25 +2208,27 @@ fn resolve_call_site_text(
                     // Phase 2: receiver-type-aware resolution
                     // 从 raw_text 提取 receiver variable name（e.g., "x.push(1)" → "x"）
                     // 扫描 same-function let 绑定类型注解，查 STDLIB_TYPE_METHODS 表
-                    if let Some(dot_pos) = call.raw_text.find('.') {
-                        let receiver = &call.raw_text[..dot_pos];
-                        // 只处理简单 identifier receiver（不是 literal 或 path）
-                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                            if let Some(base_type) = scan_variable_type_annotation(
-                                source_text,
-                                call.span.byte_start,
-                                receiver,
-                            ) {
-                                if let Some(resolved_path) =
-                                    lookup_receiver_type_method(&base_type, &call.callee_name)
-                                {
-                                    call.resolved_symbol_id = Some(resolved_path);
-                                    call.confidence = 0.65;
-                                    call.reason =
-                                        CallResolutionReason::CallReceiverTypeMethodResolved
-                                            .as_str()
-                                            .to_string();
-                                    return;
+                    if is_known_receiver_type_method(&call.callee_name) {
+                        if let Some(dot_pos) = call.raw_text.find('.') {
+                            let receiver = &call.raw_text[..dot_pos];
+                            // 只处理简单 identifier receiver（不是 literal 或 path）
+                            if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                                if let Some(base_type) = scan_variable_type_annotation(
+                                    source_text,
+                                    call.span.byte_start,
+                                    receiver,
+                                ) {
+                                    if let Some(resolved_path) =
+                                        lookup_receiver_type_method(&base_type, &call.callee_name)
+                                    {
+                                        call.resolved_symbol_id = Some(resolved_path);
+                                        call.confidence = 0.65;
+                                        call.reason =
+                                            CallResolutionReason::CallReceiverTypeMethodResolved
+                                                .as_str()
+                                                .to_string();
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -2112,24 +2252,26 @@ fn resolve_call_site_text(
                     }
                     // Phase 2c: receiver type scan（与 [] 分支对称），
                     // 从 raw_text 提取 receiver variable name，扫描类型注解查 STDLIB_TYPE_METHODS 表
-                    if let Some(dot_pos) = call.raw_text.find('.') {
-                        let receiver = &call.raw_text[..dot_pos];
-                        if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                            if let Some(base_type) = scan_variable_type_annotation(
-                                source_text,
-                                call.span.byte_start,
-                                receiver,
-                            ) {
-                                if let Some(resolved_path) =
-                                    lookup_receiver_type_method(&base_type, &call.callee_name)
-                                {
-                                    call.resolved_symbol_id = Some(resolved_path);
-                                    call.confidence = 0.65;
-                                    call.reason =
-                                        CallResolutionReason::CallReceiverTypeMethodResolved
-                                            .as_str()
-                                            .to_string();
-                                    return;
+                    if is_known_receiver_type_method(&call.callee_name) {
+                        if let Some(dot_pos) = call.raw_text.find('.') {
+                            let receiver = &call.raw_text[..dot_pos];
+                            if receiver.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                                if let Some(base_type) = scan_variable_type_annotation(
+                                    source_text,
+                                    call.span.byte_start,
+                                    receiver,
+                                ) {
+                                    if let Some(resolved_path) =
+                                        lookup_receiver_type_method(&base_type, &call.callee_name)
+                                    {
+                                        call.resolved_symbol_id = Some(resolved_path);
+                                        call.confidence = 0.65;
+                                        call.reason =
+                                            CallResolutionReason::CallReceiverTypeMethodResolved
+                                                .as_str()
+                                                .to_string();
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -2169,15 +2311,4 @@ fn resolve_call_site_text(
                 .to_string();
         }
     }
-}
-
-#[cfg(feature = "tree-sitter-extraction")]
-fn byte_to_line(source_bytes: &[u8], byte_offset: usize) -> u32 {
-    let mut line = 1u32;
-    for &b in &source_bytes[..byte_offset.min(source_bytes.len())] {
-        if b == b'\n' {
-            line += 1;
-        }
-    }
-    line
 }

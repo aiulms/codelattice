@@ -482,15 +482,23 @@ impl McpJobRegistry {
                 JobStatus::Cancelled => "cancelled",
             },
             "progress": handle.progress.as_ref().map(|p| {
-                let wall_ms = if matches!(handle.status, JobStatus::Running | JobStatus::Queued) {
-                    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
-                    std::cmp::max(p.elapsed_ms, now.saturating_sub(handle.created_at_ms))
-                } else { p.elapsed_ms };
+                let observed_end_ms = handle.completed_at_ms.unwrap_or_else(|| {
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis() as u64
+                });
+                let wall_ms = std::cmp::max(
+                    p.elapsed_ms,
+                    observed_end_ms.saturating_sub(handle.created_at_ms),
+                );
                 serde_json::json!({
                     "stage": p.stage, "completedUnits": p.completed_units,
                     "totalUnits": p.total_units, "failedUnits": p.failed_units,
                     "elapsedMs": wall_ms, "executorMode": p.executor_mode,
                     "cacheHits": p.cache_hits, "cacheMisses": p.cache_misses,
+                    "engineElapsedMs": p.elapsed_ms,
+                    "wallClockMs": wall_ms,
                 })
             }),
             "summary": handle.summary,
@@ -869,10 +877,12 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
                 .collect();
             obj.insert("topSymbolsPreview".to_string(), json!(preview));
         }
+        let engine_digest = ai_digest.clone();
 
         MCP_JOBS.store_detail(&job_id, detail_items);
-        // 在 job summary 中嵌入 AI digest
+        // 在 job summary 中先嵌入 engine digest；facade warm 成功后会用真实 GraphView digest 覆盖 aiDigest。
         if let Some(obj) = summary.as_object_mut() {
+            obj.insert("engineDigest".to_string(), engine_digest);
             obj.insert("aiDigest".to_string(), ai_digest);
         }
 
@@ -895,11 +905,20 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
 
         // 从 warm_from_result 获取真实缓存质量数据
         let facade_symbol_count = warm_result.as_ref().map(|m| m.symbol_count).unwrap_or(0);
+        let facade_call_edge_count = warm_result
+            .as_ref()
+            .map(|m| m.call_edge_count)
+            .unwrap_or(0);
+        let facade_warm_duration_ms = warm_result
+            .as_ref()
+            .map(|m| m.warm_duration_ms)
+            .unwrap_or(0);
         let used_cli_fallback = warm_result
             .as_ref()
             .map(|m| m.used_cli_fallback)
             .unwrap_or(false);
         let facade_cache_ready = warm_result.is_ok() && facade_symbol_count > 0;
+        let job_wall_clock_ms = now_ms().saturating_sub(handle.created_at_ms);
 
         if let Some(obj) = summary.as_object_mut() {
             obj.insert(
@@ -923,8 +942,20 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             if let Err(e) = &warm_result {
                 obj.insert("facadeCacheWarmError".to_string(), serde_json::json!(e));
             }
-            // 用真实 facade graph 数据更新 aiDigest
-            if let Some(digest) = obj.get_mut("aiDigest") {
+            obj.insert("facadeWarmDurationMs".to_string(), json!(facade_warm_duration_ms));
+            obj.insert("wallClockMs".to_string(), json!(job_wall_clock_ms));
+            if let Ok(meta) = warm_result.as_ref() {
+                let mut facade_digest = meta.facade_digest.clone();
+                if let Some(digest_obj) = facade_digest.as_object_mut() {
+                    digest_obj.insert("facadeSymbolCount".to_string(), json!(facade_symbol_count));
+                    digest_obj.insert("facadeCacheReady".to_string(), json!(facade_cache_ready));
+                    digest_obj.insert("usedCliFallback".to_string(), json!(used_cli_fallback));
+                    digest_obj.insert("callEdgeCount".to_string(), json!(facade_call_edge_count));
+                }
+                obj.insert("facadeDigest".to_string(), facade_digest.clone());
+                // aiDigest 是给 AI 消费的最终摘要，必须反映 facade GraphView，而不是空的 engine artifact digest。
+                obj.insert("aiDigest".to_string(), facade_digest);
+            } else if let Some(digest) = obj.get_mut("aiDigest") {
                 if let Some(digest_obj) = digest.as_object_mut() {
                     digest_obj.insert("facadeSymbolCount".to_string(), json!(facade_symbol_count));
                     digest_obj.insert("facadeCacheReady".to_string(), json!(facade_cache_ready));
@@ -932,6 +963,23 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
                 }
             }
         }
+        MCP_JOBS.update_progress(
+            &job_id,
+            McpJobProgress {
+                stage: if facade_cache_ready {
+                    "facade_cache_ready".into()
+                } else {
+                    "warming_facade_cache".into()
+                },
+                completed_units: result.completed,
+                total_units: result.total_tasks,
+                failed_units: result.failed,
+                elapsed_ms: job_wall_clock_ms,
+                executor_mode: result.executor_mode.clone(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
         MCP_JOBS.set_summary(&job_id, summary);
     }).expect("workspace job thread spawn failed");
 

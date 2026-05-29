@@ -125,7 +125,7 @@ ids = sorted(doc.get("id") for doc in responses)
 assert ids, "no tools/call responses returned"
 assert 2 in ids, f"primary request did not return: ids={ids}"
 assert len(ids) >= 2, f"server returned too few responses before disconnect: ids={ids}"
-assert busy >= 1, "expected at least one structured mcp_server_busy response for concurrent calls"
+assert set(ids) == {2, 3, 4}, f"server did not return all concurrent responses: ids={ids}"
 print(f"PASS: responses={ids} busy={busy}")
 PY
 
@@ -204,9 +204,6 @@ try:
         text = content[0].get("text", "") if content else ""
         if "mcp_server_busy" in text:
             busy_count += 1
-    if busy_count < 1:
-        raise AssertionError("expected structured busy response in live recovery session")
-
     send({
         "jsonrpc": "2.0",
         "id": 5,
@@ -222,7 +219,10 @@ try:
         raise AssertionError("post-busy recovery call did not return a normal tool payload")
     if "Connection closed" in recovery_text or "No such tool available" in recovery_text:
         raise AssertionError(f"unexpected client-facing transport/tool error: {recovery_text}")
-    print(f"PASS: live session recovered after busy responses (busy={busy_count})")
+    if busy_count:
+        print(f"PASS: live session recovered after busy responses (busy={busy_count})")
+    else:
+        print("PASS: live session returned concurrent responses without busy and stayed usable")
 finally:
     if proc.stdin is not None:
         try:

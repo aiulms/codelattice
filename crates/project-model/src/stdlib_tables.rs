@@ -357,6 +357,17 @@ pub(crate) fn lookup_receiver_type_method(base_type: &str, method_name: &str) ->
     None
 }
 
+/// 判断 method 是否出现在 receiver-type stdlib 表中。
+/// 用于在 calls.rs 中避免对明显不会命中的业务方法反复扫描函数源码。
+pub(crate) fn is_known_receiver_type_method(method_name: &str) -> bool {
+    STDLIB_TYPE_METHODS.iter().any(|entry| {
+        entry
+            .methods
+            .iter()
+            .any(|(known_method, _)| *known_method == method_name)
+    })
+}
+
 // ============================================================
 // 已知构造函数 → 基础类型 映射表
 // 用于在 let v = Vec::new() 之类无类型注解的声明中推断 receiver type
