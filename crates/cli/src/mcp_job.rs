@@ -592,7 +592,11 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
     MCP_JOBS.update_status(&job_id, JobStatus::Running);
     MCP_JOBS.increment_active_analysis();
 
-    std::thread::spawn(move || {
+    // warm 阶段可能调用 run_rust_analysis（进程内完整 project-model 分析），
+    // 大项目（43K+ nodes）会深度递归，需要更大的栈空间以避免 stack overflow。
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024) // 16 MB
+        .spawn(move || {
         let _guard = ActiveAnalysisGuard {
             job_id: job_id.clone(),
         };
@@ -929,7 +933,7 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             }
         }
         MCP_JOBS.set_summary(&job_id, summary);
-    });
+    }).expect("workspace job thread spawn failed");
 
     let handle = MCP_JOBS.get(&job_id_outer).unwrap();
     Ok(MCP_JOBS.to_response(&handle))
@@ -956,6 +960,7 @@ pub fn active_analysis_count() -> usize {
     MCP_JOBS.active_analysis_count()
 }
 
+/// 获取 job 状态
 pub fn get_job_status(job_id: &str) -> Option<Value> {
     MCP_JOBS.get(job_id).map(|h| MCP_JOBS.to_response(&h))
 }
@@ -976,7 +981,10 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     MCP_JOBS.update_status(&job_id, JobStatus::Running);
     MCP_JOBS.increment_active_analysis();
 
-    std::thread::spawn(move || {
+    // workspace job 的 warm 阶段也可能触发 run_rust_analysis，需要大栈
+    std::thread::Builder::new()
+        .stack_size(16 * 1024 * 1024)
+        .spawn(move || {
         let _guard = ActiveAnalysisGuard {
             job_id: job_id.clone(),
         };
@@ -1247,7 +1255,7 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
             }
         }
         MCP_JOBS.set_summary(&job_id, summary);
-    });
+    }).expect("project job thread spawn failed");
 
     let handle = MCP_JOBS.get(&job_id_outer).unwrap();
     Ok(MCP_JOBS.to_response(&handle))

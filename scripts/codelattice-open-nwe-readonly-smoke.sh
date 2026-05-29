@@ -3,6 +3,7 @@
 #
 # This script does not write to open-nwe and does not execute its project code.
 # It verifies the installed CodeLattice wrapper through real MCP JSON-RPC.
+# Uses a temporary CODELATTICE_CACHE_DIR to force clean-cache behavior.
 
 set -euo pipefail
 
@@ -20,6 +21,11 @@ fi
 
 BEFORE_STATUS="$(git -C "$TARGET_ROOT" status --short 2>/dev/null || true)"
 export BEFORE_STATUS
+
+# Force clean cache via temp directory
+CACHE_DIR="$(mktemp -d /tmp/codelattice-smoke-cache.XXXXXX)"
+trap 'rm -rf "$CACHE_DIR"' EXIT
+export CODELATTICE_CACHE_DIR="$CACHE_DIR"
 
 python3 - "$TARGET_ROOT" "$WRAPPER" <<'PY'
 import json
@@ -164,7 +170,9 @@ try:
             print(f"PASS: symbol search cache miss → jobId={job_id}")
 
             # Step 2: poll job_status until succeeded
-            for attempt in range(120):
+            # warm 阶段现在用 in-process run_rust_analysis（~10-30s），总 job 应 <60s
+            # 但保留 300s 安全边界（包含 job 执行 + warm 时间）
+            for attempt in range(300):
                 time.sleep(1)
                 js = call_tool("codelattice_project",
                     {"mode": "job_status", "jobId": job_id, "compact": True},
@@ -176,11 +184,12 @@ try:
                     ready = summary.get("facadeCacheReady", False)
                     symbol_count = summary.get("aiDigest", {}).get("facadeSymbolCount", 0)
                     print(f"PASS: job succeeded, facadeCacheReady={ready}, facadeSymbolCount={symbol_count}")
+                    assert symbol_count > 0, f"facadeSymbolCount should be > 0, got {symbol_count}"
                     break
                 if st == "failed":
                     raise AssertionError(f"job failed: {js}")
             else:
-                raise AssertionError(f"job did not complete in 120s")
+                raise AssertionError(f"job did not complete in 300s")
 
             # Step 3: retry symbol search (should hit cache)
             search2 = call_tool(

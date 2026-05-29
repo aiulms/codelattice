@@ -1522,39 +1522,83 @@ fn build_warm_cache_entry_from_result(
     result: &SerializableResult,
 ) -> Result<(CacheEntry, WarmCacheMeta), String> {
     let start = Instant::now();
-    // 将 job artifacts 转换为 CLI analyze 输出格式
     let root_str = canonical.to_string_lossy();
-    let converted = convert_job_result_to_analyze_format(result, language, &root_str);
 
-    // 检查转换后是否产生了真实符号（label="symbol" 的节点）
-    let converted_symbol_count = converted
-        .get("graph")
-        .and_then(|g| g.get("nodes"))
-        .and_then(|n| n.as_array())
-        .map(|a| {
-            a.iter()
-                .filter(|n| n["label"].as_str() == Some("symbol"))
-                .count()
-        })
-        .unwrap_or(0);
-
-    // 如果转换后无真实符号，必须 fallback 到 CLI analyze 子进程
-    // Rust engine adapter 的 extract_symbols 可能返回空数组（adapter 使用旧格式），
-    // 此时只有 CLI analyze 能生成完整 graph。
-    let (analyze_value, used_cli_fallback) = if converted_symbol_count == 0 {
-        match run_analyze_subprocess(canonical, language, "json", false) {
-            Ok(cli_result) => (cli_result, true),
+    // ── 策略选择 ──
+    // Rust: engine adapter extract_symbols 有 bug（字段名不匹配 + 逐文件调用
+    // run_rust_analysis(path.parent()) 导致空结果），所以 job artifacts 里无真实符号。
+    // 直接调用 run_rust_analysis(project_root) 一次即可获得完整 graph，
+    // 比起 CLI subprocess（~150s）或逐文件 adapter（646 次空分析）都更快。
+    //
+    // 非 Rust: 先尝试从 job artifacts 转换（adapter 可能正常工作），
+    // 若转换后无符号再 fallback 到 CLI subprocess。
+    let (analyze_value, used_cli_fallback) = if language == "rust" || language == "auto" {
+        // Rust / auto: 直接调用进程内 run_rust_analysis(project_root)
+        // engine adapter extract_symbols 有 bug（字段名不匹配 + 逐文件调用
+        // run_rust_analysis(path.parent()) 导致空结果），job artifacts 无真实符号。
+        // 直接调用 run_rust_analysis(project_root) 一次即可获得完整 graph，
+        // 比起 CLI subprocess（~150s）或逐文件 adapter（646 次空分析）都更快。
+        match crate::run_rust_analysis(canonical) {
+            Ok((graph_val, _nodes, _edges)) => {
+                // graph_val 是 GraphOutput 的 JSON：{schemaVersion, nodes, edges, diagnostics, stats}
+                // GraphView::build 期望 analyze_result["graph"]["nodes"]，
+                // 所以直接用 {graph: graph_val} 包装即可
+                let wrapped = json!({
+                    "language": language,
+                    "root": root_str,
+                    "graph": graph_val,
+                });
+                (wrapped, false)
+            }
             Err(e) => {
-                // CLI fallback 也失败了，保持转换后的空结果
+                // 进程内分析失败，fallback 到 CLI subprocess
                 eprintln!(
-                    "[warm_from_result] CLI analyze fallback failed for {}: {}",
+                    "[warm_from_result] run_rust_analysis failed for {}: {}, falling back to CLI",
                     root_str, e
                 );
-                (converted, false)
+                match run_analyze_subprocess(canonical, language, "json", false) {
+                    Ok(cli_result) => (cli_result, true),
+                    Err(e2) => {
+                        eprintln!(
+                            "[warm_from_result] CLI fallback also failed for {}: {:?}",
+                            root_str, e2
+                        );
+                        let converted =
+                            convert_job_result_to_analyze_format(result, language, &root_str);
+                        (converted, false)
+                    }
+                }
             }
         }
     } else {
-        (converted, false)
+        // 非 Rust: 先尝试从 job artifacts 转换
+        let converted = convert_job_result_to_analyze_format(result, language, &root_str);
+        let converted_symbol_count = converted
+            .get("graph")
+            .and_then(|g| g.get("nodes"))
+            .and_then(|n| n.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter(|n| n["label"].as_str() == Some("symbol"))
+                    .count()
+            })
+            .unwrap_or(0);
+
+        if converted_symbol_count > 0 {
+            (converted, false)
+        } else {
+            // 转换后无真实符号，fallback 到 CLI subprocess
+            match run_analyze_subprocess(canonical, language, "json", false) {
+                Ok(cli_result) => (cli_result, true),
+                Err(e) => {
+                    eprintln!(
+                        "[warm_from_result] CLI fallback failed for {}: {:?}",
+                        root_str, e
+                    );
+                    (converted, false)
+                }
+            }
+        }
     };
 
     let mut graph_view = GraphView::build(&analyze_value);
