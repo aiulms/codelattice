@@ -2707,7 +2707,6 @@ impl McpCache {
         // Layer 1: Check process-local memory cache
         if let Some(entry) = self.entries.get_mut(&key) {
             let root_path = Path::new(&entry.root_canonical);
-            // stale baseline 辅助：返回过时缓存数据，不删除条目
             let file_stale_reason = check_stale(root_path, &entry.file_mtimes);
             let stale_reason_code: Option<String> = if let Some(reason) = &file_stale_reason {
                 Some(reason.reason_code().to_string())
@@ -2776,6 +2775,7 @@ impl McpCache {
                 entry.stale_reason = Some(reason_code.clone());
 
                 let mut delta_symbol_count: u32 = 0;
+                let mut delta_call_count: u32 = 0;
                 let mut delta_files: Vec<String> = Vec::new();
 
                 let files_to_extract: Vec<String> = match &file_stale_reason {
@@ -2863,7 +2863,7 @@ impl McpCache {
                     };
 
                     if !delta_symbols.is_empty() {
-                        let baseline_symbols: Vec<gitnexus_project_model::model::Symbol> = entry
+                        let _baseline_symbols: Vec<gitnexus_project_model::model::Symbol> = entry
                             .graph_view
                             .nodes_by_id
                             .values()
@@ -2925,103 +2925,215 @@ impl McpCache {
                             })
                             .collect();
 
-                        let delta_calls = gitnexus_project_model::calls::extract_delta_calls(
-                            &delta_symbols,
-                            &baseline_symbols,
-                            &file_contents,
-                        );
-
-                        let mut delta_call_count: u32 = 0;
-                        for call in &delta_calls {
-                            let mut source_id =
-                                call.caller_symbol_id.as_deref().unwrap_or("").to_string();
-                            let mut target_id =
-                                call.resolved_symbol_id.as_deref().unwrap_or("").to_string();
-
-                            if source_id.is_empty() {
-                                if let Some(caller_name) = &call.caller_name {
-                                    let name_lower = caller_name.to_lowercase();
-                                    if let Some(syms) =
-                                        entry.graph_view.symbols_by_name.get(&name_lower)
-                                    {
-                                        if let Some(sym) = syms.first() {
-                                            let node_id = sym["id"].as_str().unwrap_or("");
-                                            source_id = node_id
-                                                .strip_prefix("symbol:")
-                                                .unwrap_or(node_id)
-                                                .to_string();
-                                        }
-                                    }
-                                }
+                        let mut caller_by_file: HashMap<String, Vec<(String, u32, u32, String)>> =
+                            HashMap::new();
+                        for sym in &delta_symbols {
+                            if sym.symbol_kind == "function" || sym.symbol_kind == "method" {
+                                caller_by_file
+                                    .entry(sym.source_path.clone())
+                                    .or_default()
+                                    .push((
+                                        sym.name.clone(),
+                                        sym.line_start,
+                                        sym.line_end,
+                                        sym.id.clone(),
+                                    ));
                             }
-                            if target_id.is_empty() {
-                                let name_lower = call.callee_name.to_lowercase();
-                                if let Some(syms) =
-                                    entry.graph_view.symbols_by_name.get(&name_lower)
-                                {
-                                    if let Some(sym) = syms.first() {
-                                        let node_id = sym["id"].as_str().unwrap_or("");
-                                        target_id = node_id
-                                            .strip_prefix("symbol:")
-                                            .unwrap_or(node_id)
-                                            .to_string();
-                                    }
-                                }
-                            }
+                        }
 
-                            if source_id.is_empty() && target_id.is_empty() {
+                        for (rel_path, content) in &file_contents {
+                            let callers = caller_by_file.get(rel_path).cloned().unwrap_or_default();
+                            if callers.is_empty() {
                                 continue;
                             }
 
-                            let edge = json!({
-                                "id": call.id,
-                                "type": "CALLS",
-                                "source": format!("symbol:{}", source_id),
-                                "target": format!("symbol:{}", target_id),
-                                "properties": {
-                                    "calleeName": call.callee_name,
-                                    "callKind": call.call_kind,
-                                    "confidence": call.confidence,
-                                    "reason": call.reason,
-                                    "sourcePath": call.source_path,
-                                    "lineStart": call.span.line_start,
-                                    "rawText": call.raw_text,
-                                    "evidenceSource": "fresh_delta",
+                            for (line_idx, line) in content.lines().enumerate() {
+                                let line_num = (line_idx + 1) as u32;
+                                let trimmed = line.trim();
+
+                                if trimmed.starts_with("//")
+                                    || trimmed.starts_with("/*")
+                                    || trimmed.is_empty()
+                                {
+                                    continue;
                                 }
-                            });
+                                if trimmed.starts_with("use ")
+                                    || trimmed.starts_with("#[")
+                                    || trimmed.starts_with("struct ")
+                                {
+                                    continue;
+                                }
+                                if trimmed.starts_with("impl ")
+                                    || trimmed.starts_with("trait ")
+                                    || trimmed.starts_with("enum ")
+                                {
+                                    continue;
+                                }
+                                if trimmed.starts_with("}")
+                                    || trimmed.starts_with("{")
+                                    || trimmed.starts_with(",")
+                                {
+                                    continue;
+                                }
 
-                            if !source_id.is_empty() {
-                                let source_key = format!("symbol:{}", source_id);
-                                entry
-                                    .graph_view
-                                    .outgoing
-                                    .entry(source_key)
-                                    .or_default()
-                                    .push(edge.clone());
+                                // For lines starting with pub fn/async fn, skip the function signature
+                                // but still scan the body part after '{'
+                                let scan_text = if trimmed.starts_with("pub fn ")
+                                    || trimmed.starts_with("pub async fn ")
+                                    || trimmed.starts_with("fn ")
+                                    || trimmed.starts_with("async fn ")
+                                    || trimmed.starts_with("pub const fn ")
+                                {
+                                    if let Some(brace_pos) = trimmed.find('{') {
+                                        &trimmed[brace_pos + 1..]
+                                    } else {
+                                        continue;
+                                    }
+                                } else if trimmed.starts_with("return") && !trimmed.contains("(") {
+                                    continue;
+                                } else if trimmed.starts_with("let ") && !trimmed.contains("(") {
+                                    continue;
+                                } else if trimmed.starts_with("if ")
+                                    || trimmed.starts_with("for ")
+                                    || trimmed.starts_with("while ")
+                                    || trimmed.starts_with("match ")
+                                {
+                                    trimmed
+                                } else {
+                                    trimmed
+                                };
+
+                                if scan_text.trim().is_empty() {
+                                    continue;
+                                }
+
+                                let caller = callers
+                                    .iter()
+                                    .find(|(_, ls, le, _)| line_num >= *ls && line_num <= *le);
+                                let caller_id = match caller {
+                                    Some((name, _, _, id)) => (name.clone(), id.clone()),
+                                    None => continue,
+                                };
+
+                                let mut pos = 0;
+                                let bytes = scan_text.as_bytes();
+                                while pos < bytes.len() {
+                                    if bytes[pos] == b'(' && pos > 0 {
+                                        let mut start = pos;
+                                        while start > 0
+                                            && (bytes[start - 1] == b'.'
+                                                || bytes[start - 1] == b':')
+                                        {
+                                            start -= 1;
+                                        }
+                                        let id_end = start;
+                                        while start > 0
+                                            && (bytes[start - 1].is_ascii_alphanumeric()
+                                                || bytes[start - 1] == b'_')
+                                        {
+                                            start -= 1;
+                                        }
+                                        if start < id_end {
+                                            let callee_name = &scan_text[start..id_end];
+                                            if callee_name == caller_id.0 {
+                                                pos += 1;
+                                                continue;
+                                            }
+                                            if [
+                                                "if",
+                                                "for",
+                                                "while",
+                                                "match",
+                                                "Some",
+                                                "None",
+                                                "Ok",
+                                                "Err",
+                                                "Vec",
+                                                "Box",
+                                                "Arc",
+                                                "Rc",
+                                                "String",
+                                                "println",
+                                                "format",
+                                                "panic",
+                                                "assert",
+                                                "unwrap",
+                                                "expect",
+                                                "clone",
+                                                "to_string",
+                                                "new",
+                                                "default",
+                                            ]
+                                            .contains(&callee_name)
+                                            {
+                                                pos += 1;
+                                                continue;
+                                            }
+
+                                            let callee_lower = callee_name.to_lowercase();
+                                            let target_node_id = entry
+                                                .graph_view
+                                                .symbols_by_name
+                                                .get(&callee_lower)
+                                                .and_then(|syms| syms.first())
+                                                .and_then(|n| {
+                                                    n["id"].as_str().map(|s| s.to_string())
+                                                });
+
+                                            if let Some(ref target_nid) = target_node_id {
+                                                let target_sym_id = target_nid
+                                                    .strip_prefix("symbol:")
+                                                    .unwrap_or(target_nid)
+                                                    .to_string();
+                                                let source_sym_id = caller_id.1.clone();
+
+                                                let edge = json!({
+                                                    "id": format!("{}::delta_call::{}::{}", rel_path, line_num, callee_name),
+                                                    "type": "CALLS",
+                                                    "source": format!("symbol:{}", source_sym_id),
+                                                    "target": format!("symbol:{}", target_sym_id),
+                                                    "properties": {
+                                                        "calleeName": callee_name,
+                                                        "callKind": "free-function",
+                                                        "confidence": 0.60,
+                                                        "reason": "delta_call_extracted_from_modified_file",
+                                                        "sourcePath": rel_path,
+                                                        "lineStart": line_num,
+                                                        "rawText": trimmed,
+                                                        "evidenceSource": "fresh_delta",
+                                                    }
+                                                });
+
+                                                let source_key =
+                                                    format!("symbol:{}", source_sym_id);
+                                                entry
+                                                    .graph_view
+                                                    .outgoing
+                                                    .entry(source_key)
+                                                    .or_default()
+                                                    .push(edge.clone());
+
+                                                let target_key =
+                                                    format!("symbol:{}", target_sym_id);
+                                                entry
+                                                    .graph_view
+                                                    .incoming
+                                                    .entry(target_key)
+                                                    .or_default()
+                                                    .push(edge);
+
+                                                delta_call_count += 1;
+                                            }
+                                        }
+                                    }
+                                    pos += 1;
+                                }
                             }
-
-                            if !target_id.is_empty() {
-                                let target_key = format!("symbol:{}", target_id);
-                                entry
-                                    .graph_view
-                                    .incoming
-                                    .entry(target_key)
-                                    .or_default()
-                                    .push(edge);
-                            }
-
-                            delta_call_count += 1;
-                        }
-
-                        if delta_call_count > 0 {
-                            entry.analyze_result.as_object_mut().map(|o| {
-                                o.insert("deltaCallCount".to_string(), json!(delta_call_count));
-                            });
                         }
                     }
                 }
 
-                let freshness = if delta_symbol_count > 0 {
+                let freshness = if delta_symbol_count > 0 || delta_call_count > 0 {
                     "fresh_delta_plus_stale_baseline"
                 } else {
                     "stale_baseline"
@@ -3043,6 +3155,11 @@ impl McpCache {
                     meta.as_object_mut()
                         .unwrap()
                         .insert("deltaFiles".to_string(), json!(delta_files));
+                    if delta_call_count > 0 {
+                        meta.as_object_mut()
+                            .unwrap()
+                            .insert("deltaCallCount".to_string(), json!(delta_call_count));
+                    }
                 }
                 return Ok((
                     entry.graph_view.clone_shallow(),
@@ -3136,6 +3253,7 @@ impl McpCache {
 
                 // 增量提取：对新增/修改文件做 symbol extraction
                 let mut delta_symbol_count: u32 = 0;
+                let mut delta_call_count: u32 = 0;
                 let mut delta_files: Vec<String> = Vec::new();
                 let file_stale_reason = check_stale(&canonical, &persistent.file_mtimes);
                 let files_to_extract: Vec<String> = match &file_stale_reason {
@@ -3289,107 +3407,215 @@ impl McpCache {
                             })
                             .collect();
 
-                        let delta_calls = gitnexus_project_model::calls::extract_delta_calls(
-                            &delta_symbols,
-                            &baseline_symbols,
-                            &file_contents,
-                        );
+                        if let Some(entry) = self.entries.get_mut(&key) {
+                            let mut caller_by_file: HashMap<
+                                String,
+                                Vec<(String, u32, u32, String)>,
+                            > = HashMap::new();
+                            for sym in &delta_symbols {
+                                if sym.symbol_kind == "function" || sym.symbol_kind == "method" {
+                                    caller_by_file
+                                        .entry(sym.source_path.clone())
+                                        .or_default()
+                                        .push((
+                                            sym.name.clone(),
+                                            sym.line_start,
+                                            sym.line_end,
+                                            sym.id.clone(),
+                                        ));
+                                }
+                            }
 
-                        let mut delta_call_count: u32 = 0;
-                        for call in &delta_calls {
-                            let mut source_id =
-                                call.caller_symbol_id.as_deref().unwrap_or("").to_string();
-                            let mut target_id =
-                                call.resolved_symbol_id.as_deref().unwrap_or("").to_string();
+                            for (rel_path, content) in &file_contents {
+                                let callers =
+                                    caller_by_file.get(rel_path).cloned().unwrap_or_default();
+                                if callers.is_empty() {
+                                    continue;
+                                }
 
-                            {
-                                if let Some(entry) = self.entries.get(&key) {
-                                    if source_id.is_empty() {
-                                        if let Some(caller_name) = &call.caller_name {
-                                            let name_lower = caller_name.to_lowercase();
-                                            if let Some(syms) =
-                                                entry.graph_view.symbols_by_name.get(&name_lower)
+                                for (line_idx, line) in content.lines().enumerate() {
+                                    let line_num = (line_idx + 1) as u32;
+                                    let trimmed = line.trim();
+
+                                    if trimmed.starts_with("//")
+                                        || trimmed.starts_with("/*")
+                                        || trimmed.is_empty()
+                                    {
+                                        continue;
+                                    }
+                                    if trimmed.starts_with("use ")
+                                        || trimmed.starts_with("#[")
+                                        || trimmed.starts_with("struct ")
+                                    {
+                                        continue;
+                                    }
+                                    if trimmed.starts_with("impl ")
+                                        || trimmed.starts_with("trait ")
+                                        || trimmed.starts_with("enum ")
+                                    {
+                                        continue;
+                                    }
+                                    if trimmed.starts_with("}")
+                                        || trimmed.starts_with("{")
+                                        || trimmed.starts_with(",")
+                                    {
+                                        continue;
+                                    }
+
+                                    let scan_text = if trimmed.starts_with("pub fn ")
+                                        || trimmed.starts_with("pub async fn ")
+                                        || trimmed.starts_with("fn ")
+                                        || trimmed.starts_with("async fn ")
+                                        || trimmed.starts_with("pub const fn ")
+                                    {
+                                        if let Some(brace_pos) = trimmed.find('{') {
+                                            &trimmed[brace_pos + 1..]
+                                        } else {
+                                            continue;
+                                        }
+                                    } else if trimmed.starts_with("return")
+                                        && !trimmed.contains("(")
+                                    {
+                                        continue;
+                                    } else if trimmed.starts_with("let ") && !trimmed.contains("(")
+                                    {
+                                        continue;
+                                    } else if trimmed.starts_with("if ")
+                                        || trimmed.starts_with("for ")
+                                        || trimmed.starts_with("while ")
+                                        || trimmed.starts_with("match ")
+                                    {
+                                        trimmed
+                                    } else {
+                                        trimmed
+                                    };
+
+                                    if scan_text.trim().is_empty() {
+                                        continue;
+                                    }
+
+                                    let caller = callers
+                                        .iter()
+                                        .find(|(_, ls, le, _)| line_num >= *ls && line_num <= *le);
+                                    let caller_id = match caller {
+                                        Some((name, _, _, id)) => (name.clone(), id.clone()),
+                                        None => continue,
+                                    };
+
+                                    let mut pos = 0;
+                                    let bytes = scan_text.as_bytes();
+                                    while pos < bytes.len() {
+                                        if bytes[pos] == b'(' && pos > 0 {
+                                            let mut start = pos;
+                                            while start > 0
+                                                && (bytes[start - 1] == b'.'
+                                                    || bytes[start - 1] == b':')
                                             {
-                                                if let Some(sym) = syms.first() {
-                                                    let node_id = sym["id"].as_str().unwrap_or("");
-                                                    source_id = node_id
+                                                start -= 1;
+                                            }
+                                            let id_end = start;
+                                            while start > 0
+                                                && (bytes[start - 1].is_ascii_alphanumeric()
+                                                    || bytes[start - 1] == b'_')
+                                            {
+                                                start -= 1;
+                                            }
+                                            if start < id_end {
+                                                let callee_name = &scan_text[start..id_end];
+                                                if callee_name == caller_id.0 {
+                                                    pos += 1;
+                                                    continue;
+                                                }
+                                                if [
+                                                    "if",
+                                                    "for",
+                                                    "while",
+                                                    "match",
+                                                    "Some",
+                                                    "None",
+                                                    "Ok",
+                                                    "Err",
+                                                    "Vec",
+                                                    "Box",
+                                                    "Arc",
+                                                    "Rc",
+                                                    "String",
+                                                    "println",
+                                                    "format",
+                                                    "panic",
+                                                    "assert",
+                                                    "unwrap",
+                                                    "expect",
+                                                    "clone",
+                                                    "to_string",
+                                                    "new",
+                                                    "default",
+                                                ]
+                                                .contains(&callee_name)
+                                                {
+                                                    pos += 1;
+                                                    continue;
+                                                }
+
+                                                let callee_lower = callee_name.to_lowercase();
+                                                let target_node_id = entry
+                                                    .graph_view
+                                                    .symbols_by_name
+                                                    .get(&callee_lower)
+                                                    .and_then(|syms| syms.first())
+                                                    .and_then(|n| {
+                                                        n["id"].as_str().map(|s| s.to_string())
+                                                    });
+
+                                                if let Some(ref target_nid) = target_node_id {
+                                                    let target_sym_id = target_nid
                                                         .strip_prefix("symbol:")
-                                                        .unwrap_or(node_id)
+                                                        .unwrap_or(target_nid)
                                                         .to_string();
+                                                    let source_sym_id = caller_id.1.clone();
+
+                                                    let edge = json!({
+                                                        "id": format!("{}::delta_call::{}::{}", rel_path, line_num, callee_name),
+                                                        "type": "CALLS",
+                                                        "source": format!("symbol:{}", source_sym_id),
+                                                        "target": format!("symbol:{}", target_sym_id),
+                                                        "properties": {
+                                                            "calleeName": callee_name,
+                                                            "callKind": "free-function",
+                                                            "confidence": 0.60,
+                                                            "reason": "delta_call_extracted_from_modified_file",
+                                                            "sourcePath": rel_path,
+                                                            "lineStart": line_num,
+                                                            "rawText": trimmed,
+                                                            "evidenceSource": "fresh_delta",
+                                                        }
+                                                    });
+
+                                                    let source_key =
+                                                        format!("symbol:{}", source_sym_id);
+                                                    entry
+                                                        .graph_view
+                                                        .outgoing
+                                                        .entry(source_key)
+                                                        .or_default()
+                                                        .push(edge.clone());
+
+                                                    let target_key =
+                                                        format!("symbol:{}", target_sym_id);
+                                                    entry
+                                                        .graph_view
+                                                        .incoming
+                                                        .entry(target_key)
+                                                        .or_default()
+                                                        .push(edge);
+
+                                                    delta_call_count += 1;
                                                 }
                                             }
                                         }
-                                    }
-                                    if target_id.is_empty() {
-                                        let name_lower = call.callee_name.to_lowercase();
-                                        if let Some(syms) =
-                                            entry.graph_view.symbols_by_name.get(&name_lower)
-                                        {
-                                            if let Some(sym) = syms.first() {
-                                                let node_id = sym["id"].as_str().unwrap_or("");
-                                                target_id = node_id
-                                                    .strip_prefix("symbol:")
-                                                    .unwrap_or(node_id)
-                                                    .to_string();
-                                            }
-                                        }
+                                        pos += 1;
                                     }
                                 }
-                            }
-
-                            if source_id.is_empty() && target_id.is_empty() {
-                                continue;
-                            }
-
-                            let edge = json!({
-                                "id": call.id,
-                                "type": "CALLS",
-                                "source": format!("symbol:{}", source_id),
-                                "target": format!("symbol:{}", target_id),
-                                "properties": {
-                                    "calleeName": call.callee_name,
-                                    "callKind": call.call_kind,
-                                    "confidence": call.confidence,
-                                    "reason": call.reason,
-                                    "sourcePath": call.source_path,
-                                    "lineStart": call.span.line_start,
-                                    "rawText": call.raw_text,
-                                    "evidenceSource": "fresh_delta",
-                                }
-                            });
-
-                            if !source_id.is_empty() {
-                                let source_key = format!("symbol:{}", source_id);
-                                if let Some(entry) = self.entries.get_mut(&key) {
-                                    entry
-                                        .graph_view
-                                        .outgoing
-                                        .entry(source_key)
-                                        .or_default()
-                                        .push(edge.clone());
-                                }
-                            }
-
-                            if !target_id.is_empty() {
-                                let target_key = format!("symbol:{}", target_id);
-                                if let Some(entry) = self.entries.get_mut(&key) {
-                                    entry
-                                        .graph_view
-                                        .incoming
-                                        .entry(target_key)
-                                        .or_default()
-                                        .push(edge);
-                                }
-                            }
-
-                            delta_call_count += 1;
-                        }
-
-                        if delta_call_count > 0 {
-                            if let Some(entry) = self.entries.get_mut(&key) {
-                                entry.analyze_result.as_object_mut().map(|o| {
-                                    o.insert("deltaCallCount".to_string(), json!(delta_call_count));
-                                });
                             }
                         }
                     }
@@ -3420,6 +3646,11 @@ impl McpCache {
                     meta.as_object_mut()
                         .unwrap()
                         .insert("deltaFiles".to_string(), json!(delta_files));
+                    if delta_call_count > 0 {
+                        meta.as_object_mut()
+                            .unwrap()
+                            .insert("deltaCallCount".to_string(), json!(delta_call_count));
+                    }
                 }
 
                 let entry = self.entries.get(&key).unwrap();
@@ -22133,7 +22364,11 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         "callers" => {
             let mut call_params = analysis_params.clone();
             if call_params.get("symbol").and_then(|v| v.as_str()).is_none() {
-                if let Some(name) = call_params.get("name").and_then(|v| v.as_str()) {
+                if let Some(name) = call_params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| call_params.get("query").and_then(|v| v.as_str()))
+                {
                     call_params["symbol"] = json!(name);
                 }
             }
@@ -22143,7 +22378,11 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         "callees" => {
             let mut call_params = analysis_params.clone();
             if call_params.get("symbol").and_then(|v| v.as_str()).is_none() {
-                if let Some(name) = call_params.get("name").and_then(|v| v.as_str()) {
+                if let Some(name) = call_params
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| call_params.get("query").and_then(|v| v.as_str()))
+                {
                     call_params["symbol"] = json!(name);
                 }
             }
