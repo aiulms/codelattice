@@ -120,7 +120,7 @@ impl LanguageAdapter for RustEngineAdapter {
         let path = Path::new(&_unit.path);
         let root = path.parent().unwrap_or(Path::new("."));
         match crate::run_rust_analysis(root) {
-            Ok((graph, _, _)) => {
+            Ok((graph, _, _, _)) => {
                 let nodes = graph["nodes"]
                     .as_array()
                     .map(|a| a.as_slice())
@@ -162,7 +162,7 @@ impl LanguageAdapter for RustEngineAdapter {
         let path = Path::new(&_unit.path);
         let root = path.parent().unwrap_or(Path::new("."));
         match crate::run_rust_analysis(root) {
-            Ok((graph, _, _)) => {
+            Ok((graph, _, _, _)) => {
                 let edges = graph["edges"]
                     .as_array()
                     .map(|a| a.as_slice())
@@ -197,7 +197,7 @@ impl LanguageAdapter for RustEngineAdapter {
         let path = Path::new(&_unit.path);
         let root = path.parent().unwrap_or(Path::new("."));
         match crate::run_rust_analysis(root) {
-            Ok((graph, _, _)) => {
+            Ok((graph, _, _, _)) => {
                 let edges = graph["edges"]
                     .as_array()
                     .map(|a| a.as_slice())

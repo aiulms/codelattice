@@ -17348,4 +17348,26 @@ fn mcp_job_status_exposes_warm_trace() {
         trace["cacheInsertMs"].as_u64().is_some(),
         "warmTrace must have cacheInsertMs: {status:?}"
     );
+
+    let at = &trace["analysisTrace"];
+    assert!(
+        at["manifestScanMs"].as_u64().is_some(),
+        "warmTrace.analysisTrace must have manifestScanMs: {status:?}"
+    );
+    assert!(
+        at["symbolExtractionMs"].as_u64().is_some(),
+        "warmTrace.analysisTrace must have symbolExtractionMs: {status:?}"
+    );
+    assert!(
+        at["callResolutionMs"].as_u64().is_some(),
+        "warmTrace.analysisTrace must have callResolutionMs: {status:?}"
+    );
+    assert!(
+        at["importResolutionMs"].as_u64().is_some(),
+        "warmTrace.analysisTrace must have importResolutionMs: {status:?}"
+    );
+    assert!(
+        at["totalMs"].as_u64().is_some(),
+        "warmTrace.analysisTrace must have totalMs: {status:?}"
+    );
 }

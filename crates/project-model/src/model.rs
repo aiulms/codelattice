@@ -98,6 +98,29 @@ pub struct ProjectModelOutput {
     pub calls: Vec<CallSite>,
     /// call 提取相关 diagnostics，--include calls 时填充
     pub call_diagnostics: Vec<CallDiagnostic>,
+    /// 子阶段计时 trace，用于性能分析
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis_trace: Option<AnalysisTrace>,
+}
+
+/// Rust 分析管线子阶段计时
+#[derive(Debug, Clone, Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct AnalysisTrace {
+    pub manifest_scan_ms: u64,
+    pub source_ownership_ms: u64,
+    pub root_resolution_ms: u64,
+    pub module_path_map_ms: u64,
+    pub symbol_extraction_ms: u64,
+    pub import_resolution_ms: u64,
+    pub call_resolution_ms: u64,
+    pub graph_assembly_ms: u64,
+    pub serialization_ms: u64,
+    pub total_ms: u64,
+    pub source_file_count: u32,
+    pub symbol_count: u32,
+    pub import_count: u32,
+    pub call_count: u32,
 }
 
 /// 顶层 ProjectModel 统计

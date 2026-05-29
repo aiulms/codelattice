@@ -9,6 +9,7 @@ default = ["tree-sitter-extraction"]
 tree-sitter-extraction = ["dep:tree-sitter", "dep:tree-sitter-rust"]
 
 [dependencies]
+rayon = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"

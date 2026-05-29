@@ -1547,6 +1547,8 @@ pub struct WarmTrace {
     pub cache_insert_ms: u64,
     pub used_cli_fallback: bool,
     pub used_in_process_rust_analysis: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis_trace: Option<Value>,
 }
 
 fn build_facade_digest(
@@ -1640,6 +1642,7 @@ fn build_warm_cache_entry_from_result(
 ) -> Result<(CacheEntry, WarmCacheMeta), String> {
     let start = Instant::now();
     let root_str = canonical.to_string_lossy();
+    let mut analysis_trace_from_rust: Option<Value> = None;
     let analysis_start = Instant::now();
 
     // ── 策略选择 ──
@@ -1657,15 +1660,16 @@ fn build_warm_cache_entry_from_result(
         // 直接调用 run_rust_analysis(project_root) 一次即可获得完整 graph，
         // 比起 CLI subprocess（~150s）或逐文件 adapter（646 次空分析）都更快。
         match crate::run_rust_analysis(canonical) {
-            Ok((graph_val, _nodes, _edges)) => {
-                // graph_val 是 GraphOutput 的 JSON：{schemaVersion, nodes, edges, diagnostics, stats}
-                // GraphView::build 期望 analyze_result["graph"]["nodes"]，
-                // 所以直接用 {graph: graph_val} 包装即可
+            Ok((graph_val, _nodes, _edges, rust_trace)) => {
                 let wrapped = json!({
                     "language": language,
                     "root": root_str,
                     "graph": graph_val,
                 });
+                if let Some(trace) = &rust_trace {
+                    analysis_trace_from_rust =
+                        Some(serde_json::to_value(trace).unwrap_or_default());
+                }
                 (wrapped, false)
             }
             Err(e) => {
@@ -1783,6 +1787,7 @@ fn build_warm_cache_entry_from_result(
         used_cli_fallback,
         used_in_process_rust_analysis: !used_cli_fallback
             && (language == "rust" || language == "auto"),
+        analysis_trace: analysis_trace_from_rust,
     };
 
     Ok((

@@ -5,6 +5,8 @@
 //! 第三刀：root resolution scanner 解析 crate:: 路径，填充 rootResolution + stats。
 //! stdout 只输出 JSON，human-readable logs 输出到 stderr。
 
+use std::time::Instant;
+
 use crate::calls;
 use crate::diagnostic::{codes, Diagnostic};
 use crate::graph;
@@ -38,19 +40,21 @@ pub fn inspect_project_model_with_options(
     include_imports: bool,
     include_calls: bool,
 ) -> ProjectModelOutput {
-    // v0.2: graph 输出依赖 symbol nodes（DEFINES/CALLS edges 的 source/target）。
-    // 当 include_graph 为 true 时，强制 include_symbols = true 以确保 graph edge endpoint integrity。
-    // 之前仅检查 include_graph && include_calls，遗漏了 graph-only 场景。
     if include_graph {
         include_symbols = true;
     }
+    let total_start = Instant::now();
     let root_display = root.display().to_string();
+
+    let t0 = Instant::now();
     let scan = manifest::scan_manifests(root);
+    let manifest_scan_ms = t0.elapsed().as_millis() as u64;
 
-    // 第二刀：基于 manifest scanner 结果扫描 source ownership
+    let t0 = Instant::now();
     let source_result = source::scan_source_ownership(root, &scan.packages, &scan.targets);
+    let source_ownership_ms = t0.elapsed().as_millis() as u64;
 
-    // 第三刀：基于 source ownership + targets 执行 root resolution
+    let t0 = Instant::now();
     let queries = root_resolution::load_root_queries(root);
     let rr_result = root_resolution::scan_root_resolution(
         root,
@@ -58,39 +62,48 @@ pub fn inspect_project_model_with_options(
         &scan.targets,
         &queries,
     );
+    let root_resolution_ms = t0.elapsed().as_millis() as u64;
 
-    // 合并 diagnostics
     let mut all_diagnostics = scan.diagnostics;
     all_diagnostics.extend(source_result.diagnostics);
     all_diagnostics.extend(rr_result.diagnostics);
     let diagnostics_count = all_diagnostics.len() as u32;
 
-    // 构建 ModulePathMap：sourcePath → modulePath 映射
+    let t0 = Instant::now();
     let module_path_map = crate::module_path::build_module_path_map(
         root,
         &source_result.source_ownership,
         &scan.targets,
     );
+    let module_path_map_ms = t0.elapsed().as_millis() as u64;
 
-    // item/symbol 提取：include_symbols / include_imports / include_calls 时都需要
     let need_symbols = include_symbols || include_imports || include_calls;
+    let t0 = Instant::now();
     let (symbols, symbol_diagnostics, symbol_count) = if need_symbols {
-        let extractor = create_best_extractor();
         let inputs = build_extraction_inputs(
             root,
             &source_result.source_ownership,
             &scan.packages,
             &module_path_map,
         );
-        let result = crate::item::extract_symbols_from_files(&*extractor, &inputs);
+        let result = if inputs.len() >= 8 {
+            crate::item::extract_symbols_from_files_parallel(
+                || crate::item::create_best_extractor(),
+                &inputs,
+            )
+        } else {
+            let extractor = create_best_extractor();
+            crate::item::extract_symbols_from_files(&*extractor, &inputs)
+        };
         let count = result.symbols.len() as u32;
         (result.symbols, result.diagnostics, count)
     } else {
         (vec![], vec![], 0u32)
     };
+    let symbol_extraction_ms = t0.elapsed().as_millis() as u64;
 
-    // import/use 提取：第四刀（--include imports 或 --include calls 时启用）
     let need_imports = include_imports || include_calls;
+    let t0 = Instant::now();
     let (import_list, import_diagnostics, import_count) = if need_imports {
         let result = imports::extract_and_resolve_imports(
             root,
@@ -104,8 +117,9 @@ pub fn inspect_project_model_with_options(
     } else {
         (vec![], vec![], 0u32)
     };
+    let import_resolution_ms = t0.elapsed().as_millis() as u64;
 
-    // call site 提取：第五刀（--include calls 时启用）
+    let t0 = Instant::now();
     let (call_list, call_diags, call_count) = if include_calls {
         let result = calls::extract_and_resolve_calls(
             root,
@@ -121,14 +135,35 @@ pub fn inspect_project_model_with_options(
     } else {
         (vec![], vec![], 0u32)
     };
+    let call_resolution_ms = t0.elapsed().as_millis() as u64;
 
-    // 从 call_list 计算 external crate stats（不再硬编码为 0）
+    let t0 = Instant::now();
     let call_external_crate_total = call_list
         .iter()
         .filter(|c| c.call_kind == "external-crate")
         .count() as u32;
     let call_external_crate_classified =
         call_list.iter().filter(|c| c.known_crate.is_some()).count() as u32;
+    let graph_assembly_ms = t0.elapsed().as_millis() as u64;
+
+    let total_ms = total_start.elapsed().as_millis() as u64;
+
+    let analysis_trace = crate::model::AnalysisTrace {
+        manifest_scan_ms,
+        source_ownership_ms,
+        root_resolution_ms,
+        module_path_map_ms,
+        symbol_extraction_ms,
+        import_resolution_ms,
+        call_resolution_ms,
+        graph_assembly_ms,
+        serialization_ms: 0,
+        total_ms,
+        source_file_count: source_result.source_file_count,
+        symbol_count,
+        import_count,
+        call_count,
+    };
 
     ProjectModelOutput {
         version: env!("CARGO_PKG_VERSION").to_string(),
@@ -175,6 +210,7 @@ pub fn inspect_project_model_with_options(
         },
         calls: call_list,
         call_diagnostics: call_diags,
+        analysis_trace: Some(analysis_trace),
     }
 }
 
@@ -234,6 +270,7 @@ pub fn generate_stub_output(repo_root: &str) -> ProjectModelOutput {
         import_diagnostics: vec![],
         calls: vec![],
         call_diagnostics: vec![],
+        analysis_trace: None,
     }
 }
 

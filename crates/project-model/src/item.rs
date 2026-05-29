@@ -73,6 +73,57 @@ pub fn extract_symbols_from_files(
     }
 }
 
+/// 从多个 .rs 文件并行提取 items（rayon par_iter）。
+/// 每个 worker 创建自己的 extractor 实例，避免 Sync 约束。
+/// 结果按原始输入顺序稳定排序。
+pub fn extract_symbols_from_files_parallel<F>(
+    extractor_factory: F,
+    inputs: &[ItemExtractionInput],
+) -> ItemExtractionOutput
+where
+    F: Fn() -> Box<dyn ItemExtractor> + Sync,
+{
+    use rayon::prelude::*;
+
+    let pool = rayon::ThreadPoolBuilder::new()
+        .stack_size(8 * 1024 * 1024)
+        .num_threads(std::cmp::min(
+            8,
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4),
+        ))
+        .build()
+        .unwrap();
+
+    let results: Vec<(usize, ItemExtractionOutput)> = pool.install(|| {
+        inputs
+            .par_iter()
+            .enumerate()
+            .map(|(idx, input)| {
+                let extractor = extractor_factory();
+                let output = extractor.extract_items(input);
+                (idx, output)
+            })
+            .collect()
+    });
+
+    let mut sorted: Vec<_> = results.into_iter().collect();
+    sorted.sort_by_key(|(idx, _)| *idx);
+
+    let mut all_symbols = Vec::new();
+    let mut all_diagnostics = Vec::new();
+    for (_, output) in sorted {
+        all_symbols.extend(output.symbols);
+        all_diagnostics.extend(output.diagnostics);
+    }
+
+    ItemExtractionOutput {
+        symbols: all_symbols,
+        diagnostics: all_diagnostics,
+    }
+}
+
 // ============================================================
 // 第二刀：TextItemExtractor — 保守逐行扫描
 // ============================================================

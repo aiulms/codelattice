@@ -1601,15 +1601,14 @@ fn run_rust_analysis(
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        Option<gitnexus_project_model::model::AnalysisTrace>,
     ),
     String,
 > {
     let pm_output = gitnexus_project_model::output::inspect_project_model_with_options(
-        root, true, // include_symbols
-        true, // include_graph
-        true, // include_imports
-        true, // include_calls
+        root, true, true, true, true,
     );
+    let analysis_trace = pm_output.analysis_trace.clone();
 
     let graph_output = gitnexus_project_model::output::emit_graph_output(&pm_output);
     let json_val = serde_json::to_value(&graph_output)
@@ -1627,7 +1626,7 @@ fn run_rust_analysis(
         .cloned()
         .unwrap_or_default();
 
-    Ok((json_val, nodes, edges))
+    Ok((json_val, nodes, edges, analysis_trace))
 }
 
 /// 计算 Rust 质量门
@@ -3208,7 +3207,7 @@ pub fn run() {
 
             match lang.as_str() {
                 "rust" => {
-                    let (json_val, nodes, edges) = match run_rust_analysis(root_path) {
+                    let (json_val, nodes, edges, _trace) = match run_rust_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -3827,7 +3826,7 @@ pub fn run() {
 
             let (gates, overall) = match language.as_str() {
                 "rust" => {
-                    let (_json_val, nodes, edges) = match run_rust_analysis(root_path) {
+                    let (_json_val, nodes, edges, _trace) = match run_rust_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -3996,7 +3995,7 @@ pub fn run() {
 
             let (graph_summary, quality_summary) = match lang.as_str() {
                 "rust" => {
-                    let (json_val, nodes, edges) = match run_rust_analysis(root_path) {
+                    let (json_val, nodes, edges, _trace) = match run_rust_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
