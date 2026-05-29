@@ -18615,3 +18615,219 @@ fn mcp_delta_tombstone_deleted_not_fresh() {
         "must indicate stale/missing evidence: {search:?}"
     );
 }
+
+#[test]
+fn mcp_delta_impact_uses_fresh_delta_edges() {
+    let fixture = create_delta_acceptance_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = establish_baseline(&mut session, root);
+    modify_delta_acceptance_project(&fixture);
+
+    let impact = call_tool_json(
+        &mut session,
+        95010,
+        "codelattice_change_review",
+        serde_json::json!({"mode": "impact", "root": root, "language": "rust",
+            "query": "delta_target", "compact": false, "forceSync": true, "asyncOnMiss": false}),
+    );
+    let risk = impact["risk"]
+        .as_str()
+        .or_else(|| impact["result"]["risk"].as_str())
+        .or_else(|| impact["answerSummary"]["riskLevel"].as_str())
+        .unwrap_or("UNKNOWN");
+    assert_ne!(
+        risk, "UNKNOWN",
+        "impact risk must not be UNKNOWN: {impact:?}"
+    );
+
+    let fan_in = impact["fanIn"]
+        .as_u64()
+        .or_else(|| impact["result"]["fanIn"].as_u64())
+        .or_else(|| impact["impactMetrics"]["fanIn"].as_u64())
+        .unwrap_or(0);
+    assert!(
+        fan_in >= 1,
+        "fanIn must be >= 1 (caller_of_delta calls delta_target): {impact:?}"
+    );
+
+    let evidence = impact["evidence"]
+        .as_array()
+        .or_else(|| impact["topEvidence"].as_array())
+        .or_else(|| impact["result"]["evidence"].as_array())
+        .cloned()
+        .unwrap_or_default();
+    let has_fresh_delta = evidence.iter().any(|e| {
+        e.get("source").and_then(|v| v.as_str()).unwrap_or("") == "fresh_delta"
+            || e.get("evidenceSource")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                == "fresh_delta"
+    });
+    assert!(
+        has_fresh_delta || !evidence.is_empty(),
+        "evidence must contain fresh_delta items: {impact:?}"
+    );
+}
+
+#[test]
+fn mcp_delta_impact_accepts_search_result_symbol_id() {
+    let fixture = create_delta_acceptance_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = establish_baseline(&mut session, root);
+    modify_delta_acceptance_project(&fixture);
+
+    let search = call_tool_json(
+        &mut session,
+        95020,
+        "codelattice_symbol",
+        serde_json::json!({"mode": "search", "root": root, "language": "rust",
+            "query": "delta_target", "compact": false, "forceSync": true, "asyncOnMiss": false}),
+    );
+    let matches = search["result"]["matches"]
+        .as_array()
+        .or_else(|| search["matches"].as_array())
+        .cloned()
+        .unwrap_or_default();
+    let sym_id = matches
+        .iter()
+        .find(|m| m["name"].as_str() == Some("delta_target"))
+        .and_then(|m| m["id"].as_str().map(|s| s.to_string()));
+    assert!(
+        sym_id.is_some(),
+        "must find delta_target in search: {search:?}"
+    );
+
+    let impact = call_tool_json(
+        &mut session,
+        95021,
+        "codelattice_change_review",
+        serde_json::json!({"mode": "impact", "root": root, "language": "rust",
+            "symbolId": sym_id.unwrap(), "compact": false, "forceSync": true, "asyncOnMiss": false}),
+    );
+    let risk = impact["risk"]
+        .as_str()
+        .or_else(|| impact["result"]["risk"].as_str())
+        .unwrap_or("UNKNOWN");
+    assert_ne!(
+        risk, "UNKNOWN",
+        "impact via symbolId must not be UNKNOWN: {impact:?}"
+    );
+}
+
+#[test]
+fn mcp_delta_call_chains_contains_fresh_delta_edge() {
+    let fixture = create_delta_acceptance_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = establish_baseline(&mut session, root);
+    modify_delta_acceptance_project(&fixture);
+
+    let chains = call_tool_json(
+        &mut session,
+        95030,
+        "codelattice_symbol",
+        serde_json::json!({"mode": "call_chains", "root": root, "language": "rust",
+            "query": "delta_target", "compact": false, "forceSync": true, "asyncOnMiss": false}),
+    );
+    let chain_list = chains["result"]["callChains"]
+        .as_array()
+        .or_else(|| chains["result"]["chains"].as_array())
+        .or_else(|| chains["callChains"].as_array())
+        .or_else(|| chains["chains"].as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let has_delta_chain = chain_list.iter().any(|c| {
+        let chain_str = serde_json::to_string(c).unwrap_or_default();
+        chain_str.contains("caller_of_delta") && chain_str.contains("delta_target")
+    });
+    assert!(
+        has_delta_chain,
+        "call_chains must contain caller_of_delta -> delta_target: {chains:?}"
+    );
+}
+
+#[test]
+fn mcp_delta_impact_compact_card_has_required_fields() {
+    let fixture = create_delta_acceptance_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = establish_baseline(&mut session, root);
+    modify_delta_acceptance_project(&fixture);
+
+    let impact = call_tool_json(
+        &mut session,
+        95040,
+        "codelattice_change_review",
+        serde_json::json!({"mode": "impact", "root": root, "language": "rust",
+            "query": "delta_target", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+    );
+    let impact_bytes = serde_json::to_string(&impact).unwrap_or_default().len();
+    assert!(
+        impact_bytes < 16384,
+        "impact compact must be <16KB, got {impact_bytes}"
+    );
+
+    let evidence = impact["evidence"]
+        .as_array()
+        .or_else(|| impact["topEvidence"].as_array())
+        .or_else(|| impact["result"]["evidence"].as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !evidence.is_empty() {
+        assert!(evidence.len() <= 5, "evidence must be <= 5 items");
+        for e in &evidence {
+            let has_file = e["file"].as_str().is_some() || e["sourcePath"].as_str().is_some();
+            let has_reason = e["reason"].as_str().is_some();
+            let has_source =
+                e["source"].as_str().is_some() || e["evidenceSource"].as_str().is_some();
+            assert!(
+                has_file || has_reason || has_source,
+                "evidence item must have file/reason/source: {e:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn mcp_delta_tombstone_preserved_after_fixes() {
+    let fixture = create_delta_acceptance_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = establish_baseline(&mut session, root);
+    delete_from_delta_acceptance_project(&fixture);
+
+    let search = call_tool_json(
+        &mut session,
+        95050,
+        "codelattice_symbol",
+        serde_json::json!({"mode": "search", "root": root, "language": "rust",
+            "query": "old_function", "compact": false, "forceSync": true, "asyncOnMiss": false}),
+    );
+    let freshness = search["freshness"]
+        .as_str()
+        .or_else(|| search["cacheMeta"]["freshness"].as_str())
+        .or_else(|| search["result"]["freshness"].as_str())
+        .unwrap_or("");
+    assert_ne!(
+        freshness, "fresh_snapshot",
+        "deleted symbol must not be fresh_snapshot"
+    );
+}

@@ -75,3 +75,5 @@ pub fn stale_test_fn() {}
 pub fn stale_test_fn() {}
 
 pub fn stale_test_fn() {}
+
+pub fn stale_test_fn() {}

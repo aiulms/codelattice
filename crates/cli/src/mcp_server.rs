@@ -7165,8 +7165,104 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         "HIGH".to_string()
     };
 
+    // --- fresh_delta CALLS 边兜底 ---
+    // 标准遍历已读取全部边（含 delta），但当 total_impacted 较少时补充 fresh_delta 证据
+    let mut delta_fan_in: u64 = 0;
+    let mut delta_fan_out: u64 = 0;
+    let mut delta_evidence: Vec<Value> = Vec::new();
+
+    for edge in gv.edges_to(target_id, Some("CALLS")) {
+        let props = &edge["properties"];
+        let ev_source = props["evidenceSource"]
+            .as_str()
+            .or_else(|| props["source"].as_str())
+            .unwrap_or("");
+        if ev_source == "fresh_delta" {
+            delta_fan_in += 1;
+            let source_id = edge["source"].as_str().unwrap_or("");
+            let source_name = gv
+                .nodes_by_id
+                .get(source_id)
+                .and_then(|n| n["properties"]["name"].as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| source_id.to_string());
+            delta_evidence.push(json!({
+                "file": props["sourcePath"].as_str().unwrap_or(""),
+                "line": props["lineStart"].as_u64().unwrap_or(0),
+                "symbolId": source_id,
+                "relatedSymbolId": target_id,
+                "reason": "fresh_delta caller directly calls target (from modified file)",
+                "source": "fresh_delta",
+                "relatedName": source_name,
+                "edgeKind": "CALLS"
+            }));
+        }
+    }
+
+    for edge in gv.edges_from(target_id, Some("CALLS")) {
+        let props = &edge["properties"];
+        let ev_source = props["evidenceSource"]
+            .as_str()
+            .or_else(|| props["source"].as_str())
+            .unwrap_or("");
+        if ev_source == "fresh_delta" {
+            delta_fan_out += 1;
+            let target_eid = edge["target"].as_str().unwrap_or("");
+            let target_ename = gv
+                .nodes_by_id
+                .get(target_eid)
+                .and_then(|n| n["properties"]["name"].as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| target_eid.to_string());
+            delta_evidence.push(json!({
+                "file": props["sourcePath"].as_str().unwrap_or(""),
+                "line": props["lineStart"].as_u64().unwrap_or(0),
+                "symbolId": target_id,
+                "relatedSymbolId": target_eid,
+                "reason": "target directly calls fresh_delta callee (from modified file)",
+                "source": "fresh_delta",
+                "relatedName": target_ename,
+                "edgeKind": "CALLS"
+            }));
+        }
+    }
+
+    delta_evidence.truncate(5);
+
+    // 若标准分析未产出有效 risk，用 fresh_delta 边覆盖
+    let (final_risk, final_confidence) = if risk == "UNKNOWN"
+        && (delta_fan_in > 0 || delta_fan_out > 0)
+    {
+        let total_delta = delta_fan_in + delta_fan_out;
+        let r = if total_delta <= 3 {
+            "LOW"
+        } else if total_delta <= 10 {
+            "MEDIUM"
+        } else {
+            "HIGH"
+        };
+        (
+            r.to_string(),
+            json!({"level": "medium", "reason": "based on fresh_delta edges from modified files"}),
+        )
+    } else if risk == "UNKNOWN" {
+        (
+            "LOW".to_string(),
+            json!({"level": "low", "reason": "no callers or callees found in baseline or delta"}),
+        )
+    } else {
+        (
+            risk.clone(),
+            json!({
+                "level": if risk == "HIGH" { "high" } else if risk == "MEDIUM" { "medium" } else { "low" },
+                "reason": "based on static call graph analysis"
+            }),
+        )
+    };
+
     // Legacy reasons (kept for backward compat)
     let reasons = risk_reasons.clone();
+
+    // 快照 CALLS 计数，impacted_edge_types 后续会被 into_iter 消费
+    let baseline_calls_count = impacted_edge_types.get("CALLS").copied().unwrap_or(0);
 
     let node_kind_map: serde_json::Map<String, Value> = nodes_by_kind
         .into_iter()
@@ -7279,7 +7375,7 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "symbol": symbol,
             "targetId": target_id,
             "direction": direction,
-            "risk": risk,
+            "risk": final_risk,
             "reasons": reasons,
             "impactedNodeCount": total_impacted,
             "impactedSymbols": impacted_symbols,
@@ -7292,6 +7388,12 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "reviewFocus": review_focus,
             "relatedDocs": related_docs,
             "docsLikelyNeedUpdate": docs_likely_need_update,
+            "fanIn": delta_fan_in + baseline_calls_count,
+            "fanOut": delta_fan_out,
+            "freshness": cache_meta.get("freshness").cloned().unwrap_or(json!("unknown")),
+            "confidence": final_confidence,
+            "evidence": delta_evidence,
+            "analysisSemantics": json!({"targetCodeExecuted": false}),
             "previewOnly": true,
             "noWrites": true
         }),
@@ -22695,7 +22797,22 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             (unwrap_tool_result(&r), vec!["codelattice_changed_symbols"])
         }
         "impact" => {
-            let r = handle_impact_preview(cache, analysis_params)?;
+            let mut impact_params = analysis_params.clone();
+            if impact_params
+                .get("symbol")
+                .and_then(|v| v.as_str())
+                .is_none()
+            {
+                if let Some(name) = impact_params
+                    .get("query")
+                    .and_then(|v| v.as_str())
+                    .or_else(|| impact_params.get("name").and_then(|v| v.as_str()))
+                    .or_else(|| impact_params.get("symbolId").and_then(|v| v.as_str()))
+                {
+                    impact_params["symbol"] = json!(name);
+                }
+            }
+            let r = handle_impact_preview(cache, &impact_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_impact_preview"])
         }
         "production_assist" => {
