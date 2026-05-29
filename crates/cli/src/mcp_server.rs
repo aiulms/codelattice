@@ -2933,8 +2933,41 @@ impl McpCache {
 
                         let mut delta_call_count: u32 = 0;
                         for call in &delta_calls {
-                            let source_id = call.caller_symbol_id.as_deref().unwrap_or("");
-                            let target_id = call.resolved_symbol_id.as_deref().unwrap_or("");
+                            let mut source_id =
+                                call.caller_symbol_id.as_deref().unwrap_or("").to_string();
+                            let mut target_id =
+                                call.resolved_symbol_id.as_deref().unwrap_or("").to_string();
+
+                            if source_id.is_empty() {
+                                if let Some(caller_name) = &call.caller_name {
+                                    let name_lower = caller_name.to_lowercase();
+                                    if let Some(syms) =
+                                        entry.graph_view.symbols_by_name.get(&name_lower)
+                                    {
+                                        if let Some(sym) = syms.first() {
+                                            let node_id = sym["id"].as_str().unwrap_or("");
+                                            source_id = node_id
+                                                .strip_prefix("symbol:")
+                                                .unwrap_or(node_id)
+                                                .to_string();
+                                        }
+                                    }
+                                }
+                            }
+                            if target_id.is_empty() {
+                                let name_lower = call.callee_name.to_lowercase();
+                                if let Some(syms) =
+                                    entry.graph_view.symbols_by_name.get(&name_lower)
+                                {
+                                    if let Some(sym) = syms.first() {
+                                        let node_id = sym["id"].as_str().unwrap_or("");
+                                        target_id = node_id
+                                            .strip_prefix("symbol:")
+                                            .unwrap_or(node_id)
+                                            .to_string();
+                                    }
+                                }
+                            }
 
                             if source_id.is_empty() && target_id.is_empty() {
                                 continue;
@@ -3264,8 +3297,45 @@ impl McpCache {
 
                         let mut delta_call_count: u32 = 0;
                         for call in &delta_calls {
-                            let source_id = call.caller_symbol_id.as_deref().unwrap_or("");
-                            let target_id = call.resolved_symbol_id.as_deref().unwrap_or("");
+                            let mut source_id =
+                                call.caller_symbol_id.as_deref().unwrap_or("").to_string();
+                            let mut target_id =
+                                call.resolved_symbol_id.as_deref().unwrap_or("").to_string();
+
+                            {
+                                if let Some(entry) = self.entries.get(&key) {
+                                    if source_id.is_empty() {
+                                        if let Some(caller_name) = &call.caller_name {
+                                            let name_lower = caller_name.to_lowercase();
+                                            if let Some(syms) =
+                                                entry.graph_view.symbols_by_name.get(&name_lower)
+                                            {
+                                                if let Some(sym) = syms.first() {
+                                                    let node_id = sym["id"].as_str().unwrap_or("");
+                                                    source_id = node_id
+                                                        .strip_prefix("symbol:")
+                                                        .unwrap_or(node_id)
+                                                        .to_string();
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if target_id.is_empty() {
+                                        let name_lower = call.callee_name.to_lowercase();
+                                        if let Some(syms) =
+                                            entry.graph_view.symbols_by_name.get(&name_lower)
+                                        {
+                                            if let Some(sym) = syms.first() {
+                                                let node_id = sym["id"].as_str().unwrap_or("");
+                                                target_id = node_id
+                                                    .strip_prefix("symbol:")
+                                                    .unwrap_or(node_id)
+                                                    .to_string();
+                                            }
+                                        }
+                                    }
+                                }
+                            }
 
                             if source_id.is_empty() && target_id.is_empty() {
                                 continue;
