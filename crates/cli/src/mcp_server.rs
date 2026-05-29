@@ -111,6 +111,10 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
                     used_cli_fallback: false,
                     warm_duration_ms: 0,
                     facade_digest: digest,
+                    warm_trace: WarmTrace {
+                        warm_total_wall_ms: 0,
+                        ..Default::default()
+                    },
                 });
             }
         }
@@ -1528,6 +1532,21 @@ pub struct WarmCacheMeta {
     pub used_cli_fallback: bool,
     pub warm_duration_ms: u64,
     pub facade_digest: Value,
+    pub warm_trace: WarmTrace,
+}
+
+#[derive(Default, Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WarmTrace {
+    pub warm_total_wall_ms: u64,
+    pub rust_analysis_ms: Option<u64>,
+    pub analyze_value_build_ms: Option<u64>,
+    pub graph_view_build_ms: u64,
+    pub doc_scanner_ms: u64,
+    pub scheduler_metadata_ms: Option<u64>,
+    pub cache_insert_ms: u64,
+    pub used_cli_fallback: bool,
+    pub used_in_process_rust_analysis: bool,
 }
 
 fn build_facade_digest(
@@ -1734,6 +1753,8 @@ fn build_warm_cache_entry_from_result(
     }
 
     let duration_ms = start.elapsed().as_millis() as u64;
+
+    let cache_insert_start = Instant::now();
     let timing = json!({
         "analysisMs": analysis_ms,
         "graphBuildMs": graph_build_ms,
@@ -1750,6 +1771,20 @@ fn build_warm_cache_entry_from_result(
         timing,
     );
     let call_edge_count = facade_digest["callEdgeCount"].as_u64().unwrap_or(0) as usize;
+
+    let warm_trace = WarmTrace {
+        warm_total_wall_ms: duration_ms,
+        rust_analysis_ms: Some(analysis_ms),
+        analyze_value_build_ms: None,
+        graph_view_build_ms: graph_build_ms,
+        doc_scanner_ms: doc_scan_ms,
+        scheduler_metadata_ms: Some(metadata_ms),
+        cache_insert_ms: cache_insert_start.elapsed().as_millis() as u64,
+        used_cli_fallback,
+        used_in_process_rust_analysis: !used_cli_fallback
+            && (language == "rust" || language == "auto"),
+    };
+
     Ok((
         CacheEntry {
             analyze_result: result_with_meta,
@@ -1770,6 +1805,7 @@ fn build_warm_cache_entry_from_result(
             used_cli_fallback,
             warm_duration_ms: duration_ms,
             facade_digest,
+            warm_trace,
         },
     ))
 }

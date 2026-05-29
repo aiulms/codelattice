@@ -17309,3 +17309,43 @@ edition = "2021"
         "compact rootDiagnosis should have sourceOnlySummary or sourceOnlyEntryPreview"
     );
 }
+
+// ============================================================
+// Stage 7: warmTrace instrumentation
+// ============================================================
+
+#[test]
+fn mcp_job_status_exposes_warm_trace() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let job = call_tool_json(
+        &mut session,
+        85001,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().expect("jobId").to_string();
+    let status = wait_for_job_succeeded(&mut session, 85002, "codelattice_project", &job_id);
+    let trace = &status["summary"]["warmTrace"];
+
+    assert!(
+        trace["warmTotalWallMs"].as_u64().is_some(),
+        "warmTrace must have warmTotalWallMs: {status:?}"
+    );
+    assert!(
+        trace["graphViewBuildMs"].as_u64().is_some(),
+        "warmTrace must have graphViewBuildMs: {status:?}"
+    );
+    assert!(
+        trace["cacheInsertMs"].as_u64().is_some(),
+        "warmTrace must have cacheInsertMs: {status:?}"
+    );
+}

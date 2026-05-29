@@ -965,8 +965,9 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
                     digest_obj.insert("callEdgeCount".to_string(), json!(facade_call_edge_count));
                 }
                 obj.insert("facadeDigest".to_string(), facade_digest.clone());
-                // aiDigest 是给 AI 消费的最终摘要，必须反映 facade GraphView，而不是空的 engine artifact digest。
                 obj.insert("aiDigest".to_string(), facade_digest);
+                let warm_trace = serde_json::to_value(&meta.warm_trace).unwrap_or_default();
+                obj.insert("warmTrace".to_string(), warm_trace);
             } else if let Some(digest) = obj.get_mut("aiDigest") {
                 if let Some(digest_obj) = digest.as_object_mut() {
                     digest_obj.insert("facadeSymbolCount".to_string(), json!(facade_symbol_count));
