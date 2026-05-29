@@ -2793,65 +2793,198 @@ impl McpCache {
                 };
 
                 if !files_to_extract.is_empty() {
-                    let delta_result: Result<(), String> = (|| {
-                        let extractor = gitnexus_project_model::item::create_best_extractor();
-                        let mut inputs = Vec::new();
-                        for rel_path in &files_to_extract {
-                            let abs_path = root_path.join(rel_path);
-                            let content = std::fs::read_to_string(&abs_path)
-                                .map_err(|e| format!("read {}: {}", rel_path, e))?;
-                            inputs.push(gitnexus_project_model::item::ItemExtractionInput {
-                                source_path: rel_path.clone(),
-                                source_text: content,
-                                package_name: String::new(),
-                                target_name: None,
-                                module_path: None,
-                            });
+                    let delta_result: Result<Vec<gitnexus_project_model::model::Symbol>, String> =
+                        (|| {
+                            let extractor = gitnexus_project_model::item::create_best_extractor();
+                            let mut inputs = Vec::new();
+                            for rel_path in &files_to_extract {
+                                let abs_path = root_path.join(rel_path);
+                                let content = std::fs::read_to_string(&abs_path)
+                                    .map_err(|e| format!("read {}: {}", rel_path, e))?;
+                                inputs.push(gitnexus_project_model::item::ItemExtractionInput {
+                                    source_path: rel_path.clone(),
+                                    source_text: content,
+                                    package_name: String::new(),
+                                    target_name: None,
+                                    module_path: None,
+                                });
+                            }
+                            let output = gitnexus_project_model::item::extract_symbols_from_files(
+                                extractor.as_ref(),
+                                &inputs,
+                            );
+                            let mut delta_syms: Vec<gitnexus_project_model::model::Symbol> =
+                                Vec::new();
+                            for sym in &output.symbols {
+                                let sym_node_id = format!("symbol:{}", sym.id);
+                                let sym_node = json!({
+                                    "id": sym_node_id,
+                                    "label": "symbol",
+                                    "properties": {
+                                        "name": sym.name,
+                                        "symbolKind": sym.symbol_kind,
+                                        "sourcePath": sym.source_path,
+                                        "packageName": sym.package_name,
+                                        "targetName": sym.target_name,
+                                        "modulePath": sym.module_path,
+                                        "visibility": sym.visibility,
+                                        "lineStart": sym.line_start,
+                                        "lineEnd": sym.line_end,
+                                        "genericParams": sym.generic_params,
+                                        "isAsync": sym.is_async,
+                                        "isUnsafe": sym.is_unsafe,
+                                        "isConstFn": sym.is_const_fn,
+                                        "isPub": sym.is_pub,
+                                        "implDetails": sym.impl_details,
+                                    }
+                                });
+                                entry
+                                    .graph_view
+                                    .nodes_by_id
+                                    .insert(sym_node_id.clone(), sym_node.clone());
+                                let name_lower = sym.name.to_lowercase();
+                                entry
+                                    .graph_view
+                                    .symbols_by_name
+                                    .entry(name_lower)
+                                    .or_default()
+                                    .push(sym_node);
+                                delta_syms.push(sym.clone());
+                                delta_symbol_count += 1;
+                            }
+                            Ok(delta_syms)
+                        })();
+                    let delta_symbols = match delta_result {
+                        Ok(syms) => {
+                            delta_files = files_to_extract.clone();
+                            syms
                         }
-                        let output = gitnexus_project_model::item::extract_symbols_from_files(
-                            extractor.as_ref(),
-                            &inputs,
+                        Err(_) => Vec::new(),
+                    };
+
+                    if !delta_symbols.is_empty() {
+                        let baseline_symbols: Vec<gitnexus_project_model::model::Symbol> = entry
+                            .graph_view
+                            .nodes_by_id
+                            .values()
+                            .filter(|n| n["label"].as_str() == Some("symbol"))
+                            .filter_map(|node| {
+                                let props = &node["properties"];
+                                Some(gitnexus_project_model::model::Symbol {
+                                    id: node["id"]
+                                        .as_str()
+                                        .and_then(|s| s.strip_prefix("symbol:"))
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    name: props["name"].as_str().unwrap_or("").to_string(),
+                                    symbol_kind: props["symbolKind"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    source_path: props["sourcePath"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    package_name: props["packageName"]
+                                        .as_str()
+                                        .unwrap_or("")
+                                        .to_string(),
+                                    target_name: props["targetName"]
+                                        .as_str()
+                                        .map(|s| s.to_string()),
+                                    module_path: props["modulePath"]
+                                        .as_str()
+                                        .map(|s| s.to_string()),
+                                    visibility: props["visibility"]
+                                        .as_str()
+                                        .unwrap_or("private")
+                                        .to_string(),
+                                    parent_id: None,
+                                    line_start: props["lineStart"].as_u64().unwrap_or(0) as u32,
+                                    line_end: props["lineEnd"].as_u64().unwrap_or(0) as u32,
+                                    generic_params: props["genericParams"]
+                                        .as_str()
+                                        .map(|s| s.to_string()),
+                                    is_async: props["isAsync"].as_bool().unwrap_or(false),
+                                    is_unsafe: props["isUnsafe"].as_bool().unwrap_or(false),
+                                    is_const_fn: props["isConstFn"].as_bool().unwrap_or(false),
+                                    is_pub: props["isPub"].as_bool().unwrap_or(false),
+                                    impl_details: None,
+                                    type_annotations: Vec::new(),
+                                })
+                            })
+                            .collect();
+
+                        let file_contents: Vec<(String, String)> = files_to_extract
+                            .iter()
+                            .filter_map(|rel_path| {
+                                let abs_path = root_path.join(rel_path);
+                                std::fs::read_to_string(&abs_path)
+                                    .ok()
+                                    .map(|c| (rel_path.clone(), c))
+                            })
+                            .collect();
+
+                        let delta_calls = gitnexus_project_model::calls::extract_delta_calls(
+                            &delta_symbols,
+                            &baseline_symbols,
+                            &file_contents,
                         );
-                        for sym in &output.symbols {
-                            let sym_node_id = format!("symbol:{}", sym.id);
-                            let sym_node = json!({
-                                "id": sym_node_id,
-                                "label": "symbol",
+
+                        let mut delta_call_count: u32 = 0;
+                        for call in &delta_calls {
+                            let source_id = call.caller_symbol_id.as_deref().unwrap_or("");
+                            let target_id = call.resolved_symbol_id.as_deref().unwrap_or("");
+
+                            if source_id.is_empty() && target_id.is_empty() {
+                                continue;
+                            }
+
+                            let edge = json!({
+                                "id": call.id,
+                                "type": "CALLS",
+                                "source": format!("symbol:{}", source_id),
+                                "target": format!("symbol:{}", target_id),
                                 "properties": {
-                                    "name": sym.name,
-                                    "symbolKind": sym.symbol_kind,
-                                    "sourcePath": sym.source_path,
-                                    "packageName": sym.package_name,
-                                    "targetName": sym.target_name,
-                                    "modulePath": sym.module_path,
-                                    "visibility": sym.visibility,
-                                    "lineStart": sym.line_start,
-                                    "lineEnd": sym.line_end,
-                                    "genericParams": sym.generic_params,
-                                    "isAsync": sym.is_async,
-                                    "isUnsafe": sym.is_unsafe,
-                                    "isConstFn": sym.is_const_fn,
-                                    "isPub": sym.is_pub,
-                                    "implDetails": sym.impl_details,
+                                    "calleeName": call.callee_name,
+                                    "callKind": call.call_kind,
+                                    "confidence": call.confidence,
+                                    "reason": call.reason,
+                                    "sourcePath": call.source_path,
+                                    "lineStart": call.span.line_start,
+                                    "rawText": call.raw_text,
+                                    "evidenceSource": "fresh_delta",
                                 }
                             });
-                            entry
-                                .graph_view
-                                .nodes_by_id
-                                .insert(sym_node_id.clone(), sym_node.clone());
-                            let name_lower = sym.name.to_lowercase();
-                            entry
-                                .graph_view
-                                .symbols_by_name
-                                .entry(name_lower)
-                                .or_default()
-                                .push(sym_node);
-                            delta_symbol_count += 1;
+
+                            if !source_id.is_empty() {
+                                let source_key = format!("symbol:{}", source_id);
+                                entry
+                                    .graph_view
+                                    .outgoing
+                                    .entry(source_key)
+                                    .or_default()
+                                    .push(edge.clone());
+                            }
+
+                            if !target_id.is_empty() {
+                                let target_key = format!("symbol:{}", target_id);
+                                entry
+                                    .graph_view
+                                    .incoming
+                                    .entry(target_key)
+                                    .or_default()
+                                    .push(edge);
+                            }
+
+                            delta_call_count += 1;
                         }
-                        Ok(())
-                    })();
-                    if delta_result.is_ok() {
-                        delta_files = files_to_extract;
+
+                        if delta_call_count > 0 {
+                            entry.analyze_result.as_object_mut().map(|o| {
+                                o.insert("deltaCallCount".to_string(), json!(delta_call_count));
+                            });
+                        }
                     }
                 }
 
@@ -2986,67 +3119,209 @@ impl McpCache {
                     _ => Vec::new(),
                 };
                 if !files_to_extract.is_empty() {
-                    let delta_result: Result<(), String> = (|| {
-                        let extractor = gitnexus_project_model::item::create_best_extractor();
-                        let mut inputs = Vec::new();
-                        for rel_path in &files_to_extract {
-                            let abs_path = canonical.join(rel_path);
-                            let content = std::fs::read_to_string(&abs_path)
-                                .map_err(|e| format!("read {}: {}", rel_path, e))?;
-                            inputs.push(gitnexus_project_model::item::ItemExtractionInput {
-                                source_path: rel_path.clone(),
-                                source_text: content,
-                                package_name: String::new(),
-                                target_name: None,
-                                module_path: None,
-                            });
+                    let delta_result: Result<Vec<gitnexus_project_model::model::Symbol>, String> =
+                        (|| {
+                            let extractor = gitnexus_project_model::item::create_best_extractor();
+                            let mut inputs = Vec::new();
+                            for rel_path in &files_to_extract {
+                                let abs_path = canonical.join(rel_path);
+                                let content = std::fs::read_to_string(&abs_path)
+                                    .map_err(|e| format!("read {}: {}", rel_path, e))?;
+                                inputs.push(gitnexus_project_model::item::ItemExtractionInput {
+                                    source_path: rel_path.clone(),
+                                    source_text: content,
+                                    package_name: String::new(),
+                                    target_name: None,
+                                    module_path: None,
+                                });
+                            }
+                            let output = gitnexus_project_model::item::extract_symbols_from_files(
+                                extractor.as_ref(),
+                                &inputs,
+                            );
+                            let mut delta_syms: Vec<gitnexus_project_model::model::Symbol> =
+                                Vec::new();
+                            for sym in &output.symbols {
+                                let sym_node_id = format!("symbol:{}", sym.id);
+                                let sym_node = json!({
+                                    "id": sym_node_id,
+                                    "label": "symbol",
+                                    "properties": {
+                                        "name": sym.name,
+                                        "symbolKind": sym.symbol_kind,
+                                        "sourcePath": sym.source_path,
+                                        "packageName": sym.package_name,
+                                        "targetName": sym.target_name,
+                                        "modulePath": sym.module_path,
+                                        "visibility": sym.visibility,
+                                        "lineStart": sym.line_start,
+                                        "lineEnd": sym.line_end,
+                                        "genericParams": sym.generic_params,
+                                        "isAsync": sym.is_async,
+                                        "isUnsafe": sym.is_unsafe,
+                                        "isConstFn": sym.is_const_fn,
+                                        "isPub": sym.is_pub,
+                                        "implDetails": sym.impl_details,
+                                    }
+                                });
+                                if let Some(entry) = self.entries.get_mut(&key) {
+                                    entry
+                                        .graph_view
+                                        .nodes_by_id
+                                        .insert(sym_node_id.clone(), sym_node.clone());
+                                    let name_lower = sym.name.to_lowercase();
+                                    entry
+                                        .graph_view
+                                        .symbols_by_name
+                                        .entry(name_lower)
+                                        .or_default()
+                                        .push(sym_node);
+                                }
+                                delta_syms.push(sym.clone());
+                                delta_symbol_count += 1;
+                            }
+                            Ok(delta_syms)
+                        })();
+                    let delta_symbols = match delta_result {
+                        Ok(syms) => {
+                            delta_files = files_to_extract.clone();
+                            syms
                         }
-                        let output = gitnexus_project_model::item::extract_symbols_from_files(
-                            extractor.as_ref(),
-                            &inputs,
+                        Err(_) => Vec::new(),
+                    };
+
+                    if !delta_symbols.is_empty() {
+                        let baseline_symbols: Vec<gitnexus_project_model::model::Symbol> = {
+                            let entry = self.entries.get(&key).unwrap();
+                            entry
+                                .graph_view
+                                .nodes_by_id
+                                .values()
+                                .filter(|n| n["label"].as_str() == Some("symbol"))
+                                .filter_map(|node| {
+                                    let props = &node["properties"];
+                                    Some(gitnexus_project_model::model::Symbol {
+                                        id: node["id"]
+                                            .as_str()
+                                            .and_then(|s| s.strip_prefix("symbol:"))
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        name: props["name"].as_str().unwrap_or("").to_string(),
+                                        symbol_kind: props["symbolKind"]
+                                            .as_str()
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        source_path: props["sourcePath"]
+                                            .as_str()
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        package_name: props["packageName"]
+                                            .as_str()
+                                            .unwrap_or("")
+                                            .to_string(),
+                                        target_name: props["targetName"]
+                                            .as_str()
+                                            .map(|s| s.to_string()),
+                                        module_path: props["modulePath"]
+                                            .as_str()
+                                            .map(|s| s.to_string()),
+                                        visibility: props["visibility"]
+                                            .as_str()
+                                            .unwrap_or("private")
+                                            .to_string(),
+                                        parent_id: None,
+                                        line_start: props["lineStart"].as_u64().unwrap_or(0) as u32,
+                                        line_end: props["lineEnd"].as_u64().unwrap_or(0) as u32,
+                                        generic_params: props["genericParams"]
+                                            .as_str()
+                                            .map(|s| s.to_string()),
+                                        is_async: props["isAsync"].as_bool().unwrap_or(false),
+                                        is_unsafe: props["isUnsafe"].as_bool().unwrap_or(false),
+                                        is_const_fn: props["isConstFn"].as_bool().unwrap_or(false),
+                                        is_pub: props["isPub"].as_bool().unwrap_or(false),
+                                        impl_details: None,
+                                        type_annotations: Vec::new(),
+                                    })
+                                })
+                                .collect()
+                        };
+
+                        let file_contents: Vec<(String, String)> = files_to_extract
+                            .iter()
+                            .filter_map(|rel_path| {
+                                let abs_path = canonical.join(rel_path);
+                                std::fs::read_to_string(&abs_path)
+                                    .ok()
+                                    .map(|c| (rel_path.clone(), c))
+                            })
+                            .collect();
+
+                        let delta_calls = gitnexus_project_model::calls::extract_delta_calls(
+                            &delta_symbols,
+                            &baseline_symbols,
+                            &file_contents,
                         );
-                        for sym in &output.symbols {
-                            let sym_node_id = format!("symbol:{}", sym.id);
-                            let sym_node = json!({
-                                "id": sym_node_id,
-                                "label": "symbol",
+
+                        let mut delta_call_count: u32 = 0;
+                        for call in &delta_calls {
+                            let source_id = call.caller_symbol_id.as_deref().unwrap_or("");
+                            let target_id = call.resolved_symbol_id.as_deref().unwrap_or("");
+
+                            if source_id.is_empty() && target_id.is_empty() {
+                                continue;
+                            }
+
+                            let edge = json!({
+                                "id": call.id,
+                                "type": "CALLS",
+                                "source": format!("symbol:{}", source_id),
+                                "target": format!("symbol:{}", target_id),
                                 "properties": {
-                                    "name": sym.name,
-                                    "symbolKind": sym.symbol_kind,
-                                    "sourcePath": sym.source_path,
-                                    "packageName": sym.package_name,
-                                    "targetName": sym.target_name,
-                                    "modulePath": sym.module_path,
-                                    "visibility": sym.visibility,
-                                    "lineStart": sym.line_start,
-                                    "lineEnd": sym.line_end,
-                                    "genericParams": sym.generic_params,
-                                    "isAsync": sym.is_async,
-                                    "isUnsafe": sym.is_unsafe,
-                                    "isConstFn": sym.is_const_fn,
-                                    "isPub": sym.is_pub,
-                                    "implDetails": sym.impl_details,
+                                    "calleeName": call.callee_name,
+                                    "callKind": call.call_kind,
+                                    "confidence": call.confidence,
+                                    "reason": call.reason,
+                                    "sourcePath": call.source_path,
+                                    "lineStart": call.span.line_start,
+                                    "rawText": call.raw_text,
+                                    "evidenceSource": "fresh_delta",
                                 }
                             });
-                            if let Some(entry) = self.entries.get_mut(&key) {
-                                entry
-                                    .graph_view
-                                    .nodes_by_id
-                                    .insert(sym_node_id.clone(), sym_node.clone());
-                                let name_lower = sym.name.to_lowercase();
-                                entry
-                                    .graph_view
-                                    .symbols_by_name
-                                    .entry(name_lower)
-                                    .or_default()
-                                    .push(sym_node);
+
+                            if !source_id.is_empty() {
+                                let source_key = format!("symbol:{}", source_id);
+                                if let Some(entry) = self.entries.get_mut(&key) {
+                                    entry
+                                        .graph_view
+                                        .outgoing
+                                        .entry(source_key)
+                                        .or_default()
+                                        .push(edge.clone());
+                                }
                             }
-                            delta_symbol_count += 1;
+
+                            if !target_id.is_empty() {
+                                let target_key = format!("symbol:{}", target_id);
+                                if let Some(entry) = self.entries.get_mut(&key) {
+                                    entry
+                                        .graph_view
+                                        .incoming
+                                        .entry(target_key)
+                                        .or_default()
+                                        .push(edge);
+                                }
+                            }
+
+                            delta_call_count += 1;
                         }
-                        Ok(())
-                    })();
-                    if delta_result.is_ok() {
-                        delta_files = files_to_extract;
+
+                        if delta_call_count > 0 {
+                            if let Some(entry) = self.entries.get_mut(&key) {
+                                entry.analyze_result.as_object_mut().map(|o| {
+                                    o.insert("deltaCallCount".to_string(), json!(delta_call_count));
+                                });
+                            }
+                        }
                     }
                 }
 

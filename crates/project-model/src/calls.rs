@@ -137,6 +137,56 @@ pub fn extract_and_resolve_calls(
     }
 }
 
+/// 增量 delta call 提取：在缓存过期时，仅对 modified/added 文件提取 call site。
+///
+/// 与 `extract_and_resolve_calls` 的区别：
+/// - 不读磁盘文件，由调用方提供 `(relative_path, file_content)` 对
+/// - 使用 baseline + delta 合并符号进行 callee 解析
+/// - 无 import binding 信息，delta call 的 confidence 会偏低
+/// - module_path 简化为 "crate"（不做完整 module path resolution）
+pub fn extract_delta_calls(
+    delta_symbols: &[Symbol],
+    baseline_symbols: &[Symbol],
+    files: &[(String, String)],
+) -> Vec<CallSite> {
+    let all_symbols: Vec<&Symbol> = baseline_symbols
+        .iter()
+        .chain(delta_symbols.iter())
+        .collect();
+
+    let empty_ownership: Vec<SourceOwnership> = Vec::new();
+    let callee_index = build_callee_index(
+        &all_symbols.iter().map(|s| (*s).clone()).collect::<Vec<_>>(),
+        &empty_ownership,
+    );
+
+    let import_bindings = ImportBindingTable {
+        bindings: HashMap::new(),
+    };
+
+    let caller_index = build_caller_index(delta_symbols);
+
+    let dependency_names: HashSet<String> = HashSet::new();
+
+    let mut all_calls = Vec::new();
+
+    for (source_path, source_text) in files {
+        let calls = extract_calls_text_fallback(
+            source_text,
+            source_path,
+            "crate",
+            &callee_index,
+            &import_bindings,
+            &caller_index,
+            &dependency_names,
+        );
+
+        all_calls.extend(calls);
+    }
+
+    all_calls
+}
+
 // ============================================================
 // CalleeIndex — 与 imports.rs SymbolIndex 对称
 // ============================================================

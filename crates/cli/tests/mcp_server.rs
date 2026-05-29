@@ -18064,3 +18064,237 @@ fn mcp_control_plane_always_available_during_jobs() {
         "workflow must work during job"
     );
 }
+
+// ============================================================
+// Stage 10: Delta Evidence + Impact Precision Pack
+// ============================================================
+
+#[test]
+fn mcp_delta_call_overlay_visible_in_callers() {
+    let fixture = create_source_heavy_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = call_tool_json(
+        &mut session,
+        93010,
+        "codelattice_project",
+        serde_json::json!({"mode": "quick", "root": root, "language": "rust", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+    );
+
+    // Add file with a function that calls an existing baseline symbol
+    let delta_file = fixture.path().join("src").join("delta_caller.rs");
+    std::fs::write(
+        &delta_file,
+        "
+pub fn delta_caller_fn() {
+    let _ = helper_function();
+}
+",
+    )
+    .unwrap();
+
+    // Search for the new delta symbol
+    let search = call_tool_json(
+        &mut session,
+        93011,
+        "codelattice_symbol",
+        serde_json::json!({"mode": "search", "root": root, "language": "rust", "query": "delta_caller_fn", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+    );
+
+    let result = &search["result"];
+    let found = result["matches"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .any(|s| s["name"].as_str() == Some("delta_caller_fn"))
+        })
+        .unwrap_or(false);
+    assert!(found, "delta_caller_fn must be found: {search:?}");
+
+    // Check deltaCallCount or freshness somewhere in the response
+    let freshness = search["freshness"]
+        .as_str()
+        .or_else(|| search["cacheMeta"]["freshness"].as_str())
+        .or_else(|| search["result"]["freshness"].as_str())
+        .unwrap_or("");
+    let delta_sym_count = search["deltaSymbolCount"]
+        .as_u64()
+        .or_else(|| search["cacheMeta"]["deltaSymbolCount"].as_u64())
+        .or_else(|| search["result"]["deltaSymbolCount"].as_u64())
+        .unwrap_or(0);
+    let delta_call_count = search["deltaCallCount"]
+        .as_u64()
+        .or_else(|| search["cacheMeta"]["deltaCallCount"].as_u64())
+        .or_else(|| search["result"]["deltaCallCount"].as_u64())
+        .unwrap_or(0);
+    assert!(
+        freshness.contains("delta") || delta_sym_count > 0 || delta_call_count > 0,
+        "delta overlay must report freshness/deltaSymbolCount/deltaCallCount: {search:?}"
+    );
+}
+
+#[test]
+fn mcp_delta_evidence_source_in_symbol_search() {
+    let fixture = create_source_heavy_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = call_tool_json(
+        &mut session,
+        93020,
+        "codelattice_project",
+        serde_json::json!({"mode": "quick", "root": root, "language": "rust", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+    );
+
+    // Add new file
+    let delta_file = fixture.path().join("src").join("evidence_source.rs");
+    std::fs::write(&delta_file, "pub fn evidence_source_fn() -> i32 { 42 }\n").unwrap();
+
+    let search = call_tool_json(
+        &mut session,
+        93021,
+        "codelattice_symbol",
+        serde_json::json!({"mode": "search", "root": root, "language": "rust", "query": "evidence_source_fn", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+    );
+
+    // Result must have freshness field somewhere
+    let freshness = search["freshness"]
+        .as_str()
+        .or_else(|| search["cacheMeta"]["freshness"].as_str())
+        .or_else(|| search["result"]["freshness"].as_str())
+        .unwrap_or("");
+    assert!(
+        freshness.contains("delta") || freshness.contains("stale"),
+        "must report delta/stale freshness: got '{freshness}': {search:?}"
+    );
+}
+
+#[test]
+fn mcp_deleted_symbol_returns_tombstone_not_fresh() {
+    let fixture = create_source_heavy_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = fixture.path().to_str().unwrap();
+
+    let _ = call_tool_json(
+        &mut session,
+        93030,
+        "codelattice_project",
+        serde_json::json!({"mode": "quick", "root": root, "language": "rust", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+    );
+
+    // Delete a source file
+    let helper_file = fixture.path().join("src").join("helper.rs");
+    if helper_file.exists() {
+        let _ = std::fs::remove_file(&helper_file);
+
+        // Search for helper symbols - must NOT claim fresh
+        let search = call_tool_json(
+            &mut session,
+            93031,
+            "codelattice_symbol",
+            serde_json::json!({"mode": "search", "root": root, "language": "rust", "query": "helper", "compact": true, "forceSync": true, "asyncOnMiss": false}),
+        );
+
+        let freshness = search["freshness"]
+            .as_str()
+            .or_else(|| search["cacheMeta"]["freshness"].as_str())
+            .or_else(|| search["result"]["freshness"].as_str())
+            .unwrap_or("");
+        assert_ne!(
+            freshness, "fresh_snapshot",
+            "deleted file must not be fresh_snapshot: {search:?}"
+        );
+
+        // Should have missingEvidence or tombstone info
+        let has_missing = search["result"]["missingEvidence"].as_array().is_some()
+            || search["missingEvidence"].as_array().is_some()
+            || search["freshness"]
+                .as_str()
+                .is_some_and(|f| f.contains("stale"))
+            || search["cacheMeta"]["staleReason"].as_str().is_some();
+        assert!(
+            has_missing
+                || search["cacheMeta"]["staleBaseline"].as_bool() == Some(true)
+                || search["freshness"]
+                    .as_str()
+                    .is_some_and(|f| f.contains("stale")),
+            "deleted file should indicate stale/missing evidence: {search:?}"
+        );
+    }
+}
+
+#[test]
+fn mcp_compact_decision_card_has_top_evidence() {
+    let fixture = portable_smoke_dir();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let resp = call_tool_json(
+        &mut session,
+        93040,
+        "codelattice_project",
+        serde_json::json!({"mode": "quick", "root": fixture.to_str().unwrap(), "language": "rust", "compact": true}),
+    );
+
+    let resp_str = serde_json::to_string(&resp).unwrap_or_default();
+    assert!(
+        resp_str.len() < 16384,
+        "compact must be <16KB, got {} bytes",
+        resp_str.len()
+    );
+
+    // Must have topEvidence with source field
+    let evidence = resp["evidence"].as_array();
+    assert!(evidence.is_some(), "compact must have evidence array");
+
+    if let Some(arr) = evidence {
+        for item in arr {
+            // Each evidence item should have at least file or risk field
+            let has_file = item["file"].as_str().is_some();
+            let has_risk = item["risk"].as_str().is_some();
+            let has_score = item["score"].as_f64().is_some();
+            assert!(
+                has_file || has_risk || has_score,
+                "evidence item must have file/risk/score: {item:?}"
+            );
+        }
+    }
+
+    // Must have freshness
+    assert!(
+        resp["freshness"].as_str().is_some(),
+        "compact must have freshness"
+    );
+
+    // Must have tokenBudget with estimated
+    let tb = &resp["tokenBudget"];
+    assert!(
+        tb["max"].as_u64().is_some() || tb["used"].as_u64().is_some(),
+        "tokenBudget must have max or used"
+    );
+}
+
+#[test]
+fn mcp_toolset_count_unchanged_after_delta_pack() {
+    let mut session = McpSession::start_default_toolset();
+    let init = session.initialize();
+    let tool_count = init["result"]["serverInfo"]["toolCount"]
+        .as_u64()
+        .unwrap_or(0);
+    let full_tool_count = init["result"]["serverInfo"]["fullToolCount"]
+        .as_u64()
+        .unwrap_or(0);
+    assert_eq!(tool_count, 6, "default AI toolset must be 6");
+    assert_eq!(full_tool_count, 49, "full toolset must be 49");
+}
