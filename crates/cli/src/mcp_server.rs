@@ -2268,6 +2268,13 @@ struct PersistentCacheHit {
     analysis_duration_ms: u64,
 }
 
+enum PersistentLookupResult {
+    FreshHit(PersistentCacheHit),
+    StaleHit(PersistentCacheHit, String),
+    Miss,
+    Corrupted(String),
+}
+
 #[derive(Default)]
 struct PersistentStaleContext {
     previous_scheduler_fingerprint: Option<String>,
@@ -2278,67 +2285,73 @@ struct PersistentStaleContext {
 /// Try to load a cached analysis from the persistent cache layer.
 /// `cache_key_str` is the combined key for filename lookup.
 /// `canonical_root` is the actual filesystem path for stale checks.
-/// Returns None if: cache disabled, file missing, stale, corrupted, or version mismatch.
+/// Returns PersistentLookupResult indicating fresh hit, stale hit, miss, or corrupted.
 fn try_load_persistent(
     cache_key_str: &str,
     language: &str,
     strict: bool,
     canonical_root: &Path,
     stale_context: &mut PersistentStaleContext,
-) -> Option<PersistentCacheHit> {
-    let cache_dir = get_persistent_cache_dir()?;
+) -> PersistentLookupResult {
+    let cache_dir = match get_persistent_cache_dir() {
+        Some(d) => d,
+        None => return PersistentLookupResult::Miss,
+    };
     let filename = persistent_cache_filename(cache_key_str, language);
     let path = cache_dir.join(&filename);
 
     if !path.exists() {
-        return None;
+        return PersistentLookupResult::Miss;
     }
 
-    let content = std::fs::read_to_string(&path).ok()?;
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return PersistentLookupResult::Miss,
+    };
     let entry: PersistentCacheEntry = match serde_json::from_str(&content) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("[mcp] persistent cache corrupted: {}, removing", e);
             let _ = std::fs::remove_file(&path);
-            return None;
+            return PersistentLookupResult::Corrupted(e.to_string());
         }
     };
 
-    // Version check
+    // Version check — truly invalid, delete
     if entry.version != CODELATTICE_CACHE_VERSION {
         eprintln!(
             "[mcp] persistent cache version mismatch: {} vs {}, removing",
             entry.version, CODELATTICE_CACHE_VERSION
         );
         let _ = std::fs::remove_file(&path);
-        return None;
+        return PersistentLookupResult::Miss;
     }
 
-    // Schema check
+    // Schema check — truly invalid, delete
     if entry.schema_version != CACHE_SCHEMA_VERSION {
         eprintln!(
             "[mcp] persistent cache schema mismatch: {} vs {}, removing",
             entry.schema_version, CACHE_SCHEMA_VERSION
         );
         let _ = std::fs::remove_file(&path);
-        return None;
+        return PersistentLookupResult::Miss;
     }
 
     // Root match check — compare stored canonical root with current canonical root
     if entry.root != canonical_root.to_string_lossy().as_ref() {
-        return None; // Hash collision or different project — skip
+        return PersistentLookupResult::Miss;
     }
 
-    // Stale checks using the actual filesystem path
     if !canonical_root.exists() {
-        return None;
+        return PersistentLookupResult::Miss;
     }
 
+    // 缺少 scheduler_fingerprint 视为数据损坏，删除
     let previous_fingerprint = match entry.scheduler_fingerprint.clone() {
         Some(fingerprint) => fingerprint,
         None => {
             let _ = std::fs::remove_file(&path);
-            return None;
+            return PersistentLookupResult::Miss;
         }
     };
     let scheduler = build_scheduler_metadata(
@@ -2348,44 +2361,9 @@ fn try_load_persistent(
         Some(previous_fingerprint.clone()),
         Some(entry.scheduler_files.clone()),
     );
-    if scheduler_decision_action(&scheduler.value) != Some("reuse") {
-        stale_context.previous_scheduler_fingerprint = Some(previous_fingerprint);
-        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
-        stale_context.stale_reason = Some(
-            StaleReason::SchedulerFingerprintChanged
-                .reason_code()
-                .to_string(),
-        );
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
 
-    if let Some(reason) = check_stale(canonical_root, &entry.file_mtimes) {
-        // Stale — remove and return None
-        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
-        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
-        stale_context.stale_reason = Some(reason.reason_code().to_string());
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-
-    if let Some(reason) = check_manifest_stale(canonical_root, &entry.manifest_hashes) {
-        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
-        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
-        stale_context.stale_reason = Some(reason.reason_code().to_string());
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-
-    if let Some(reason) = check_docs_stale(canonical_root, &entry.docs_mtimes) {
-        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
-        stale_context.previous_scheduler_files = Some(entry.scheduler_files.clone());
-        stale_context.stale_reason = Some(reason.reason_code().to_string());
-        let _ = std::fs::remove_file(&path);
-        return None;
-    }
-
-    Some(PersistentCacheHit {
+    // 构建 PersistentCacheHit 供后续复用
+    let persistent_hit = PersistentCacheHit {
         analyze_result: entry.analyze_result,
         file_mtimes: entry.file_mtimes,
         manifest_hashes: entry.manifest_hashes,
@@ -2393,7 +2371,47 @@ fn try_load_persistent(
         scheduler: scheduler.value,
         scheduler_files: scheduler.file_snapshot,
         analysis_duration_ms: entry.analysis_duration_ms,
-    })
+    };
+
+    // scheduler fingerprint 过时：不删除，返回 StaleHit
+    if scheduler_decision_action(&persistent_hit.scheduler) != Some("reuse") {
+        let reason_code = StaleReason::SchedulerFingerprintChanged
+            .reason_code()
+            .to_string();
+        stale_context.previous_scheduler_fingerprint = Some(previous_fingerprint);
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files);
+        stale_context.stale_reason = Some(reason_code.clone());
+        return PersistentLookupResult::StaleHit(persistent_hit, reason_code);
+    }
+
+    // 文件 mtime 过时：不删除，返回 StaleHit
+    if let Some(reason) = check_stale(canonical_root, &persistent_hit.file_mtimes) {
+        let reason_code = reason.reason_code().to_string();
+        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files);
+        stale_context.stale_reason = Some(reason_code.clone());
+        return PersistentLookupResult::StaleHit(persistent_hit, reason_code);
+    }
+
+    // manifest 过时：不删除，返回 StaleHit
+    if let Some(reason) = check_manifest_stale(canonical_root, &persistent_hit.manifest_hashes) {
+        let reason_code = reason.reason_code().to_string();
+        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files);
+        stale_context.stale_reason = Some(reason_code.clone());
+        return PersistentLookupResult::StaleHit(persistent_hit, reason_code);
+    }
+
+    // docs 过时：不删除，返回 StaleHit
+    if let Some(reason) = check_docs_stale(canonical_root, &persistent_hit.docs_mtimes) {
+        let reason_code = reason.reason_code().to_string();
+        stale_context.previous_scheduler_fingerprint = entry.scheduler_fingerprint.clone();
+        stale_context.previous_scheduler_files = Some(entry.scheduler_files);
+        stale_context.stale_reason = Some(reason_code.clone());
+        return PersistentLookupResult::StaleHit(persistent_hit, reason_code);
+    }
+
+    PersistentLookupResult::FreshHit(persistent_hit)
 }
 
 /// Save an analysis result to the persistent cache layer.
@@ -2870,55 +2888,205 @@ impl McpCache {
 
         // Layer 2: Check persistent disk cache
         let mut persistent_stale_context = PersistentStaleContext::default();
-        if let Some(persistent) = try_load_persistent(
+        let persistent_result = try_load_persistent(
             &cache_key_str,
             language,
             strict,
             &canonical,
             &mut persistent_stale_context,
-        ) {
-            // Persistent hit — build GraphView and load into memory cache
-            let mut graph_view = GraphView::build(&persistent.analyze_result);
-            graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
+        );
+        match persistent_result {
+            PersistentLookupResult::FreshHit(persistent) => {
+                let mut graph_view = GraphView::build(&persistent.analyze_result);
+                graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
-            // Store in memory cache for future fast access
-            self.insert_memory_entry(
-                key.clone(),
-                persistent.analyze_result.clone(),
-                graph_view.clone_shallow(),
-                persistent.file_mtimes.clone(),
-                &canonical,
-                persistent.analysis_duration_ms,
-                persistent.scheduler.clone(),
-                persistent.scheduler_files.clone(),
-                // Also persist manifest/docs hashes in the analyze_result for memory-layer checks
-            );
+                self.insert_memory_entry(
+                    key.clone(),
+                    persistent.analyze_result.clone(),
+                    graph_view.clone_shallow(),
+                    persistent.file_mtimes.clone(),
+                    &canonical,
+                    persistent.analysis_duration_ms,
+                    persistent.scheduler.clone(),
+                    persistent.scheduler_files.clone(),
+                );
 
-            // Patch manifest_hashes into the cached result for memory-layer stale checks
-            if let Some(obj) = self.entries.get_mut(&key) {
-                obj.analyze_result.as_object_mut().map(|o| {
-                    o.insert(
-                        "__manifest_hashes".to_string(),
-                        serde_json::to_value(&persistent.manifest_hashes).unwrap_or(Value::Null),
-                    );
-                    o.insert(
-                        "__docs_mtimes".to_string(),
-                        serde_json::to_value(&persistent.docs_mtimes).unwrap_or(Value::Null),
-                    );
+                if let Some(obj) = self.entries.get_mut(&key) {
+                    obj.analyze_result.as_object_mut().map(|o| {
+                        o.insert(
+                            "__manifest_hashes".to_string(),
+                            serde_json::to_value(&persistent.manifest_hashes)
+                                .unwrap_or(Value::Null),
+                        );
+                        o.insert(
+                            "__docs_mtimes".to_string(),
+                            serde_json::to_value(&persistent.docs_mtimes).unwrap_or(Value::Null),
+                        );
+                    });
+                }
+
+                self.persistent_hits += 1;
+                self.total_hits += 1;
+
+                let meta = json!({
+                    "cacheHit": true,
+                    "cacheLayer": "persistent",
+                    "cacheKey": cache_key_str,
+                    "freshness": "fresh_snapshot",
+                    "analysisDurationMs": persistent.analysis_duration_ms,
+                    "schedule": persistent.scheduler,
                 });
+                return Ok((graph_view, persistent.analyze_result, meta));
             }
+            PersistentLookupResult::StaleHit(persistent, reason) => {
+                let mut graph_view = GraphView::build(&persistent.analyze_result);
+                graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
-            self.persistent_hits += 1;
-            self.total_hits += 1;
+                self.insert_memory_entry(
+                    key.clone(),
+                    persistent.analyze_result.clone(),
+                    graph_view.clone_shallow(),
+                    persistent.file_mtimes.clone(),
+                    &canonical,
+                    persistent.analysis_duration_ms,
+                    persistent.scheduler.clone(),
+                    persistent.scheduler_files.clone(),
+                );
 
-            let meta = json!({
-                "cacheHit": true,
-                "cacheLayer": "persistent",
-                "cacheKey": cache_key_str,
-                "analysisDurationMs": persistent.analysis_duration_ms,
-                "schedule": persistent.scheduler,
-            });
-            return Ok((graph_view, persistent.analyze_result, meta));
+                if let Some(obj) = self.entries.get_mut(&key) {
+                    obj.stale_reason = Some(reason.clone());
+                    obj.analyze_result.as_object_mut().map(|o| {
+                        o.insert(
+                            "__manifest_hashes".to_string(),
+                            serde_json::to_value(&persistent.manifest_hashes)
+                                .unwrap_or(Value::Null),
+                        );
+                        o.insert(
+                            "__docs_mtimes".to_string(),
+                            serde_json::to_value(&persistent.docs_mtimes).unwrap_or(Value::Null),
+                        );
+                    });
+                }
+
+                // 增量提取：对新增/修改文件做 symbol extraction
+                let mut delta_symbol_count: u32 = 0;
+                let mut delta_files: Vec<String> = Vec::new();
+                let file_stale_reason = check_stale(&canonical, &persistent.file_mtimes);
+                let files_to_extract: Vec<String> = match &file_stale_reason {
+                    Some(StaleReason::FileAdded(files)) => files
+                        .iter()
+                        .filter(|f| f.ends_with(".rs"))
+                        .cloned()
+                        .collect(),
+                    Some(StaleReason::FileModified(files)) => files
+                        .iter()
+                        .filter(|f| f.ends_with(".rs"))
+                        .cloned()
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                if !files_to_extract.is_empty() {
+                    let delta_result: Result<(), String> = (|| {
+                        let extractor = gitnexus_project_model::item::create_best_extractor();
+                        let mut inputs = Vec::new();
+                        for rel_path in &files_to_extract {
+                            let abs_path = canonical.join(rel_path);
+                            let content = std::fs::read_to_string(&abs_path)
+                                .map_err(|e| format!("read {}: {}", rel_path, e))?;
+                            inputs.push(gitnexus_project_model::item::ItemExtractionInput {
+                                source_path: rel_path.clone(),
+                                source_text: content,
+                                package_name: String::new(),
+                                target_name: None,
+                                module_path: None,
+                            });
+                        }
+                        let output = gitnexus_project_model::item::extract_symbols_from_files(
+                            extractor.as_ref(),
+                            &inputs,
+                        );
+                        for sym in &output.symbols {
+                            let sym_node_id = format!("symbol:{}", sym.id);
+                            let sym_node = json!({
+                                "id": sym_node_id,
+                                "label": "symbol",
+                                "properties": {
+                                    "name": sym.name,
+                                    "symbolKind": sym.symbol_kind,
+                                    "sourcePath": sym.source_path,
+                                    "packageName": sym.package_name,
+                                    "targetName": sym.target_name,
+                                    "modulePath": sym.module_path,
+                                    "visibility": sym.visibility,
+                                    "lineStart": sym.line_start,
+                                    "lineEnd": sym.line_end,
+                                    "genericParams": sym.generic_params,
+                                    "isAsync": sym.is_async,
+                                    "isUnsafe": sym.is_unsafe,
+                                    "isConstFn": sym.is_const_fn,
+                                    "isPub": sym.is_pub,
+                                    "implDetails": sym.impl_details,
+                                }
+                            });
+                            if let Some(entry) = self.entries.get_mut(&key) {
+                                entry
+                                    .graph_view
+                                    .nodes_by_id
+                                    .insert(sym_node_id.clone(), sym_node.clone());
+                                let name_lower = sym.name.to_lowercase();
+                                entry
+                                    .graph_view
+                                    .symbols_by_name
+                                    .entry(name_lower)
+                                    .or_default()
+                                    .push(sym_node);
+                            }
+                            delta_symbol_count += 1;
+                        }
+                        Ok(())
+                    })();
+                    if delta_result.is_ok() {
+                        delta_files = files_to_extract;
+                    }
+                }
+
+                self.persistent_hits += 1;
+                self.total_hits += 1;
+
+                let freshness = if delta_symbol_count > 0 {
+                    "fresh_delta_plus_stale_baseline"
+                } else {
+                    "stale_baseline"
+                };
+                let mut meta = json!({
+                    "cacheHit": true,
+                    "cacheLayer": "persistent",
+                    "cacheKey": cache_key_str,
+                    "freshness": freshness,
+                    "staleBaseline": true,
+                    "staleReason": reason,
+                    "analysisDurationMs": persistent.analysis_duration_ms,
+                    "schedule": persistent.scheduler,
+                });
+                if delta_symbol_count > 0 {
+                    meta.as_object_mut()
+                        .unwrap()
+                        .insert("deltaSymbolCount".to_string(), json!(delta_symbol_count));
+                    meta.as_object_mut()
+                        .unwrap()
+                        .insert("deltaFiles".to_string(), json!(delta_files));
+                }
+
+                let entry = self.entries.get(&key).unwrap();
+                return Ok((
+                    entry.graph_view.clone_shallow(),
+                    entry.analyze_result.clone(),
+                    meta,
+                ));
+            }
+            PersistentLookupResult::Miss | PersistentLookupResult::Corrupted(_) => {
+                // Fall through to Layer 3 (fresh analysis)
+            }
         }
         if previous_scheduler_fingerprint_for_fresh.is_none() {
             previous_scheduler_fingerprint_for_fresh =
@@ -3112,26 +3280,29 @@ impl McpCache {
             });
         }
 
-        if try_load_persistent(
+        match try_load_persistent(
             &cache_key_str,
             language,
             strict,
             &canonical,
             &mut PersistentStaleContext::default(),
-        )
-        .is_some()
-        {
-            json!({
+        ) {
+            PersistentLookupResult::FreshHit(_) => json!({
                 "status": "hit",
                 "cacheLayer": "persistent",
                 "cacheKey": cache_key_str,
-            })
-        } else {
-            json!({
+            }),
+            PersistentLookupResult::StaleHit(_, reason) => json!({
+                "status": "stale",
+                "cacheLayer": "persistent",
+                "cacheKey": cache_key_str,
+                "staleReason": reason,
+            }),
+            PersistentLookupResult::Miss | PersistentLookupResult::Corrupted(_) => json!({
                 "status": "miss",
                 "cacheLayer": "none",
                 "cacheKey": cache_key_str,
-            })
+            }),
         }
     }
 
@@ -21426,6 +21597,11 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     }
 
     Ok(tool_result(&if mode == "quick" && compact {
+        let detected_language = inner
+            .get("language")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| language.to_string());
         let facade = wrap_facade_output(
             inner,
             "codelattice_project",
@@ -21443,12 +21619,29 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             .and_then(|r| r.get("aiDigest"))
             .and_then(|d| d.get("topRisks"))
             .and_then(|v| v.as_array())
-            .map(|arr| arr.iter().take(5).cloned().collect())
+            .map(|arr| {
+                arr.iter()
+                    .take(5)
+                    .map(|r| {
+                        json!({
+                            "risk": r.get("riskNote").and_then(|v| v.as_str()).unwrap_or(""),
+                            "file": r.get("file").and_then(|v| v.as_str()).unwrap_or(""),
+                            "score": r.get("rawRiskScore").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                        })
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         let symbol_count = facade
             .get("result")
             .and_then(|r| r.get("summary"))
             .and_then(|s| s.get("symbolCount"))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        let source_file_count = facade
+            .get("result")
+            .and_then(|r| r.get("summary"))
+            .and_then(|s| s.get("sourceFileCount"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
         let risk_level = facade
@@ -21461,9 +21654,23 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             "medium" => "medium",
             _ => "low",
         };
-        let answer_bytes = facade.to_string().len();
+        let root_kind = facade
+            .get("rootDiagnosis")
+            .and_then(|d| d.get("kind"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let answer_summary = json!({
+            "mode": "quick",
+            "language": detected_language,
+            "riskLevel": risk_level,
+            "rootKind": root_kind,
+            "symbolCount": symbol_count,
+            "sourceFileCount": source_file_count,
+            "topRiskCount": evidence.len(),
+        });
+        let estimated_bytes = answer_summary.to_string().len() + evidence.len() * 80;
         json!({
-            "answer": facade,
+            "answerSummary": answer_summary,
             "freshness": freshness,
             "evidence": evidence,
             "confidence": {
@@ -21474,12 +21681,13 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                 ],
             },
             "omitted": {
-                "fields": ["fileMetrics", "qualityMetrics", "docsSignals", "riskMap"],
+                "fields": ["fullResult", "fileMetrics", "qualityMetrics", "docsSignals", "riskMap", "sourceOnlyEntries"],
                 "detailAvailableVia": "codelattice_project mode=standard compact=false",
             },
             "tokenBudget": {
-                "used": answer_bytes,
+                "used": estimated_bytes,
                 "max": 8192,
+                "estimated": true,
             },
             "symbolCount": symbol_count,
         })

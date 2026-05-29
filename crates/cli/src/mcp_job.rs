@@ -9,7 +9,7 @@
 //! - Same root/language/mode jobs are deduplicated (SingleFlight)
 //! - Analysis runs in background worker threads, never blocks the MCP event loop
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -24,6 +24,8 @@ use gitnexus_analysis_engine::executor::{
 use gitnexus_analysis_engine::job::{
     AnalysisJob, JobProgress, JobResultSummary, JobRuntime, JobStatus, PagedResult,
 };
+
+const MAX_CONCURRENT_ANALYSIS_JOBS: usize = 2;
 
 /// 全局 McpCache 引用，由 run_mcp_server() 在启动时设置。
 /// job worker 完成后通过此引用把分析结果灌入 McpCache 图谱缓存，
@@ -139,6 +141,7 @@ pub struct McpJobRegistry {
     next_id: AtomicU64,
     active_analysis_count: AtomicUsize,
     cancellation_flags: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    queued_jobs: Mutex<VecDeque<String>>,
 }
 
 fn now_ms() -> u64 {
@@ -174,6 +177,7 @@ impl McpJobRegistry {
             next_id: AtomicU64::new(1),
             active_analysis_count: AtomicUsize::new(0),
             cancellation_flags: Mutex::new(HashMap::new()),
+            queued_jobs: Mutex::new(VecDeque::new()),
         }
     }
 
@@ -184,6 +188,37 @@ impl McpJobRegistry {
 
     fn dedup_key(root: &str, language: &str, mode: &str) -> String {
         format!("{}:{}:{}", root, language, mode)
+    }
+
+    pub fn enqueue_job(&self, job_id: &str) {
+        if let Ok(mut queue) = self.queued_jobs.lock() {
+            queue.push_back(job_id.to_string());
+        }
+    }
+
+    pub fn remove_from_queue(&self, job_id: &str) {
+        if let Ok(mut queue) = self.queued_jobs.lock() {
+            queue.retain(|id| id != job_id);
+        }
+    }
+
+    pub fn queue_position(&self, job_id: &str) -> Option<usize> {
+        let queue = self.queued_jobs.lock().ok()?;
+        queue.iter().position(|id| id == job_id)
+    }
+
+    pub fn dequeue_next_eligible(&self) -> Option<String> {
+        let mut queue = self.queued_jobs.lock().ok()?;
+        while let Some(job_id) = queue.pop_front() {
+            let handle = match self.get(&job_id) {
+                Some(h) => h,
+                None => continue,
+            };
+            if !matches!(handle.status, JobStatus::Cancelled) {
+                return Some(job_id);
+            }
+        }
+        None
     }
 
     pub fn submit(&self, root: &str, language: &str, mode: &str) -> McpJobHandle {
