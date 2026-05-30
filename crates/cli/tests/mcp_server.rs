@@ -17468,7 +17468,8 @@ fn mcp_job_status_exposes_warm_trace() {
 
 #[test]
 fn mcp_stale_cache_returns_stale_baseline() {
-    let fixture = portable_smoke_dir();
+    let fixture_root = portable_smoke_dir();
+    let fixture = copy_fixture_to_temp(&fixture_root, "stale-baseline");
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
