@@ -582,6 +582,36 @@ impl McpJobRegistry {
         }
         resp
     }
+
+    /// 短轮询等待 job 完成，直到终态或超时。
+    /// timeout_ms 最大 clamp 到 30000ms。
+    /// 返回 (终态时的 job status Value, 是否超时)
+    pub fn wait_for_job(&self, job_id: &str, timeout_ms: u64) -> (Option<Value>, bool) {
+        let clamped = timeout_ms.clamp(0, 30000);
+        if clamped == 0 {
+            return (self.get_status_value(job_id), false);
+        }
+        let start = std::time::Instant::now();
+        let poll_interval = std::time::Duration::from_millis(200);
+        loop {
+            if let Some(handle) = self.get(job_id) {
+                if is_terminal_status(handle.status) {
+                    return (self.get_status_value(job_id), false);
+                }
+            } else {
+                // job 不存在
+                return (None, false);
+            }
+            if start.elapsed().as_millis() as u64 >= clamped {
+                return (self.get_status_value(job_id), true);
+            }
+            std::thread::sleep(poll_interval);
+        }
+    }
+
+    fn get_status_value(&self, job_id: &str) -> Option<Value> {
+        get_job_status(job_id)
+    }
 }
 
 pub static MCP_JOBS: std::sync::LazyLock<McpJobRegistry> =

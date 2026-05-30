@@ -21160,6 +21160,65 @@ fn wrap_facade_output(
                 json!("Re-run with compact=false or a deeper mode when you need full result payloads."),
             );
             obj.insert("compactSemantics".to_string(), compact_semantics(true));
+
+            // ── Compact 去重：减少跨调用重复字段 ──
+
+            // 1. rootDiagnosis 摘要化：保留关键字段，省略 sourceOnlyEntries 全量列表
+            if let Some(rd) = obj.get_mut("rootDiagnosis") {
+                if let Some(rd_obj) = rd.as_object_mut() {
+                    // sourceOnlyEntries 只保留前 3 条 preview
+                    if let Some(entries) = rd_obj.get_mut("sourceOnlyEntries") {
+                        if let Some(arr) = entries.as_array_mut() {
+                            if arr.len() > 3 {
+                                let preview: Vec<Value> = arr.drain(..3).collect();
+                                *arr = preview;
+                                rd_obj
+                                    .insert("sourceOnlyEntriesTruncated".to_string(), json!(true));
+                            }
+                        }
+                    }
+                    // schedule 不展开 phases/snapshots
+                    if let Some(schedule) = rd_obj.get_mut("schedule") {
+                        if let Some(sched_obj) = schedule.as_object_mut() {
+                            sched_obj.remove("phases");
+                            sched_obj.remove("snapshots");
+                        }
+                    }
+                }
+            }
+
+            // 2. analysisSemantics 用 ref 替代完整展开
+            obj.insert(
+                "analysisSemantics".to_string(),
+                json!({"$ref": "facade.v1.analysisSemantics.default"}),
+            );
+
+            // 3. generatedFrom 与 cautions 用 ref
+            obj.insert(
+                "generatedFrom".to_string(),
+                json!({"$ref": "facade.v1.generatedFrom.default"}),
+            );
+            if let Some(cautions) = obj.get_mut("cautions") {
+                if let Some(arr) = cautions.as_array_mut() {
+                    if arr.len() > 2 {
+                        arr.truncate(2);
+                    }
+                }
+            }
+
+            // 4. contextRefs：首次调用返回完整，后续调用 AI 可用 ref 跳过
+            obj.insert(
+                "contextRefs".to_string(),
+                json!({
+                    "schemaVersion": "facade.v1",
+                    "refs": [
+                        "analysisSemantics",
+                        "generatedFrom",
+                        "cautions"
+                    ],
+                    "explanation": "These fields use $ref in compact mode. Non-compact mode returns full values. AI can skip $ref fields on subsequent calls."
+                }),
+            );
         }
     }
     out
@@ -21733,6 +21792,8 @@ fn handle_facade_job(
         }
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
+            let wait = params["wait"].as_bool().unwrap_or(false);
+            let timeout_ms = params["timeoutMs"].as_u64().unwrap_or(0);
             let engine_mode = if parallel { "parallel" } else { "serial" };
             let result = if language == "auto" {
                 crate::mcp_job::submit_workspace_job(root, engine_mode)
@@ -21740,7 +21801,38 @@ fn handle_facade_job(
                 crate::mcp_job::submit_project_job(root, language, engine_mode)
             };
             match result {
-                Ok(job) => Ok(tool_result(&job)),
+                Ok(job_resp) => {
+                    // 如果 wait=true，短轮询直到完成或超时
+                    if wait {
+                        let job_id = job_resp["jobId"].as_str().unwrap_or("");
+                        if !job_id.is_empty() {
+                            let effective_timeout = if timeout_ms > 0 { timeout_ms } else { 10000 };
+                            let (final_status, timed_out) =
+                                crate::mcp_job::MCP_JOBS.wait_for_job(job_id, effective_timeout);
+                            return match final_status {
+                                Some(status) => {
+                                    let mut response = status;
+                                    if timed_out {
+                                        if let Some(obj) = response.as_object_mut() {
+                                            obj.insert("waitTimedOut".to_string(), json!(true));
+                                            obj.insert("retryAfterMs".to_string(), json!(2000));
+                                            obj.insert(
+                                                "message".to_string(),
+                                                json!(format!(
+                                                    "Job {} still running after {}ms. Poll job_status to check completion.",
+                                                    job_id, effective_timeout
+                                                )),
+                                            );
+                                        }
+                                    }
+                                    Ok(tool_result(&response))
+                                }
+                                None => Ok(tool_result(&job_resp)),
+                            };
+                        }
+                    }
+                    Ok(tool_result(&job_resp))
+                }
                 Err(e) => Err(mcp_error("job_failed", &e)),
             }
         }
@@ -21925,8 +22017,40 @@ fn handle_project_job(
         }
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
+            let wait = params["wait"].as_bool().unwrap_or(false);
+            let timeout_ms = params["timeoutMs"].as_u64().unwrap_or(0);
             let engine_mode = if parallel { "parallel" } else { "serial" };
             let result = crate::mcp_job::submit_project_job(root, language, engine_mode)?;
+
+            // 如果 wait=true，短轮询直到完成或超时
+            if wait {
+                let job_id = result["jobId"].as_str().unwrap_or("");
+                if !job_id.is_empty() {
+                    let effective_timeout = if timeout_ms > 0 { timeout_ms } else { 10000 };
+                    let (final_status, timed_out) =
+                        crate::mcp_job::MCP_JOBS.wait_for_job(job_id, effective_timeout);
+                    return match final_status {
+                        Some(status) => {
+                            let mut response = status;
+                            if timed_out {
+                                if let Some(obj) = response.as_object_mut() {
+                                    obj.insert("waitTimedOut".to_string(), json!(true));
+                                    obj.insert("retryAfterMs".to_string(), json!(2000));
+                                    obj.insert(
+                                        "message".to_string(),
+                                        json!(format!(
+                                            "Job {} still running after {}ms. Poll job_status to check completion.",
+                                            job_id, effective_timeout
+                                        )),
+                                    );
+                                }
+                            }
+                            Ok(tool_result(&response))
+                        }
+                        None => Ok(tool_result(&result)),
+                    };
+                }
+            }
             Ok(tool_result(&result))
         }
         "job_status" => {
@@ -26894,16 +27018,183 @@ fn route_ask_intent(
         }));
         ai_guidance = "Issue location is static-only. Check logs, runtime behavior, and test failures to confirm root cause.".to_string();
     } else {
+        // ── 通用 intent：尝试从问题中提取目标做轻量分析 ──
         intent = "general".to_string();
-        target_query = None;
-        answer_summary = format!("Question: '{}'. I can help with: explain_flow, find_symbol, inspect_project, before_edit. Try asking about a specific symbol's call flow, where a function is, the project structure, or what happens if you change something.", question);
-        next_actions.push(json!({
-            "tool": "codelattice_workflow",
-            "mode": "explore",
-            "why": "Explore the project for general orientation",
-            "arguments": {"root": root, "language": language}
-        }));
-        ai_guidance = "Try specific questions like: 'What is the call flow of helper()?', 'Where is the main entry point?', 'What is the project structure?', or 'What happens if I delete helper?'".to_string();
+
+        // 检测是否包含 approval/route/handler/endpoint 等关键词
+        let approval_keywords = [
+            "approval",
+            "approve",
+            "审批",
+            "批准",
+            "decision",
+            "review",
+            "route",
+            "routes",
+            "api",
+            "handler",
+            "endpoint",
+            "入口",
+            "路由",
+            "接口",
+            "处理器",
+            "流程",
+        ];
+        let is_structural_query = approval_keywords.iter().any(|k| q.contains(k));
+
+        if is_structural_query && !root.is_empty() {
+            // 从问题中提取可能的搜索目标
+            let query = extract_symbol_from_question(question);
+            target_query = if query.is_empty() {
+                None
+            } else {
+                Some(query.clone())
+            };
+
+            orchestration["stepsAttempted"] =
+                json!(["intent-classification:general", "lightweight_symbol_search"]);
+
+            // 轻量 symbol search：利用已缓存 GraphView
+            if let Some(entry) = cache.entries.get(&CacheKey {
+                root: root.to_string(),
+                language: language.to_string(),
+                strict: false,
+            }) {
+                let gv = &entry.graph_view;
+                // 提取匹配关键词的符号
+                let search_terms: Vec<&str> = if query.is_empty() {
+                    // 如果没有明确的 symbol，从问题中提取关键词
+                    question
+                        .split_whitespace()
+                        .filter(|w| {
+                            w.len() >= 3 && w.chars().all(|c| c.is_alphanumeric() || c == '_')
+                        })
+                        .take(3)
+                        .collect()
+                } else {
+                    vec![&query]
+                };
+
+                let mut found_symbols: Vec<Value> = Vec::new();
+                for term in &search_terms {
+                    let term_lower = term.to_lowercase();
+                    if let Some(candidates) = gv.symbols_by_name.get(&term_lower) {
+                        for sym in candidates.iter().take(3) {
+                            found_symbols.push(sym.clone());
+                        }
+                    }
+                    // 也搜索 id 中包含关键词的
+                    for (id, node) in gv.nodes_by_id.iter() {
+                        if id.to_lowercase().contains(&term_lower) && found_symbols.len() < 5 {
+                            let kind = node["kind"].as_str().unwrap_or("");
+                            let label = node["label"].as_str().unwrap_or("");
+                            if kind == "function"
+                                || kind == "method"
+                                || kind == "associated-function"
+                                || label == "symbol"
+                                || kind == "struct"
+                                || kind == "enum"
+                            {
+                                if !found_symbols
+                                    .iter()
+                                    .any(|f| f["id"].as_str() == Some(id.as_str()))
+                                {
+                                    found_symbols.push(node.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 构建 evidence
+                for sym in found_symbols.iter().take(5) {
+                    evidence.push(json!({
+                        "kind": "symbol_match",
+                        "file": sym["properties"]["sourcePath"].as_str()
+                            .or_else(|| sym["file"].as_str())
+                            .unwrap_or("unknown"),
+                        "line": sym["properties"]["lineStart"].as_u64()
+                            .or_else(|| sym["startLine"].as_u64()),
+                        "name": sym["properties"]["name"].as_str()
+                            .or_else(|| sym["name"].as_str())
+                            .unwrap_or("unknown"),
+                        "reason": "matched by keyword search in cached graph",
+                        "source": "static_graph",
+                        "staticOnly": true
+                    }));
+                }
+
+                if !evidence.is_empty() {
+                    answer_summary = format!(
+                        "Found {} relevant symbol(s) for '{}'. See evidence for details.",
+                        evidence.len(),
+                        question
+                    );
+                    // 添加深入查询的 next calls
+                    for ev in evidence.iter().take(3) {
+                        if let Some(name) = ev["name"].as_str() {
+                            next_actions.push(json!({
+                                "tool": "codelattice_symbol",
+                                "mode": "call_chains",
+                                "why": format!("Trace call flow for '{}'", name),
+                                "arguments": {"query": name, "root": root, "language": language, "direction": "both", "maxDepth": 4, "compact": true}
+                            }));
+                        }
+                    }
+                } else {
+                    answer_summary = format!(
+                        "No matching symbols found for '{}' in the cached graph. The analysis may not be complete yet.",
+                        question
+                    );
+                    missing_evidence.push(json!({
+                        "kind": "no_cached_match",
+                        "explanation": "No symbols matched in current graph. Try broader terms or submit a job for full analysis."
+                    }));
+                    auto_job = ask_submit_auto_job(root, language);
+                    next_actions = ask_job_next_actions(root, language, &auto_job, None);
+                }
+            } else {
+                // 无缓存，提交 job
+                answer_summary = format!(
+                    "No cached analysis for this project. Submitting a background analysis job — retry after completion."
+                );
+                missing_evidence.push(json!({
+                    "kind": "no_cache",
+                    "explanation": "Project graph not yet loaded. A job has been submitted."
+                }));
+                auto_job = ask_submit_auto_job(root, language);
+                next_actions = ask_job_next_actions(root, language, &auto_job, None);
+            }
+        } else {
+            target_query = None;
+            answer_summary = format!(
+                "Question: '{}'. I can help with: explain_flow, find_symbol, inspect_project, before_edit, approval/route/handler lookup. Try asking about a specific symbol, API route, or the project structure.",
+                question
+            );
+            next_actions.push(json!({
+                "tool": "codelattice_workflow",
+                "mode": "explore",
+                "why": "Explore the project for general orientation",
+                "arguments": {"root": root, "language": language, "compact": true}
+            }));
+            next_actions.push(json!({
+                "tool": "codelattice_project",
+                "mode": "quick",
+                "why": "Get a quick project overview",
+                "arguments": {"root": root, "language": language, "compact": true}
+            }));
+        }
+
+        // confidence
+        let _confidence = if !evidence.is_empty() {
+            json!({"level": "medium", "reason": "symbol evidence from cached graph, static only"})
+        } else {
+            json!({"level": "low", "reason": "no matching evidence found"})
+        };
+
+        ai_guidance =
+            "Results are from static analysis only. Verify with runtime behavior and logs."
+                .to_string();
     }
 
     let _ = (compact, execute);
