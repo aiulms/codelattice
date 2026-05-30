@@ -64,7 +64,7 @@ enum Commands {
         #[command(subcommand)]
         sub: CangjieCommands,
     },
-    /// 统一分析入口：自动检测语言或按指定语言分析项目，输出 graph JSON
+    /// 统一分析入口：自动检测语言或按指定语言分析项目，支持 full/compact/symbols/modules 输出档位
     Analyze {
         #[arg(long)]
         root: String,
@@ -79,6 +79,15 @@ enum Commands {
         /// 输出档位：full(完整 graph) / compact(AI decision payload) / symbols(符号列表) / modules(模块概览)
         #[arg(long, default_value = "full")]
         profile: String,
+        /// profile 输出页码（symbols/modules 有效，0-based）
+        #[arg(long, default_value_t = 0)]
+        profile_page: usize,
+        /// profile 每页条数（symbols/modules 有效，0 表示不分页）
+        #[arg(long, default_value_t = 500)]
+        profile_page_size: usize,
+        /// 仅输出 public/pub 符号（symbols profile 有效）
+        #[arg(long, default_value_t = false)]
+        public_only: bool,
     },
     /// 质量门检查：对指定项目运行质量门，输出 JSON，退出码反映结果
     Quality {
@@ -239,6 +248,75 @@ fn validate_profile(profile: &str) -> Result<(), String> {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AnalyzeProfileOptions {
+    page: usize,
+    page_size: usize,
+    public_only: bool,
+}
+
+impl AnalyzeProfileOptions {
+    fn new(page: usize, page_size: usize, public_only: bool) -> Self {
+        Self {
+            page,
+            page_size,
+            public_only,
+        }
+    }
+}
+
+fn page_slice<T: Clone>(
+    items: &[T],
+    options: AnalyzeProfileOptions,
+) -> (Vec<T>, serde_json::Value) {
+    let total = items.len();
+    let page_size = options.page_size;
+    let (start, end, total_pages) = if page_size == 0 {
+        (0, total, if total == 0 { 0 } else { 1 })
+    } else {
+        let start = options.page.saturating_mul(page_size);
+        let end = start.saturating_add(page_size).min(total);
+        let total_pages = if total == 0 {
+            0
+        } else {
+            (total + page_size - 1) / page_size
+        };
+        (start, end, total_pages)
+    };
+    let page_items = if start < total {
+        items[start..end].to_vec()
+    } else {
+        Vec::new()
+    };
+    let items_returned = page_items.len();
+    let has_more = page_size != 0 && end < total;
+
+    (
+        page_items,
+        serde_json::json!({
+            "page": options.page,
+            "pageSize": page_size,
+            "totalItems": total,
+            "totalPages": total_pages,
+            "itemsReturned": items_returned,
+            "hasMore": has_more,
+            "hasPrev": options.page > 0 && total > 0
+        }),
+    )
+}
+
+fn profile_detail_hint(profile: &str, paging: &serde_json::Value) -> String {
+    if paging["hasMore"].as_bool().unwrap_or(false) {
+        let next_page = paging["page"].as_u64().unwrap_or(0) + 1;
+        format!(
+            "More {profile} are available. Re-run with --profile {profile} --profile-page {next_page} --profile-page-size {}.",
+            paging["pageSize"].as_u64().unwrap_or(0)
+        )
+    } else {
+        format!("All {profile} for this filtered profile page have been returned. Use --profile full for complete graph evidence.")
+    }
+}
+
 /// 从完整分析结果中提取模块概览
 fn extract_modules_from_result(result: &serde_json::Value) -> Vec<serde_json::Value> {
     let mut module_map: std::collections::BTreeMap<String, serde_json::Value> =
@@ -259,10 +337,6 @@ fn extract_modules_from_result(result: &serde_json::Value) -> Vec<serde_json::Va
             .as_str()
             .or_else(|| node["file"].as_str())
             .unwrap_or("");
-        let kind = node["properties"]["symbolKind"]
-            .as_str()
-            .or_else(|| node["properties"]["kind"].as_str())
-            .unwrap_or("symbol");
         let visibility = node["properties"]["visibility"]
             .as_str()
             .unwrap_or("unknown");
@@ -354,15 +428,40 @@ fn extract_symbols_from_result(result: &serde_json::Value) -> Vec<serde_json::Va
 }
 
 /// 根据 --profile 过滤分析结果
-fn filter_analyze_profile(result: &serde_json::Value, profile: &str) -> serde_json::Value {
+fn filter_analyze_profile(
+    result: &serde_json::Value,
+    profile: &str,
+    options: AnalyzeProfileOptions,
+) -> serde_json::Value {
     match profile {
         "full" => result.clone(),
         "symbols" => {
-            let symbols = extract_symbols_from_result(result);
+            let mut symbols = extract_symbols_from_result(result);
+            if options.public_only {
+                symbols.retain(|s| {
+                    let visibility = s["visibility"].as_str().unwrap_or("");
+                    visibility == "pub" || visibility == "public"
+                });
+            }
+            symbols.sort_by(|a, b| {
+                let a_key = (
+                    a["file"].as_str().unwrap_or(""),
+                    a["line"].as_u64().unwrap_or(0),
+                    a["name"].as_str().unwrap_or(""),
+                );
+                let b_key = (
+                    b["file"].as_str().unwrap_or(""),
+                    b["line"].as_u64().unwrap_or(0),
+                    b["name"].as_str().unwrap_or(""),
+                );
+                a_key.cmp(&b_key)
+            });
+            let (symbols_page, paging) = page_slice(&symbols, options);
             let summary = result
                 .get("summary")
                 .cloned()
                 .unwrap_or(serde_json::json!({}));
+            let detail_hint = profile_detail_hint("symbols", &paging);
             serde_json::json!({
                 "schemaVersion": "codelattice.analyzeSymbols.v1",
                 "root": result["root"],
@@ -378,15 +477,34 @@ fn filter_analyze_profile(result: &serde_json::Value, profile: &str) -> serde_js
                     "nodeCount": summary.get("nodeCount").cloned().unwrap_or(serde_json::json!(0)),
                     "edgeCount": summary.get("edgeCount").cloned().unwrap_or(serde_json::json!(0))
                 },
-                "symbols": symbols
+                "filters": {
+                    "publicOnly": options.public_only
+                },
+                "paging": paging,
+                "symbols": symbols_page,
+                "detailHint": detail_hint
             })
         }
         "modules" => {
-            let modules = extract_modules_from_result(result);
+            let mut modules = extract_modules_from_result(result);
+            modules.sort_by(|a, b| {
+                b["symbolCount"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .cmp(&a["symbolCount"].as_u64().unwrap_or(0))
+                    .then_with(|| {
+                        a["module"]
+                            .as_str()
+                            .unwrap_or("")
+                            .cmp(b["module"].as_str().unwrap_or(""))
+                    })
+            });
+            let (modules_page, paging) = page_slice(&modules, options);
             let summary = result
                 .get("summary")
                 .cloned()
                 .unwrap_or(serde_json::json!({}));
+            let detail_hint = profile_detail_hint("modules", &paging);
             serde_json::json!({
                 "schemaVersion": "codelattice.analyzeModules.v1",
                 "root": result["root"],
@@ -401,7 +519,9 @@ fn filter_analyze_profile(result: &serde_json::Value, profile: &str) -> serde_js
                     "symbolCount": summary.get("symbolCount").cloned().unwrap_or(serde_json::json!(0)),
                     "sourceFileCount": summary.get("sourceFileCount").cloned().unwrap_or(serde_json::json!(0))
                 },
-                "modules": modules
+                "paging": paging,
+                "modules": modules_page,
+                "detailHint": detail_hint
             })
         }
         "compact" => {
@@ -493,12 +613,16 @@ fn filter_analyze_profile(result: &serde_json::Value, profile: &str) -> serde_js
 }
 
 /// 序列化分析结果并根据 --profile 过滤输出
-fn print_analyze_result(result: &LanguageAnalysisResult, profile: &str) {
+fn print_analyze_result(
+    result: &LanguageAnalysisResult,
+    profile: &str,
+    options: AnalyzeProfileOptions,
+) {
     let full_value = serde_json::to_value(result).unwrap_or_else(|e| {
         eprintln!("错误：JSON 序列化失败: {e}");
         std::process::exit(1);
     });
-    let filtered = filter_analyze_profile(&full_value, profile);
+    let filtered = filter_analyze_profile(&full_value, profile, options);
     let json = serde_json::to_string_pretty(&filtered).unwrap_or_else(|e| {
         eprintln!("错误：JSON 序列化失败: {e}");
         std::process::exit(1);
@@ -3471,6 +3595,9 @@ pub fn run() {
             strict,
             engine,
             profile,
+            profile_page,
+            profile_page_size,
+            public_only,
         } => {
             if format != "json" && format != "gitnexus-rc" {
                 eprintln!("错误：支持的格式：json, gitnexus-rc");
@@ -3481,6 +3608,8 @@ pub fn run() {
                 eprintln!("错误：{e}");
                 std::process::exit(1);
             }
+            let profile_options =
+                AnalyzeProfileOptions::new(profile_page, profile_page_size, public_only);
 
             let is_bridge = format == "gitnexus-rc";
             let root_path = match check_root(&root) {
@@ -3548,7 +3677,7 @@ pub fn run() {
                 let parallel = engine == "parallel";
                 match engine_bridge::run_engine_analysis(root_path, &lang, parallel) {
                     Ok(result) => {
-                        let filtered = filter_analyze_profile(&result, &profile);
+                        let filtered = filter_analyze_profile(&result, &profile, profile_options);
                         println!(
                             "{}",
                             serde_json::to_string_pretty(&filtered).unwrap_or_default()
@@ -3612,7 +3741,7 @@ pub fn run() {
                             graph: json_val,
                         };
 
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     // --strict 检查：质量门失败时 exit non-zero
@@ -3675,7 +3804,7 @@ pub fn run() {
                             graph: json_val,
                         };
 
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     // --strict 检查：质量门失败时 exit non-zero
@@ -3735,7 +3864,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {
@@ -3794,7 +3923,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {
@@ -3853,7 +3982,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {
@@ -3912,7 +4041,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {
@@ -3971,7 +4100,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {
@@ -4030,7 +4159,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {
@@ -4089,7 +4218,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        print_analyze_result(&result, &profile);
+                        print_analyze_result(&result, &profile, profile_options);
                     }
 
                     if strict {

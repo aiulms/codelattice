@@ -416,15 +416,23 @@ pub fn build_workspace_graph(root: &Path, redact_root: bool) -> Result<Workspace
         metadata: serde_json::json!({}),
     });
 
-    // 为每个项目创建节点
+    // 为每个 inventory entry 创建节点。只有 manifest-backed entries 是 project；
+    // source-only areas 只是目录线索，不能参与 projectCount 或项目间依赖。
     let mut project_node_ids: HashMap<String, String> = HashMap::new(); // relative_path → node_id
     for proj in &projects {
-        let node_id = format!("project:{}", proj.relative_path.replace('/', ":"));
-        project_node_ids.insert(proj.relative_path.clone(), node_id.clone());
+        let node_kind = if proj.is_manifest_backed {
+            "project"
+        } else {
+            "source_area"
+        };
+        let node_id = format!("{}:{}", node_kind, proj.relative_path.replace('/', ":"));
+        if proj.is_manifest_backed {
+            project_node_ids.insert(proj.relative_path.clone(), node_id.clone());
+        }
 
         nodes.push(WorkspaceNode {
             id: node_id.clone(),
-            kind: "project".to_string(),
+            kind: node_kind.to_string(),
             label: proj.name.clone(),
             path: proj.path.clone(),
             relative_path: proj.relative_path.clone(),
@@ -433,10 +441,12 @@ pub fn build_workspace_graph(root: &Path, redact_root: bool) -> Result<Workspace
             project_id: node_id.clone(),
             metadata: serde_json::json!({
                 "manifest_file": proj.manifest_file,
+                "manifestBacked": proj.is_manifest_backed,
+                "sourceOnly": !proj.is_manifest_backed,
             }),
         });
 
-        // workspace → project contains 边
+        // workspace → project/source_area contains 边
         edge_id_counter += 1;
         edges.push(WorkspaceEdge {
             id: format!("edge:{}", edge_id_counter),
@@ -474,8 +484,11 @@ pub fn build_workspace_graph(root: &Path, redact_root: bool) -> Result<Workspace
             .collect()
     };
 
-    // 解析项目间依赖
+    // 解析项目间依赖。source-only area 不代表独立项目，跳过。
     for proj in &projects {
+        if !proj.is_manifest_backed {
+            continue;
+        }
         let proj_dir = root.join(&proj.relative_path);
         let proj_node_id = project_node_ids
             .get(&proj.relative_path)

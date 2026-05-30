@@ -39,6 +39,10 @@ fn create_multi_project_workspace() -> tempfile::TempDir {
     )
     .unwrap();
     std::fs::write(rust_src.join("main.rs"), "fn main() {}\n").unwrap();
+    let rust_internal = root.join("rust-app/src/internal");
+    std::fs::create_dir_all(&rust_internal).unwrap();
+    std::fs::write(rust_internal.join("alpha.rs"), "pub fn alpha() {}\n").unwrap();
+    std::fs::write(rust_internal.join("beta.rs"), "pub fn beta() {}\n").unwrap();
 
     let py = root.join("python-tool");
     std::fs::create_dir_all(&py).unwrap();
@@ -309,12 +313,136 @@ fn analyze_auto_multi_project_root_returns_workspace_auto_entry() {
     assert_eq!(v["schemaVersion"], "codelattice.workspaceAutoEntry.v1");
     assert_eq!(v["status"], "workspace_analyzed");
     assert_eq!(v["rootKind"], "workspace");
-    assert!(v["summary"]["supportedProjectCount"].as_u64().unwrap_or(0) >= 2);
-    assert!(v["supportedProjects"].as_array().unwrap().len() >= 2);
+    assert_eq!(v["summary"]["supportedProjectCount"].as_u64(), Some(2));
+    assert_eq!(v["summary"]["sourceOnlyAreaCount"].as_u64(), Some(1));
+    assert_eq!(v["supportedProjects"].as_array().unwrap().len(), 2);
+    assert!(v["supportedProjects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|p| p["manifestFile"].as_str().is_some_and(|m| !m.is_empty())));
+    assert_eq!(v["sourceOnlyAreas"]["summary"]["count"].as_u64(), Some(1));
+    assert_eq!(
+        v["workspaceSummary"]["projectCount"].as_u64(),
+        Some(3),
+        "workspace graph projectCount should count manifest-backed boundaries only"
+    );
     assert!(v["unsupportedModules"].as_array().unwrap().len() >= 1);
     assert_eq!(v["generatedFrom"]["staticAnalysis"], true);
     assert_eq!(v["generatedFrom"]["scriptsExecuted"], false);
     assert_eq!(v["generatedFrom"]["projectContentRead"], false);
+}
+
+#[test]
+fn analyze_profile_symbols_is_bounded_and_pageable() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .arg("--profile")
+        .arg("symbols")
+        .arg("--profile-page-size")
+        .arg("3")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(v["schemaVersion"], "codelattice.analyzeSymbols.v1");
+    assert!(v.get("graph").is_none(), "symbols profile must omit graph");
+    assert_eq!(v["paging"]["page"].as_u64(), Some(0));
+    assert_eq!(v["paging"]["pageSize"].as_u64(), Some(3));
+    assert!(
+        v["symbols"].as_array().unwrap().len() <= 3,
+        "symbols page must be bounded"
+    );
+    assert!(
+        v["paging"]["totalItems"].as_u64().unwrap_or(0)
+            >= v["symbols"].as_array().unwrap().len() as u64
+    );
+    assert!(v["detailHint"]
+        .as_str()
+        .unwrap_or("")
+        .contains("--profile-page"));
+}
+
+#[test]
+fn analyze_profile_symbols_public_only_filters_visibility() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .arg("--profile")
+        .arg("symbols")
+        .arg("--public-only")
+        .arg("--profile-page-size")
+        .arg("50")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+    let symbols = v["symbols"].as_array().unwrap();
+
+    assert!(
+        !symbols.is_empty(),
+        "portable fixture should expose public symbols"
+    );
+    assert!(
+        symbols.iter().all(|s| {
+            let visibility = s["visibility"].as_str().unwrap_or("");
+            visibility == "pub" || visibility == "public"
+        }),
+        "public-only must omit private symbols: {symbols:?}"
+    );
+}
+
+#[test]
+fn analyze_profile_modules_is_bounded_and_pageable() {
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+    let root = rust_portable_smoke_path();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(&root)
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .arg("--profile")
+        .arg("modules")
+        .arg("--profile-page-size")
+        .arg("1")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(v["schemaVersion"], "codelattice.analyzeModules.v1");
+    assert_eq!(v["modules"].as_array().unwrap().len(), 1);
+    assert_eq!(v["paging"]["pageSize"].as_u64(), Some(1));
+    assert!(v["paging"]["totalItems"].as_u64().unwrap_or(0) >= 1);
+    assert!(v["detailHint"]
+        .as_str()
+        .unwrap_or("")
+        .contains("--profile-page"));
 }
 
 #[test]

@@ -46,6 +46,30 @@ The full toolset is for debugging and development only. It exposes all internal 
 
 ## Recommended Workflows
 
+## CLI Profiles For One-Off Reads
+
+For AI workflows, prefer the MCP sidecar because it reuses memory cache, persistent cache, and background jobs. Use the CLI for one-off inspection, smoke checks, or precommit-style gates.
+
+When you do use `codelattice analyze`, avoid the full graph unless you explicitly need an export:
+
+```bash
+codelattice analyze --root /path/to/project --language rust --profile compact
+codelattice analyze --root /path/to/project --language rust --profile modules
+codelattice analyze --root /path/to/project --language rust --profile symbols --profile-page-size 200
+codelattice analyze --root /path/to/project --language rust --profile symbols --public-only --profile-page 1 --profile-page-size 200
+```
+
+Profiles:
+
+| Profile | Use | Token shape |
+|---------|-----|-------------|
+| `compact` | First-pass orientation: top modules, public symbols, entry points, top risks | Small decision payload |
+| `modules` | Module/file overview without graph edges | Paged list |
+| `symbols` | Symbol inventory without graph edges | Paged list, supports `--public-only` |
+| `full` | Complete graph export/debugging | Large payload |
+
+`symbols` and `modules` include `paging` and `detailHint`; follow those instead of asking for the full graph when you only need the next slice.
+
 ### Choosing The Right Facade
 
 If you are unsure, start with `codelattice_workflow(mode=ask)` or `codelattice_workflow(mode=explore)`.
@@ -208,9 +232,9 @@ codelattice_project(mode=job_detail, jobId="...", page=0, pageSize=50)
 
 ## Concurrency
 
-- Do NOT send multiple CodeLattice MCP tool calls in parallel. The server processes requests sequentially.
-- If a previous call is still running, wait for it to complete.
-- For long-running tasks, use `job` mode which returns immediately with a job ID.
+- Prefer one direct facade call at a time for small, synchronous questions.
+- For large analysis, use `job` mode or let facade auto-job return `status=analyzing`; control-plane calls such as `job_status`, `job_detail`, `job_cancel`, and `cache status` remain available.
+- The server uses bounded job concurrency and singleflight deduplication. If capacity is full, follow the returned `jobId`/`retryAfterSeconds` rather than retrying direct analysis in a loop.
 
 ## Static Analysis Semantics
 
