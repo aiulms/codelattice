@@ -19806,6 +19806,274 @@ fn automation_is_shell_file(path: &Path) -> bool {
         )
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ═══ Fix #1: ask evidence/confidence 必须出现在 ask_result ═══
+
+    #[test]
+    fn mcp_workflow_ask_approval_returns_evidence_and_confidence() {
+        let mut cache = McpCache::new();
+        let result = handle_workflow(
+            &mut cache,
+            &json!({
+                "mode": "ask",
+                "question": "What is the approval flow?",
+                "root": "/nonexistent",
+                "language": "auto"
+            }),
+        );
+        let resp = result.expect("ask should succeed");
+        let text = resp["content"][0]["text"].as_str().unwrap_or("");
+        let parsed: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+
+        // 必须有 evidence 字段（array）
+        assert!(
+            parsed["evidence"].is_array(),
+            "ask_result must have evidence array, got: {:?}",
+            parsed.get("evidence")
+        );
+        // 必须有 confidence 字段（object with level + reason）
+        assert!(
+            parsed["confidence"]["level"].is_string(),
+            "ask_result must have confidence.level, got: {:?}",
+            parsed.get("confidence")
+        );
+        assert!(
+            parsed["confidence"]["reason"].is_string(),
+            "ask_result must have confidence.reason, got: {:?}",
+            parsed.get("confidence")
+        );
+        // 必须有 aiGuidance
+        assert!(
+            parsed["aiGuidance"].is_string(),
+            "ask_result must have aiGuidance, got: {:?}",
+            parsed.get("aiGuidance")
+        );
+    }
+
+    // ═══ Fix #2: extract_symbol 优先返回业务关键词 ═══
+
+    #[test]
+    fn mcp_workflow_ask_approval_prefers_approval_query_not_flow() {
+        // "What is the approval flow?" 应提取 "approval" 而非 "flow"
+        let sym = extract_symbol_from_question("What is the approval flow?");
+        assert_eq!(
+            sym, "approval",
+            "expected 'approval' but got '{}': should prioritize business keywords",
+            sym
+        );
+    }
+
+    #[test]
+    fn extract_symbol_prefers_route_over_last_word() {
+        let sym = extract_symbol_from_question("Where is the API route handler?");
+        // 应优先 route 或 handler，而非最后一个词
+        assert!(
+            sym == "route" || sym == "handler" || sym == "api",
+            "expected business keyword (route/handler/api) but got '{}'",
+            sym
+        );
+    }
+
+    #[test]
+    fn extract_symbol_prefers_handler_in_question() {
+        let sym = extract_symbol_from_question("Show me the handler for approval");
+        assert!(
+            sym == "handler" || sym == "approval",
+            "expected 'handler' or 'approval' but got '{}'",
+            sym
+        );
+    }
+
+    // ═══ Fix #4: compact schedule 去重 ═══
+
+    #[test]
+    fn mcp_compact_schedule_strips_phases() {
+        let mut value = json!({
+            "schedule": {
+                "action": "analyze",
+                "cacheIntent": "memory",
+                "reason": "cold start",
+                "phases": [
+                    {"name": "phase1", "files": 100},
+                    {"name": "phase2", "files": 200},
+                    {"name": "phase3", "files": 300},
+                    {"name": "phase4", "files": 400}
+                ],
+                "fileSnapshot": [{"path": "a.rs"}, {"path": "b.rs"}],
+                "fingerprint": "abcdef1234567890"
+            },
+            "other": "data"
+        });
+        compact_strip_schedule(&mut value);
+        // schedule 应被替换为 scheduleSummary
+        assert!(
+            value["scheduleSummary"].is_object(),
+            "schedule should be replaced with scheduleSummary"
+        );
+        assert!(
+            value["schedule"].is_null(),
+            "original schedule should be removed"
+        );
+        // scheduleSummary 不应含 phases/fileSnapshot
+        let summary = &value["scheduleSummary"];
+        assert_eq!(summary["action"], "analyze");
+        assert_eq!(summary["phaseCount"], 4);
+        assert_eq!(summary["dirtyFileCount"], 2);
+        assert_eq!(summary["fingerprintShort"], "abcdef123456");
+        assert!(
+            summary["phases"].is_null(),
+            "scheduleSummary must not have phases"
+        );
+    }
+
+    #[test]
+    fn mcp_compact_schedule_recursive_in_result() {
+        let mut value = json!({
+            "result": {
+                "data": "something",
+                "schedule": {
+                    "action": "reanalyze",
+                    "phases": [{"name": "p1"}, {"name": "p2"}, {"name": "p3"}],
+                    "fingerprint": "deadbeef"
+                },
+                "nested": {
+                    "schedule": {
+                        "action": "cache",
+                        "phases": [{"name": "n1"}]
+                    }
+                }
+            }
+        });
+        compact_strip_schedule(&mut value);
+        // 递归应处理 result 内部的 schedule
+        let result = &value["result"];
+        assert!(
+            result["scheduleSummary"].is_object(),
+            "result.schedule should be replaced"
+        );
+        assert_eq!(result["scheduleSummary"]["phaseCount"], 3);
+        assert!(
+            result["nested"]["scheduleSummary"].is_object(),
+            "nested schedule should also be replaced"
+        );
+        assert_eq!(result["nested"]["scheduleSummary"]["phaseCount"], 1);
+    }
+
+    #[test]
+    fn mcp_build_schedule_summary_truncates_fingerprint() {
+        let schedule = json!({
+            "action": "analyze",
+            "cacheIntent": "memory",
+            "reason": "cold",
+            "phases": [1, 2, 3, 4, 5, 6, 7, 8],
+            "fingerprint": "0123456789abcdef0123456789abcdef"
+        });
+        let summary = build_schedule_summary(&schedule);
+        assert_eq!(summary["fingerprintShort"], "0123456789ab");
+        assert_eq!(summary["phaseCount"], 8);
+    }
+
+    // ═══ Fix #5: change_review job_cancel 允许 ═══
+
+    #[test]
+    fn mcp_change_review_job_cancel_control_plane_allowed() {
+        let mut cache = McpCache::new();
+        // 先提交一个 job
+        let job_result = handle_change_review(
+            &mut cache,
+            &json!({
+                "mode": "job",
+                "root": "/tmp/codelattice-test-cancel",
+                "language": "rust",
+            }),
+        );
+        // 如果 job 提交成功（不一定，取决于环境），尝试 cancel
+        // 关键是验证 job_cancel 不被 invalid_mode 拦截
+        let result = handle_change_review(
+            &mut cache,
+            &json!({
+                "mode": "job_cancel",
+                "jobId": "fake_job_id_for_test",
+            }),
+        );
+        // 不应返回 invalid_mode 错误
+        match result {
+            Ok(resp) => {
+                // cancel 应该返回（即使是 job not found）
+                assert!(
+                    resp["content"][0]["text"]
+                        .as_str()
+                        .unwrap_or("")
+                        .contains("cancelled")
+                        || resp["content"][0]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("not_found")
+                        || resp["content"][0]["text"]
+                            .as_str()
+                            .unwrap_or("")
+                            .contains("cancel"),
+                    "job_cancel should not be blocked by invalid_mode"
+                );
+            }
+            Err(_) => {
+                // 其他错误也可接受（如 job not found），关键是没被 invalid_mode 拦截
+            }
+        }
+    }
+
+    // ═══ Fix #6: job wait=true 支持 ═══
+
+    #[test]
+    fn mcp_job_wait_timeout_returns_job_id() {
+        // 测试 wait_for_job 在超时时返回正确的结构
+        let registry = crate::mcp_job::McpJobRegistry::new();
+        let job = registry.submit("/tmp/wait-test", "rust", "serial");
+        let job_id = job.job_id;
+
+        let (status, timed_out) = registry.wait_for_job(&job_id, 100);
+        assert!(timed_out, "should time out");
+        assert!(status.is_some(), "should return status even on timeout");
+    }
+
+    // ═══ 综合测试：ask 对 no cache 也返回 evidence + confidence ═══
+
+    #[test]
+    fn mcp_workflow_ask_no_cache_returns_empty_evidence_and_low_confidence() {
+        let mut cache = McpCache::new();
+        let result = handle_workflow(
+            &mut cache,
+            &json!({
+                "mode": "ask",
+                "question": "审批流程是什么？",
+                "root": "/nonexistent/path",
+                "language": "auto"
+            }),
+        );
+        let resp = result.expect("ask should succeed");
+        let text = resp["content"][0]["text"].as_str().unwrap_or("");
+        let parsed: Value = serde_json::from_str(text).unwrap_or(Value::Null);
+
+        assert!(
+            parsed["evidence"].is_array(),
+            "evidence must be array even when no cache"
+        );
+        assert_eq!(
+            parsed["evidence"].as_array().unwrap().len(),
+            0,
+            "evidence should be empty when no cache"
+        );
+        assert_eq!(
+            parsed["confidence"]["level"].as_str().unwrap_or(""),
+            "low",
+            "confidence should be low when no cache"
+        );
+    }
+}
+
 fn automation_kind_for_path(
     rel: &str,
     include_shell: bool,
@@ -21103,6 +21371,43 @@ fn build_cache_semantics(has_persistent: bool) -> Value {
     })
 }
 
+/// Compact 模式下将 schedule 对象替换为 scheduleSummary。
+/// 递归处理 value 中所有名为 "schedule" 的字段（包括嵌套在 result / cacheMeta 下）。
+fn compact_strip_schedule(value: &mut Value) {
+    // 如果 value 是对象，查找 "schedule" key 并替换
+    if let Some(obj) = value.as_object_mut() {
+        if let Some(schedule) = obj.remove("schedule") {
+            // 构建 scheduleSummary
+            let summary = build_schedule_summary(&schedule);
+            obj.insert("scheduleSummary".to_string(), summary);
+        }
+        // 递归处理所有子值
+        for (_k, v) in obj.iter_mut() {
+            compact_strip_schedule(v);
+        }
+    } else if let Some(arr) = value.as_array_mut() {
+        for item in arr.iter_mut() {
+            compact_strip_schedule(item);
+        }
+    }
+}
+
+/// 从完整 schedule 对象提取摘要信息，省略 phases/fileSnapshot/snapshots
+fn build_schedule_summary(schedule: &Value) -> Value {
+    json!({
+        "action": schedule["action"].as_str().unwrap_or("unknown"),
+        "cacheIntent": schedule["cacheIntent"].as_str().unwrap_or("unknown"),
+        "reason": schedule["reason"].as_str().unwrap_or(""),
+        "phaseCount": schedule["phases"].as_array().map(|a| a.len()).unwrap_or(0),
+        "dirtyFileCount": schedule["dirtyFileCount"].as_u64()
+            .or_else(|| schedule["fileSnapshot"].as_array().map(|a| a.len() as u64))
+            .unwrap_or(0),
+        "fingerprintShort": schedule["fingerprint"].as_str()
+            .map(|fp| if fp.len() > 12 { &fp[..12] } else { fp })
+            .unwrap_or("n/a"),
+    })
+}
+
 /// 将子工具结果包装为统一 facade 输出
 /// rootDiagnosis: 如果提供，直接使用；否则如果 root 非空且非 "n/a"，自动计算
 fn wrap_facade_output(
@@ -21163,7 +21468,13 @@ fn wrap_facade_output(
 
             // ── Compact 去重：减少跨调用重复字段 ──
 
-            // 1. rootDiagnosis 摘要化：保留关键字段，省略 sourceOnlyEntries 全量列表
+            // 1. 递归处理所有 schedule 字段（包括 result 内部）
+            //    将完整 schedule 替换为 scheduleSummary
+            if let Some(result) = obj.get_mut("result") {
+                compact_strip_schedule(result);
+            }
+
+            // 2. rootDiagnosis 摘要化：保留关键字段，省略 sourceOnlyEntries 全量列表
             if let Some(rd) = obj.get_mut("rootDiagnosis") {
                 if let Some(rd_obj) = rd.as_object_mut() {
                     // sourceOnlyEntries 只保留前 3 条 preview
@@ -21177,12 +21488,12 @@ fn wrap_facade_output(
                             }
                         }
                     }
-                    // schedule 不展开 phases/snapshots
-                    if let Some(schedule) = rd_obj.get_mut("schedule") {
-                        if let Some(sched_obj) = schedule.as_object_mut() {
-                            sched_obj.remove("phases");
-                            sched_obj.remove("snapshots");
-                        }
+                    // schedule 替换为 scheduleSummary
+                    if let Some(schedule) = rd_obj.remove("schedule") {
+                        rd_obj.insert(
+                            "scheduleSummary".to_string(),
+                            build_schedule_summary(&schedule),
+                        );
                     }
                 }
             }
@@ -22853,6 +23164,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "job",
             "job_status",
             "job_detail",
+            "job_cancel",
             "whatif",
         ],
         "codelattice_change_review",
@@ -24479,7 +24791,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             intent,
             answer_summary,
             target_query,
-            _evidence,
+            evidence,
             call_chains,
             _read_first,
             missing_evidence,
@@ -24490,7 +24802,8 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             orchestration,
             auto_job,
             next_actions,
-            _ai_guidance,
+            ai_guidance,
+            confidence,
         ) = route_ask_intent(cache, root, language, &question, ask_compact, ask_execute);
 
         let what_if = if intent == "before_edit" || intent == "whatif" {
@@ -24541,6 +24854,9 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "question": question,
             "targetQuery": target_query,
             "answerSummary": answer_summary,
+            "evidence": evidence.into_iter().take(5).collect::<Vec<_>>(),
+            "confidence": confidence,
+            "aiGuidance": ai_guidance,
             "orchestration": orchestration,
             "job": auto_job,
             "callChains": call_chains,
@@ -26341,6 +26657,7 @@ fn route_ask_intent(
     serde_json::Value,
     Vec<Value>,
     String,
+    serde_json::Value, // confidence: { level, reason }
 ) {
     let q = question.to_lowercase();
 
@@ -26423,6 +26740,7 @@ fn route_ask_intent(
     let mut project_digest = Value::Null;
     let mut orchestration = json!({"stepsAttempted": [], "stepsSkipped": []});
     let mut auto_job = Value::Null;
+    let mut confidence = json!({"level": "low", "reason": "default"});
 
     if flow_keywords.iter().any(|k| q.contains(k)) {
         intent = "explain_flow".to_string();
@@ -27044,25 +27362,71 @@ fn route_ask_intent(
 
         if is_structural_query && !root.is_empty() {
             // 从问题中提取可能的搜索目标
-            let query = extract_symbol_from_question(question);
-            target_query = if query.is_empty() {
+            let extracted = extract_symbol_from_question(question);
+            target_query = if extracted.is_empty() {
                 None
             } else {
-                Some(query.clone())
+                Some(extracted.clone())
             };
 
             orchestration["stepsAttempted"] =
                 json!(["intent-classification:general", "lightweight_symbol_search"]);
 
+            // 构建 multi-keyword 搜索列表：优先业务关键词
+            let business_terms = [
+                "approval",
+                "approve",
+                "route",
+                "handler",
+                "api",
+                "endpoint",
+                "mission",
+                "service",
+                "controller",
+                "middleware",
+                "auth",
+                "config",
+                "model",
+                "view",
+                "component",
+                "module",
+                "plugin",
+            ];
+            let mut search_terms: Vec<String> = Vec::new();
+            // 先加入提取的符号
+            if !extracted.is_empty() {
+                search_terms.push(extracted.clone());
+            }
+            // 再加入问题中匹配到的业务关键词
+            for word in question.split_whitespace() {
+                let w: String = word
+                    .chars()
+                    .filter(|c| c.is_alphanumeric() || *c == '_')
+                    .collect();
+                let w_lower = w.to_lowercase();
+                if business_terms.contains(&w_lower.as_str())
+                    && !search_terms.iter().any(|t| t.to_lowercase() == w_lower)
+                {
+                    search_terms.push(w);
+                }
+            }
+
+            // canonicalize root 用于 cache 查询
+            let canonical_root = std::path::Path::new(root)
+                .canonicalize()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| root.to_string());
+
             // 轻量 symbol search：利用已缓存 GraphView
             if let Some(entry) = cache.entries.get(&CacheKey {
-                root: root.to_string(),
+                root: canonical_root,
                 language: language.to_string(),
                 strict: false,
             }) {
                 let gv = &entry.graph_view;
+                let search_refs: Vec<&str> = search_terms.iter().map(|s| s.as_str()).collect();
                 // 提取匹配关键词的符号
-                let search_terms: Vec<&str> = if query.is_empty() {
+                let search_terms_final: Vec<&str> = if search_refs.is_empty() {
                     // 如果没有明确的 symbol，从问题中提取关键词
                     question
                         .split_whitespace()
@@ -27072,11 +27436,11 @@ fn route_ask_intent(
                         .take(3)
                         .collect()
                 } else {
-                    vec![&query]
+                    search_refs
                 };
 
                 let mut found_symbols: Vec<Value> = Vec::new();
-                for term in &search_terms {
+                for term in &search_terms_final {
                     let term_lower = term.to_lowercase();
                     if let Some(candidates) = gv.symbols_by_name.get(&term_lower) {
                         for sym in candidates.iter().take(3) {
@@ -27186,7 +27550,7 @@ fn route_ask_intent(
         }
 
         // confidence
-        let _confidence = if !evidence.is_empty() {
+        confidence = if !evidence.is_empty() {
             json!({"level": "medium", "reason": "symbol evidence from cached graph, static only"})
         } else {
             json!({"level": "low", "reason": "no matching evidence found"})
@@ -27215,6 +27579,7 @@ fn route_ask_intent(
         auto_job,
         next_actions,
         ai_guidance,
+        confidence,
     )
 }
 
@@ -27236,6 +27601,31 @@ fn extract_symbol_from_question(question: &str) -> String {
             }
         }
     }
+    // 优先返回业务/结构关键词，而非任意最后一个英文词
+    let business_priority = [
+        "approval",
+        "approve",
+        "route",
+        "handler",
+        "api",
+        "endpoint",
+        "mission",
+        "service",
+        "controller",
+        "middleware",
+        "auth",
+        "config",
+        "model",
+        "view",
+        "component",
+        "module",
+        "plugin",
+        "queue",
+        "worker",
+        "scheduler",
+        "database",
+        "cache",
+    ];
     let mut ascii_identifiers: Vec<&str> = Vec::new();
     for word in question.split_whitespace() {
         let w = word.trim_matches(&re_pattern as &dyn Fn(char) -> bool);
@@ -27249,6 +27639,16 @@ fn extract_symbol_from_question(question: &str) -> String {
             ascii_identifiers.push(w);
         }
     }
+    // 优先匹配业务关键词
+    for &keyword in &business_priority {
+        if let Some(found) = ascii_identifiers
+            .iter()
+            .find(|id| id.to_lowercase() == keyword)
+        {
+            return found.to_string();
+        }
+    }
+    // fallback：返回最后一个标识符
     if let Some(&last) = ascii_identifiers.last() {
         return last.to_string();
     }

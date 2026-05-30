@@ -610,7 +610,29 @@ impl McpJobRegistry {
     }
 
     fn get_status_value(&self, job_id: &str) -> Option<Value> {
-        get_job_status(job_id)
+        // 使用本地 registry 而非全局 MCP_JOBS，确保测试隔离
+        self.to_response_json(job_id)
+    }
+
+    /// 获取 job 的 status JSON（从本地 registry）
+    fn to_response_json(&self, job_id: &str) -> Option<Value> {
+        let handle = self.get(job_id)?;
+        let mut resp = serde_json::json!({
+            "schemaVersion": "codelattice.jobStatus.v1",
+            "jobId": job_id,
+            "status": job_status_str(handle.status),
+            "root": handle.root,
+            "language": handle.language,
+            "progress": handle.progress,
+            "summary": handle.summary,
+            "deduped": handle.reused_existing_job,
+        });
+        if handle.reused_existing_job {
+            if let Some(obj) = resp.as_object_mut() {
+                obj.insert("deduped".to_string(), Value::Bool(true));
+            }
+        }
+        Some(resp)
     }
 }
 
@@ -1489,5 +1511,38 @@ mod tests {
             .as_array()
             .is_some_and(|items| items.is_empty()));
         assert_eq!(detail["progress"]["stage"], "executing");
+    }
+
+    #[test]
+    fn wait_for_job_returns_immediately_on_terminal() {
+        let registry = McpJobRegistry::new();
+        let job = registry.submit("/tmp/wait-terminal", "rust", "serial");
+        let job_id = job.job_id;
+        // 直接设置为 Succeeded
+        registry.update_status(&job_id, JobStatus::Succeeded);
+
+        let (status, timed_out) = registry.wait_for_job(&job_id, 5000);
+        assert!(!timed_out, "should not time out on terminal job");
+        assert!(status.is_some(), "should return status");
+    }
+
+    #[test]
+    fn wait_for_job_returns_none_for_unknown_job() {
+        let registry = McpJobRegistry::new();
+        let (status, timed_out) = registry.wait_for_job("nonexistent_job", 100);
+        assert!(!timed_out);
+        assert!(status.is_none(), "unknown job should return None");
+    }
+
+    #[test]
+    fn wait_for_job_timeout_on_running_job() {
+        let registry = McpJobRegistry::new();
+        let job = registry.submit("/tmp/wait-running", "rust", "serial");
+        let job_id = job.job_id;
+        // 保持 running 状态
+
+        let (status, timed_out) = registry.wait_for_job(&job_id, 200);
+        assert!(timed_out, "should time out on running job");
+        assert!(status.is_some(), "should return partial status");
     }
 }
