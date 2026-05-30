@@ -64,7 +64,7 @@ enum Commands {
         #[command(subcommand)]
         sub: CangjieCommands,
     },
-    /// 统一分析入口：自动检测语言或按指定语言分析项目，输出完整 graph JSON
+    /// 统一分析入口：自动检测语言或按指定语言分析项目，输出 graph JSON
     Analyze {
         #[arg(long)]
         root: String,
@@ -76,6 +76,9 @@ enum Commands {
         strict: bool,
         #[arg(long, default_value = "off")]
         engine: String,
+        /// 输出档位：full(完整 graph) / compact(AI decision payload) / symbols(符号列表) / modules(模块概览)
+        #[arg(long, default_value = "full")]
+        profile: String,
     },
     /// 质量门检查：对指定项目运行质量门，输出 JSON，退出码反映结果
     Quality {
@@ -221,6 +224,288 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
 }
 
 /// 验证 root 路径存在
+// ============================================================
+// Analyze --profile 过滤器
+// ============================================================
+
+/// 验证 --profile 参数合法性
+fn validate_profile(profile: &str) -> Result<(), String> {
+    match profile {
+        "full" | "compact" | "symbols" | "modules" => Ok(()),
+        _ => Err(format!(
+            "Unknown profile '{}'. Use: full, compact, symbols, modules.",
+            profile
+        )),
+    }
+}
+
+/// 从完整分析结果中提取模块概览
+fn extract_modules_from_result(result: &serde_json::Value) -> Vec<serde_json::Value> {
+    let mut module_map: std::collections::BTreeMap<String, serde_json::Value> =
+        std::collections::BTreeMap::new();
+
+    let nodes = result
+        .get("graph")
+        .and_then(|g| g.get("nodes"))
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    for node in &nodes {
+        if node["label"].as_str() != Some("symbol") {
+            continue;
+        }
+        let source_path = node["properties"]["sourcePath"]
+            .as_str()
+            .or_else(|| node["file"].as_str())
+            .unwrap_or("");
+        let kind = node["properties"]["symbolKind"]
+            .as_str()
+            .or_else(|| node["properties"]["kind"].as_str())
+            .unwrap_or("symbol");
+        let visibility = node["properties"]["visibility"]
+            .as_str()
+            .unwrap_or("unknown");
+
+        let module_key = source_path.to_string();
+        let entry = module_map.entry(module_key.clone()).or_insert_with(|| {
+            serde_json::json!({
+                "module": source_path,
+                "fileCount": 1,
+                "symbolCount": 0,
+                "publicSymbolCount": 0,
+                "riskHints": [],
+                "readFirst": false
+            })
+        });
+
+        if let Some(obj) = entry.as_object_mut() {
+            *obj.get_mut("symbolCount").unwrap() =
+                serde_json::json!(obj["symbolCount"].as_u64().unwrap_or(0) + 1);
+            if visibility == "pub" || visibility == "public" {
+                *obj.get_mut("publicSymbolCount").unwrap() =
+                    serde_json::json!(obj["publicSymbolCount"].as_u64().unwrap_or(0) + 1);
+            }
+        }
+    }
+
+    module_map.into_values().collect()
+}
+
+/// 从完整分析结果提取符号列表
+fn extract_symbols_from_result(result: &serde_json::Value) -> Vec<serde_json::Value> {
+    let nodes = result
+        .get("graph")
+        .and_then(|g| g.get("nodes"))
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    nodes
+        .iter()
+        .filter(|n| {
+            let label = n["label"].as_str().unwrap_or("");
+            let kind = n["properties"]["symbolKind"]
+                .as_str()
+                .or_else(|| n["properties"]["kind"].as_str())
+                .unwrap_or("");
+            label == "symbol"
+                || kind == "function"
+                || kind == "struct"
+                || kind == "enum"
+                || kind == "trait"
+                || kind == "method"
+                || kind == "associated-function"
+                || kind == "class"
+                || kind == "const"
+                || kind == "static"
+        })
+        .map(|n| {
+            let id = n["id"].as_str().unwrap_or("");
+            let name = n["properties"]["name"]
+                .as_str()
+                .or_else(|| n["name"].as_str())
+                .unwrap_or("");
+            let kind = n["properties"]["symbolKind"]
+                .as_str()
+                .or_else(|| n["properties"]["kind"].as_str())
+                .unwrap_or("symbol");
+            let file = n["properties"]["sourcePath"]
+                .as_str()
+                .or_else(|| n["file"].as_str())
+                .unwrap_or("");
+            let line = n["properties"]["lineStart"]
+                .as_u64()
+                .or_else(|| n["startLine"].as_u64());
+            let module_path = n["properties"]["modulePath"].as_str().unwrap_or("");
+            let visibility = n["properties"]["visibility"].as_str().unwrap_or("unknown");
+
+            serde_json::json!({
+                "id": id,
+                "name": name,
+                "kind": kind,
+                "file": file,
+                "line": line,
+                "modulePath": module_path,
+                "visibility": visibility
+            })
+        })
+        .collect()
+}
+
+/// 根据 --profile 过滤分析结果
+fn filter_analyze_profile(result: &serde_json::Value, profile: &str) -> serde_json::Value {
+    match profile {
+        "full" => result.clone(),
+        "symbols" => {
+            let symbols = extract_symbols_from_result(result);
+            let summary = result
+                .get("summary")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            serde_json::json!({
+                "schemaVersion": "codelattice.analyzeSymbols.v1",
+                "root": result["root"],
+                "language": result["language"],
+                "generatedFrom": {
+                    "staticAnalysis": true,
+                    "runtimeVerified": false,
+                    "scriptsExecuted": false
+                },
+                "stats": {
+                    "symbolCount": summary.get("symbolCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "sourceFileCount": summary.get("sourceFileCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "nodeCount": summary.get("nodeCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "edgeCount": summary.get("edgeCount").cloned().unwrap_or(serde_json::json!(0))
+                },
+                "symbols": symbols
+            })
+        }
+        "modules" => {
+            let modules = extract_modules_from_result(result);
+            let summary = result
+                .get("summary")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            serde_json::json!({
+                "schemaVersion": "codelattice.analyzeModules.v1",
+                "root": result["root"],
+                "language": result["language"],
+                "generatedFrom": {
+                    "staticAnalysis": true,
+                    "runtimeVerified": false,
+                    "scriptsExecuted": false
+                },
+                "stats": {
+                    "moduleCount": modules.len(),
+                    "symbolCount": summary.get("symbolCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "sourceFileCount": summary.get("sourceFileCount").cloned().unwrap_or(serde_json::json!(0))
+                },
+                "modules": modules
+            })
+        }
+        "compact" => {
+            let summary = result
+                .get("summary")
+                .cloned()
+                .unwrap_or(serde_json::json!({}));
+            let symbols = extract_symbols_from_result(result);
+            let modules = extract_modules_from_result(result);
+            let quality_gates = result
+                .get("qualityGates")
+                .and_then(|q| q.as_array())
+                .cloned()
+                .unwrap_or_default();
+            let failed_gates: Vec<_> = quality_gates
+                .iter()
+                .filter(|g| g["passed"].as_bool() == Some(false))
+                .collect();
+
+            // top public symbols（最多 30）
+            let top_public: Vec<_> = symbols
+                .iter()
+                .filter(|s| {
+                    let v = s["visibility"].as_str().unwrap_or("");
+                    v == "pub" || v == "public"
+                })
+                .take(30)
+                .cloned()
+                .collect();
+
+            // top modules by symbol count（最多 20）
+            let mut top_modules = modules;
+            top_modules.sort_by(|a, b| {
+                b["symbolCount"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .cmp(&a["symbolCount"].as_u64().unwrap_or(0))
+            });
+            top_modules.truncate(20);
+
+            // entry points: main/lib 公开函数
+            let entry_points: Vec<_> = symbols
+                .iter()
+                .filter(|s| {
+                    let name = s["name"].as_str().unwrap_or("").to_lowercase();
+                    name == "main" || name == "run" || name == "start" || name == "init"
+                })
+                .take(10)
+                .cloned()
+                .collect();
+
+            // risk hints from failed quality gates
+            let top_risks: Vec<_> = failed_gates
+                .iter()
+                .map(|g| {
+                    serde_json::json!({
+                        "gate": g["gateName"].as_str().unwrap_or("unknown"),
+                        "detail": g["detail"].as_str().unwrap_or("")
+                    })
+                })
+                .take(10)
+                .collect();
+
+            serde_json::json!({
+                "schemaVersion": "codelattice.analyzeCompact.v1",
+                "root": result["root"],
+                "language": result["language"],
+                "summary": {
+                    "nodeCount": summary.get("nodeCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "edgeCount": summary.get("edgeCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "symbolCount": summary.get("symbolCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "sourceFileCount": summary.get("sourceFileCount").cloned().unwrap_or(serde_json::json!(0)),
+                    "callEdgeCount": summary.get("callEdgeCount").cloned().unwrap_or(serde_json::json!(0))
+                },
+                "topModules": top_modules,
+                "topPublicSymbols": top_public,
+                "entryPoints": entry_points,
+                "topRisks": top_risks,
+                "omitted": {
+                    "fullGraphEdges": true,
+                    "diagnostics": true,
+                    "nonPublicSymbols": true,
+                    "detailHint": "Use --profile full for complete graph, --profile symbols for all symbols."
+                }
+            })
+        }
+        _ => result.clone(),
+    }
+}
+
+/// 序列化分析结果并根据 --profile 过滤输出
+fn print_analyze_result(result: &LanguageAnalysisResult, profile: &str) {
+    let full_value = serde_json::to_value(result).unwrap_or_else(|e| {
+        eprintln!("错误：JSON 序列化失败: {e}");
+        std::process::exit(1);
+    });
+    let filtered = filter_analyze_profile(&full_value, profile);
+    let json = serde_json::to_string_pretty(&filtered).unwrap_or_else(|e| {
+        eprintln!("错误：JSON 序列化失败: {e}");
+        std::process::exit(1);
+    });
+    println!("{json}");
+}
+
 fn check_root(root: &str) -> Result<&Path, String> {
     let path = Path::new(root);
     if !path.exists() {
@@ -234,14 +519,20 @@ fn check_root(root: &str) -> Result<&Path, String> {
 /// 这里只做目录/manifest/config 级静态扫描，不执行项目代码，也不读取源码内容。
 fn build_workspace_auto_entry(root: &Path, reason: &str) -> Option<Value> {
     let inventory = scan_workspace_inventory(root, true).ok()?;
-    let supported: Vec<_> = inventory.iter().filter(|p| p.supported).collect();
-    let root_is_project = supported.iter().any(|p| p.relative_path == ".");
-    let manifest_project_count = supported
+    let manifest_projects: Vec<_> = inventory
         .iter()
-        .filter(|p| !p.manifest_file.is_empty())
+        .filter(|p| p.supported && p.is_manifest_backed)
+        .collect();
+    let source_only: Vec<_> = inventory
+        .iter()
+        .filter(|p| p.supported && !p.is_manifest_backed)
+        .collect();
+    let root_is_project = manifest_projects.iter().any(|p| p.relative_path == ".");
+    let child_project_count = manifest_projects
+        .iter()
+        .filter(|p| p.relative_path != ".")
         .count();
-    let child_project_count = supported.iter().filter(|p| p.relative_path != ".").count();
-    if manifest_project_count < 2 && (root_is_project || child_project_count < 2) {
+    if manifest_projects.len() < 2 && (root_is_project || child_project_count < 2) {
         return None;
     }
 
@@ -252,6 +543,9 @@ fn build_workspace_auto_entry(root: &Path, reason: &str) -> Option<Value> {
     let workspace_graph_available = graph_summary.is_some();
     let workspace_summary = graph_summary.unwrap_or_else(|| json!({}));
 
+    // sourceOnlyAreas：compact 只返回 top 5 + summary
+    let source_only_preview: Vec<_> = source_only.iter().take(5).collect();
+
     Some(json!({
         "schemaVersion": "codelattice.workspaceAutoEntry.v1",
         "status": "workspace_analyzed",
@@ -259,12 +553,13 @@ fn build_workspace_auto_entry(root: &Path, reason: &str) -> Option<Value> {
         "root": root.to_string_lossy(),
         "reason": reason,
         "summary": {
-            "supportedProjectCount": supported.len(),
+            "supportedProjectCount": manifest_projects.len(),
+            "sourceOnlyAreaCount": source_only.len(),
             "unsupportedModuleCount": unsupported.len(),
-            "recommendedProjectCount": supported.iter().filter(|p| p.supported).count(),
+            "recommendedProjectCount": manifest_projects.len(),
             "workspaceGraphAvailable": workspace_graph_available
         },
-        "supportedProjects": supported.iter().map(|p| json!({
+        "supportedProjects": manifest_projects.iter().map(|p| json!({
             "path": p.path,
             "relativePath": p.relative_path,
             "name": p.name,
@@ -272,6 +567,19 @@ fn build_workspace_auto_entry(root: &Path, reason: &str) -> Option<Value> {
             "manifestFile": p.manifest_file,
             "recommended": true
         })).collect::<Vec<_>>(),
+        "sourceOnlyAreas": {
+            "summary": {
+                "count": source_only.len(),
+                "hint": "Source-only directories detected by file extension, not manifest-backed projects."
+            },
+            "preview": source_only_preview.iter().map(|p| json!({
+                "path": p.path,
+                "relativePath": p.relative_path,
+                "name": p.name,
+                "language": p.language
+            })).collect::<Vec<_>>(),
+            "detailHint": "Use codelattice_workspace mode=graph for full source-only inventory."
+        },
         "unsupportedModules": unsupported.iter().map(|p| json!({
             "path": p.path,
             "relativePath": p.relative_path,
@@ -1575,6 +1883,50 @@ fn build_detect_changes_report(
         ]
     });
 
+    // ── Clean fast-path：无变更时 compact 输出最小化 ──
+    let is_clean = changed_file_count == 0
+        && changed_symbol_count == 0
+        && unknown_hunk_count == 0
+        && untracked_file_count == 0;
+
+    if is_clean && compact {
+        return json!({
+            "schemaVersion": "codelattice.detectChanges.v1",
+            "status": "clean",
+            "root": root.to_string_lossy(),
+            "language": language,
+            "scope": scope,
+            "diffMode": diff_mode,
+            "summary": {
+                "changedFileCount": 0,
+                "changedSymbolCount": 0,
+                "unknownHunkCount": 0,
+                "untrackedFileCount": 0,
+                "riskLevel": "none"
+            },
+            "changedSymbols": [],
+            "risk": {
+                "overallRisk": "none",
+                "overallRiskReasons": [],
+                "highestRiskSymbols": []
+            },
+            "generatedFrom": {
+                "staticAnalysis": true,
+                "runtimeVerified": false,
+                "scriptsExecuted": false,
+                "nativeCodeLattice": true
+            },
+            "detailHint": "No changes detected. Use --compact=false for full report."
+        });
+    }
+
+    // clean 但非 compact：确保 riskLevel 不为 high
+    if is_clean {
+        if let Some(summary) = report.get_mut("summary").and_then(|s| s.as_object_mut()) {
+            summary.insert("riskLevel".to_string(), json!("none"));
+        }
+    }
+
     if compact {
         if let Some(obj) = report.as_object_mut() {
             obj.remove("quality");
@@ -1886,7 +2238,7 @@ fn run_cangjie_analysis(
     ),
     String,
 > {
-    Err("Cangjie support is disabled. 请使用 --features tree-sitter-cangjie 重新编译。".to_string())
+    Err("Cangjie support is disabled in this dev binary. CodeLattice-Tool installed binary includes Cangjie. For source builds: cargo build --features tree-sitter-cangjie or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 // ============================================================
@@ -1997,7 +2349,7 @@ fn run_arkts_analysis(
     ),
     String,
 > {
-    Err("ArkTS support is disabled. 请使用 --features tree-sitter-arkts 重新编译。".to_string())
+    Err("ArkTS support is disabled in this dev binary. CodeLattice-Tool installed binary includes ArkTS. For source builds: cargo build --features tree-sitter-arkts or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 // ============================================================
@@ -2110,7 +2462,7 @@ fn run_typescript_analysis(
     String,
 > {
     Err(
-        "TypeScript support is disabled. 请使用 --features tree-sitter-typescript 重新编译。"
+        "TypeScript support is disabled in this dev binary. CodeLattice-Tool installed binary includes TypeScript. For source builds: cargo build --features tree-sitter-typescript or ALL_LANGUAGE_FEATURES."
             .to_string(),
     )
 }
@@ -2236,7 +2588,7 @@ fn run_javascript_analysis(
     String,
 > {
     Err(
-        "JavaScript support is disabled. 请使用 --features tree-sitter-javascript 重新编译。"
+        "JavaScript support is disabled in this dev binary. CodeLattice-Tool installed binary includes JavaScript. For source builds: cargo build --features tree-sitter-javascript or ALL_LANGUAGE_FEATURES."
             .to_string(),
     )
 }
@@ -2343,7 +2695,7 @@ fn run_c_analysis(
     ),
     String,
 > {
-    Err("C support is disabled. 请使用 --features tree-sitter-c 重新编译。".to_string())
+    Err("C support is disabled in this dev binary. CodeLattice-Tool installed binary includes C. For source builds: cargo build --features tree-sitter-c or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 /// 计算 C 质量门（复用通用质量门逻辑）
@@ -2492,7 +2844,7 @@ fn run_cpp_analysis(
     ),
     String,
 > {
-    Err("C++ support is disabled. 请使用 --features tree-sitter-cpp 重新编译。".to_string())
+    Err("C++ support is disabled in this dev binary. CodeLattice-Tool installed binary includes C++. For source builds: cargo build --features tree-sitter-cpp or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 /// 计算 C++ 质量门（复用通用质量门逻辑）
@@ -2646,7 +2998,7 @@ fn run_python_analysis(
     ),
     String,
 > {
-    Err("Python support is disabled. 请使用 --features tree-sitter-python 重新编译。".to_string())
+    Err("Python support is disabled in this dev binary. CodeLattice-Tool installed binary includes Python. For source builds: cargo build --features tree-sitter-python or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 /// 计算 Python 质量门（复用通用质量门逻辑）
@@ -3062,9 +3414,9 @@ pub fn run() {
                 {
                     let _root = root;
                     let _strict = strict;
-                    eprintln!("错误：Cangjie support is disabled.");
-                    eprintln!("请使用 --features tree-sitter-cangjie 重新编译：");
-                    eprintln!("  cargo run --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bin codelattice -- cangjie inspect --root <path>");
+                    eprintln!("Cangjie support is disabled in this dev binary.");
+                    eprintln!("CodeLattice-Tool installed binary includes Cangjie.");
+                    eprintln!("For source builds: cargo build --features tree-sitter-cangjie or ALL_LANGUAGE_FEATURES");
                     std::process::exit(1);
                 }
 
@@ -3118,9 +3470,15 @@ pub fn run() {
             format,
             strict,
             engine,
+            profile,
         } => {
             if format != "json" && format != "gitnexus-rc" {
                 eprintln!("错误：支持的格式：json, gitnexus-rc");
+                std::process::exit(1);
+            }
+
+            if let Err(e) = validate_profile(&profile) {
+                eprintln!("错误：{e}");
                 std::process::exit(1);
             }
 
@@ -3190,9 +3548,10 @@ pub fn run() {
                 let parallel = engine == "parallel";
                 match engine_bridge::run_engine_analysis(root_path, &lang, parallel) {
                     Ok(result) => {
+                        let filtered = filter_analyze_profile(&result, &profile);
                         println!(
                             "{}",
-                            serde_json::to_string_pretty(&result).unwrap_or_default()
+                            serde_json::to_string_pretty(&filtered).unwrap_or_default()
                         );
                         return;
                     }
@@ -3253,11 +3612,7 @@ pub fn run() {
                             graph: json_val,
                         };
 
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     // --strict 检查：质量门失败时 exit non-zero
@@ -3320,11 +3675,7 @@ pub fn run() {
                             graph: json_val,
                         };
 
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     // --strict 检查：质量门失败时 exit non-zero
@@ -3384,11 +3735,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {
@@ -3447,11 +3794,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {
@@ -3510,11 +3853,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {
@@ -3573,11 +3912,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {
@@ -3636,11 +3971,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {
@@ -3699,11 +4030,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {
@@ -3762,11 +4089,7 @@ pub fn run() {
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
                         };
-                        let json = serde_json::to_string_pretty(&result).unwrap_or_else(|e| {
-                            eprintln!("错误：JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
+                        print_analyze_result(&result, &profile);
                     }
 
                     if strict {

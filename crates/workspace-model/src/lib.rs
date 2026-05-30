@@ -17,6 +17,10 @@ pub struct ProjectInfo {
     pub language: String,
     pub supported: bool,
     pub manifest_file: String,
+    /// 是否有 manifest 文件（Cargo.toml/package.json 等）。
+    /// false 表示仅通过源文件扩展名推断，属于 source-only area。
+    #[serde(default)]
+    pub is_manifest_backed: bool,
 }
 
 /// 工作区图节点
@@ -259,6 +263,7 @@ fn detect_project_at(dir: &Path, root: &Path, redact_root: bool) -> Option<Proje
                 language: language.to_string(),
                 supported: is_language_supported(language),
                 manifest_file: manifest_name.to_string(),
+                is_manifest_backed: true,
             });
         }
     }
@@ -296,6 +301,7 @@ fn detect_project_at(dir: &Path, root: &Path, redact_root: bool) -> Option<Proje
                     language: language.to_string(),
                     supported: false,
                     manifest_file: manifest_name.to_string(),
+                    is_manifest_backed: true,
                 });
             }
         } else {
@@ -314,6 +320,7 @@ fn detect_project_at(dir: &Path, root: &Path, redact_root: bool) -> Option<Proje
                     language: language.to_string(),
                     supported: false,
                     manifest_file: manifest_name.to_string(),
+                    is_manifest_backed: true,
                 });
             }
         }
@@ -372,6 +379,7 @@ fn detect_by_extensions(dir: &Path, root: &Path, redact_root: bool) -> Option<Pr
         language: best_lang.to_string(),
         supported: is_language_supported(best_lang),
         manifest_file: String::new(),
+        is_manifest_backed: false,
     })
 }
 
