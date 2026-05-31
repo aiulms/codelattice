@@ -104,6 +104,36 @@ fn create_workspace_with_manifest_projects_and_source_only() -> tempfile::TempDi
     dir
 }
 
+fn create_workspace_root_router_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("workspace root router fixture");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname = \"mixed-root\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("main.py"),
+        "def incidental_root_script():\n    return 1\n",
+    )
+    .unwrap();
+
+    std::fs::create_dir_all(root.join("backend/src")).unwrap();
+    std::fs::write(
+        root.join("backend/Cargo.toml"),
+        "[package]\nname = \"backend\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("backend/src/lib.rs"),
+        "pub fn backend_target() { backend_helper(); }\nfn backend_helper() {}\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_source_heavy_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create source-heavy project");
     let root = dir.path();
@@ -1395,6 +1425,79 @@ fn mcp_workflow_explore_routes_progressive_project_map() {
             })
             .unwrap_or(false),
         "execute=true explore should run the project quick map: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_explore_workspace_uses_concrete_project_root() {
+    let workspace = create_multi_project_workspace();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 42011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_workflow",
+            "arguments": {
+                "mode": "explore",
+                "root": root,
+                "language": "auto",
+                "depth": 1,
+                "execute": true,
+                "compact": true
+            }
+        }
+    }));
+
+    let data = extract_tool_data(&session.recv());
+    assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
+    assert_eq!(
+        data["rootDiagnosis"]["kind"].as_str(),
+        Some("workspace"),
+        "fixture should be diagnosed as a workspace: {data:?}"
+    );
+    let project_action = data["nextActions"]
+        .as_array()
+        .and_then(|items| {
+            items
+                .iter()
+                .find(|item| item["tool"].as_str() == Some("codelattice_project"))
+        })
+        .expect("workspace explore should include a project follow-up action");
+    let selected_root = project_action["arguments"]["root"].as_str().unwrap_or("");
+    assert!(
+        !selected_root.contains("<choose"),
+        "workflow should not return a placeholder project root: {data:?}"
+    );
+    assert!(
+        std::path::Path::new(selected_root).exists(),
+        "workflow should provide a concrete existing project root, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        project_action["arguments"]["selectedFromWorkspace"].as_bool(),
+        Some(true)
+    );
+    assert!(
+        data["completedActions"]
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .any(|item| item["tool"].as_str() == Some("codelattice_project"))
+            })
+            .unwrap_or(false),
+        "execute=true workspace explore should run the concrete project quick map: {data:?}"
+    );
+    assert!(
+        data["failedActions"]
+            .as_array()
+            .map(|items| items.is_empty())
+            .unwrap_or(false),
+        "workspace explore should not fail due to placeholder roots: {data:?}"
     );
 }
 
@@ -18313,31 +18416,9 @@ fn mcp_typescript_job_uses_single_project_level_analysis() {
 }
 
 #[test]
-fn mcp_symbol_rejects_workspace_root_instead_of_silent_empty_auto() {
-    let workspace = tempfile::tempdir().expect("workspace");
+fn mcp_symbol_workspace_root_auto_routes_to_matching_project() {
+    let workspace = create_workspace_root_router_fixture();
     let root = workspace.path();
-    std::fs::write(
-        root.join("pyproject.toml"),
-        "[project]\nname = \"mixed-root\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("main.py"),
-        "def incidental_root_script():\n    return 1\n",
-    )
-    .unwrap();
-    std::fs::create_dir_all(root.join("backend/src")).unwrap();
-    std::fs::write(
-        root.join("backend/Cargo.toml"),
-        "[package]\nname = \"backend\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("backend/src/lib.rs"),
-        "pub fn backend_target() {}\n",
-    )
-    .unwrap();
-
     let mut session = McpSession::start();
     session.initialize();
     session.send_notification_initialized();
@@ -18356,15 +18437,72 @@ fn mcp_symbol_rejects_workspace_root_instead_of_silent_empty_auto() {
     );
 
     assert_eq!(
-        data["error"].as_str(),
-        Some("workspace_root_requires_project_selection"),
-        "workspace root should be rejected loudly, not silently analyzed as Python: {data:?}"
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "workspace root should auto-route to the matching project: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/backend"),
+        "router should select backend project, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("rust")
     );
     assert!(
-        data["recommendedProjectRoots"]
+        data["result"]["matchCount"].as_u64().unwrap_or(0) >= 1,
+        "routed symbol search should find backend_target: {data:?}"
+    );
+    assert!(
+        data["result"]["matches"]
             .as_array()
-            .is_some_and(|a| !a.is_empty()),
-        "error should include concrete project-root recommendations: {data:?}"
+            .is_some_and(|items| items
+                .iter()
+                .any(|item| item["name"].as_str() == Some("backend_target"))),
+        "routed search should include backend_target match: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_change_review_workspace_root_auto_routes_impact_to_matching_project() {
+    let workspace = create_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92192,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "impact",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "symbol": "backend_target",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "workspace root should auto-route impact review to the matching project: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/backend"),
+        "router should select backend project, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("rust")
+    );
+    let risk = data["result"]["risk"].as_str().unwrap_or("");
+    assert!(
+        !risk.eq_ignore_ascii_case("UNKNOWN") && !risk.is_empty(),
+        "routed impact should analyze the selected project instead of returning UNKNOWN: {data:?}"
     );
 }
 

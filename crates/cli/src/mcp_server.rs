@@ -22822,7 +22822,83 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
 // ── codelattice_symbol ───────────────────────────────────────────────
 
-fn workspace_root_selection_error(
+struct WorkspaceAutoRouteDecision {
+    selected_root: String,
+    selected_language: String,
+    router: Value,
+}
+
+fn workspace_project_absolute_root(workspace_root: &str, project: &Value) -> String {
+    let project_path = project["path"].as_str().unwrap_or(".");
+    let path = Path::new(project_path);
+    if path.is_absolute() {
+        return path.to_string_lossy().to_string();
+    }
+
+    let workspace = Path::new(workspace_root)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(workspace_root));
+    workspace.join(path).to_string_lossy().to_string()
+}
+
+fn workspace_route_query(params: &Value) -> String {
+    for key in ["query", "symbol", "name", "symbolId", "file"] {
+        if let Some(value) = params[key].as_str().filter(|s| !s.trim().is_empty()) {
+            return value.trim().to_string();
+        }
+    }
+    if let Some(change) = params["change"].as_str().filter(|s| !s.trim().is_empty()) {
+        let extracted = extract_symbol_from_question(change);
+        if !extracted.is_empty() {
+            return extracted;
+        }
+        return change.trim().to_string();
+    }
+    String::new()
+}
+
+fn workspace_query_tokens(query: &str) -> Vec<String> {
+    query
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .map(str::trim)
+        .filter(|s| s.len() >= 3)
+        .map(|s| s.to_lowercase())
+        .collect()
+}
+
+fn workspace_project_text(project: &Value) -> String {
+    [
+        project["name"].as_str().unwrap_or(""),
+        project["relativePath"].as_str().unwrap_or(""),
+        project["path"].as_str().unwrap_or(""),
+        project["language"].as_str().unwrap_or(""),
+    ]
+    .join(" ")
+    .to_lowercase()
+}
+
+fn workspace_symbol_evidence(gv: &GraphView, query: &str) -> (usize, Vec<Value>) {
+    if query.trim().is_empty() {
+        return (0, Vec::new());
+    }
+    let matches = gv.find_symbols(query, None, 5);
+    let evidence = matches
+        .iter()
+        .take(3)
+        .map(|node| {
+            json!({
+                "name": node_display_name(node),
+                "file": node_source_path(node),
+                "line": node_line_start(node),
+                "symbolId": node["id"],
+                "reason": "symbol query matched this project"
+            })
+        })
+        .collect::<Vec<_>>();
+    (matches.len(), evidence)
+}
+
+fn workspace_root_selection_guidance(
     root: &str,
     requested_language: &str,
     tool_name: &str,
@@ -22840,15 +22916,26 @@ fn workspace_root_selection_error(
     }
 
     Some(json!({
-        "schemaVersion": "codelattice.rootSelection.v1",
-        "error": "workspace_root_requires_project_selection",
-        "message": format!("{tool_name} {mode} requires a concrete project root. This path looks like a workspace root."),
+        "schemaVersion": "codelattice.rootRouter.v1",
+        "status": "needs_project_selection",
+        "message": format!("{tool_name} {mode} needs a concrete project root. This workspace root has multiple candidate projects and no confident auto-route."),
         "root": root,
-        "rootKind": "workspace",
-        "requestedLanguage": requested_language,
+        "rootRouter": {
+            "routed": false,
+            "originalRoot": root,
+            "reason": "no confident project match from query/symbol/change text",
+            "confidence": "low",
+            "candidates": recommended.iter().take(5).map(|project| {
+                let mut candidate = project.clone();
+                if let Some(obj) = candidate.as_object_mut() {
+                    obj.insert("root".to_string(), json!(workspace_project_absolute_root(root, project)));
+                }
+                candidate
+            }).collect::<Vec<_>>()
+        },
         "recommendedProjectRoots": recommended.iter().take(5).cloned().collect::<Vec<_>>(),
         "recommendedNextCalls": recommended.iter().take(3).map(|project| {
-            let project_root = project.get("path").and_then(|v| v.as_str()).unwrap_or(root);
+            let project_root = workspace_project_absolute_root(root, project);
             let language = project.get("language").and_then(|v| v.as_str()).unwrap_or(requested_language);
             json!({
                 "tool": tool_name,
@@ -22867,6 +22954,179 @@ fn workspace_root_selection_error(
             "coverageProof": false
         }
     }))
+}
+
+fn workspace_root_selection_error(
+    root: &str,
+    requested_language: &str,
+    tool_name: &str,
+    mode: &str,
+) -> Option<Value> {
+    workspace_root_selection_guidance(root, requested_language, tool_name, mode)
+}
+
+fn workspace_auto_route_decision(
+    cache: &mut McpCache,
+    root: &str,
+    requested_language: &str,
+    params: &Value,
+    tool_name: &str,
+    mode: &str,
+) -> Option<Result<WorkspaceAutoRouteDecision, Value>> {
+    let diag = diagnose_root(root, requested_language);
+    let is_workspace = diag.get("kind").and_then(|v| v.as_str()) == Some("workspace");
+    let recommended = diag
+        .get("recommendedProjectRoots")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !is_workspace || recommended.is_empty() {
+        return None;
+    }
+
+    let query = workspace_route_query(params);
+    let query_lower = query.to_lowercase();
+    let query_tokens = workspace_query_tokens(&query);
+    let mut candidates = Vec::new();
+
+    for project in recommended.iter().take(5) {
+        let selected_root = workspace_project_absolute_root(root, project);
+        let selected_language = project["language"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(requested_language)
+            .to_string();
+        let mut score = project["score"].as_f64().unwrap_or(0.0) / 10.0;
+        let mut reasons: Vec<String> = vec!["workspace recommended project root".to_string()];
+        let mut evidence: Vec<Value> = Vec::new();
+        let mut symbol_match_count = 0usize;
+        let mut large_project_deferred = false;
+
+        if !query_lower.is_empty() {
+            let project_text = workspace_project_text(project);
+            if query_tokens
+                .iter()
+                .any(|token| project_text.contains(token))
+                || (!query_lower.is_empty() && project_text.contains(&query_lower))
+            {
+                score += 30.0;
+                reasons.push("query text matches project name/path/language".to_string());
+            }
+
+            if ask_large_project_info(&selected_root, &selected_language).is_some() {
+                large_project_deferred = true;
+                reasons.push(
+                    "large project not synchronously probed; routed call can submit/read job"
+                        .to_string(),
+                );
+            } else if let Ok((gv, _result, _cache_meta)) =
+                cache.get_or_analyze(&PathBuf::from(&selected_root), &selected_language, false)
+            {
+                let (matches, match_evidence) = workspace_symbol_evidence(&gv, &query);
+                if matches > 0 {
+                    score += 100.0 + matches as f64;
+                    symbol_match_count = matches;
+                    evidence = match_evidence;
+                    reasons.push(format!("{matches} symbol match(es) found in project graph"));
+                }
+            } else {
+                reasons
+                    .push("project graph probe failed; kept recommendation score only".to_string());
+            }
+        }
+
+        candidates.push(json!({
+            "root": selected_root,
+            "language": selected_language,
+            "project": project,
+            "score": score,
+            "symbolMatchCount": symbol_match_count,
+            "largeProjectDeferred": large_project_deferred,
+            "evidence": evidence,
+            "reasons": reasons
+        }));
+    }
+
+    candidates.sort_by(|a, b| {
+        b["score"]
+            .as_f64()
+            .unwrap_or(0.0)
+            .partial_cmp(&a["score"].as_f64().unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    let Some(best) = candidates.first().cloned() else {
+        return workspace_root_selection_guidance(root, requested_language, tool_name, mode)
+            .map(|guidance| Err(guidance));
+    };
+
+    let best_score = best["score"].as_f64().unwrap_or(0.0);
+    let best_matches = best["symbolMatchCount"].as_u64().unwrap_or(0);
+    let best_large_deferred = best["largeProjectDeferred"].as_bool().unwrap_or(false);
+    let confident = best_matches > 0
+        || (!query.is_empty() && best_score >= 30.0)
+        || (recommended.len() == 1 && (best_score > 0.0 || best_large_deferred));
+
+    if !confident {
+        return workspace_root_selection_guidance(root, requested_language, tool_name, mode)
+            .map(|guidance| Err(guidance));
+    }
+
+    let selected_root = best["root"].as_str().unwrap_or(root).to_string();
+    let selected_language = best["language"]
+        .as_str()
+        .unwrap_or(requested_language)
+        .to_string();
+    let confidence = if best_matches > 0 {
+        "high"
+    } else if best_large_deferred {
+        "medium"
+    } else {
+        "medium"
+    };
+    let router = json!({
+        "schemaVersion": "codelattice.rootRouter.v1",
+        "routed": true,
+        "tool": tool_name,
+        "mode": mode,
+        "originalRoot": root,
+        "selectedRoot": selected_root,
+        "selectedLanguage": selected_language,
+        "selectedProject": best["project"].clone(),
+        "query": query,
+        "confidence": confidence,
+        "reason": if best_matches > 0 {
+            "selected project because the query matched symbols in its graph"
+        } else if best_large_deferred {
+            "selected highest-ranked project without synchronous large-project probing"
+        } else {
+            "selected project from workspace ranking and query/project-name heuristics"
+        },
+        "candidates": candidates.into_iter().take(5).collect::<Vec<_>>(),
+        "analysisSemantics": {
+            "staticAnalysisExecuted": true,
+            "targetCodeExecuted": false,
+            "runtimeProof": false,
+            "coverageProof": false
+        }
+    });
+
+    Some(Ok(WorkspaceAutoRouteDecision {
+        selected_root,
+        selected_language,
+        router,
+    }))
+}
+
+fn attach_root_router_to_tool_result(result: Value, router: Value) -> Value {
+    let mut inner = unwrap_tool_result(&result);
+    if let Some(obj) = inner.as_object_mut() {
+        obj.insert("rootRouter".to_string(), router);
+        if let Some(summary) = obj.get_mut("summary").and_then(|v| v.as_object_mut()) {
+            summary.insert("routedFromWorkspace".to_string(), json!(true));
+        }
+    }
+    tool_result(&inner)
 }
 
 fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -22915,10 +23175,27 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     }
 
     let validated_root = validate_root_path(root)?;
-    if let Some(error) =
-        workspace_root_selection_error(root, requested_language, "codelattice_symbol", mode)
-    {
-        return Ok(tool_result(&error));
+    if let Some(route) = workspace_auto_route_decision(
+        cache,
+        root,
+        requested_language,
+        params,
+        "codelattice_symbol",
+        mode,
+    ) {
+        match route {
+            Ok(route) => {
+                let mut routed_params = params.clone();
+                routed_params["root"] = json!(route.selected_root);
+                routed_params["language"] = json!(route.selected_language);
+                let routed_result = handle_symbol(cache, &routed_params)?;
+                return Ok(attach_root_router_to_tool_result(
+                    routed_result,
+                    route.router,
+                ));
+            }
+            Err(guidance) => return Ok(tool_result(&guidance)),
+        }
     }
     let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
     let language = language_owned.as_str();
@@ -23249,10 +23526,27 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
     }
 
     let validated_root = validate_root_path(root)?;
-    if let Some(error) =
-        workspace_root_selection_error(root, requested_language, "codelattice_change_review", mode)
-    {
-        return Ok(tool_result(&error));
+    if let Some(route) = workspace_auto_route_decision(
+        cache,
+        root,
+        requested_language,
+        params,
+        "codelattice_change_review",
+        mode,
+    ) {
+        match route {
+            Ok(route) => {
+                let mut routed_params = params.clone();
+                routed_params["root"] = json!(route.selected_root);
+                routed_params["language"] = json!(route.selected_language);
+                let routed_result = handle_change_review(cache, &routed_params)?;
+                return Ok(attach_root_router_to_tool_result(
+                    routed_result,
+                    route.router,
+                ));
+            }
+            Err(guidance) => return Ok(tool_result(&guidance)),
+        }
     }
     let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
     let language = language_owned.as_str();
@@ -23962,6 +24256,32 @@ fn workflow_project_mode_for_depth(depth: u64) -> &'static str {
     }
 }
 
+fn workflow_recommended_project_args(
+    workspace_root: &str,
+    fallback_language: &str,
+    root_diagnosis: &Value,
+    mode: &str,
+) -> Option<Value> {
+    let project = root_diagnosis
+        .get("recommendedProjectRoots")
+        .and_then(|v| v.as_array())
+        .and_then(|items| items.first())?;
+    let project_root = workspace_project_absolute_root(workspace_root, project);
+    let language = project
+        .get("language")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(fallback_language);
+    Some(json!({
+        "mode": mode,
+        "root": project_root,
+        "language": language,
+        "compact": true,
+        "workspaceRoot": workspace_root,
+        "selectedFromWorkspace": true
+    }))
+}
+
 fn build_workflow_exploration_plan(
     root: &str,
     language: &str,
@@ -23994,6 +24314,7 @@ fn build_workflow_exploration_plan(
                 read_first.push(json!({
                     "kind": "projectRoot",
                     "path": item["path"].clone(),
+                    "root": workspace_project_absolute_root(root, &item),
                     "language": item["language"].clone(),
                     "reason": "workspace root: choose a concrete project root before symbol-level exploration"
                 }));
@@ -24976,12 +25297,26 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     "Summarize workspace shape and choose likely main project roots.",
                     true,
                 ));
-                next_actions.push(workflow_action(
-                    "codelattice_project",
-                    json!({"mode":"quick","root":"<choose from rootDiagnosis.recommendedProjectRoots>","language":"auto","compact":true}),
-                    "After choosing a concrete subproject, get the quick AI project map.",
-                    false,
-                ));
+                if let Some(args) = workflow_recommended_project_args(
+                    root,
+                    language,
+                    &root_diagnosis,
+                    workflow_project_mode_for_depth(depth),
+                ) {
+                    next_actions.push(workflow_action(
+                        "codelattice_project",
+                        args,
+                        "Get the quick AI map for the top recommended project root.",
+                        false,
+                    ));
+                } else {
+                    next_actions.push(workflow_action(
+                        "codelattice_project",
+                        json!({"mode":"quick","root":"<choose from rootDiagnosis.recommendedProjectRoots>","language":"auto","compact":true}),
+                        "After choosing a concrete subproject, get the quick AI project map.",
+                        false,
+                    ));
+                }
             } else {
                 let mut args =
                     workflow_base_args(root, language, workflow_project_mode_for_depth(depth));
