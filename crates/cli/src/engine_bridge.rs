@@ -131,6 +131,8 @@ pub fn run_project_analysis_once(
         "python" | "py" => "python",
         "c" => "c",
         "cpp" | "c++" => "cpp",
+        "shell" | "sh" | "bash" | "zsh" => "shell",
+        "arkts" | "ets" => "arkts",
         other => return Err(format!("No project-level analyzer for language: {other}")),
     };
 
@@ -162,6 +164,14 @@ pub fn run_project_analysis_once(
         }
         "cpp" => {
             let (graph, nodes, edges, trace) = crate::run_cpp_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
+        }
+        "shell" => {
+            let (graph, nodes, edges, trace) = crate::run_shell_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
+        }
+        "arkts" => {
+            let (graph, nodes, edges, trace) = crate::run_arkts_analysis_with_trace(root)?;
             (graph, nodes, edges, Some(trace))
         }
         _ => unreachable!(),
@@ -841,7 +851,7 @@ impl LanguageAdapter for ProjectOnceBridgeAdapter {
 
     fn discover_files(&self, root: &str) -> Result<Vec<FileUnit>, String> {
         let root_path = Path::new(root);
-        let files = find_files_recursive(root_path, self.extensions, 4);
+        let files = find_files_recursive(root_path, self.extensions, 8);
         Ok(files
             .into_iter()
             .enumerate()
@@ -920,6 +930,22 @@ pub fn get_adapter_for_language(language: &str) -> Option<Box<dyn LanguageAdapte
             extensions: &["cpp", "cxx", "cc", "hpp", "hxx", "hh", "h"],
             supports_calls: true,
             notes: "Project-level via run_cpp_analysis",
+        })),
+        "shell" | "sh" | "bash" | "zsh" => Some(Box::new(ProjectOnceBridgeAdapter {
+            language: "shell",
+            file_prefix: "shell",
+            parser_version: "shell-static",
+            extensions: &["sh", "bash", "zsh", "ksh", "bats"],
+            supports_calls: true,
+            notes: "Project-level via run_shell_analysis",
+        })),
+        "arkts" | "ets" => Some(Box::new(ProjectOnceBridgeAdapter {
+            language: "arkts",
+            file_prefix: "arkts",
+            parser_version: "tree-sitter-arkts",
+            extensions: &["ets"],
+            supports_calls: true,
+            notes: "Project-level via run_arkts_analysis",
         })),
         _ => None,
     }

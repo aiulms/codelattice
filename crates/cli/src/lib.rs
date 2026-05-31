@@ -2401,29 +2401,39 @@ fn run_cangjie_analysis(
 // ============================================================
 
 #[cfg(feature = "tree-sitter-arkts")]
-fn run_arkts_analysis(
+fn run_arkts_analysis_with_trace(
     root: &Path,
 ) -> Result<
     (
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        serde_json::Value,
     ),
     String,
 > {
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
     // 1. Build project model
+    let stage_start = std::time::Instant::now();
     let project = gitnexus_arkts::project::find_arkts_project_root(root)
         .ok_or_else(|| "ArkTS project root not found (no oh-package.json5)".to_string())?;
+    let project_root_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let source_files = gitnexus_arkts::project::list_arkts_source_files(&project)
         .map_err(|e| format!("Failed to list ArkTS source files: {e}"))?;
+    let source_discovery_ms = elapsed_ms(stage_start);
 
     // 2. Parse manifest
+    let stage_start = std::time::Instant::now();
     let manifest = gitnexus_arkts::load_ts_manifest(&project).ok();
+    let manifest_ms = elapsed_ms(stage_start);
 
     // 3. Extract per-file data
+    let stage_start = std::time::Instant::now();
     let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsSymbol>> =
         BTreeMap::new();
     let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_arkts::TsImport>> =
@@ -2449,15 +2459,19 @@ fn run_arkts_analysis(
             components_by_file.insert(file.clone(), extraction.components);
         }
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
     // 4. Build graph
+    let stage_start = std::time::Instant::now();
     let ts_project = gitnexus_arkts::TsProject {
         root: project.clone(),
         kind: gitnexus_arkts::TsProjectKind::ArkTS,
         manifest,
         source_files: source_files.clone(),
     };
+    let project_model_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let mut graph = gitnexus_arkts::build_ts_graph(
         &ts_project,
         &symbols_by_file,
@@ -2465,10 +2479,14 @@ fn run_arkts_analysis(
         &references_by_file,
         None,
     );
+    let graph_build_ms = elapsed_ms(stage_start);
 
     // Augment with ArkTS-specific nodes
+    let stage_start = std::time::Instant::now();
     gitnexus_arkts::graph::augment_graph_with_arkts(&mut graph, &components_by_file);
+    let arkts_augment_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("ArkTS graph JSON serialization failed: {e}"))?;
 
@@ -2483,13 +2501,39 @@ fn run_arkts_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
 
-    Ok((json_val, nodes, edges))
+    let trace = language_stage_trace(
+        "arkts",
+        root,
+        elapsed_ms(total_start),
+        source_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "manifestMs": manifest_ms,
+            "extractionMs": extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
+            "projectModelMs": project_model_ms,
+            "graphBuildMs": graph_build_ms,
+            "arktsAugmentMs": arkts_augment_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once ArkTS analyzer.",
+            "Each ArkTS source file is read once and parsed once for symbols/imports/references/components.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
 }
 
-#[cfg(not(feature = "tree-sitter-arkts"))]
+#[cfg(feature = "tree-sitter-arkts")]
 fn run_arkts_analysis(
-    _root: &Path,
+    root: &Path,
 ) -> Result<
     (
         serde_json::Value,
@@ -2498,31 +2542,48 @@ fn run_arkts_analysis(
     ),
     String,
 > {
+    let (json_val, nodes, edges, _trace) = run_arkts_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-arkts"))]
+fn run_arkts_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
     Err("ArkTS support is disabled in this dev binary. CodeLattice-Tool installed binary includes ArkTS. For source builds: cargo build --features tree-sitter-arkts or ALL_LANGUAGE_FEATURES.".to_string())
+}
+
+#[cfg(not(feature = "tree-sitter-arkts"))]
+fn run_arkts_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_arkts_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
 }
 
 // ============================================================
 // TypeScript 分析 + Graph 提取
 // ============================================================
 
-#[cfg(any(
-    feature = "tree-sitter-typescript",
-    feature = "tree-sitter-javascript",
-    feature = "tree-sitter-python",
-    feature = "tree-sitter-c",
-    feature = "tree-sitter-cpp"
-))]
 fn elapsed_ms(start: std::time::Instant) -> u64 {
     (start.elapsed().as_millis() as u64).max(1)
 }
 
-#[cfg(any(
-    feature = "tree-sitter-typescript",
-    feature = "tree-sitter-javascript",
-    feature = "tree-sitter-python",
-    feature = "tree-sitter-c",
-    feature = "tree-sitter-cpp"
-))]
 fn graph_trace_counts(
     nodes: &[serde_json::Value],
     edges: &[serde_json::Value],
@@ -2550,13 +2611,6 @@ fn graph_trace_counts(
     (nodes.len(), edges.len(), symbol_count, call_edge_count)
 }
 
-#[cfg(any(
-    feature = "tree-sitter-typescript",
-    feature = "tree-sitter-javascript",
-    feature = "tree-sitter-python",
-    feature = "tree-sitter-c",
-    feature = "tree-sitter-cpp"
-))]
 fn language_stage_trace(
     language: &str,
     root: &Path,
@@ -3644,24 +3698,33 @@ fn compute_python_quality_gates(
 // Shell 分析 + Graph 提取
 // ============================================================
 
-fn run_shell_analysis(
+fn run_shell_analysis_with_trace(
     root: &Path,
 ) -> Result<
     (
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        serde_json::Value,
     ),
     String,
 > {
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
+    let stage_start = std::time::Instant::now();
     let project = gitnexus_shell::find_shell_project_root(root).ok_or_else(|| {
         "Shell project root not found (no .sh/.bash/.zsh/.ksh/.bats files or shell shebang scripts detected)".to_string()
     })?;
+    let project_root_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
     let files = gitnexus_shell::list_shell_source_files(&project)
         .map_err(|e| format!("Failed to list Shell source files: {e}"))?;
+    let source_discovery_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let mut analyses_by_file = BTreeMap::new();
     for file in &files {
         let source = match std::fs::read_to_string(file) {
@@ -3678,8 +3741,13 @@ fn run_shell_analysis(
             gitnexus_shell::extract_shell_file(&source, &rel_path),
         );
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let graph = gitnexus_shell::build_shell_graph(&project, &analyses_by_file);
+    let graph_build_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("Shell graph JSON serialization failed: {e}"))?;
     let nodes: Vec<serde_json::Value> = json_val
@@ -3692,6 +3760,44 @@ fn run_shell_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
+
+    let trace = language_stage_trace(
+        "shell",
+        root,
+        elapsed_ms(total_start),
+        files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "extractionMs": extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once Shell analyzer.",
+            "Each detected shell source file is read once and extracted once before graph assembly.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
+}
+
+fn run_shell_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_shell_analysis_with_trace(root)?;
     Ok((json_val, nodes, edges))
 }
 

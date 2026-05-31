@@ -2055,6 +2055,49 @@ fn mcp_symbol_search_shell_finds_function() {
 }
 
 #[test]
+fn mcp_shell_project_job_trace_is_project_once() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = shell_portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        923,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_string_lossy(),
+            "language": "shell",
+            "compact": true,
+            "wait": true,
+            "timeoutMs": 30000
+        }),
+    );
+
+    assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+    assert_eq!(
+        data["summary"]["executor_mode"].as_str(),
+        Some("project-once"),
+        "Shell job should run through the project-once bridge: {data:?}"
+    );
+    let trace = &data["summary"]["analysisTrace"];
+    assert_eq!(
+        trace["schemaVersion"].as_str(),
+        Some("codelattice.languageAnalysisTrace.v1"),
+        "Shell project-once job should expose normalized analysis trace: {data:?}"
+    );
+    assert_eq!(trace["language"].as_str(), Some("shell"));
+    assert_eq!(trace["granularity"].as_str(), Some("stage"));
+    assert_eq!(trace["stages"]["parsePassesPerFile"].as_u64(), Some(1));
+    assert_eq!(trace["stages"]["sourceReadPasses"].as_u64(), Some(1));
+    assert_eq!(
+        data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+        Some("stage")
+    );
+}
+
+#[test]
 fn mcp_analyze_rust_portable_smoke() {
     let mut session = McpSession::start();
     session.initialize();
@@ -6211,6 +6254,49 @@ mod arkts_tests {
         assert!(
             index_match.unwrap()["file"].as_str().is_some(),
             "Index symbol should include a source file"
+        );
+    }
+
+    #[test]
+    fn mcp_arkts_project_job_trace_is_project_once() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = arkts_portable_smoke_dir();
+        let data = call_tool_json(
+            &mut session,
+            8004,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "job",
+                "root": root.to_string_lossy(),
+                "language": "arkts",
+                "compact": true,
+                "wait": true,
+                "timeoutMs": 30000
+            }),
+        );
+
+        assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+        assert_eq!(
+            data["summary"]["executor_mode"].as_str(),
+            Some("project-once"),
+            "ArkTS job should run through the project-once bridge: {data:?}"
+        );
+        let trace = &data["summary"]["analysisTrace"];
+        assert_eq!(
+            trace["schemaVersion"].as_str(),
+            Some("codelattice.languageAnalysisTrace.v1"),
+            "ArkTS project-once job should expose normalized analysis trace: {data:?}"
+        );
+        assert_eq!(trace["language"].as_str(), Some("arkts"));
+        assert_eq!(trace["granularity"].as_str(), Some("stage"));
+        assert_eq!(trace["stages"]["parsePassesPerFile"].as_u64(), Some(1));
+        assert_eq!(trace["stages"]["sourceReadPasses"].as_u64(), Some(1));
+        assert_eq!(
+            data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+            Some("stage")
         );
     }
 }
