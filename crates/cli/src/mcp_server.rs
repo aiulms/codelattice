@@ -119,7 +119,8 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::mcp_facade::{
-    attach_facade_request_context, facade_language_runtime_capabilities, FacadeRequestContext,
+    attach_facade_contract, attach_facade_request_context, facade_language_runtime_capabilities,
+    FacadeRequestContext,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -21555,6 +21556,9 @@ fn wrap_facade_output(
             );
         }
     }
+    let request_context =
+        FacadeRequestContext::unrouted(tool, mode, root, language, language, compact);
+    attach_facade_contract(&mut out, &request_context);
     if compact {
         let estimated_bytes = serde_json::to_string(&out).map(|s| s.len()).unwrap_or(0);
         if let Some(obj) = out.as_object_mut() {
@@ -22232,6 +22236,7 @@ fn handle_facade_job(
 fn facade_auto_job_check(
     cache: &McpCache,
     root: &str,
+    requested_language: &str,
     language: &str,
     tool_name: &str,
     mode: &str,
@@ -22239,6 +22244,19 @@ fn facade_auto_job_check(
 ) -> Option<Value> {
     let async_on_miss = params["asyncOnMiss"].as_bool().unwrap_or(true);
     let force_sync = params["forceSync"].as_bool().unwrap_or(false);
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let with_contract = |mut response: Value| {
+        let context = FacadeRequestContext::unrouted(
+            tool_name,
+            mode,
+            root,
+            requested_language,
+            language,
+            compact,
+        );
+        attach_facade_contract(&mut response, &context);
+        response
+    };
 
     if force_sync || !async_on_miss {
         return None;
@@ -22262,18 +22280,18 @@ fn facade_auto_job_check(
         .find(|j| j.root == root && (j.language == language || j.language == "auto"));
     if let Some(running) = matching_running {
         let estimate = crate::mcp_job::estimate_analysis_duration(0, language, probe_status);
-        return Some(json!({
+        return Some(with_contract(json!({
             "status": "analyzing",
             "jobId": running.job_id,
             "cacheProbe": probe,
             "retryAfterSeconds": estimate["retryAfterSeconds"],
             "message": "A matching analysis job is already running. Poll job_status until succeeded, then retry.",
             "recommendedNextCalls": [
-                {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": running.job_id, "compact": true}},
-                {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": running.job_id, "page": 0, "pageSize": 50}}
+                {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": running.job_id, "root": root, "language": language, "compact": true}},
+                {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": running.job_id, "root": root, "language": language, "page": 0, "pageSize": 50, "compact": true}}
             ],
             "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
-        }));
+        })));
     }
 
     // 检查是否有 succeeded 的同 root/language job 且缓存已被预热
@@ -22294,7 +22312,7 @@ fn facade_auto_job_check(
                 .as_ref()
                 .and_then(|s| s["facadeCacheWarmError"].as_str())
                 .unwrap_or("");
-            return Some(json!({
+            return Some(with_contract(json!({
                 "status": "analysis_ready_cache_unavailable",
                 "jobId": job.job_id,
                 "cacheProbe": probe,
@@ -22309,7 +22327,7 @@ fn facade_auto_job_check(
                     {"tool": tool_name, "mode": mode, "arguments": {"root": root, "language": language, "compact": true, "forceSync": true}, "why": "Only use forceSync when the user explicitly accepts a blocking full analysis."}
                 ],
                 "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
-            }));
+            })));
         }
     }
 
@@ -22331,7 +22349,7 @@ fn facade_auto_job_check(
     match crate::mcp_job::submit_project_job(root, language, "serial") {
         Ok(job_resp) => {
             let job_id = job_resp["jobId"].as_str().unwrap_or("").to_string();
-            Some(json!({
+            Some(with_contract(json!({
                 "status": "analyzing",
                 "jobId": job_id,
                 "cacheProbe": probe,
@@ -22344,13 +22362,13 @@ fn facade_auto_job_check(
                     {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job_id, "page": 0, "pageSize": 50, "root": root, "language": language, "compact": true}}
                 ],
                 "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
-            }))
+            })))
         }
-        Err(e) => Some(json!({
+        Err(e) => Some(with_contract(json!({
             "error": "auto_job_submit_failed",
             "message": e,
             "cacheProbe": probe,
-        })),
+        }))),
     }
 }
 
@@ -22504,6 +22522,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         if let Some(auto_job_resp) = facade_auto_job_check(
             cache,
             root,
+            requested_language,
             language,
             "codelattice_project",
             mode,
@@ -22826,7 +22845,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             "topRiskCount": evidence.len(),
         });
         let estimated_bytes = answer_summary.to_string().len() + evidence.len() * 80;
-        json!({
+        let mut decision_card = json!({
             "answerSummary": answer_summary,
             "freshness": freshness,
             "evidence": evidence,
@@ -22847,7 +22866,17 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                 "estimated": true,
             },
             "symbolCount": symbol_count,
-        })
+        });
+        let request_context = FacadeRequestContext::unrouted(
+            "codelattice_project",
+            mode,
+            root,
+            requested_language,
+            language,
+            compact,
+        );
+        attach_facade_contract(&mut decision_card, &request_context);
+        decision_card
     } else {
         wrap_facade_output(
             inner,
@@ -23261,6 +23290,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         if let Some(auto_job_resp) = facade_auto_job_check(
             cache,
             root,
+            requested_language,
             language,
             "codelattice_symbol",
             mode,
@@ -23627,6 +23657,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
         if let Some(auto_job_resp) = facade_auto_job_check(
             cache,
             root,
+            requested_language,
             language,
             "codelattice_change_review",
             mode,

@@ -129,6 +129,14 @@ impl FacadeRequestContext {
         &self.root_router
     }
 
+    pub(crate) fn effective_language(&self) -> &str {
+        &self.effective_language
+    }
+
+    pub(crate) fn compact(&self) -> bool {
+        self.compact
+    }
+
     pub(crate) fn to_json(&self) -> Value {
         let canonical_effective_root = if self.effective_root.is_empty() {
             Value::Null
@@ -163,6 +171,44 @@ pub(crate) fn attach_facade_request_context(out: &mut Value, context: &FacadeReq
         obj.insert("requestContext".to_string(), context.to_json());
         if context.root_router_is_routed() && !obj.contains_key("rootRouter") {
             obj.insert("rootRouter".to_string(), context.root_router().clone());
+        }
+    }
+}
+
+pub(crate) fn attach_facade_contract(out: &mut Value, context: &FacadeRequestContext) {
+    attach_facade_request_context(out, context);
+    if let Some(obj) = out.as_object_mut() {
+        obj.entry("runtimeCapabilities".to_string())
+            .or_insert_with(|| facade_language_runtime_capabilities(context.effective_language()));
+
+        if context.compact() {
+            obj.entry("omitted".to_string()).or_insert_with(|| {
+                json!([
+                    {
+                        "field": "verboseEvidence",
+                        "reason": "compact facade response keeps the decision surface and omits bulky raw evidence"
+                    }
+                ])
+            });
+        }
+    }
+
+    if context.compact()
+        && out
+            .as_object()
+            .is_some_and(|obj| !obj.contains_key("tokenBudget"))
+    {
+        let estimated_bytes = serde_json::to_string(out).map(|s| s.len()).unwrap_or(0);
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "tokenBudget".to_string(),
+                json!({
+                    "used": estimated_bytes,
+                    "max": 16 * 1024,
+                    "estimated": true,
+                    "policy": "compact facade responses should stay below the 16KB AI decision budget"
+                }),
+            );
         }
     }
 }

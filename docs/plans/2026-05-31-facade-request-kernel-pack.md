@@ -98,6 +98,17 @@ This does not optimize every language in this pack. It creates the contract so f
    - compact output still strips repeated schedule/source-only data.
    - toolset remains 6/49.
 
+## Pack B Tasks
+
+1. Extend the shared facade contract to `codelattice_project`, `codelattice_workspace`, and auto-job responses.
+2. Ensure compact project decision cards keep `requestContext`, `runtimeCapabilities`, `omitted`, and `tokenBudget`.
+3. Ensure large-project auto-job responses expose the same root/language contract as synchronous facade responses, so AI can poll the right job and retry the warmed root without guessing.
+4. Add a small central response helper in `mcp_facade.rs` for attaching request context, runtime capability metadata, and compact token metadata.
+5. Add tests covering:
+   - project quick compact decision cards expose the normalized request context.
+   - project auto-job `analyzing` responses expose the normalized request context.
+   - workspace compact responses expose the normalized request context.
+
 ## Verification
 
 Minimum:

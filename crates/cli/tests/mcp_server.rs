@@ -18523,6 +18523,149 @@ fn mcp_symbol_request_context_resolves_auto_language() {
 }
 
 #[test]
+fn mcp_project_quick_decision_card_has_request_context() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92197,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root.to_string_lossy(),
+            "language": "auto",
+            "compact": true,
+            "asyncOnMiss": false
+        }),
+    );
+
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "compact project decision cards should keep the same request context contract: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["tool"].as_str(),
+        Some("codelattice_project")
+    );
+    assert_eq!(data["requestContext"]["mode"].as_str(), Some("quick"));
+    assert_eq!(
+        data["requestContext"]["requestedLanguage"].as_str(),
+        Some("auto")
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
+        Some("rust")
+    );
+    assert_eq!(
+        data["runtimeCapabilities"]["language"].as_str(),
+        Some("rust"),
+        "decision cards should expose the same runtime capability contract as wrapped facade output: {data:?}"
+    );
+    assert!(
+        data["tokenBudget"]["max"].as_u64().unwrap_or(0) <= 16 * 1024,
+        "decision cards should keep an explicit compact budget: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_project_auto_job_response_has_request_context() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92198,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": large.path().to_str().unwrap(),
+            "language": "auto",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["status"].as_str(),
+        Some("analyzing"),
+        "large cache-miss project quick should auto-submit a background job: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "auto-job responses should tell AI which root/language job will warm: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["tool"].as_str(),
+        Some("codelattice_project")
+    );
+    assert_eq!(
+        data["requestContext"]["requestedLanguage"].as_str(),
+        Some("auto")
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
+        Some("rust")
+    );
+    assert_eq!(
+        data["runtimeCapabilities"]["language"].as_str(),
+        Some("rust")
+    );
+    assert!(
+        data["tokenBudget"]["max"].as_u64().unwrap_or(0) <= 16 * 1024,
+        "auto-job response should keep compact token budget metadata: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workspace_overview_has_request_context() {
+    let workspace = create_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92199,
+        "codelattice_workspace",
+        serde_json::json!({
+            "mode": "overview",
+            "root": root.to_str().unwrap(),
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "workspace facade output should participate in the shared request context contract: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["tool"].as_str(),
+        Some("codelattice_workspace")
+    );
+    assert_eq!(data["requestContext"]["mode"].as_str(), Some("overview"));
+    assert_eq!(
+        data["requestContext"]["effectiveRoot"].as_str(),
+        Some(root.to_str().unwrap())
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
+        Some("auto")
+    );
+    assert_eq!(
+        data["runtimeCapabilities"]["language"].as_str(),
+        Some("auto")
+    );
+}
+
+#[test]
 fn mcp_change_review_workspace_root_auto_routes_impact_to_matching_project() {
     let workspace = create_workspace_root_router_fixture();
     let root = workspace.path();
