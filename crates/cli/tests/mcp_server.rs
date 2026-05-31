@@ -8733,6 +8733,156 @@ fn mcp_persistent_cache_hit_on_new_process() {
 }
 
 #[test]
+fn mcp_persistent_cache_status_marks_typed_graph_snapshot() {
+    let root = create_small_helper_rust_project();
+    let cache_dir = make_isolated_cache_dir("typed-graph-status");
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    let first = call_tool_json(
+        &mut session,
+        8003,
+        "codelattice_analyze",
+        serde_json::json!({
+            "root": root.path().to_string_lossy(),
+            "language": "rust"
+        }),
+    );
+    assert_eq!(first["cacheHit"].as_bool(), Some(false), "{first:?}");
+
+    let status = call_tool_json(
+        &mut session,
+        8004,
+        "codelattice_cache_status",
+        serde_json::json!({"root": root.path().to_string_lossy(), "language": "rust"}),
+    );
+    let entries = status["persistent"]["entries"]
+        .as_array()
+        .expect("persistent entries array");
+    assert!(
+        entries.iter().any(|entry| {
+            entry["typedGraphSnapshot"].as_bool() == Some(true)
+                && entry["graphViewCache"].as_str() == Some("persistent_typed_graph")
+        }),
+        "persistent status should mark typed GraphView snapshot: {status:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_persistent_hit_uses_typed_graph_snapshot() {
+    let root = create_small_helper_rust_project();
+    let cache_dir = make_isolated_cache_dir("typed-graph-hit");
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        let first = call_tool_json(
+            &mut session,
+            8005,
+            "codelattice_analyze",
+            serde_json::json!({
+                "root": root.path().to_string_lossy(),
+                "language": "rust"
+            }),
+        );
+        assert_eq!(first["cacheHit"].as_bool(), Some(false), "{first:?}");
+    }
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        let second = call_tool_json(
+            &mut session,
+            8006,
+            "codelattice_analyze",
+            serde_json::json!({
+                "root": root.path().to_string_lossy(),
+                "language": "rust"
+            }),
+        );
+        assert_eq!(second["cacheHit"].as_bool(), Some(true), "{second:?}");
+        assert_eq!(
+            second["cacheLayer"].as_str(),
+            Some("persistent"),
+            "{second:?}"
+        );
+        assert_eq!(
+            second["graphViewCache"].as_str(),
+            Some("persistent_typed_graph"),
+            "persistent hit should load query index snapshot instead of rebuilding: {second:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_project_job_persists_typed_graph_snapshot_for_next_session() {
+    let root = create_small_helper_rust_project();
+    let cache_dir = make_isolated_cache_dir("typed-graph-job");
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        let job = call_tool_json(
+            &mut session,
+            8007,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "job",
+                "root": root.path().to_string_lossy(),
+                "language": "rust",
+                "compact": true,
+                "wait": true,
+                "timeoutMs": 30000
+            }),
+        );
+        assert_eq!(job["status"].as_str(), Some("succeeded"), "{job:?}");
+        assert_eq!(
+            job["summary"]["facadeCacheReady"].as_bool(),
+            Some(true),
+            "{job:?}"
+        );
+    }
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        let second = call_tool_json(
+            &mut session,
+            8008,
+            "codelattice_analyze",
+            serde_json::json!({
+                "root": root.path().to_string_lossy(),
+                "language": "rust",
+                "strict": false
+            }),
+        );
+        assert_eq!(second["cacheHit"].as_bool(), Some(true), "{second:?}");
+        assert_eq!(
+            second["cacheLayer"].as_str(),
+            Some("persistent"),
+            "{second:?}"
+        );
+        assert_eq!(
+            second["graphViewCache"].as_str(),
+            Some("persistent_typed_graph"),
+            "job warm should persist typed GraphView for next MCP session: {second:?}"
+        );
+    }
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
 fn mcp_persistent_cache_status_shows_layers() {
     let root = portable_smoke_dir();
     let cache_dir = make_isolated_cache_dir("status");
@@ -18840,6 +18990,21 @@ fn mcp_typescript_job_uses_single_project_level_analysis() {
             .as_bool()
             .unwrap_or(false),
         "project-level TypeScript job should warm facade cache: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["facadeCacheWarmStatus"].as_str(),
+        Some("ready"),
+        "TypeScript job should warm facade cache directly, not through a degraded path: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["warmTrace"]["usedCliFallback"].as_bool(),
+        Some(false),
+        "TypeScript project-once job must not use CLI fallback while warming facade cache: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["warmTrace"]["analysisTrace"]["language"].as_str(),
+        Some("typescript"),
+        "TypeScript warm trace should carry the in-process language trace: {data:?}"
     );
 }
 

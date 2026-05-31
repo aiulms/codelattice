@@ -90,6 +90,23 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
 
         // Build cache entry directly from job artifacts
         let (entry, meta) = build_warm_cache_entry_from_result(&canonical, language, result)?;
+        let manifest_hashes =
+            extract_u64_map_from_analyze_meta(&entry.analyze_result, "__manifest_hashes");
+        let docs_mtimes = extract_u64_map_from_analyze_meta(&entry.analyze_result, "__docs_mtimes");
+        let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
+        save_persistent(
+            &cache_key_str,
+            &key.root,
+            &key.language,
+            &entry.analyze_result,
+            Some(&entry.graph_view),
+            &entry.file_mtimes,
+            &manifest_hashes,
+            &docs_mtimes,
+            scheduler_fingerprint(&entry.scheduler),
+            &entry.scheduler_files,
+            entry.analysis_duration_ms,
+        );
         let mut cache = self
             .cache
             .lock()
@@ -1832,6 +1849,13 @@ fn build_warm_cache_entry_from_result(
     ))
 }
 
+fn extract_u64_map_from_analyze_meta(analyze_result: &Value, key: &str) -> HashMap<String, u64> {
+    analyze_result
+        .get(key)
+        .and_then(|v| serde_json::from_value(v.clone()).ok())
+        .unwrap_or_default()
+}
+
 /// Persistent cache schema version.
 const CACHE_SCHEMA_VERSION: u32 = 1;
 
@@ -2175,6 +2199,9 @@ struct PersistentCacheEntry {
     language: String,
     /// Full analyze result JSON.
     analyze_result: Value,
+    /// Query-ready GraphView indexes. Optional so older cache files remain readable.
+    #[serde(default)]
+    graph_view: Option<PersistentGraphViewSnapshot>,
     /// File mtimes at cache time.
     file_mtimes: HashMap<String, u64>,
     /// Manifest hashes at cache time.
@@ -2194,6 +2221,7 @@ struct PersistentCacheEntry {
 
 struct PersistentCacheHit {
     analyze_result: Value,
+    graph_view: Option<PersistentGraphViewSnapshot>,
     file_mtimes: HashMap<String, u64>,
     manifest_hashes: HashMap<String, u64>,
     docs_mtimes: HashMap<String, u64>,
@@ -2214,6 +2242,20 @@ struct PersistentStaleContext {
     previous_scheduler_fingerprint: Option<String>,
     previous_scheduler_files: Option<Vec<FileSnapshot>>,
     stale_reason: Option<String>,
+}
+
+fn graph_view_from_persistent_hit(persistent: &PersistentCacheHit) -> (GraphView, &'static str) {
+    if let Some(snapshot) = persistent.graph_view.clone() {
+        (
+            GraphView::from_persistent_snapshot(snapshot),
+            "persistent_typed_graph",
+        )
+    } else {
+        (
+            GraphView::build(&persistent.analyze_result),
+            "rebuilt_from_analyze_json",
+        )
+    }
 }
 
 /// Try to load a cached analysis from the persistent cache layer.
@@ -2299,6 +2341,7 @@ fn try_load_persistent(
     // 构建 PersistentCacheHit 供后续复用
     let persistent_hit = PersistentCacheHit {
         analyze_result: entry.analyze_result,
+        graph_view: entry.graph_view,
         file_mtimes: entry.file_mtimes,
         manifest_hashes: entry.manifest_hashes,
         docs_mtimes: entry.docs_mtimes,
@@ -2357,6 +2400,7 @@ fn save_persistent(
     canonical_root: &str,
     language: &str,
     analyze_result: &Value,
+    graph_view: Option<&GraphView>,
     file_mtimes: &HashMap<String, u64>,
     manifest_hashes: &HashMap<String, u64>,
     docs_mtimes: &HashMap<String, u64>,
@@ -2390,6 +2434,7 @@ fn save_persistent(
         root: canonical_root.to_string(),
         language: language.to_string(),
         analyze_result: analyze_result.clone(),
+        graph_view: graph_view.map(GraphView::to_persistent_snapshot),
         file_mtimes: file_mtimes.clone(),
         manifest_hashes: manifest_hashes.clone(),
         docs_mtimes: docs_mtimes.clone(),
@@ -2507,6 +2552,12 @@ fn persistent_cache_status(filter_root: Option<&str>, filter_lang: Option<&str>)
                             "analysisDurationMs": cached.analysis_duration_ms,
                             "trackedFiles": cached.file_mtimes.len(),
                             "schedulerFingerprint": cached.scheduler_fingerprint,
+                            "typedGraphSnapshot": cached.graph_view.is_some(),
+                            "graphViewCache": if cached.graph_view.is_some() {
+                                "persistent_typed_graph"
+                            } else {
+                                "rebuilt_from_analyze_json"
+                            },
                             "sizeBytes": file_size,
                         }));
                     }
@@ -3114,7 +3165,8 @@ impl McpCache {
         );
         match persistent_result {
             PersistentLookupResult::FreshHit(persistent) => {
-                let mut graph_view = GraphView::build(&persistent.analyze_result);
+                let (mut graph_view, graph_view_cache) =
+                    graph_view_from_persistent_hit(&persistent);
                 graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
                 self.insert_memory_entry(
@@ -3151,12 +3203,14 @@ impl McpCache {
                     "cacheKey": cache_key_str,
                     "freshness": "fresh_snapshot",
                     "analysisDurationMs": persistent.analysis_duration_ms,
+                    "graphViewCache": graph_view_cache,
                     "schedule": persistent.scheduler,
                 });
                 return Ok((graph_view, persistent.analyze_result, meta));
             }
             PersistentLookupResult::StaleHit(persistent, reason) => {
-                let mut graph_view = GraphView::build(&persistent.analyze_result);
+                let (mut graph_view, graph_view_cache) =
+                    graph_view_from_persistent_hit(&persistent);
                 graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
                 self.insert_memory_entry(
@@ -3571,6 +3625,7 @@ impl McpCache {
                     "staleBaseline": true,
                     "staleReason": reason,
                     "analysisDurationMs": persistent.analysis_duration_ms,
+                    "graphViewCache": graph_view_cache,
                     "schedule": persistent.scheduler,
                 });
                 if delta_symbol_count > 0 {
@@ -3688,6 +3743,7 @@ impl McpCache {
             &canonical.to_string_lossy(),
             language,
             &result,
+            Some(&graph_view),
             &file_mtimes,
             &manifest_hashes,
             &docs_mtimes,
@@ -4899,6 +4955,20 @@ fn handle_export_bridge(_cache: &mut McpCache, params: &Value) -> Result<Value, 
 // v0.2 Shared Graph Query Layer
 // ============================================================
 
+/// Serializable query index persisted alongside full analyze JSON.
+/// This lets a new MCP session skip rebuilding GraphView from large JSON when
+/// the persistent baseline is still fresh.
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+struct PersistentGraphViewSnapshot {
+    nodes_by_id: HashMap<String, Value>,
+    symbols_by_name: HashMap<String, Vec<Value>>,
+    outgoing: HashMap<String, Vec<Value>>,
+    incoming: HashMap<String, Vec<Value>>,
+    diagnostics: Vec<Value>,
+    language: String,
+    root: String,
+}
+
 /// In-memory graph view built from a single analyze output.
 /// Provides efficient lookup without repeated parsing.
 struct GraphView {
@@ -5027,6 +5097,31 @@ impl GraphView {
                 .to_string(),
             root: analyze_result["root"].as_str().unwrap_or("").to_string(),
             doc_scanner: None, // set later via set_doc_scanner
+        }
+    }
+
+    fn to_persistent_snapshot(&self) -> PersistentGraphViewSnapshot {
+        PersistentGraphViewSnapshot {
+            nodes_by_id: self.nodes_by_id.clone(),
+            symbols_by_name: self.symbols_by_name.clone(),
+            outgoing: self.outgoing.clone(),
+            incoming: self.incoming.clone(),
+            diagnostics: self.diagnostics.clone(),
+            language: self.language.clone(),
+            root: self.root.clone(),
+        }
+    }
+
+    fn from_persistent_snapshot(snapshot: PersistentGraphViewSnapshot) -> Self {
+        GraphView {
+            nodes_by_id: snapshot.nodes_by_id,
+            symbols_by_name: snapshot.symbols_by_name,
+            outgoing: snapshot.outgoing,
+            incoming: snapshot.incoming,
+            diagnostics: snapshot.diagnostics,
+            language: snapshot.language,
+            root: snapshot.root,
+            doc_scanner: None,
         }
     }
 
