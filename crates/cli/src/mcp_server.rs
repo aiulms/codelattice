@@ -1665,7 +1665,28 @@ fn build_warm_cache_entry_from_result(
     //
     // 非 Rust: 先尝试从 job artifacts 转换（adapter 可能正常工作），
     // 若转换后无符号再 fallback 到 CLI subprocess。
-    let (analyze_value, used_cli_fallback) = if language == "rust" || language == "auto" {
+    let project_once_artifact = result
+        .artifacts
+        .iter()
+        .find(|artifact| artifact.error.is_none() && artifact.data.get("analyzeValue").is_some());
+
+    let (analyze_value, used_cli_fallback) = if let Some(artifact) = project_once_artifact {
+        if let Some(trace) = artifact.data.get("analysisTrace") {
+            if !trace.is_null() {
+                analysis_trace_from_rust = Some(trace.clone());
+            }
+        }
+        (
+            artifact
+                .data
+                .get("analyzeValue")
+                .cloned()
+                .unwrap_or_else(|| {
+                    convert_job_result_to_analyze_format(result, language, &root_str)
+                }),
+            false,
+        )
+    } else if language == "rust" || language == "auto" {
         // Rust / auto: 直接调用进程内 run_rust_analysis(project_root)
         // engine adapter extract_symbols 有 bug（字段名不匹配 + 逐文件调用
         // run_rust_analysis(path.parent()) 导致空结果），job artifacts 无真实符号。
@@ -16551,7 +16572,7 @@ fn is_control_plane_call(tool_name: &str, params: &Value) -> bool {
         | "codelattice_workspace" => {
             matches!(
                 params["mode"].as_str(),
-                Some("job_status" | "job_detail" | "job_cancel")
+                Some("job" | "job_status" | "job_detail" | "job_cancel")
             )
         }
         _ => false,
@@ -16614,6 +16635,81 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
         | "codelattice_workspace" => {
             let mode = params["mode"].as_str().unwrap_or("");
             match mode {
+                "job" => {
+                    let root = params["root"].as_str().unwrap_or("");
+                    if root.is_empty() {
+                        return Some(Err(mcp_error(
+                            "missing_parameter",
+                            "root required for job mode",
+                        )));
+                    }
+                    let requested_language = params["language"].as_str().unwrap_or("auto");
+                    if tool_name != "codelattice_workspace" {
+                        if let Some(error) = workspace_root_selection_error(
+                            root,
+                            requested_language,
+                            tool_name,
+                            "job",
+                        ) {
+                            return Some(Ok(tool_result(&error)));
+                        }
+                    }
+                    let language = if tool_name == "codelattice_workspace" {
+                        "auto".to_string()
+                    } else {
+                        let validated_root = match validate_root_path(root) {
+                            Ok(root) => root,
+                            Err(err) => return Some(Err(err)),
+                        };
+                        match resolve_auto_language_for_root(&validated_root, requested_language) {
+                            Ok(language) => language,
+                            Err(err) => return Some(Err(err)),
+                        }
+                    };
+                    let parallel = params["parallel"].as_bool().unwrap_or(false);
+                    let engine_mode = if parallel { "parallel" } else { "serial" };
+                    let result = if tool_name == "codelattice_workspace" {
+                        crate::mcp_job::submit_workspace_job(root, engine_mode)
+                    } else {
+                        crate::mcp_job::submit_project_job(root, &language, engine_mode)
+                    };
+                    let mut result = match result {
+                        Ok(v) => v,
+                        Err(e) => {
+                            return Some(Err(mcp_error(
+                                "job_submit_failed",
+                                &format!("Failed to submit job: {e}"),
+                            )))
+                        }
+                    };
+
+                    if params["wait"].as_bool().unwrap_or(false) {
+                        let job_id = result["jobId"].as_str().unwrap_or("").to_string();
+                        if !job_id.is_empty() {
+                            let timeout_ms = params["timeoutMs"].as_u64().unwrap_or(10000);
+                            let (final_status, timed_out) =
+                                crate::mcp_job::MCP_JOBS.wait_for_job(&job_id, timeout_ms);
+                            if let Some(status) = final_status {
+                                result = status;
+                                if timed_out {
+                                    if let Some(obj) = result.as_object_mut() {
+                                        obj.insert("waitTimedOut".to_string(), json!(true));
+                                        obj.insert("retryAfterMs".to_string(), json!(2000));
+                                        obj.insert(
+                                            "message".to_string(),
+                                            json!(format!(
+                                                "Job {} still running after {}ms. Poll job_status to check completion.",
+                                                job_id,
+                                                timeout_ms.min(30000)
+                                            )),
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(tool_result(&result)))
+                }
                 "job_status" => {
                     let job_id = params["jobId"].as_str().unwrap_or("");
                     if job_id.is_empty() {
@@ -22106,10 +22202,15 @@ fn handle_facade_job(
             let wait = params["wait"].as_bool().unwrap_or(false);
             let timeout_ms = params["timeoutMs"].as_u64().unwrap_or(0);
             let engine_mode = if parallel { "parallel" } else { "serial" };
-            let result = if language == "auto" {
+            let result = if facade == "codelattice_workspace" {
                 crate::mcp_job::submit_workspace_job(root, engine_mode)
             } else {
-                crate::mcp_job::submit_project_job(root, language, engine_mode)
+                if let Some(error) = workspace_root_selection_error(root, language, facade, "job") {
+                    return Ok(tool_result(&error));
+                }
+                let validated_root = validate_root_path(root)?;
+                let language_owned = resolve_auto_language_for_root(&validated_root, language)?;
+                crate::mcp_job::submit_project_job(root, &language_owned, engine_mode)
             };
             match result {
                 Ok(job_resp) => {
@@ -22331,7 +22432,9 @@ fn handle_project_job(
             let wait = params["wait"].as_bool().unwrap_or(false);
             let timeout_ms = params["timeoutMs"].as_u64().unwrap_or(0);
             let engine_mode = if parallel { "parallel" } else { "serial" };
-            let result = crate::mcp_job::submit_project_job(root, language, engine_mode)?;
+            let validated_root = validate_root_path(root)?;
+            let language_owned = resolve_auto_language_for_root(&validated_root, language)?;
+            let result = crate::mcp_job::submit_project_job(root, &language_owned, engine_mode)?;
 
             // 如果 wait=true，短轮询直到完成或超时
             if wait {
@@ -22821,6 +22924,53 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
 // ── codelattice_symbol ───────────────────────────────────────────────
 
+fn workspace_root_selection_error(
+    root: &str,
+    requested_language: &str,
+    tool_name: &str,
+    mode: &str,
+) -> Option<Value> {
+    let diag = diagnose_root(root, requested_language);
+    let is_workspace = diag.get("kind").and_then(|v| v.as_str()) == Some("workspace");
+    let recommended = diag
+        .get("recommendedProjectRoots")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    if !is_workspace || recommended.is_empty() {
+        return None;
+    }
+
+    Some(json!({
+        "schemaVersion": "codelattice.rootSelection.v1",
+        "error": "workspace_root_requires_project_selection",
+        "message": format!("{tool_name} {mode} requires a concrete project root. This path looks like a workspace root."),
+        "root": root,
+        "rootKind": "workspace",
+        "requestedLanguage": requested_language,
+        "recommendedProjectRoots": recommended.iter().take(5).cloned().collect::<Vec<_>>(),
+        "recommendedNextCalls": recommended.iter().take(3).map(|project| {
+            let project_root = project.get("path").and_then(|v| v.as_str()).unwrap_or(root);
+            let language = project.get("language").and_then(|v| v.as_str()).unwrap_or(requested_language);
+            json!({
+                "tool": tool_name,
+                "mode": mode,
+                "arguments": {
+                    "root": project_root,
+                    "language": language,
+                    "compact": true
+                }
+            })
+        }).collect::<Vec<_>>(),
+        "analysisSemantics": {
+            "staticAnalysisExecuted": false,
+            "targetCodeExecuted": false,
+            "runtimeProof": false,
+            "coverageProof": false
+        }
+    }))
+}
+
 fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("search");
     let compact = params["compact"].as_bool().unwrap_or(false);
@@ -22867,6 +23017,11 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     }
 
     let validated_root = validate_root_path(root)?;
+    if let Some(error) =
+        workspace_root_selection_error(root, requested_language, "codelattice_symbol", mode)
+    {
+        return Ok(tool_result(&error));
+    }
     let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
     let language = language_owned.as_str();
     let mut effective_params = params.clone();
@@ -23196,6 +23351,11 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
     }
 
     let validated_root = validate_root_path(root)?;
+    if let Some(error) =
+        workspace_root_selection_error(root, requested_language, "codelattice_change_review", mode)
+    {
+        return Ok(tool_result(&error));
+    }
     let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
     let language = language_owned.as_str();
     let mut effective_params = params.clone();
@@ -25643,29 +25803,7 @@ pub fn run_mcp_server() -> Result<(), String> {
                 continue;
             }
 
-            // 分析面调用：检查并发上限
-            let max_jobs = std::env::var("CODELATTICE_MCP_MAX_ANALYSIS_JOBS")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(2);
-            let active_count = crate::mcp_job::active_analysis_count();
-            // 只在活跃 job 数达到上限且不是已有 job 的 singleflight 时才排队
-            let is_singleflight = crate::mcp_job::MCP_JOBS
-                .running_jobs_info()
-                .iter()
-                .any(|j| j.root == root_str && (j.language == lang_str || j.language == "auto"));
-            if active_count >= max_jobs && !is_singleflight {
-                // 达到并发上限且非 singleflight：返回 queued/jobId 而不是 busy
-                let queued = crate::mcp_job::MCP_JOBS.submit_queue(root_str, lang_str, mode_str);
-                let response = make_response(
-                    &id,
-                    json!({"content": [{"type": "text", "text": serde_json::to_string(&queued).unwrap_or_default()}]}),
-                );
-                let response_str = serde_json::to_string(&response).unwrap_or_default();
-                let _ = writeln!(stdout, "{}", response_str);
-                let _ = stdout.flush();
-                continue;
-            }
+            let _ = (root_str, lang_str, mode_str);
 
             active_tool_calls.fetch_add(1, Ordering::SeqCst);
             let request_for_worker = request.clone();

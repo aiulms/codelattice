@@ -267,6 +267,29 @@ impl McpSession {
         }
     }
 
+    fn start_with_toolset_and_max_jobs(toolset: &str, max_jobs: usize) -> Self {
+        let bin = cli_binary();
+        let mut cmd = Command::new(bin);
+        cmd.arg("mcp")
+            .env("CODELATTICE_MCP_TOOLSET", toolset)
+            .env("CODELATTICE_CACHE", "off")
+            .env("CODELATTICE_MCP_MAX_ANALYSIS_JOBS", max_jobs.to_string())
+            .env("CODELATTICE_MCP_TEST_JOB_DELAY_MS", "500")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        let mut child = cmd.spawn().expect("Failed to start MCP server");
+
+        let stdin = child.stdin.take().expect("Failed to get stdin");
+        let stdout = child.stdout.take().expect("Failed to get stdout");
+
+        McpSession {
+            child,
+            stdin,
+            stdout,
+        }
+    }
+
     fn start_with_cache_dir(cache_dir: Option<&std::path::Path>) -> Self {
         let bin = cli_binary();
         let mut cmd = Command::new(bin);
@@ -16619,7 +16642,7 @@ fn mcp_control_plane_not_busy_during_job() {
 #[test]
 fn mcp_singleflight_running_dedup_preserved() {
     let large = create_large_ask_rust_project();
-    let mut session = McpSession::start();
+    let mut session = McpSession::start_with_toolset_and_max_jobs("ai", 2);
     session.initialize();
     session.send_notification_initialized();
 
@@ -18024,6 +18047,201 @@ fn mcp_queued_job_executes_after_first_completes() {
 
     assert!(job1_done, "job1 must complete");
     assert!(job2_done, "job2 must complete");
+}
+
+#[test]
+fn mcp_queued_job_starts_after_active_slot_frees() {
+    let proj1 = create_large_ask_rust_project();
+    let proj2 = create_large_ask_rust_project();
+
+    let mut session = McpSession::start_with_toolset_and_max_jobs("full", 1);
+    session.initialize();
+    session.send_notification_initialized();
+
+    let job1 = call_tool_json(
+        &mut session,
+        92100,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": proj1.path().to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job1_id = job1["jobId"].as_str().expect("job1 id").to_string();
+
+    let job2 = call_tool_json(
+        &mut session,
+        92101,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": proj2.path().to_str().unwrap(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let job2_id = job2["jobId"].as_str().expect("job2 id").to_string();
+    assert_ne!(job1_id, job2_id, "different roots should not singleflight");
+    assert_eq!(
+        job2["status"].as_str(),
+        Some("queued"),
+        "second job should queue while max analysis jobs is 1: {job2:?}"
+    );
+
+    let mut job1_done = false;
+    let mut job2_seen_running = false;
+    let mut job2_done = false;
+    for i in 0..180 {
+        if !job1_done {
+            let js = call_tool_json(
+                &mut session,
+                92110 + (i * 2) as u64,
+                "codelattice_project",
+                serde_json::json!({"mode": "job_status", "jobId": &job1_id}),
+            );
+            if matches!(
+                js["status"].as_str(),
+                Some("succeeded" | "failed" | "cancelled")
+            ) {
+                job1_done = true;
+            }
+        }
+        if !job2_done {
+            let js = call_tool_json(
+                &mut session,
+                92111 + (i * 2) as u64,
+                "codelattice_project",
+                serde_json::json!({"mode": "job_status", "jobId": &job2_id}),
+            );
+            if js["status"].as_str() == Some("running") {
+                job2_seen_running = true;
+            }
+            if matches!(
+                js["status"].as_str(),
+                Some("succeeded" | "failed" | "cancelled")
+            ) {
+                job2_done = true;
+                assert_eq!(
+                    js["status"].as_str(),
+                    Some("succeeded"),
+                    "queued job should eventually succeed: {js:?}"
+                );
+            }
+        }
+        if job1_done && job2_done {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    assert!(job1_done, "first job should finish and free the only slot");
+    assert!(
+        job2_seen_running || job2_done,
+        "queued job should transition out of queued after the slot is free"
+    );
+    assert!(
+        job2_done,
+        "queued job should complete after being scheduled"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_job_uses_single_project_level_analysis() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        92190,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_string_lossy(),
+            "language": "typescript",
+            "compact": true,
+            "wait": true,
+            "timeoutMs": 30000
+        }),
+    );
+
+    assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+    assert_eq!(
+        data["summary"]["executor_mode"].as_str(),
+        Some("project-once"),
+        "TypeScript job should not run per-file project analysis: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["total_tasks"].as_u64(),
+        Some(1),
+        "TypeScript job should be one project-level task: {data:?}"
+    );
+    assert!(
+        data["summary"]["facadeCacheReady"]
+            .as_bool()
+            .unwrap_or(false),
+        "project-level TypeScript job should warm facade cache: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_rejects_workspace_root_instead_of_silent_empty_auto() {
+    let workspace = tempfile::tempdir().expect("workspace");
+    let root = workspace.path();
+    std::fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname = \"mixed-root\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("main.py"),
+        "def incidental_root_script():\n    return 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("backend/src")).unwrap();
+    std::fs::write(
+        root.join("backend/Cargo.toml"),
+        "[package]\nname = \"backend\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("backend/src/lib.rs"),
+        "pub fn backend_target() {}\n",
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92191,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "query": "backend_target",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["error"].as_str(),
+        Some("workspace_root_requires_project_selection"),
+        "workspace root should be rejected loudly, not silently analyzed as Python: {data:?}"
+    );
+    assert!(
+        data["recommendedProjectRoots"]
+            .as_array()
+            .is_some_and(|a| !a.is_empty()),
+        "error should include concrete project-root recommendations: {data:?}"
+    );
 }
 
 #[test]

@@ -16,16 +16,22 @@ use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{json, Value};
 
-use gitnexus_analysis_engine::cache::{ArtifactCache, CacheExplainEntry, CacheKey, CacheStatus};
-use gitnexus_analysis_engine::dag::{AnalysisArtifact, AnalysisPlan, AnalysisStage, AnalysisTask};
-use gitnexus_analysis_engine::executor::{
-    EngineConfig, ParallelExecutor, SerialExecutor, SerializableResult,
+use gitnexus_analysis_engine::cache::{ArtifactCache, CacheKey, CacheStatus};
+use gitnexus_analysis_engine::dag::{
+    AnalysisArtifact, AnalysisPlan, AnalysisStage, AnalysisTask, ArtifactSemantics,
 };
-use gitnexus_analysis_engine::job::{
-    AnalysisJob, JobProgress, JobResultSummary, JobRuntime, JobStatus, PagedResult,
-};
+use gitnexus_analysis_engine::executor::{SerialExecutor, SerializableResult};
+use gitnexus_analysis_engine::job::JobStatus;
 
 const MAX_CONCURRENT_ANALYSIS_JOBS: usize = 2;
+
+fn max_concurrent_analysis_jobs() -> usize {
+    std::env::var("CODELATTICE_MCP_MAX_ANALYSIS_JOBS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(MAX_CONCURRENT_ANALYSIS_JOBS)
+}
 
 /// 全局 McpCache 引用，由 run_mcp_server() 在启动时设置。
 /// job worker 完成后通过此引用把分析结果灌入 McpCache 图谱缓存，
@@ -192,7 +198,9 @@ impl McpJobRegistry {
 
     pub fn enqueue_job(&self, job_id: &str) {
         if let Ok(mut queue) = self.queued_jobs.lock() {
-            queue.push_back(job_id.to_string());
+            if !queue.iter().any(|id| id == job_id) {
+                queue.push_back(job_id.to_string());
+            }
         }
     }
 
@@ -278,8 +286,11 @@ impl McpJobRegistry {
                 if is_terminal_status(j.status) {
                     return;
                 }
+                let keep_queued = progress.stage == "queued" && j.status == JobStatus::Queued;
                 j.progress = Some(progress);
-                j.status = JobStatus::Running;
+                if !keep_queued {
+                    j.status = JobStatus::Running;
+                }
             }
         }
     }
@@ -383,16 +394,16 @@ impl McpJobRegistry {
         // If it's a new queued job (not singleflight), mark it as queued
         if !handle.reused_existing_job {
             let job_id = handle.job_id.clone();
+            self.enqueue_job(&job_id);
             self.update_status(&job_id, JobStatus::Queued);
             // Return queued response with position info
             let active = self.active_analysis_count();
-            let running = self.running_jobs_info();
             return serde_json::json!({
                 "schemaVersion": "codelattice.queuedJob.v1",
                 "jobId": job_id,
                 "status": "queued",
-                "queuePosition": running.len() + 1,
-                "activeAnalysisCount": active + 1,
+                "queuePosition": self.queue_position(&job_id).map(|p| p + 1).unwrap_or(1),
+                "activeAnalysisCount": active,
                 "root": root,
                 "language": language,
                 "message": format!("Analysis job queued ({} active job(s)). Poll job_status until running.", active),
@@ -414,7 +425,11 @@ impl McpJobRegistry {
     }
 
     pub fn decrement_active_analysis(&self) {
-        self.active_analysis_count.fetch_sub(1, Ordering::SeqCst);
+        let _ = self.active_analysis_count.fetch_update(
+            Ordering::SeqCst,
+            Ordering::SeqCst,
+            |current| Some(current.saturating_sub(1)),
+        );
     }
 
     pub fn cancel_job(&self, job_id: &str) -> Value {
@@ -438,6 +453,7 @@ impl McpJobRegistry {
                 format!("Job already in terminal state: {:?}", handle.status),
             ),
             _ => {
+                self.remove_from_queue(job_id);
                 if let Ok(flags) = self.cancellation_flags.lock() {
                     if let Some(flag) = flags.get(job_id) {
                         flag.store(true, Ordering::SeqCst);
@@ -694,19 +710,75 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
     let root_owned = root.to_string();
     let lang_owned = language.to_string();
     let mode_owned = mode.to_string();
+    let created_at_ms = handle.created_at_ms;
 
-    let job_id_outer = job_id.clone();
+    if MCP_JOBS.active_analysis_count() >= max_concurrent_analysis_jobs() {
+        MCP_JOBS.enqueue_job(&job_id);
+        MCP_JOBS.update_status(&job_id, JobStatus::Queued);
+        MCP_JOBS.update_progress(
+            &job_id,
+            McpJobProgress {
+                stage: "queued".into(),
+                completed_units: 0,
+                total_units: 1,
+                failed_units: 0,
+                elapsed_ms: 0,
+                executor_mode: "project-once".into(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
+        let handle = MCP_JOBS.get(&job_id).unwrap_or(handle);
+        return Ok(MCP_JOBS.to_response(&handle));
+    }
+
+    spawn_project_job_worker(
+        job_id.clone(),
+        root_owned,
+        lang_owned,
+        mode_owned,
+        created_at_ms,
+    )?;
+    let handle = MCP_JOBS.get(&job_id).unwrap();
+    Ok(MCP_JOBS.to_response(&handle))
+}
+
+fn spawn_project_job_worker(
+    job_id: String,
+    root_owned: String,
+    lang_owned: String,
+    mode_owned: String,
+    created_at_ms: u64,
+) -> Result<(), String> {
     MCP_JOBS.update_status(&job_id, JobStatus::Running);
     MCP_JOBS.increment_active_analysis();
+    MCP_JOBS.update_progress(
+        &job_id,
+        McpJobProgress {
+            stage: "starting".into(),
+            completed_units: 0,
+            total_units: 1,
+            failed_units: 0,
+            elapsed_ms: 0,
+            executor_mode: "project-once".into(),
+            cache_hits: 0,
+            cache_misses: 0,
+        },
+    );
 
     // warm 阶段可能调用 run_rust_analysis（进程内完整 project-model 分析），
     // 大项目（43K+ nodes）会深度递归，需要更大的栈空间以避免 stack overflow。
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024) // 16 MB
         .spawn(move || {
-        let _guard = ActiveAnalysisGuard {
-            job_id: job_id.clone(),
-        };
+        let _guard = ActiveAnalysisGuard;
+
+        if let Some(delay_ms) = std::env::var("CODELATTICE_MCP_TEST_JOB_DELAY_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        }
 
         let adapter = match crate::engine_bridge::get_adapter_for_language(&lang_owned) {
             Some(a) => a,
@@ -741,10 +813,10 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             McpJobProgress {
                 stage: "planning".into(),
                 completed_units: 0,
-                total_units: nf * 2,
+                total_units: 1,
                 failed_units: 0,
                 elapsed_ms: 0,
-                executor_mode: "serial".into(),
+                executor_mode: "project-once".into(),
                 cache_hits: 0,
                 cache_misses: 0,
             },
@@ -753,110 +825,82 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
         if MCP_JOBS.is_cancelled(&job_id) {
             return;
         }
-        let tasks: Vec<AnalysisTask> = files
-            .iter()
-            .flat_map(|f| {
-                [AnalysisStage::Parse, AnalysisStage::Symbol]
-                    .iter()
-                    .map(|s| AnalysisTask {
-                        id: format!("{}:{}", s.name(), f.id),
-                        stage: *s,
-                        root: root_owned.clone(),
-                        language: lang_owned.clone(),
-                        unit_id: f.id.clone(),
-                        depends_on: vec![],
-                        cache_key: None,
-                        parallelizable: s.is_file_parallelizable(),
-                    })
-            })
-            .collect();
-
-        let plan = AnalysisPlan {
-            schema_version: "1.0".into(),
-            root: root_owned.clone(),
-            language: lang_owned.clone(),
-            total_tasks: tasks.len(),
-            stages: vec![AnalysisStage::Parse, AnalysisStage::Symbol],
-            parallelizable_tasks: tasks.iter().filter(|t| t.parallelizable).count(),
-            tasks,
-            estimated_stages: [("parse".into(), nf), ("symbol".into(), nf)].into(),
-        };
 
         MCP_JOBS.update_progress(
             &job_id,
             McpJobProgress {
                 stage: "executing".into(),
                 completed_units: 0,
-                total_units: plan.total_tasks,
+                total_units: 1,
                 failed_units: 0,
                 elapsed_ms: 0,
-                executor_mode: "serial".into(),
+                executor_mode: "project-once".into(),
                 cache_hits: 0,
                 cache_misses: 0,
             },
         );
 
-        let is_parallel = mode_owned.contains("parallel");
-        let result = if is_parallel {
-            ParallelExecutor::new(4).execute(&plan, Arc::from(adapter))
-        } else {
-            // 逐 task 执行，每完成一个更新 progress，避免 completedUnits 长期为 0
-            let start = std::time::Instant::now();
-            let mut artifacts = Vec::new();
-            let mut completed = 0usize;
-            let mut failed = 0usize;
-            let mut stage_times = std::collections::HashMap::new();
-            let total = plan.total_tasks;
-            for (idx, task) in plan.tasks.iter().enumerate() {
-                if MCP_JOBS.is_cancelled(&job_id) {
-                    break;
+        let start = std::time::Instant::now();
+        let project_run =
+            match crate::engine_bridge::run_project_analysis_once(Path::new(&root_owned), &lang_owned)
+            {
+                Ok(run) => run,
+                Err(e) => {
+                    MCP_JOBS.set_error(&job_id, format!("project analysis failed: {}", e));
+                    return;
                 }
-                match gitnexus_analysis_engine::executor::run_single_task_public(
-                    task,
-                    adapter.as_ref(),
-                ) {
-                    Ok(art) => {
-                        *stage_times
-                            .entry(task.stage.name().to_string())
-                            .or_insert(0u64) += art.duration_ms;
-                        artifacts.push(art);
-                        completed += 1;
-                    }
-                    Err(e) => {
-                        artifacts.push(
-                            gitnexus_analysis_engine::executor::make_error_artifact_public(task, e),
-                        );
-                        failed += 1;
-                    }
-                }
-                // 每完成一个 task 更新 progress（至少每 10 个 task 更新一次，减少锁争用）
-                if idx % 10 == 0 || idx == total - 1 {
-                    let elapsed = start.elapsed().as_millis() as u64;
-                    MCP_JOBS.update_progress(
-                        &job_id,
-                        McpJobProgress {
-                            stage: task.stage.name().to_string(),
-                            completed_units: completed + failed,
-                            total_units: total,
-                            failed_units: failed,
-                            elapsed_ms: elapsed,
-                            executor_mode: "serial".into(),
-                            cache_hits: 0,
-                            cache_misses: 0,
-                        },
-                    );
-                }
-            }
-            gitnexus_analysis_engine::executor::SerializableResult {
-                total_tasks: total,
-                completed,
-                failed,
-                total_duration_ms: start.elapsed().as_millis() as u64,
-                artifacts,
-                stage_times,
-                executor_mode: "serial".into(),
-            }
+            };
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        if MCP_JOBS.is_cancelled(&job_id) {
+            return;
         };
+
+        let artifact = AnalysisArtifact {
+            schema_version: "1.0".into(),
+            task_id: format!("project:{}:{}", lang_owned, mode_owned),
+            stage: AnalysisStage::Merge,
+            language: lang_owned.clone(),
+            unit_id: "__project__".into(),
+            cache_key: None,
+            data: json!({
+                "analyzeValue": project_run.analyze_value,
+                "nodeCount": project_run.node_count,
+                "edgeCount": project_run.edge_count,
+                "symbolCount": project_run.symbol_count,
+                "callEdgeCount": project_run.call_edge_count,
+                "sourceFileCount": nf,
+                "analysisTrace": project_run.analysis_trace,
+            }),
+            error: None,
+            duration_ms,
+            generated_from: ArtifactSemantics::default(),
+        };
+        let mut stage_times = std::collections::HashMap::new();
+        stage_times.insert("project".to_string(), duration_ms);
+        let result = SerializableResult {
+            total_tasks: 1,
+            completed: 1,
+            failed: 0,
+            total_duration_ms: duration_ms,
+            artifacts: vec![artifact],
+            stage_times,
+            executor_mode: "project-once".into(),
+        };
+
+        MCP_JOBS.update_progress(
+            &job_id,
+            McpJobProgress {
+                stage: "project".into(),
+                completed_units: 1,
+                total_units: 1,
+                failed_units: 0,
+                elapsed_ms: duration_ms,
+                executor_mode: "project-once".into(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
 
         let mut summary = serde_json::json!({
             "engine": "1.3",
@@ -874,108 +918,37 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             "file_count": nf,
         });
 
-        for artifact in &result.artifacts {
-            if artifact.error.is_none() {
-                let key = CacheKey {
-                    path: artifact.unit_id.clone(),
-                    content_hash: format!("{:x}", artifact.unit_id.len()),
-                    language: lang_owned.clone(),
-                    adapter_version: "1.3".into(),
-                    parser_version: "1.0".into(),
-                    stage: artifact.stage.name().to_string(),
-                    engine_version: "1.3".into(),
-                };
-                cache_store(key, artifact.clone());
-            }
-        }
+        let key = CacheKey {
+            path: "__project__".into(),
+            content_hash: format!("{:x}", result.total_duration_ms),
+            language: lang_owned.clone(),
+            adapter_version: "1.3".into(),
+            parser_version: "project-once".into(),
+            stage: AnalysisStage::Merge.name().to_string(),
+            engine_version: "1.3".into(),
+        };
+        cache_store(key, result.artifacts[0].clone());
 
         let detail_items: Vec<Value> = result.artifacts.iter().map(|a| serde_json::json!({
             "taskId": a.task_id, "stage": a.stage.name(), "unitId": a.unit_id,
             "error": a.error, "durationMs": a.duration_ms,
-            "symbolCount": a.data.get("symbols").and_then(|v| v.as_array()).map(|a| a.len()).unwrap_or(0) as u64,
+            "symbolCount": a.data.get("symbolCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "callEdgeCount": a.data.get("callEdgeCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "nodeCount": a.data.get("nodeCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "edgeCount": a.data.get("edgeCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "executorMode": "project-once",
         })).collect();
 
         // P1: 生成 compact AI digest，提高 job_detail 信息密度
-        let mut ai_digest = serde_json::json!({
+        let ai_digest = serde_json::json!({
             "sourceFileCount": nf,
-            "symbolCount": 0u64,
+            "symbolCount": result.artifacts[0].data.get("symbolCount").and_then(|v| v.as_u64()).unwrap_or(0),
             "failedUnits": result.failed,
-            "callEdgeCount": 0u64,
+            "callEdgeCount": result.artifacts[0].data.get("callEdgeCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "nodeCount": result.artifacts[0].data.get("nodeCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "edgeCount": result.artifacts[0].data.get("edgeCount").and_then(|v| v.as_u64()).unwrap_or(0),
+            "executorMode": "project-once",
         });
-        // 从 symbol artifacts 提取 top symbols
-        let mut all_symbols: Vec<Value> = Vec::new();
-        let mut file_symbol_counts: HashMap<String, usize> = HashMap::new();
-        for art in &result.artifacts {
-            if art.stage == gitnexus_analysis_engine::dag::AnalysisStage::Symbol
-                && art.error.is_none()
-            {
-                if let Some(syms) = art.data.get("symbols").and_then(|s| s.as_array()) {
-                    let file_id = art
-                        .data
-                        .get("unitId")
-                        .or_else(|| art.data.get("unit_id"))
-                        .and_then(|v| v.as_str())
-                        .unwrap_or(&art.unit_id);
-                    *file_symbol_counts.entry(file_id.to_string()).or_insert(0) += syms.len();
-                    for sym in syms.iter().take(50) {
-                        all_symbols.push(sym.clone());
-                    }
-                }
-            }
-            if art.stage == gitnexus_analysis_engine::dag::AnalysisStage::Reference
-                && art.error.is_none()
-            {
-                if let Some(calls) = art.data.get("calls").and_then(|c| c.as_array()) {
-                    if let Some(obj) = ai_digest.as_object_mut() {
-                        obj.insert("callEdgeCount".to_string(), json!(calls.len() as u64));
-                    }
-                }
-            }
-        }
-        if let Some(obj) = ai_digest.as_object_mut() {
-            obj.insert("symbolCount".to_string(), json!(all_symbols.len() as u64));
-        }
-        // top files by symbol count
-        let mut top_files: Vec<(&String, &usize)> = file_symbol_counts.iter().collect();
-        top_files.sort_by(|a, b| b.1.cmp(a.1));
-        if let Some(obj) = ai_digest.as_object_mut() {
-            obj.insert(
-                "topFiles".to_string(),
-                json!(top_files
-                    .iter()
-                    .take(10)
-                    .map(|(f, c)| json!({
-                        "file": f, "symbolCount": c
-                    }))
-                    .collect::<Vec<_>>()),
-            );
-        }
-        // top symbols（按 kind 分组计数）
-        let kind_counts: HashMap<String, usize> = all_symbols
-            .iter()
-            .filter_map(|s| {
-                s.get("kind")
-                    .and_then(|k| k.as_str())
-                    .map(|k| k.to_string())
-            })
-            .fold(HashMap::new(), |mut acc, k| {
-                *acc.entry(k).or_insert(0) += 1;
-                acc
-            });
-        if let Some(obj) = ai_digest.as_object_mut() {
-            obj.insert("symbolKinds".to_string(), json!(kind_counts));
-            // 只保留前 20 个符号名称作为预览
-            let preview: Vec<Value> = all_symbols
-                .iter()
-                .take(20)
-                .filter_map(|s| {
-                    let name = s.get("name").and_then(|n| n.as_str())?;
-                    let kind = s.get("kind").and_then(|k| k.as_str()).unwrap_or("?");
-                    Some(json!({"name": name, "kind": kind}))
-                })
-                .collect();
-            obj.insert("topSymbolsPreview".to_string(), json!(preview));
-        }
         let engine_digest = ai_digest.clone();
 
         MCP_JOBS.store_detail(&job_id, detail_items);
@@ -1017,7 +990,7 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             .map(|m| m.used_cli_fallback)
             .unwrap_or(false);
         let facade_cache_ready = warm_result.is_ok() && facade_symbol_count > 0;
-        let job_wall_clock_ms = now_ms().saturating_sub(handle.created_at_ms);
+        let job_wall_clock_ms = now_ms().saturating_sub(created_at_ms);
 
         if let Some(obj) = summary.as_object_mut() {
             obj.insert(
@@ -1081,20 +1054,56 @@ pub fn submit_project_job(root: &str, language: &str, mode: &str) -> Result<Valu
             },
         );
         MCP_JOBS.set_summary(&job_id, summary);
-    }).expect("workspace job thread spawn failed");
+    }).map_err(|e| format!("project job thread spawn failed: {e}"))?;
 
-    let handle = MCP_JOBS.get(&job_id_outer).unwrap();
-    Ok(MCP_JOBS.to_response(&handle))
+    Ok(())
 }
 
 /// RAII guard：worker thread 结束时自动递减 active_analysis_count
-struct ActiveAnalysisGuard {
-    job_id: String,
-}
+struct ActiveAnalysisGuard;
 
 impl Drop for ActiveAnalysisGuard {
     fn drop(&mut self) {
         MCP_JOBS.decrement_active_analysis();
+        start_next_queued_jobs();
+    }
+}
+
+fn start_next_queued_jobs() {
+    loop {
+        if MCP_JOBS.active_analysis_count() >= max_concurrent_analysis_jobs() {
+            return;
+        }
+        let Some(job_id) = MCP_JOBS.dequeue_next_eligible() else {
+            return;
+        };
+        let Some(handle) = MCP_JOBS.get(&job_id) else {
+            continue;
+        };
+        if !matches!(handle.status, JobStatus::Queued) {
+            continue;
+        }
+
+        let started = if handle.language == "auto" {
+            spawn_workspace_job_worker(
+                handle.job_id.clone(),
+                handle.root.clone(),
+                handle.mode.clone(),
+                handle.created_at_ms,
+            )
+        } else {
+            spawn_project_job_worker(
+                handle.job_id.clone(),
+                handle.root.clone(),
+                handle.language.clone(),
+                handle.mode.clone(),
+                handle.created_at_ms,
+            )
+        };
+
+        if let Err(e) = started {
+            MCP_JOBS.set_error(&job_id, e);
+        }
     }
 }
 
@@ -1124,18 +1133,60 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
     let job_id = handle.job_id.clone();
     let root_owned = root.to_string();
     let mode_owned = mode.to_string();
+    let created_at_ms = handle.created_at_ms;
 
-    let job_id_outer = job_id.clone();
+    if MCP_JOBS.active_analysis_count() >= max_concurrent_analysis_jobs() {
+        MCP_JOBS.enqueue_job(&job_id);
+        MCP_JOBS.update_status(&job_id, JobStatus::Queued);
+        MCP_JOBS.update_progress(
+            &job_id,
+            McpJobProgress {
+                stage: "queued".into(),
+                completed_units: 0,
+                total_units: 1,
+                failed_units: 0,
+                elapsed_ms: 0,
+                executor_mode: mode_owned.clone(),
+                cache_hits: 0,
+                cache_misses: 0,
+            },
+        );
+        let handle = MCP_JOBS.get(&job_id).unwrap_or(handle);
+        return Ok(MCP_JOBS.to_response(&handle));
+    }
+
+    spawn_workspace_job_worker(job_id.clone(), root_owned, mode_owned, created_at_ms)?;
+    let handle = MCP_JOBS.get(&job_id).unwrap();
+    Ok(MCP_JOBS.to_response(&handle))
+}
+
+fn spawn_workspace_job_worker(
+    job_id: String,
+    root_owned: String,
+    mode_owned: String,
+    _created_at_ms: u64,
+) -> Result<(), String> {
     MCP_JOBS.update_status(&job_id, JobStatus::Running);
     MCP_JOBS.increment_active_analysis();
+    MCP_JOBS.update_progress(
+        &job_id,
+        McpJobProgress {
+            stage: "starting".into(),
+            completed_units: 0,
+            total_units: 1,
+            failed_units: 0,
+            elapsed_ms: 0,
+            executor_mode: mode_owned.clone(),
+            cache_hits: 0,
+            cache_misses: 0,
+        },
+    );
 
     // workspace job 的 warm 阶段也可能触发 run_rust_analysis，需要大栈
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(move || {
-        let _guard = ActiveAnalysisGuard {
-            job_id: job_id.clone(),
-        };
+        let _guard = ActiveAnalysisGuard;
 
         let inventory = match gitnexus_workspace_model::scan_workspace_inventory(
             Path::new(&root_owned),
@@ -1175,8 +1226,8 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
 
         let worker_limit = 4usize;
         let mut aggregated = Vec::new();
-        let mut total_symbols = 0usize;
-        let mut total_edges = 0usize;
+        let total_symbols = 0usize;
+        let total_edges = 0usize;
         let mut completed = 0usize;
         let mut failed = 0usize;
 
@@ -1403,10 +1454,9 @@ pub fn submit_workspace_job(root: &str, mode: &str) -> Result<Value, String> {
             }
         }
         MCP_JOBS.set_summary(&job_id, summary);
-    }).expect("project job thread spawn failed");
+    }).map_err(|e| format!("workspace job thread spawn failed: {e}"))?;
 
-    let handle = MCP_JOBS.get(&job_id_outer).unwrap();
-    Ok(MCP_JOBS.to_response(&handle))
+    Ok(())
 }
 
 pub fn is_large_project(root: &str, language: &str) -> bool {

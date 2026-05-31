@@ -16,11 +16,102 @@ use std::sync::Arc;
 // Helper: run project analysis and extract results
 // ═══════════════════════════════════════════════════════════════
 
-type AnalysisResult = (
-    serde_json::Value,
-    Vec<serde_json::Value>,
-    Vec<serde_json::Value>,
-);
+#[derive(Debug, Clone)]
+pub struct ProjectAnalysisRun {
+    pub analyze_value: serde_json::Value,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub symbol_count: usize,
+    pub call_edge_count: usize,
+    pub analysis_trace: Option<serde_json::Value>,
+}
+
+fn graph_counts(
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> (usize, usize, usize, usize) {
+    let symbol_count = nodes
+        .iter()
+        .filter(|n| {
+            n.get("label").and_then(|v| v.as_str()) == Some("symbol")
+                || n.get("kind").and_then(|v| v.as_str()) == Some("symbol")
+                || n.get("properties")
+                    .and_then(|p| p.get("symbolKind"))
+                    .is_some()
+        })
+        .count();
+    let call_edge_count = edges
+        .iter()
+        .filter(|e| {
+            e.get("type").and_then(|v| v.as_str()) == Some("CALLS")
+                || e.get("properties")
+                    .and_then(|p| p.get("callKind"))
+                    .is_some()
+        })
+        .count();
+    (nodes.len(), edges.len(), symbol_count, call_edge_count)
+}
+
+/// Run the existing project-level analyzer exactly once and return the analyze
+/// shape expected by the MCP facade cache.
+///
+/// The language adapters in this file intentionally wrap project-level
+/// analyzers (`file_granularity=false`). Job workers must not schedule one
+/// Symbol task per file for those adapters, otherwise a TypeScript project with
+/// 250 files can accidentally run the whole TypeScript analysis 250 times.
+pub fn run_project_analysis_once(
+    root: &Path,
+    language: &str,
+) -> Result<ProjectAnalysisRun, String> {
+    let normalized = match language.to_lowercase().as_str() {
+        "rust" | "rs" => "rust",
+        "typescript" | "ts" => "typescript",
+        "javascript" | "js" => "javascript",
+        "python" | "py" => "python",
+        other => return Err(format!("No project-level analyzer for language: {other}")),
+    };
+
+    let (graph, nodes, edges, analysis_trace) = match normalized {
+        "rust" => {
+            let (graph, nodes, edges, trace) = crate::run_rust_analysis(root)?;
+            (
+                graph,
+                nodes,
+                edges,
+                trace.map(|t| serde_json::to_value(t).unwrap_or_default()),
+            )
+        }
+        "typescript" => {
+            let (graph, nodes, edges) = crate::run_typescript_analysis(root)?;
+            (graph, nodes, edges, None)
+        }
+        "javascript" => {
+            let (graph, nodes, edges) = crate::run_javascript_analysis(root)?;
+            (graph, nodes, edges, None)
+        }
+        "python" => {
+            let (graph, nodes, edges) = crate::run_python_analysis(root)?;
+            (graph, nodes, edges, None)
+        }
+        _ => unreachable!(),
+    };
+
+    let (node_count, edge_count, symbol_count, call_edge_count) = graph_counts(&nodes, &edges);
+    let analyze_value = serde_json::json!({
+        "language": normalized,
+        "root": root.to_string_lossy(),
+        "graph": graph,
+    });
+
+    Ok(ProjectAnalysisRun {
+        analyze_value,
+        node_count,
+        edge_count,
+        symbol_count,
+        call_edge_count,
+        analysis_trace,
+    })
+}
 
 // ── File discovery with recursion ────────────────────────────────
 
@@ -655,7 +746,7 @@ pub fn run_engine_analysis(
     parallel: bool,
 ) -> Result<serde_json::Value, String> {
     use gitnexus_analysis_engine::dag::{AnalysisPlan, AnalysisStage, AnalysisTask};
-    use gitnexus_analysis_engine::executor::{EngineConfig, ParallelExecutor, SerialExecutor};
+    use gitnexus_analysis_engine::executor::{ParallelExecutor, SerialExecutor};
 
     let adapter = get_adapter_for_language(language)
         .ok_or_else(|| format!("No engine adapter for language: {}", language))?;
