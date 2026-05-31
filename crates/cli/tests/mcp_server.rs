@@ -6208,6 +6208,10 @@ mod arkts_tests {
         // The Index match should be a component
         let index_match = matches.iter().find(|m| m["name"].as_str() == Some("Index"));
         assert!(index_match.is_some(), "should find Index symbol");
+        assert!(
+            index_match.unwrap()["file"].as_str().is_some(),
+            "Index symbol should include a source file"
+        );
     }
 }
 

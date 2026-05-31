@@ -4739,6 +4739,13 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
         // Name is already resolved by find_symbols
         let name = node["properties"]["name"]
             .as_str()
+            .or_else(|| {
+                if kind == "symbol" && !label.is_empty() && !label.contains('/') {
+                    Some(label)
+                } else {
+                    None
+                }
+            })
             .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
             .unwrap_or("");
 
@@ -4749,6 +4756,21 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 node["properties"]["manifestPath"]
                     .as_str()
                     .map(|s| json!(s))
+            })
+            .or_else(|| {
+                node["properties"]["fileId"].as_str().and_then(|file_id| {
+                    let raw_path = file_id.strip_prefix("file:").unwrap_or(file_id);
+                    let path = std::path::Path::new(raw_path);
+                    let display_path = path
+                        .strip_prefix(&validated)
+                        .map(|rel| rel.to_string_lossy().to_string())
+                        .unwrap_or_else(|_| raw_path.to_string());
+                    if display_path.is_empty() {
+                        None
+                    } else {
+                        Some(json!(display_path))
+                    }
+                })
             })
             .unwrap_or(Value::Null);
 
@@ -5036,6 +5058,7 @@ impl GraphView {
         // value returned by codelattice_symbol without asking the AI to strip it
         // back to a display name.
         if let Some(node) = self.nodes_by_id.get(query) {
+            let top_kind = node["kind"].as_str().unwrap_or("");
             let node_kind = node["properties"]["symbolKind"]
                 .as_str()
                 .or_else(|| node["properties"]["kind"].as_str())
@@ -5044,7 +5067,8 @@ impl GraphView {
             let kind_matches = kind
                 .map(|k| node_kind.eq_ignore_ascii_case(k) || label.eq_ignore_ascii_case(k))
                 .unwrap_or(true);
-            let is_symbol_like = label == "symbol"
+            let is_symbol_like = top_kind == "symbol"
+                || label == "symbol"
                 || matches!(
                     node_kind,
                     "function"

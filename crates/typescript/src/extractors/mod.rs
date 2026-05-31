@@ -44,10 +44,16 @@ pub fn extract_ts_file(source: &str, lang: TsLanguage) -> TsExtraction {
         }
     };
     let root = tree.root_node();
+    extract_ts_file_from_root(&root, source)
+}
+
+/// Extract symbols, imports, and references from an existing parse tree.
+#[cfg(feature = "tree-sitter-typescript")]
+pub fn extract_ts_file_from_root(root: &tree_sitter::Node, source: &str) -> TsExtraction {
     TsExtraction {
-        symbols: symbol::extract_ts_symbols_from_root(&root, source),
-        imports: imports::extract_ts_imports_from_root(&root, source),
-        references: references::extract_ts_references_from_root(&root, source),
+        symbols: symbol::extract_ts_symbols_from_root(root, source),
+        imports: imports::extract_ts_imports_from_root(root, source),
+        references: references::extract_ts_references_from_root(root, source),
     }
 }
 
@@ -136,6 +142,27 @@ mod tests {
         assert_eq!(
             combined.references,
             extract_ts_references(source, TsLanguage::TypeScript)
+        );
+    }
+
+    #[test]
+    fn root_extraction_matches_parse_once_extraction() {
+        let source = r#"
+            import { makeUser } from "./user";
+            export class UserRunner {
+                run(id: string) {
+                    return makeUser(id);
+                }
+            }
+        "#;
+        let mut parser =
+            try_init_ts_parser(TsLanguage::TypeScript).expect("parser should initialize");
+        let tree = parser.parse(source, None).expect("fixture should parse");
+        let root = tree.root_node();
+
+        assert_eq!(
+            extract_ts_file_from_root(&root, source),
+            extract_ts_file(source, TsLanguage::TypeScript)
         );
     }
 }

@@ -2439,20 +2439,14 @@ fn run_arkts_analysis(
             Err(_) => continue,
         };
 
-        // Base TypeScript extraction
-        let lang = gitnexus_arkts::TsLanguage::TypeScript;
-        let syms = gitnexus_arkts::extract_ts_symbols(&source, lang);
-        let imps = gitnexus_arkts::extract_ts_imports(&source, lang);
-        let refs = gitnexus_arkts::extract_ts_references(&source, lang);
+        let extraction = gitnexus_arkts::extract_arkts_file(&source);
 
-        symbols_by_file.insert(file.clone(), syms);
-        imports_by_file.insert(file.clone(), imps);
-        references_by_file.insert(file.clone(), refs);
+        symbols_by_file.insert(file.clone(), extraction.base.symbols);
+        imports_by_file.insert(file.clone(), extraction.base.imports);
+        references_by_file.insert(file.clone(), extraction.base.references);
 
-        // ArkTS-specific component extraction
-        let components = gitnexus_arkts::extract_arkts_components(&source);
-        if !components.is_empty() {
-            components_by_file.insert(file.clone(), components);
+        if !extraction.components.is_empty() {
+            components_by_file.insert(file.clone(), extraction.components);
         }
     }
 

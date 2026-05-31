@@ -58,6 +58,15 @@ pub fn extract_arkts_components(source: &str) -> Vec<ArkTsComponent> {
     };
 
     let root = tree.root_node();
+    extract_arkts_components_from_root(&root, source)
+}
+
+/// Extract ArkTS components from an existing TypeScript parse tree.
+#[cfg(feature = "tree-sitter-arkts")]
+pub fn extract_arkts_components_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<ArkTsComponent> {
     let mut components = Vec::new();
 
     for i in 0..root.child_count() {
@@ -323,6 +332,23 @@ export function hello(): void {
     fn test_empty_source() {
         let components = extract_arkts_components("");
         assert!(components.is_empty());
+    }
+
+    #[test]
+    fn root_based_component_extraction_matches_source_extraction() {
+        let mut parser = gitnexus_typescript::extractors::try_init_ts_parser(
+            gitnexus_typescript::extractors::TsLanguage::TypeScript,
+        )
+        .expect("parser should initialize");
+        let tree = parser
+            .parse(FIXTURE_ENTRY, None)
+            .expect("fixture should parse");
+        let root = tree.root_node();
+
+        assert_eq!(
+            extract_arkts_components_from_root(&root, FIXTURE_ENTRY),
+            extract_arkts_components(FIXTURE_ENTRY)
+        );
     }
 
     #[test]
