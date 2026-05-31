@@ -133,6 +133,7 @@ pub fn run_project_analysis_once(
         "cpp" | "c++" => "cpp",
         "shell" | "sh" | "bash" | "zsh" => "shell",
         "arkts" | "ets" => "arkts",
+        "cangjie" | "cj" => "cangjie",
         other => return Err(format!("No project-level analyzer for language: {other}")),
     };
 
@@ -172,6 +173,10 @@ pub fn run_project_analysis_once(
         }
         "arkts" => {
             let (graph, nodes, edges, trace) = crate::run_arkts_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
+        }
+        "cangjie" => {
+            let (graph, nodes, edges, trace) = crate::run_cangjie_analysis_with_trace(root)?;
             (graph, nodes, edges, Some(trace))
         }
         _ => unreachable!(),
@@ -946,6 +951,14 @@ pub fn get_adapter_for_language(language: &str) -> Option<Box<dyn LanguageAdapte
             extensions: &["ets"],
             supports_calls: true,
             notes: "Project-level via run_arkts_analysis",
+        })),
+        "cangjie" | "cj" => Some(Box::new(ProjectOnceBridgeAdapter {
+            language: "cangjie",
+            file_prefix: "cangjie",
+            parser_version: "tree-sitter-cangjie",
+            extensions: &["cj"],
+            supports_calls: true,
+            notes: "Project-level via run_cangjie_analysis",
         })),
         _ => None,
     }

@@ -2351,6 +2351,189 @@ fn build_rust_summary(
 // ============================================================
 
 #[cfg(feature = "tree-sitter-cangjie")]
+fn run_cangjie_analysis_with_trace(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
+    use std::collections::{BTreeMap, HashSet};
+
+    let total_start = std::time::Instant::now();
+
+    let stage_start = std::time::Instant::now();
+    let project = gitnexus_cangjie::project::build_project_model(root)
+        .map_err(|e| format!("Cangjie 项目模型构建失败: {e}"))?;
+    let project_model_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
+    let mut parsed_by_file = BTreeMap::new();
+    let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cangjie::CangjieSymbol>> =
+        BTreeMap::new();
+    let mut read_error_count = 0usize;
+    let mut parse_error_count = 0usize;
+    let mut symbol_error_count = 0usize;
+
+    for file_path in &project.source_files {
+        let source = match std::fs::read_to_string(file_path) {
+            Ok(source) => source,
+            Err(_) => {
+                read_error_count += 1;
+                continue;
+            }
+        };
+        let tree = match gitnexus_cangjie::extractors::parse_cangjie_source(&source) {
+            Ok(tree) => tree,
+            Err(_) => {
+                parse_error_count += 1;
+                continue;
+            }
+        };
+        match gitnexus_cangjie::extractors::extract_cangjie_symbols_from_tree(&source, &tree) {
+            Ok(symbols) => {
+                symbols_by_file.insert(file_path.clone(), symbols);
+            }
+            Err(_) => {
+                symbol_error_count += 1;
+            }
+        }
+        parsed_by_file.insert(file_path.clone(), (source, tree));
+    }
+    let file_parse_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
+    let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cangjie::CangjieImport>> =
+        BTreeMap::new();
+    for (file_path, (source, tree)) in &parsed_by_file {
+        let imports =
+            gitnexus_cangjie::extractors::extract_cangjie_imports(source, file_path, tree);
+        if !imports.is_empty() {
+            imports_by_file.insert(file_path.clone(), imports);
+        }
+    }
+    let import_extraction_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
+    let import_bindings = gitnexus_cangjie::extractors::references::ImportBindingTable::build(
+        &symbols_by_file,
+        &imports_by_file,
+        &project,
+    );
+    let import_binding_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
+    let mut all_references = Vec::new();
+    let mut reference_error_count = 0usize;
+    for (file_path, (source, tree)) in &parsed_by_file {
+        if let Some(symbols) = symbols_by_file.get(file_path) {
+            match gitnexus_cangjie::extractors::references::extract_cangjie_references(
+                source,
+                file_path,
+                symbols,
+                tree,
+                Some(&import_bindings),
+            ) {
+                Ok(refs) => all_references.extend(refs),
+                Err(_) => reference_error_count += 1,
+            }
+        }
+    }
+    let reference_extraction_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
+    let mut graph_output = gitnexus_cangjie::graph::emit_cangjie_graph(&project, &symbols_by_file);
+
+    let (ref_edges, resolved_source_ids) = gitnexus_cangjie::graph::emit_cangjie_reference_edges(
+        &all_references,
+        &symbols_by_file,
+        &project.root,
+    );
+    graph_output.edges.extend(ref_edges);
+
+    let synthetic_nodes =
+        gitnexus_cangjie::graph::emit_synthetic_source_nodes(&all_references, &resolved_source_ids);
+    graph_output.nodes.extend(synthetic_nodes);
+
+    let import_edges =
+        gitnexus_cangjie::graph::emit_cangjie_import_edges(&imports_by_file, &project);
+    graph_output.edges.extend(import_edges);
+
+    let mut seen_edges: HashSet<(gitnexus_cangjie::graph::EdgeKind, String, String)> =
+        HashSet::new();
+    graph_output.edges.retain(|edge| {
+        seen_edges.insert((edge.kind, edge.source_id.clone(), edge.target_id.clone()))
+    });
+    graph_output.nodes.sort_by(|a, b| a.id.cmp(&b.id));
+    graph_output.edges.sort_by(|a, b| {
+        a.kind
+            .cmp(&b.kind)
+            .then_with(|| a.source_id.cmp(&b.source_id))
+            .then_with(|| a.target_id.cmp(&b.target_id))
+    });
+    let graph_build_ms = elapsed_ms(stage_start);
+
+    let stage_start = std::time::Instant::now();
+    let json_val =
+        serde_json::to_value(&graph_output).map_err(|e| format!("Cangjie JSON 序列化失败: {e}"))?;
+
+    let nodes: Vec<serde_json::Value> = json_val
+        .get("nodes")
+        .and_then(|n| n.as_array())
+        .cloned()
+        .unwrap_or_default();
+
+    let edges: Vec<serde_json::Value> = json_val
+        .get("edges")
+        .and_then(|e| e.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
+
+    let mut trace = language_stage_trace(
+        "cangjie",
+        root,
+        elapsed_ms(total_start),
+        project.source_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectModelMs": project_model_ms,
+            "fileParseMs": file_parse_ms,
+            "importExtractionMs": import_extraction_ms,
+            "importBindingMs": import_binding_ms,
+            "referenceExtractionMs": reference_extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms,
+            "parsedFileCount": parsed_by_file.len(),
+            "readErrorCount": read_error_count,
+            "parseErrorCount": parse_error_count,
+            "symbolErrorCount": symbol_error_count,
+            "referenceErrorCount": reference_error_count,
+            "diagnosticsExecuted": false
+        }),
+        vec![
+            "Stage trace measures the static-only project-once Cangjie analyzer used by MCP jobs.",
+            "The MCP job path reads each Cangjie source once, parses it once, and skips optional SDK diagnostics.",
+        ],
+    );
+    if let Some(generated_from) = trace
+        .get_mut("generatedFrom")
+        .and_then(|value| value.as_object_mut())
+    {
+        generated_from.insert("diagnosticsExecuted".to_string(), json!(false));
+    }
+
+    Ok((json_val, nodes, edges, trace))
+}
+
+#[cfg(feature = "tree-sitter-cangjie")]
 fn run_cangjie_analysis(
     root: &Path,
 ) -> Result<
@@ -2380,6 +2563,21 @@ fn run_cangjie_analysis(
         .unwrap_or_default();
 
     Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-cangjie"))]
+fn run_cangjie_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
+    Err("Cangjie support is disabled in this dev binary. CodeLattice-Tool installed binary includes Cangjie. For source builds: cargo build --features tree-sitter-cangjie or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 #[cfg(not(feature = "tree-sitter-cangjie"))]

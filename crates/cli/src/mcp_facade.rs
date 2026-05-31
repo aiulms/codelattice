@@ -14,15 +14,17 @@ pub(crate) fn normalize_facade_language(language: &str) -> String {
 
 pub(crate) fn facade_language_runtime_capabilities(language: &str) -> Value {
     let lang = normalize_facade_language(language);
-    let (in_process, call_edges, delta_overlay, trace_available, trace_granularity) =
-        match lang.as_str() {
-            "rust" => (true, true, true, true, "detailed"),
-            "typescript" | "javascript" | "python" | "c" | "cpp" | "arkts" | "shell" => {
-                (true, true, false, true, "stage")
-            }
-            "cangjie" => (true, true, false, false, "none"),
-            _ => (false, false, false, false, "none"),
-        };
+    let (in_process, call_edges, delta_overlay, trace_available, trace_granularity) = match lang
+        .as_str()
+    {
+        "rust" => (true, true, true, true, "detailed"),
+        "typescript" | "javascript" | "python" | "c" | "cpp" | "arkts" | "shell" => {
+            (true, true, false, true, "stage")
+        }
+        "cangjie" if cfg!(feature = "tree-sitter-cangjie") => (true, true, false, true, "stage"),
+        "cangjie" => (false, false, false, false, "none"),
+        _ => (false, false, false, false, "none"),
+    };
     json!({
         "schemaVersion": "codelattice.languageRuntimeCapabilities.v1",
         "language": lang,

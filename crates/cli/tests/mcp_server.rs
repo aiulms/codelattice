@@ -3085,6 +3085,55 @@ fn mcp_project_overview_cangjie_counts_are_nonzero() {
 }
 
 #[test]
+#[cfg(feature = "tree-sitter-cangjie")]
+fn mcp_cangjie_project_job_trace_is_project_once() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = cangjie_portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        252,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_string_lossy(),
+            "language": "cangjie",
+            "compact": true,
+            "wait": true,
+            "timeoutMs": 30000
+        }),
+    );
+
+    assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+    assert_eq!(
+        data["summary"]["executor_mode"].as_str(),
+        Some("project-once"),
+        "Cangjie job should run through the project-once bridge: {data:?}"
+    );
+    let trace = &data["summary"]["analysisTrace"];
+    assert_eq!(
+        trace["schemaVersion"].as_str(),
+        Some("codelattice.languageAnalysisTrace.v1"),
+        "Cangjie project-once job should expose normalized analysis trace: {data:?}"
+    );
+    assert_eq!(trace["language"].as_str(), Some("cangjie"));
+    assert_eq!(trace["granularity"].as_str(), Some("stage"));
+    assert_eq!(trace["stages"]["parsePassesPerFile"].as_u64(), Some(1));
+    assert_eq!(trace["stages"]["sourceReadPasses"].as_u64(), Some(1));
+    assert_eq!(
+        trace["generatedFrom"]["diagnosticsExecuted"].as_bool(),
+        Some(false),
+        "MCP Cangjie job path must stay static-only and skip SDK diagnostics"
+    );
+    assert_eq!(
+        data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+        Some("stage")
+    );
+}
+
+#[test]
 fn mcp_rename_preview_read_only() {
     let mut session = McpSession::start();
     session.initialize();
