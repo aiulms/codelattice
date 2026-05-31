@@ -14,13 +14,15 @@ pub(crate) fn normalize_facade_language(language: &str) -> String {
 
 pub(crate) fn facade_language_runtime_capabilities(language: &str) -> Value {
     let lang = normalize_facade_language(language);
-    let (in_process, call_edges, delta_overlay, trace_available) = match lang.as_str() {
-        "rust" => (true, true, true, true),
-        "typescript" | "javascript" | "arkts" => (true, true, false, false),
-        "python" | "c" | "cpp" | "cangjie" => (true, true, false, false),
-        "shell" => (true, false, false, false),
-        _ => (false, false, false, false),
-    };
+    let (in_process, call_edges, delta_overlay, trace_available, trace_granularity) =
+        match lang.as_str() {
+            "rust" => (true, true, true, true, "detailed"),
+            "typescript" | "javascript" | "python" => (true, true, false, true, "coarse"),
+            "arkts" => (true, true, false, false, "none"),
+            "c" | "cpp" | "cangjie" => (true, true, false, false, "none"),
+            "shell" => (true, false, false, false, "none"),
+            _ => (false, false, false, false, "none"),
+        };
     json!({
         "schemaVersion": "codelattice.languageRuntimeCapabilities.v1",
         "language": lang,
@@ -30,6 +32,7 @@ pub(crate) fn facade_language_runtime_capabilities(language: &str) -> Value {
         "supportsCallEdges": call_edges,
         "supportsPersistentCache": true,
         "traceAvailable": trace_available,
+        "traceGranularity": trace_granularity,
         "staticOnly": true
     })
 }

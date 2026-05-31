@@ -11,6 +11,7 @@ use gitnexus_analysis_engine::adapter::{
 };
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 // ═══════════════════════════════════════════════════════════════
 // Helper: run project analysis and extract results
@@ -52,6 +53,65 @@ fn graph_counts(
     (nodes.len(), edges.len(), symbol_count, call_edge_count)
 }
 
+fn source_file_count(nodes: &[serde_json::Value]) -> usize {
+    nodes
+        .iter()
+        .filter(|n| {
+            matches!(
+                n.get("label").and_then(|v| v.as_str()),
+                Some("source-file" | "source")
+            ) || matches!(
+                n.get("kind").and_then(|v| v.as_str()),
+                Some("source-file" | "sourceFile" | "SourceFile")
+            ) || n
+                .get("properties")
+                .and_then(|p| p.get("sourcePath"))
+                .is_some_and(|_| {
+                    n.get("label").and_then(|v| v.as_str()) == Some("source-file")
+                        || n.get("kind").and_then(|v| v.as_str()) == Some("source-file")
+                })
+        })
+        .count()
+}
+
+fn coarse_analysis_trace(
+    root: &Path,
+    language: &str,
+    total_ms: u64,
+    node_count: usize,
+    edge_count: usize,
+    symbol_count: usize,
+    source_file_count: usize,
+    call_edge_count: usize,
+) -> serde_json::Value {
+    serde_json::json!({
+        "schemaVersion": "codelattice.languageAnalysisTrace.v1",
+        "language": language,
+        "root": root.to_string_lossy(),
+        "granularity": "coarse",
+        "totalMs": total_ms.max(1),
+        "sourceFileCount": source_file_count,
+        "symbolCount": symbol_count,
+        "callEdgeCount": call_edge_count,
+        "nodeCount": node_count,
+        "edgeCount": edge_count,
+        "stages": {
+            "projectAnalysisMs": total_ms.max(1)
+        },
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "projectOnceAnalyzer": true,
+            "targetCodeExecuted": false,
+            "scriptsExecuted": false,
+            "runtimeVerified": false
+        },
+        "notes": [
+            "Coarse trace measures project-once wall-clock analysis for this language adapter.",
+            "Detailed sub-stage timing is not available yet for this adapter."
+        ]
+    })
+}
+
 /// Run the existing project-level analyzer exactly once and return the analyze
 /// shape expected by the MCP facade cache.
 ///
@@ -63,6 +123,7 @@ pub fn run_project_analysis_once(
     root: &Path,
     language: &str,
 ) -> Result<ProjectAnalysisRun, String> {
+    let analysis_start = Instant::now();
     let normalized = match language.to_lowercase().as_str() {
         "rust" | "rs" => "rust",
         "typescript" | "ts" => "typescript",
@@ -71,7 +132,7 @@ pub fn run_project_analysis_once(
         other => return Err(format!("No project-level analyzer for language: {other}")),
     };
 
-    let (graph, nodes, edges, analysis_trace) = match normalized {
+    let (graph, nodes, edges, mut analysis_trace) = match normalized {
         "rust" => {
             let (graph, nodes, edges, trace) = crate::run_rust_analysis(root)?;
             (
@@ -97,6 +158,19 @@ pub fn run_project_analysis_once(
     };
 
     let (node_count, edge_count, symbol_count, call_edge_count) = graph_counts(&nodes, &edges);
+    let source_file_count = source_file_count(&nodes);
+    if analysis_trace.is_none() {
+        analysis_trace = Some(coarse_analysis_trace(
+            root,
+            normalized,
+            analysis_start.elapsed().as_millis() as u64,
+            node_count,
+            edge_count,
+            symbol_count,
+            source_file_count,
+            call_edge_count,
+        ));
+    }
     let analyze_value = serde_json::json!({
         "language": normalized,
         "root": root.to_string_lossy(),

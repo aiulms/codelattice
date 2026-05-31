@@ -17807,6 +17807,15 @@ fn mcp_job_status_exposes_warm_trace() {
         trace["warmTotalWallMs"].as_u64().is_some(),
         "warmTrace must have warmTotalWallMs: {status:?}"
     );
+    assert_eq!(
+        trace["language"].as_str(),
+        Some("rust"),
+        "warmTrace should identify the analyzed language: {status:?}"
+    );
+    assert!(
+        trace["languageAnalysisMs"].as_u64().is_some(),
+        "warmTrace should expose languageAnalysisMs for all languages: {status:?}"
+    );
     assert!(
         trace["graphViewBuildMs"].as_u64().is_some(),
         "warmTrace must have graphViewBuildMs: {status:?}"
@@ -18541,6 +18550,57 @@ fn mcp_typescript_job_uses_single_project_level_analysis() {
             .as_bool()
             .unwrap_or(false),
         "project-level TypeScript job should warm facade cache: {data:?}"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_job_summary_exposes_language_runtime_trace() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        92193,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_string_lossy(),
+            "language": "typescript",
+            "compact": true,
+            "wait": true,
+            "timeoutMs": 30000
+        }),
+    );
+
+    assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+    let trace = &data["summary"]["analysisTrace"];
+    assert_eq!(
+        trace["schemaVersion"].as_str(),
+        Some("codelattice.languageAnalysisTrace.v1"),
+        "TypeScript project-once job should expose a normalized analysis trace: {data:?}"
+    );
+    assert_eq!(trace["language"].as_str(), Some("typescript"));
+    assert_eq!(trace["granularity"].as_str(), Some("coarse"));
+    assert!(
+        trace["totalMs"].as_u64().unwrap_or(0) > 0,
+        "trace should include wall-clock project analysis time: {trace:?}"
+    );
+    assert!(
+        trace["sourceFileCount"].as_u64().unwrap_or(0) > 0,
+        "trace should include source file count: {trace:?}"
+    );
+    assert_eq!(
+        data["summary"]["runtimeCapabilities"]["traceAvailable"].as_bool(),
+        Some(true),
+        "summary should advertise trace availability for TypeScript: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+        Some("coarse"),
+        "TypeScript trace should be marked coarse until detailed sub-stage timing lands: {data:?}"
     );
 }
 

@@ -432,16 +432,39 @@ fn find_analysis_trace(value: &Value) -> Option<Value> {
 pub(crate) fn build_runtime_trace_envelope(language: &str, result: Option<&Value>) -> Value {
     let language = normalize_language(language);
     let trace = result.and_then(find_analysis_trace);
-    let detailed_available = trace.is_some();
+    let available = trace.is_some();
+    let granularity = trace
+        .as_ref()
+        .and_then(|t| t.get("granularity"))
+        .and_then(|v| v.as_str())
+        .unwrap_or(if available { "detailed" } else { "none" });
+    let total_ms = trace
+        .as_ref()
+        .and_then(|t| t.get("totalMs"))
+        .and_then(|v| v.as_u64());
+    let source_file_count = trace
+        .as_ref()
+        .and_then(|t| t.get("sourceFileCount"))
+        .and_then(|v| v.as_u64());
+    let stages = trace
+        .as_ref()
+        .and_then(|t| t.get("stages"))
+        .cloned()
+        .unwrap_or_else(|| trace.clone().unwrap_or_else(|| json!({})));
     json!({
         "schemaVersion": "codelattice.languageRuntimeTrace.v1",
         "language": language,
-        "available": detailed_available,
-        "source": if detailed_available { "analysisTrace" } else { "not_available" },
-        "stages": trace.unwrap_or_else(|| json!({})),
+        "available": available,
+        "source": if available { "analysisTrace" } else { "not_available" },
+        "granularity": granularity,
+        "totalMs": total_ms,
+        "sourceFileCount": source_file_count,
+        "stages": stages,
         "staticOnly": true,
         "targetCodeExecuted": false,
-        "notes": if detailed_available {
+        "notes": if available && granularity == "coarse" {
+            vec!["Coarse project-level timing captured by the language adapter."]
+        } else if available {
             vec!["Detailed sub-stage timing captured by the language adapter."]
         } else {
             vec!["Detailed stage timing is not available for this response yet; runtimeCapabilities still describe adapter support."]

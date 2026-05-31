@@ -2522,6 +2522,7 @@ fn run_typescript_analysis(
     ),
     String,
 > {
+    use rayon::prelude::*;
     use std::collections::BTreeMap;
 
     // 1. Build project model (tsconfig.json / package.json)
@@ -2546,25 +2547,28 @@ fn run_typescript_analysis(
         Vec<gitnexus_typescript::TsReference>,
     > = BTreeMap::new();
 
-    for file in &source_files {
-        let source = match std::fs::read_to_string(file) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
+    let extracted = source_files
+        .par_iter()
+        .filter_map(|file| {
+            let source = std::fs::read_to_string(file).ok()?;
+            let lang = if file.extension().and_then(|e| e.to_str()) == Some("tsx") {
+                gitnexus_typescript::extractors::TsLanguage::Tsx
+            } else {
+                gitnexus_typescript::extractors::TsLanguage::TypeScript
+            };
+            Some((
+                file.clone(),
+                gitnexus_typescript::extractors::extract_ts_symbols(&source, lang),
+                gitnexus_typescript::extractors::extract_ts_imports(&source, lang),
+                gitnexus_typescript::extractors::extract_ts_references(&source, lang),
+            ))
+        })
+        .collect::<Vec<_>>();
 
-        // Detect language variant from extension
-        let lang = if file.extension().and_then(|e| e.to_str()) == Some("tsx") {
-            gitnexus_typescript::extractors::TsLanguage::Tsx
-        } else {
-            gitnexus_typescript::extractors::TsLanguage::TypeScript
-        };
-        let syms = gitnexus_typescript::extractors::extract_ts_symbols(&source, lang);
-        let imps = gitnexus_typescript::extractors::extract_ts_imports(&source, lang);
-        let refs = gitnexus_typescript::extractors::extract_ts_references(&source, lang);
-
+    for (file, syms, imps, refs) in extracted {
         symbols_by_file.insert(file.clone(), syms);
         imports_by_file.insert(file.clone(), imps);
-        references_by_file.insert(file.clone(), refs);
+        references_by_file.insert(file, refs);
     }
 
     // 4. Build graph
@@ -2637,6 +2641,7 @@ fn run_javascript_analysis(
     ),
     String,
 > {
+    use rayon::prelude::*;
     use std::collections::BTreeMap;
 
     // 1. Build project model
@@ -2666,31 +2671,34 @@ fn run_javascript_analysis(
         Vec<gitnexus_javascript::JsReference>,
     > = BTreeMap::new();
 
-    for file in &source_files {
-        let source = match std::fs::read_to_string(file) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
+    let extracted = source_files
+        .par_iter()
+        .filter_map(|file| {
+            let source = std::fs::read_to_string(file).ok()?;
+            let lang = if file
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e == "jsx")
+                .unwrap_or(false)
+            {
+                gitnexus_javascript::extractors::JsLanguage::Jsx
+            } else {
+                gitnexus_javascript::extractors::JsLanguage::JavaScript
+            };
 
-        // Detect language variant from extension
-        let lang = if file
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e == "jsx")
-            .unwrap_or(false)
-        {
-            gitnexus_javascript::extractors::JsLanguage::Jsx
-        } else {
-            gitnexus_javascript::extractors::JsLanguage::JavaScript
-        };
+            Some((
+                file.clone(),
+                gitnexus_javascript::extractors::extract_js_symbols(&source, lang),
+                gitnexus_javascript::extractors::extract_js_imports(&source, lang),
+                gitnexus_javascript::extractors::extract_js_references(&source, lang),
+            ))
+        })
+        .collect::<Vec<_>>();
 
-        let syms = gitnexus_javascript::extractors::extract_js_symbols(&source, lang);
-        let imps = gitnexus_javascript::extractors::extract_js_imports(&source, lang);
-        let refs = gitnexus_javascript::extractors::extract_js_references(&source, lang);
-
+    for (file, syms, imps, refs) in extracted {
         symbols_by_file.insert(file.clone(), syms);
         imports_by_file.insert(file.clone(), imps);
-        references_by_file.insert(file.clone(), refs);
+        references_by_file.insert(file, refs);
     }
 
     // 4. Build graph
@@ -3025,6 +3033,7 @@ fn run_python_analysis(
     ),
     String,
 > {
+    use rayon::prelude::*;
     use std::collections::BTreeMap;
 
     // 1. Build project model
@@ -3048,26 +3057,29 @@ fn run_python_analysis(
     let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonImport>> =
         BTreeMap::new();
 
-    for file in &all_files {
-        let source = match std::fs::read_to_string(file) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
+    let extracted = all_files
+        .par_iter()
+        .filter_map(|file| {
+            let source = std::fs::read_to_string(file).ok()?;
+            let rel_path = file
+                .strip_prefix(&project.root)
+                .unwrap_or(file)
+                .to_string_lossy()
+                .to_string();
+            Some((
+                file.clone(),
+                gitnexus_python::extract_python_symbols(&source, &rel_path),
+                gitnexus_python::extract_python_imports(&source),
+            ))
+        })
+        .collect::<Vec<_>>();
 
-        let rel_path = file
-            .strip_prefix(&project.root)
-            .unwrap_or(file)
-            .to_string_lossy()
-            .to_string();
-
-        let syms = gitnexus_python::extract_python_symbols(&source, &rel_path);
-        let imps = gitnexus_python::extract_python_imports(&source);
-
+    for (file, syms, imps) in extracted {
         if !syms.is_empty() {
             symbols_by_file.insert(file.clone(), syms);
         }
         if !imps.is_empty() {
-            imports_by_file.insert(file.clone(), imps);
+            imports_by_file.insert(file, imps);
         }
     }
 
@@ -3092,23 +3104,27 @@ fn run_python_analysis(
     // 4. Extract calls per file
     let mut calls_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonCall>> =
         BTreeMap::new();
-    for file in &all_files {
-        let source = match std::fs::read_to_string(file) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
+    let call_entries = all_files
+        .par_iter()
+        .filter_map(|file| {
+            let source = std::fs::read_to_string(file).ok()?;
+            let rel_path = file
+                .strip_prefix(&project.root)
+                .unwrap_or(file)
+                .to_string_lossy()
+                .to_string();
+            let calls =
+                gitnexus_python::extract_python_calls(&source, &rel_path, &project_fn_names);
+            if calls.is_empty() {
+                None
+            } else {
+                Some((file.clone(), calls))
+            }
+        })
+        .collect::<Vec<_>>();
 
-        let rel_path = file
-            .strip_prefix(&project.root)
-            .unwrap_or(file)
-            .to_string_lossy()
-            .to_string();
-
-        let calls = gitnexus_python::extract_python_calls(&source, &rel_path, &project_fn_names);
-
-        if !calls.is_empty() {
-            calls_by_file.insert(file.clone(), calls);
-        }
+    for (file, calls) in call_entries {
+        calls_by_file.insert(file, calls);
     }
 
     // 5. Build module index for import resolution

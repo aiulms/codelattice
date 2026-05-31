@@ -943,6 +943,17 @@ fn spawn_project_job_worker(
         if let Some(obj) = summary.as_object_mut() {
             obj.insert("engineDigest".to_string(), engine_digest);
             obj.insert("aiDigest".to_string(), ai_digest);
+            if let Some(trace) = result.artifacts[0]
+                .data
+                .get("analysisTrace")
+                .filter(|v| !v.is_null())
+            {
+                obj.insert("analysisTrace".to_string(), trace.clone());
+            }
+            obj.insert(
+                "runtimeCapabilities".to_string(),
+                crate::mcp_facade::facade_language_runtime_capabilities(&lang_owned),
+            );
         }
 
         MCP_JOBS.update_progress(

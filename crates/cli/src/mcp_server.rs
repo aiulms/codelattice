@@ -1525,6 +1525,10 @@ pub struct WarmCacheMeta {
 #[serde(rename_all = "camelCase")]
 pub struct WarmTrace {
     pub warm_total_wall_ms: u64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub language: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language_analysis_ms: Option<u64>,
     pub rust_analysis_ms: Option<u64>,
     pub analyze_value_build_ms: Option<u64>,
     pub graph_view_build_ms: u64,
@@ -1785,7 +1789,13 @@ fn build_warm_cache_entry_from_result(
 
     let warm_trace = WarmTrace {
         warm_total_wall_ms: duration_ms,
-        rust_analysis_ms: Some(analysis_ms),
+        language: language.to_string(),
+        language_analysis_ms: Some(analysis_ms),
+        rust_analysis_ms: if language == "rust" || language == "auto" {
+            Some(analysis_ms)
+        } else {
+            None
+        },
         analyze_value_build_ms: None,
         graph_view_build_ms: graph_build_ms,
         doc_scanner_ms: doc_scan_ms,
