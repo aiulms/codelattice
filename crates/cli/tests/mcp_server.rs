@@ -183,6 +183,34 @@ fn create_small_helper_rust_project() -> tempfile::TempDir {
     dir
 }
 
+fn create_dependency_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create dependency project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        r#"[package]
+name = "dependency-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread"] }
+serde = { version = "1", features = ["derive"] }
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "pub fn main_entry() { route_handler(); }\npub fn route_handler() {}\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_large_ask_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create large ask project");
     let root = dir.path();
@@ -4784,6 +4812,107 @@ fn call_tool_json(
     let resp = session.recv();
     assert_eq!(resp["id"], id);
     extract_tool_data(&resp)
+}
+
+#[test]
+fn mcp_project_quick_medium_detail_includes_dependency_digest() {
+    let fixture = create_dependency_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        88001,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": fixture.path().to_string_lossy(),
+            "language": "rust",
+            "compact": true,
+            "detail": "medium",
+            "asyncOnMiss": false
+        }),
+    );
+
+    assert_eq!(
+        data["mediumDetails"]["dependencySummary"]["schemaVersion"].as_str(),
+        Some("codelattice.dependencyFrameworkDigest.v1"),
+        "medium detail should include dependency digest: {data:?}"
+    );
+    assert!(
+        data["mediumDetails"]["dependencySummary"]["topDependencies"]
+            .as_array()
+            .map(|items| items.iter().any(|dep| dep["name"].as_str() == Some("axum")))
+            .unwrap_or(false),
+        "expected axum dependency in medium detail: {data:?}"
+    );
+    assert!(
+        data["mediumDetails"]["dependencySummary"]["frameworkHints"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|hint| hint["framework"].as_str() == Some("axum")))
+            .unwrap_or(false),
+        "expected framework hint from Cargo.toml: {data:?}"
+    );
+    assert_eq!(
+        data["runtimeTrace"]["schemaVersion"].as_str(),
+        Some("codelattice.languageRuntimeTrace.v1"),
+        "facade should expose normalized runtime trace contract: {data:?}"
+    );
+    assert!(
+        data.get("result").is_none(),
+        "quick compact decision card should not include full result payload"
+    );
+    assert!(
+        data["tokenBudget"]["used"].as_u64().unwrap_or(u64::MAX) < 16 * 1024,
+        "medium detail should stay bounded: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_dependencies_answers_directly() {
+    let fixture = create_dependency_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        88002,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": fixture.path().to_string_lossy(),
+            "language": "rust",
+            "question": "这个项目用了哪些依赖和框架？",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["intent"].as_str(), Some("inspect_dependencies"));
+    assert!(
+        data["dependencySummary"]["topDependencies"]
+            .as_array()
+            .map(|items| items.iter().any(|dep| dep["name"].as_str() == Some("axum")))
+            .unwrap_or(false),
+        "ask should answer dependency questions from manifest evidence: {data:?}"
+    );
+    assert!(
+        data["evidence"]
+            .as_array()
+            .map(|items| items
+                .iter()
+                .any(|item| item["source"].as_str() == Some("manifest")))
+            .unwrap_or(false),
+        "ask dependency answer should include evidence cards: {data:?}"
+    );
+    assert_eq!(
+        data["confidence"]["level"].as_str(),
+        Some("medium"),
+        "manifest-backed dependency answer should not be low confidence: {data:?}"
+    );
 }
 
 fn wait_for_job_succeeded(

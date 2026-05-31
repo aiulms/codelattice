@@ -11958,6 +11958,7 @@ fn tools_list() -> Value {
                         "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "overview", "description": "Analysis mode. quick = orientation/read-first/top risks; standard = component and review-first map; deep = full static detail; diagnose = issue localization from symptom/error/query; job = non-blocking large project analysis." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
+                        "detail": { "type": "string", "enum": ["compact", "medium", "full"], "default": "compact", "description": "Output detail tier for compact project responses. medium adds bounded dependency/framework digest and top navigation hints without returning the full graph." },
                         "symptom": { "type": "string", "description": "Bug symptom or user report for diagnose mode" },
                         "errorText": { "type": "string", "description": "Observed error text/log excerpt for diagnose mode" },
                         "query": { "type": "string", "description": "Keyword query for diagnose mode" },
@@ -21514,6 +21515,7 @@ fn wrap_facade_output(
     } else {
         diagnose_root(root, language)
     };
+    let runtime_trace = crate::ai_runtime::build_runtime_trace_envelope(language, Some(&inner));
 
     let mut out = json!({
         "schemaVersion": "facade.v1",
@@ -21540,6 +21542,7 @@ fn wrap_facade_output(
             "coverageVerified": false
         },
         "compact": compact,
+        "runtimeTrace": runtime_trace,
         "underlyingTools": underlying
     });
     if compact {
@@ -22722,6 +22725,10 @@ fn handle_project_job(
 fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("overview");
     let compact = params["compact"].as_bool().unwrap_or(false);
+    let detail = params["detail"]
+        .as_str()
+        .or_else(|| params["detailLevel"].as_str())
+        .unwrap_or("compact");
     let requested_language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
@@ -23119,11 +23126,39 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             },
             "tokenBudget": {
                 "used": estimated_bytes,
-                "max": 8192,
+                "max": 16384,
                 "estimated": true,
             },
             "symbolCount": symbol_count,
         });
+        if detail == "medium" {
+            let dependency_summary =
+                crate::ai_runtime::build_dependency_framework_digest(Path::new(root), language);
+            let ai_digest = facade
+                .get("result")
+                .and_then(|r| r.get("aiDigest"))
+                .cloned()
+                .unwrap_or_else(|| json!({}));
+            if let Some(obj) = decision_card.as_object_mut() {
+                obj.insert(
+                    "mediumDetails".to_string(),
+                    json!({
+                        "schemaVersion": "codelattice.projectMediumDetail.v1",
+                        "dependencySummary": dependency_summary,
+                        "entryPoints": take_json_items(&ai_digest["entryPoints"], 5),
+                        "readFirst": take_json_items(&ai_digest["readFirst"], 5),
+                        "topComponents": take_json_items(&ai_digest["topComponents"], 5),
+                        "topRisks": take_json_items(&ai_digest["topRisks"], 5),
+                        "detailHint": "Medium detail keeps dependency/framework facts and top navigation hints without full graph payloads."
+                    }),
+                );
+            }
+        }
+        if let Some(runtime_trace) = facade.get("runtimeTrace").cloned() {
+            if let Some(obj) = decision_card.as_object_mut() {
+                obj.insert("runtimeTrace".to_string(), runtime_trace);
+            }
+        }
         let request_context = FacadeRequestContext::unrouted(
             "codelattice_project",
             mode,
@@ -23133,6 +23168,19 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             compact,
         );
         attach_facade_contract(&mut decision_card, &request_context);
+        let estimated_bytes = serde_json::to_string(&decision_card)
+            .map(|s| s.len())
+            .unwrap_or(0);
+        if let Some(obj) = decision_card.as_object_mut() {
+            obj.insert(
+                "tokenBudget".to_string(),
+                json!({
+                    "used": estimated_bytes,
+                    "max": 16 * 1024,
+                    "estimated": true,
+                }),
+            );
+        }
         decision_card
     } else {
         wrap_facade_output(
@@ -25702,6 +25750,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "rootRouter": ask_root_router,
             "requestContext": ask_request_context,
             "runtimeCapabilities": facade_language_runtime_capabilities(ask_language_ref),
+            "runtimeTrace": crate::ai_runtime::build_runtime_trace_envelope(ask_language_ref, None),
             "targetQuery": target_query,
             "answerSummary": answer_summary,
             "evidence": evidence.into_iter().take(5).collect::<Vec<_>>(),
@@ -25728,6 +25777,12 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 "version": "v2"
             }
         });
+        if ask_result["intent"].as_str() == Some("inspect_dependencies") {
+            let dependency_summary = ask_result["projectDigest"].clone();
+            if let Some(obj) = ask_result.as_object_mut() {
+                obj.insert("dependencySummary".to_string(), dependency_summary);
+            }
+        }
         if ask_compact {
             if let Some(obj) = ask_result.as_object_mut() {
                 obj.insert(
@@ -27651,6 +27706,25 @@ fn route_ask_intent(
         "route list",
         "endpoint",
     ];
+    let dependency_keywords = [
+        "依赖",
+        "框架",
+        "用了什么",
+        "用哪些",
+        "crate",
+        "crates",
+        "package",
+        "packages",
+        "dependencies",
+        "dependency",
+        "deps",
+        "framework",
+        "frameworks",
+        "library",
+        "libraries",
+        "npm",
+        "cargo",
+    ];
     let edit_keywords = [
         "如果改",
         "删除",
@@ -27787,6 +27861,80 @@ fn route_ask_intent(
         ai_guidance =
             "Use codelattice_symbol(mode=search) to find the symbol, then mode=context for details."
                 .to_string();
+    } else if dependency_keywords.iter().any(|k| q.contains(k)) {
+        intent = "inspect_dependencies".to_string();
+        target_query = None;
+        orchestration["stepsAttempted"] = json!([
+            "intent-classification:inspect_dependencies",
+            "manifest_digest:executed"
+        ]);
+        if !root.is_empty() {
+            let digest =
+                crate::ai_runtime::build_dependency_framework_digest(Path::new(root), language);
+            let dep_count = digest["dependencyCount"].as_u64().unwrap_or(0);
+            let frameworks = digest["frameworkHints"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item["framework"].as_str())
+                        .take(5)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            let deps = digest["topDependencies"]
+                .as_array()
+                .map(|items| {
+                    items
+                        .iter()
+                        .filter_map(|item| item["name"].as_str())
+                        .take(5)
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+            answer_summary =
+                if dep_count == 0 {
+                    format!(
+                    "No manifest dependencies were found for {} at {}. Static manifest scan only.",
+                    language, root
+                )
+                } else {
+                    format!(
+                    "Found {} manifest dependencies. Top dependencies: {}. Framework hints: {}.",
+                    dep_count,
+                    if deps.is_empty() { "n/a".to_string() } else { deps.join(", ") },
+                    if frameworks.is_empty() { "n/a".to_string() } else { frameworks.join(", ") }
+                )
+                };
+            evidence = crate::ai_runtime::dependency_evidence_cards(&digest, 5);
+            project_digest = digest.clone();
+            confidence = if dep_count == 0 {
+                json!({"level": "low", "reason": "No dependency manifest evidence was found."})
+            } else {
+                json!({"level": "medium", "reason": "Dependency answer is manifest-backed static evidence."})
+            };
+            next_actions.push(json!({
+                "tool": "codelattice_project",
+                "mode": "quick",
+                "why": "Get project orientation with medium dependency/detail tier",
+                "arguments": {"root": root, "language": language, "compact": true, "detail": "medium"}
+            }));
+            next_actions.push(json!({
+                "tool": "codelattice_project",
+                "mode": "standard",
+                "why": "Inspect architecture and risk after dependency orientation",
+                "arguments": {"root": root, "language": language, "compact": true}
+            }));
+        } else {
+            answer_summary =
+                "Please provide a root path to inspect dependencies and frameworks.".to_string();
+            confidence = json!({"level": "low", "reason": "root path required"});
+            missing_evidence.push(json!({
+                "kind": "missing_input",
+                "explanation": "root path required"
+            }));
+        }
+        ai_guidance = "Dependency and framework answers are manifest-only static evidence. CodeLattice did not install packages or execute build scripts.".to_string();
     } else if inspect_keywords.iter().any(|k| q.contains(k)) {
         intent = "inspect_project".to_string();
         orchestration["stepsAttempted"] = json!(["intent-classification:inspect_project"]);

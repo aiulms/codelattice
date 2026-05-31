@@ -10,6 +10,7 @@
 //!
 //! JSON stdout，human logs stderr。
 
+mod ai_runtime;
 mod arkts_bridge;
 mod bridge_format;
 mod c_bridge;
@@ -65,7 +66,7 @@ enum Commands {
         #[command(subcommand)]
         sub: CangjieCommands,
     },
-    /// 统一分析入口：自动检测语言或按指定语言分析项目，支持 full/compact/symbols/modules 输出档位
+    /// 统一分析入口：自动检测语言或按指定语言分析项目，支持 full/compact/symbols/modules/deps 输出档位
     Analyze {
         #[arg(long)]
         root: String,
@@ -77,7 +78,7 @@ enum Commands {
         strict: bool,
         #[arg(long, default_value = "off")]
         engine: String,
-        /// 输出档位：full(完整 graph) / compact(AI decision payload) / symbols(符号列表) / modules(模块概览)
+        /// 输出档位：full(完整 graph) / compact(AI decision payload) / symbols(符号列表) / modules(模块概览) / deps(依赖与框架摘要)
         #[arg(long, default_value = "full")]
         profile: String,
         /// profile 输出页码（symbols/modules 有效，0-based）
@@ -241,9 +242,9 @@ fn resolve_language(lang_arg: &str, root: &Path) -> Result<String, String> {
 /// 验证 --profile 参数合法性
 fn validate_profile(profile: &str) -> Result<(), String> {
     match profile {
-        "full" | "compact" | "symbols" | "modules" => Ok(()),
+        "full" | "compact" | "symbols" | "modules" | "deps" => Ok(()),
         _ => Err(format!(
-            "Unknown profile '{}'. Use: full, compact, symbols, modules.",
+            "Unknown profile '{}'. Use: full, compact, symbols, modules, deps.",
             profile
         )),
     }
@@ -523,6 +524,35 @@ fn filter_analyze_profile(
                 "paging": paging,
                 "modules": modules_page,
                 "detailHint": detail_hint
+            })
+        }
+        "deps" => {
+            let root = result.get("root").and_then(|v| v.as_str()).unwrap_or("");
+            let language = result
+                .get("language")
+                .and_then(|v| v.as_str())
+                .unwrap_or("auto");
+            let dependency_summary =
+                crate::ai_runtime::build_dependency_framework_digest(Path::new(root), language);
+            serde_json::json!({
+                "schemaVersion": "codelattice.analyzeDependencies.v1",
+                "root": result["root"],
+                "language": result["language"],
+                "dependencySummary": dependency_summary,
+                "runtimeTrace": crate::ai_runtime::build_runtime_trace_envelope(language, Some(result)),
+                "generatedFrom": {
+                    "staticAnalysis": true,
+                    "manifestOnly": true,
+                    "targetCodeExecuted": false,
+                    "scriptsExecuted": false,
+                    "runtimeVerified": false
+                },
+                "omitted": {
+                    "graph": true,
+                    "symbols": true,
+                    "diagnostics": true,
+                    "detailHint": "Use --profile compact for project orientation or --profile full for complete graph evidence."
+                }
             })
         }
         "compact" => {

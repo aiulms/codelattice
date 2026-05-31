@@ -64,6 +64,32 @@ fn create_multi_project_workspace() -> tempfile::TempDir {
     dir
 }
 
+fn create_dependency_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create dependency project");
+    let root = dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        r#"[package]
+name = "dependency-cli-app"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+axum = "0.7"
+tokio = "1"
+serde = { version = "1", features = ["derive"] }
+"#,
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "pub fn main_entry() { handler(); }\npub fn handler() {}\n",
+    )
+    .unwrap();
+    dir
+}
+
 fn create_detect_changes_git_repo() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create temp dir");
     let root = dir.path();
@@ -443,6 +469,49 @@ fn analyze_profile_modules_is_bounded_and_pageable() {
         .as_str()
         .unwrap_or("")
         .contains("--profile-page"));
+}
+
+#[test]
+fn analyze_profile_deps_returns_static_dependency_digest() {
+    let fixture = create_dependency_rust_project();
+    let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+
+    let assert = cmd
+        .arg("analyze")
+        .arg("--root")
+        .arg(fixture.path())
+        .arg("--language")
+        .arg("rust")
+        .arg("--format")
+        .arg("json")
+        .arg("--profile")
+        .arg("deps")
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+
+    assert_eq!(
+        v["schemaVersion"].as_str(),
+        Some("codelattice.analyzeDependencies.v1")
+    );
+    assert!(v.get("graph").is_none(), "deps profile must omit graph");
+    assert_eq!(
+        v["dependencySummary"]["schemaVersion"].as_str(),
+        Some("codelattice.dependencyFrameworkDigest.v1")
+    );
+    assert!(
+        v["dependencySummary"]["topDependencies"]
+            .as_array()
+            .map(|items| items.iter().any(|dep| dep["name"].as_str() == Some("axum")))
+            .unwrap_or(false),
+        "deps profile should expose manifest dependencies: {v:?}"
+    );
+    assert_eq!(
+        v["generatedFrom"]["targetCodeExecuted"].as_bool(),
+        Some(false)
+    );
 }
 
 #[test]
