@@ -18581,6 +18581,65 @@ fn mcp_workflow_before_edit_workspace_root_auto_routes_and_executes() {
 }
 
 #[test]
+fn mcp_workflow_ask_before_edit_workspace_root_auto_routes() {
+    let workspace = create_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92194,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "question": "如果删除 backend_target 会影响什么",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("before_edit"));
+    assert_eq!(data["targetQuery"].as_str(), Some("backend_target"));
+    assert_eq!(
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "ask should auto-route workspace root before whatif: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/backend"),
+        "ask router should select backend project, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("rust")
+    );
+    assert!(
+        data["whatIf"]["targetCandidates"]
+            .as_array()
+            .is_some_and(|items| items
+                .iter()
+                .any(|item| item["name"].as_str() == Some("backend_target"))),
+        "whatIf should run on the selected project and find backend_target: {data:?}"
+    );
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls array");
+    assert!(
+        next.iter().any(|item| {
+            item["tool"].as_str() == Some("codelattice_change_review")
+                && item["arguments"]["root"].as_str() == Some(selected_root)
+                && item["arguments"]["language"].as_str() == Some("rust")
+        }),
+        "ask follow-up calls should use selected project root/language: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_control_plane_always_available_during_jobs() {
     let large = create_large_ask_rust_project();
     let mut session = McpSession::start();

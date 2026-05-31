@@ -25204,6 +25204,47 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             }));
         }
 
+        let mut ask_root = root.to_string();
+        let mut ask_language = language.to_string();
+        let mut ask_root_router = Value::Null;
+        if root_is_workspace {
+            let mut route_params = params.clone();
+            if workspace_route_query(&route_params).is_empty() {
+                let question_query = extract_symbol_from_question(&question);
+                if let Some(obj) = route_params.as_object_mut() {
+                    if !question_query.is_empty() {
+                        obj.insert("query".to_string(), json!(question_query));
+                    } else {
+                        obj.insert("query".to_string(), json!(question.clone()));
+                    }
+                }
+            }
+            if let Some(route_result) = workspace_auto_route_decision(
+                cache,
+                root,
+                language,
+                &route_params,
+                "codelattice_workflow",
+                "ask",
+            ) {
+                match route_result {
+                    Ok(route) => {
+                        ask_root = route.selected_root;
+                        ask_language = route.selected_language;
+                        ask_root_router = route.router;
+                    }
+                    Err(guidance) => {
+                        ask_root_router = guidance
+                            .get("rootRouter")
+                            .cloned()
+                            .unwrap_or_else(|| Value::Null);
+                    }
+                }
+            }
+        }
+        let ask_root_ref = ask_root.as_str();
+        let ask_language_ref = ask_language.as_str();
+
         let (
             intent,
             answer_summary,
@@ -25221,23 +25262,38 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             next_actions,
             ai_guidance,
             confidence,
-        ) = route_ask_intent(cache, root, language, &question, ask_compact, ask_execute);
+        ) = route_ask_intent(
+            cache,
+            ask_root_ref,
+            ask_language_ref,
+            &question,
+            ask_compact,
+            ask_execute,
+        );
 
         let what_if = if intent == "before_edit" || intent == "whatif" {
             let query = target_query.as_ref().unwrap_or(&String::new()).clone();
-            if !root.is_empty() && !query.is_empty() {
-                if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+            if !ask_root_ref.is_empty() && !query.is_empty() {
+                if let Some((file_count, sample_files)) =
+                    ask_large_project_info(ask_root_ref, ask_language_ref)
+                {
                     build_deferred_whatif_value(
-                        root,
-                        language,
+                        ask_root_ref,
+                        ask_language_ref,
                         &question,
                         &query,
                         file_count,
                         &sample_files,
                     )
                 } else {
-                    let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, ap) =
-                        build_whatif_result(root, language, &question, &query, "", "");
+                    let (ci, tc, di, ii, risk, sa, tests, rf, me, _na, ap) = build_whatif_result(
+                        ask_root_ref,
+                        ask_language_ref,
+                        &question,
+                        &query,
+                        "",
+                        "",
+                    );
                     json!({
                         "schemaVersion": "codelattice.whatIf.v1",
                         "changeIntent": ci,
@@ -25269,6 +25325,11 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "schemaVersion": "codelattice.ask.v2",
             "intent": intent,
             "question": question,
+            "root": if root.is_empty() { Value::Null } else { json!(root) },
+            "language": language,
+            "effectiveRoot": if ask_root_ref.is_empty() { Value::Null } else { json!(ask_root_ref) },
+            "effectiveLanguage": ask_language_ref,
+            "rootRouter": ask_root_router,
             "targetQuery": target_query,
             "answerSummary": answer_summary,
             "evidence": evidence.into_iter().take(5).collect::<Vec<_>>(),
