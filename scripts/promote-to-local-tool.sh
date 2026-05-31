@@ -354,14 +354,14 @@ print("  pythonSupport: {}".format(s.get("pythonSupport")))
 print("  shellSupport: {}".format(s.get("shellSupport")))'
 
     MULTI_RESP="$({ printf '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"codelattice-tool-self-test","version":"1.0"}}}\n{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":"2.0","id":2,"method":"tools/list"}\n{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"codelattice_cache_status","arguments":{}}}\n'; } | env CODELATTICE_MCP_TOOLSET=full "$BIN" mcp 2>/dev/null || true)"
-    TOOL_COUNT="$(echo "$MULTI_RESP" | python3 -c 'import json,sys
+    TOOL_COUNT="$(python3 -c 'import json,sys
 for line in sys.stdin:
     if not line.strip():
         continue
     d=json.loads(line)
     if d.get("id") == 2:
         print(len(d["result"]["tools"]))
-        break')"
+        break' <<<"$MULTI_RESP")"
     TOOL_COUNT="${TOOL_COUNT:-0}"
     if [[ "$TOOL_COUNT" -lt 49 ]]; then
         echo "FAIL: tools/list returned $TOOL_COUNT tools" >&2
