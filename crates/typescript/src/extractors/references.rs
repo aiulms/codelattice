@@ -50,8 +50,16 @@ pub fn extract_ts_references(source: &str, lang: super::TsLanguage) -> Vec<TsRef
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_ts_references_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+pub(super) fn extract_ts_references_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<TsReference> {
     let mut refs = Vec::new();
-    collect_references(&root, source, &mut refs);
+    collect_references(root, source, &mut refs);
     refs
 }
 

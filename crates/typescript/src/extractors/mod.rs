@@ -12,6 +12,45 @@ pub use references::{TsReference, TsReferenceKind};
 pub use symbol::extract_ts_symbols;
 pub use symbol::{TsSymbol, TsSymbolKind};
 
+/// Parse-once extraction result for a single TypeScript/TSX source file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TsExtraction {
+    pub symbols: Vec<TsSymbol>,
+    pub imports: Vec<TsImport>,
+    pub references: Vec<TsReference>,
+}
+
+/// Extract symbols, imports, and references from one parse tree.
+#[cfg(feature = "tree-sitter-typescript")]
+pub fn extract_ts_file(source: &str, lang: TsLanguage) -> TsExtraction {
+    let mut parser = match try_init_ts_parser(lang) {
+        Some(p) => p,
+        None => {
+            return TsExtraction {
+                symbols: vec![],
+                imports: vec![],
+                references: vec![],
+            };
+        }
+    };
+    let tree = match parser.parse(source, None) {
+        Some(t) => t,
+        None => {
+            return TsExtraction {
+                symbols: vec![],
+                imports: vec![],
+                references: vec![],
+            };
+        }
+    };
+    let root = tree.root_node();
+    TsExtraction {
+        symbols: symbol::extract_ts_symbols_from_root(&root, source),
+        imports: imports::extract_ts_imports_from_root(&root, source),
+        references: references::extract_ts_references_from_root(&root, source),
+    }
+}
+
 /// Check whether the tree-sitter-typescript parser is available at runtime.
 pub fn is_ts_parser_available() -> bool {
     cfg!(feature = "tree-sitter-typescript")
@@ -68,4 +107,35 @@ pub fn parse_ts_source(
     parser
         .parse(source, None)
         .ok_or_else(|| TsParseError::ParseFailed("tree-sitter returned None".to_string()))
+}
+
+#[cfg(all(test, feature = "tree-sitter-typescript"))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_once_extraction_matches_separate_extractors() {
+        let source = r#"
+            import { makeUser } from "./user";
+            interface User { id: string }
+            export function run(user: User) {
+                return makeUser(user.id);
+            }
+        "#;
+
+        let combined = extract_ts_file(source, TsLanguage::TypeScript);
+
+        assert_eq!(
+            combined.symbols,
+            extract_ts_symbols(source, TsLanguage::TypeScript)
+        );
+        assert_eq!(
+            combined.imports,
+            extract_ts_imports(source, TsLanguage::TypeScript)
+        );
+        assert_eq!(
+            combined.references,
+            extract_ts_references(source, TsLanguage::TypeScript)
+        );
+    }
 }

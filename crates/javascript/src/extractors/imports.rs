@@ -55,8 +55,16 @@ pub fn extract_js_imports(source: &str, lang: super::JsLanguage) -> Vec<JsImport
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_js_imports_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-javascript")]
+pub(super) fn extract_js_imports_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<JsImport> {
     let mut imports = Vec::new();
-    collect_imports(&root, source, &mut imports);
+    collect_imports(root, source, &mut imports);
     imports
 }
 

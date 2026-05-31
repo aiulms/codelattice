@@ -33,6 +33,14 @@ pub fn extract_ts_imports(source: &str, lang: super::TsLanguage) -> Vec<TsImport
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_ts_imports_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+pub(super) fn extract_ts_imports_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<TsImport> {
     let mut imports = Vec::new();
 
     for i in 0..root.child_count() {

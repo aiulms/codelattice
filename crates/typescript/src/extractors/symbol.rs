@@ -69,8 +69,16 @@ pub fn extract_ts_symbols(source: &str, lang: TsLanguage) -> Vec<TsSymbol> {
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_ts_symbols_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+pub(super) fn extract_ts_symbols_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<TsSymbol> {
     let mut symbols = Vec::new();
-    collect_symbols(&root, source, None, &mut symbols);
+    collect_symbols(root, source, None, &mut symbols);
     symbols
 }
 

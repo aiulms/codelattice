@@ -57,12 +57,20 @@ pub fn extract_js_symbols(source: &str, lang: super::JsLanguage) -> Vec<JsSymbol
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_js_symbols_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-javascript")]
+pub(super) fn extract_js_symbols_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<JsSymbol> {
     let mut symbols = Vec::new();
     let mut exports = std::collections::HashSet::new();
     let mut default_export_name = None;
-    collect_export_info(&root, source, &mut exports, &mut default_export_name);
+    collect_export_info(root, source, &mut exports, &mut default_export_name);
     collect_symbols_recursive(
-        &root,
+        root,
         source,
         None,
         &mut symbols,

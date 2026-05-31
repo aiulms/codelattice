@@ -10418,6 +10418,51 @@ mod python_tests {
         );
     }
 
+    #[test]
+    fn mcp_python_project_job_trace_reuses_source_text() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = python_portable_smoke_dir();
+        let data = call_tool_json(
+            &mut session,
+            93101,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "job",
+                "root": root.to_string_lossy(),
+                "language": "python",
+                "compact": true,
+                "wait": true,
+                "timeoutMs": 30000
+            }),
+        );
+
+        assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+        let trace = &data["summary"]["analysisTrace"];
+        assert_eq!(trace["language"].as_str(), Some("python"));
+        assert_eq!(trace["granularity"].as_str(), Some("stage"));
+        assert_eq!(
+            trace["stages"]["sourceReadPasses"].as_u64(),
+            Some(1),
+            "Python analysis should reuse source text for call extraction: {trace:?}"
+        );
+        assert_eq!(
+            trace["stages"]["parsePassesPerFile"].as_u64(),
+            Some(2),
+            "Python still parses symbols/imports first, then calls after project function index exists: {trace:?}"
+        );
+        assert!(
+            trace["stages"]["callExtractionMs"].as_u64().is_some(),
+            "Python trace should expose call extraction timing: {trace:?}"
+        );
+        assert_eq!(
+            data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+            Some("stage")
+        );
+    }
+
     /// Python CLI quality: should return quality gates without error.
     #[test]
     fn mcp_python_quality_portable_smoke() {
@@ -18597,6 +18642,16 @@ fn mcp_typescript_job_summary_exposes_language_runtime_trace() {
             "trace should expose {key} stage timing: {trace:?}"
         );
     }
+    assert_eq!(
+        trace["stages"]["parsePassesPerFile"].as_u64(),
+        Some(1),
+        "TypeScript project-once extraction should parse each source file once: {trace:?}"
+    );
+    assert_eq!(
+        trace["stages"]["sourceReadPasses"].as_u64(),
+        Some(1),
+        "TypeScript project-once extraction should read each source file once: {trace:?}"
+    );
     assert!(
         trace["totalMs"].as_u64().unwrap_or(0) > 0,
         "trace should include wall-clock project analysis time: {trace:?}"

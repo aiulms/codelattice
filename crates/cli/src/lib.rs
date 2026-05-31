@@ -2646,11 +2646,12 @@ fn run_typescript_analysis_with_trace(
             } else {
                 gitnexus_typescript::extractors::TsLanguage::TypeScript
             };
+            let extraction = gitnexus_typescript::extractors::extract_ts_file(&source, lang);
             Some((
                 file.clone(),
-                gitnexus_typescript::extractors::extract_ts_symbols(&source, lang),
-                gitnexus_typescript::extractors::extract_ts_imports(&source, lang),
-                gitnexus_typescript::extractors::extract_ts_references(&source, lang),
+                extraction.symbols,
+                extraction.imports,
+                extraction.references,
             ))
         })
         .collect::<Vec<_>>();
@@ -2717,6 +2718,8 @@ fn run_typescript_analysis_with_trace(
             "sourceDiscoveryMs": source_discovery_ms,
             "manifestMs": manifest_ms,
             "extractionMs": extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
             "projectModelMs": project_model_ms,
             "resolverBuildMs": resolver_build_ms,
             "graphBuildMs": graph_build_ms,
@@ -2724,7 +2727,7 @@ fn run_typescript_analysis_with_trace(
         }),
         vec![
             "Stage trace measures the current project-once TypeScript analyzer.",
-            "Extraction currently reads each source file once and runs symbol/import/reference extraction in that worker.",
+            "Extraction parses each source file once and derives symbols/imports/references from that tree.",
         ],
     );
 
@@ -2848,12 +2851,13 @@ fn run_javascript_analysis_with_trace(
             } else {
                 gitnexus_javascript::extractors::JsLanguage::JavaScript
             };
+            let extraction = gitnexus_javascript::extractors::extract_js_file(&source, lang);
 
             Some((
                 file.clone(),
-                gitnexus_javascript::extractors::extract_js_symbols(&source, lang),
-                gitnexus_javascript::extractors::extract_js_imports(&source, lang),
-                gitnexus_javascript::extractors::extract_js_references(&source, lang),
+                extraction.symbols,
+                extraction.imports,
+                extraction.references,
             ))
         })
         .collect::<Vec<_>>();
@@ -2920,6 +2924,8 @@ fn run_javascript_analysis_with_trace(
             "sourceDiscoveryMs": source_discovery_ms,
             "manifestMs": manifest_ms,
             "extractionMs": extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
             "projectModelMs": project_model_ms,
             "resolverBuildMs": resolver_build_ms,
             "graphBuildMs": graph_build_ms,
@@ -2927,7 +2933,7 @@ fn run_javascript_analysis_with_trace(
         }),
         vec![
             "Stage trace measures the current project-once JavaScript analyzer.",
-            "Extraction currently reads each source file once and runs symbol/import/reference extraction in that worker.",
+            "Extraction parses each source file once and derives symbols/imports/references from that tree.",
         ],
     );
 
@@ -3290,6 +3296,7 @@ fn run_python_analysis_with_trace(
         BTreeMap::new();
     let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonImport>> =
         BTreeMap::new();
+    let mut source_by_file: BTreeMap<std::path::PathBuf, String> = BTreeMap::new();
 
     let extracted = all_files
         .par_iter()
@@ -3300,15 +3307,14 @@ fn run_python_analysis_with_trace(
                 .unwrap_or(file)
                 .to_string_lossy()
                 .to_string();
-            Some((
-                file.clone(),
-                gitnexus_python::extract_python_symbols(&source, &rel_path),
-                gitnexus_python::extract_python_imports(&source),
-            ))
+            let symbols = gitnexus_python::extract_python_symbols(&source, &rel_path);
+            let imports = gitnexus_python::extract_python_imports(&source);
+            Some((file.clone(), source, symbols, imports))
         })
         .collect::<Vec<_>>();
 
-    for (file, syms, imps) in extracted {
+    for (file, source, syms, imps) in extracted {
+        source_by_file.insert(file.clone(), source);
         if !syms.is_empty() {
             symbols_by_file.insert(file.clone(), syms);
         }
@@ -3342,10 +3348,9 @@ fn run_python_analysis_with_trace(
     let stage_start = std::time::Instant::now();
     let mut calls_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonCall>> =
         BTreeMap::new();
-    let call_entries = all_files
+    let call_entries = source_by_file
         .par_iter()
-        .filter_map(|file| {
-            let source = std::fs::read_to_string(file).ok()?;
+        .filter_map(|(file, source)| {
             let rel_path = file
                 .strip_prefix(&project.root)
                 .unwrap_or(file)
@@ -3411,6 +3416,8 @@ fn run_python_analysis_with_trace(
             "projectRootMs": project_root_ms,
             "sourceDiscoveryMs": source_discovery_ms,
             "extractionMs": extraction_ms,
+            "parsePassesPerFile": 2,
+            "sourceReadPasses": 1,
             "functionIndexMs": function_index_ms,
             "callExtractionMs": call_extraction_ms,
             "moduleIndexMs": module_index_ms,
@@ -3419,7 +3426,7 @@ fn run_python_analysis_with_trace(
         }),
         vec![
             "Stage trace measures the current project-once Python analyzer.",
-            "Python call extraction currently performs a second source read after symbol/import extraction.",
+            "Python reuses cached source text for call extraction; calls still parse after project function index construction.",
         ],
     );
 

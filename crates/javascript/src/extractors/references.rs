@@ -38,8 +38,16 @@ pub fn extract_js_references(source: &str, lang: super::JsLanguage) -> Vec<JsRef
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_js_references_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-javascript")]
+pub(super) fn extract_js_references_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+) -> Vec<JsReference> {
     let mut refs = Vec::new();
-    collect_refs(&root, source, &mut refs);
+    collect_refs(root, source, &mut refs);
     refs
 }
 
