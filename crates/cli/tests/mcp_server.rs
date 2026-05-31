@@ -18465,6 +18465,64 @@ fn mcp_symbol_workspace_root_auto_routes_to_matching_project() {
 }
 
 #[test]
+fn mcp_symbol_request_context_resolves_auto_language() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92195,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_string_lossy(),
+            "language": "auto",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "facade responses should expose the normalized request context: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["tool"].as_str(),
+        Some("codelattice_symbol")
+    );
+    assert_eq!(data["requestContext"]["mode"].as_str(), Some("search"));
+    assert_eq!(
+        data["requestContext"]["requestedLanguage"].as_str(),
+        Some("auto")
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
+        Some("rust"),
+        "language=auto should resolve before lower-level symbol handlers run: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["rootRouter"]["routed"].as_bool(),
+        Some(false)
+    );
+    assert_eq!(
+        data["runtimeCapabilities"]["language"].as_str(),
+        Some("rust"),
+        "compact facade output should include language runtime capability metadata: {data:?}"
+    );
+    assert!(
+        data["tokenBudget"]["max"].as_u64().unwrap_or(0) <= 16 * 1024,
+        "compact facade token budget should be explicit and bounded: {data:?}"
+    );
+    assert!(
+        data["omitted"].as_array().is_some(),
+        "compact facade output should tell AI what was omitted: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_change_review_workspace_root_auto_routes_impact_to_matching_project() {
     let workspace = create_workspace_root_router_fixture();
     let root = workspace.path();
@@ -18503,6 +18561,58 @@ fn mcp_change_review_workspace_root_auto_routes_impact_to_matching_project() {
     assert!(
         !risk.eq_ignore_ascii_case("UNKNOWN") && !risk.is_empty(),
         "routed impact should analyze the selected project instead of returning UNKNOWN: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_change_review_request_context_tracks_workspace_route() {
+    let workspace = create_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92196,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "impact",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "query": "backend_target",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "routed facade responses should expose the same normalized context as non-routed calls: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["originalRoot"].as_str(),
+        Some(root.to_str().unwrap())
+    );
+    let effective_root = data["requestContext"]["effectiveRoot"]
+        .as_str()
+        .unwrap_or("");
+    assert!(
+        effective_root.ends_with("/backend"),
+        "requestContext should record routed project root, got {effective_root}: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
+        Some("rust")
+    );
+    assert_eq!(
+        data["requestContext"]["rootRouter"]["routed"].as_bool(),
+        Some(true)
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedRoot"].as_str(),
+        Some(effective_root),
+        "rootRouter and requestContext should agree on selected root: {data:?}"
     );
 }
 
@@ -18616,6 +18726,19 @@ fn mcp_workflow_ask_before_edit_workspace_root_auto_routes() {
     );
     assert_eq!(
         data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("rust")
+    );
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "ask should expose the same normalized request context as the direct facades: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveRoot"].as_str(),
+        Some(selected_root)
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
         Some("rust")
     );
     assert!(

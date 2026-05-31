@@ -118,6 +118,10 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::mcp_facade::{
+    attach_facade_request_context, facade_language_runtime_capabilities, FacadeRequestContext,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Freshness {
@@ -21526,6 +21530,45 @@ fn wrap_facade_output(
             );
         }
     }
+    if let Some(obj) = out.as_object_mut() {
+        obj.insert(
+            "runtimeCapabilities".to_string(),
+            facade_language_runtime_capabilities(language),
+        );
+        if compact {
+            obj.insert(
+                "omitted".to_string(),
+                json!([
+                    {
+                        "field": "rootDiagnosis.sourceOnlyEntries",
+                        "reason": "compact mode keeps only sourceOnlyEntryPreview/sourceOnlySummary"
+                    },
+                    {
+                        "field": "schedule.phases",
+                        "reason": "compact mode replaces full schedules with scheduleSummary"
+                    },
+                    {
+                        "field": "analysisSemantics/generatedFrom",
+                        "reason": "compact mode uses contextRefs for repeated static-analysis semantics"
+                    }
+                ]),
+            );
+        }
+    }
+    if compact {
+        let estimated_bytes = serde_json::to_string(&out).map(|s| s.len()).unwrap_or(0);
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "tokenBudget".to_string(),
+                json!({
+                    "used": estimated_bytes,
+                    "max": 16 * 1024,
+                    "estimated": true,
+                    "policy": "compact facade responses should stay below the 16KB AI decision budget"
+                }),
+            );
+        }
+    }
     out
 }
 
@@ -23120,12 +23163,14 @@ fn workspace_auto_route_decision(
 
 fn attach_root_router_to_tool_result(result: Value, router: Value) -> Value {
     let mut inner = unwrap_tool_result(&result);
+    let context = FacadeRequestContext::from_routed_tool_result(&inner, &router);
     if let Some(obj) = inner.as_object_mut() {
         obj.insert("rootRouter".to_string(), router);
         if let Some(summary) = obj.get_mut("summary").and_then(|v| v.as_object_mut()) {
             summary.insert("routedFromWorkspace".to_string(), json!(true));
         }
     }
+    attach_facade_request_context(&mut inner, &context);
     tool_result(&inner)
 }
 
@@ -23199,6 +23244,14 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     }
     let language_owned = resolve_auto_language_for_root(&validated_root, requested_language)?;
     let language = language_owned.as_str();
+    let request_context = FacadeRequestContext::unrouted(
+        "codelattice_symbol",
+        mode,
+        root,
+        requested_language,
+        language,
+        compact,
+    );
     let mut effective_params = params.clone();
     effective_params["language"] = json!(language);
     let analysis_params = &effective_params;
@@ -23425,7 +23478,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             "Use codelattice_workspace mode=graph to see project structure",
             "Re-run codelattice_symbol with a specific project root from recommendedProjectRoots",
         ];
-        return Ok(tool_result(&wrap_facade_output(
+        let mut output = wrap_facade_output(
             help_output,
             "codelattice_symbol",
             mode,
@@ -23435,7 +23488,9 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             next_actions,
             underlying,
             compact,
-        )));
+        );
+        attach_facade_request_context(&mut output, &request_context);
+        return Ok(tool_result(&output));
     }
 
     let mut summary = json!({"riskLevel":"low","mode":mode});
@@ -23453,7 +23508,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         }
     }
 
-    Ok(tool_result(&wrap_facade_output(
+    let mut output = wrap_facade_output(
         inner,
         "codelattice_symbol",
         mode,
@@ -23463,7 +23518,9 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         next_actions,
         underlying,
         compact,
-    )))
+    );
+    attach_facade_request_context(&mut output, &request_context);
+    Ok(tool_result(&output))
 }
 
 // ── codelattice_change_review ────────────────────────────────────────
@@ -25244,6 +25301,31 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         }
         let ask_root_ref = ask_root.as_str();
         let ask_language_ref = ask_language.as_str();
+        let ask_request_context = if ask_root_ref.is_empty() {
+            Value::Null
+        } else if ask_root_router.is_null() {
+            FacadeRequestContext::unrouted(
+                "codelattice_workflow",
+                "ask",
+                root,
+                language,
+                ask_language_ref,
+                ask_compact,
+            )
+            .to_json()
+        } else {
+            FacadeRequestContext::new(
+                "codelattice_workflow",
+                "ask",
+                root,
+                ask_root_ref,
+                language,
+                ask_language_ref,
+                ask_compact,
+                ask_root_router.clone(),
+            )
+            .to_json()
+        };
 
         let (
             intent,
@@ -25321,7 +25403,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             Value::Null
         };
 
-        let ask_result = json!({
+        let mut ask_result = json!({
             "schemaVersion": "codelattice.ask.v2",
             "intent": intent,
             "question": question,
@@ -25330,6 +25412,8 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "effectiveRoot": if ask_root_ref.is_empty() { Value::Null } else { json!(ask_root_ref) },
             "effectiveLanguage": ask_language_ref,
             "rootRouter": ask_root_router,
+            "requestContext": ask_request_context,
+            "runtimeCapabilities": facade_language_runtime_capabilities(ask_language_ref),
             "targetQuery": target_query,
             "answerSummary": answer_summary,
             "evidence": evidence.into_iter().take(5).collect::<Vec<_>>(),
@@ -25356,6 +25440,31 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 "version": "v2"
             }
         });
+        if ask_compact {
+            if let Some(obj) = ask_result.as_object_mut() {
+                obj.insert(
+                    "omitted".to_string(),
+                    json!([
+                        {"field": "full project graph", "reason": "ask compact mode returns direct evidence and follow-up calls instead"},
+                        {"field": "runtime proof", "reason": "ask uses static analysis only"}
+                    ]),
+                );
+            }
+            let estimated_bytes = serde_json::to_string(&ask_result)
+                .map(|s| s.len())
+                .unwrap_or(0);
+            if let Some(obj) = ask_result.as_object_mut() {
+                obj.insert(
+                    "tokenBudget".to_string(),
+                    json!({
+                        "used": estimated_bytes,
+                        "max": 16 * 1024,
+                        "estimated": true,
+                        "policy": "compact ask responses should stay within the AI decision budget"
+                    }),
+                );
+            }
+        }
         let ask_text =
             serde_json::to_string_pretty(&ask_result).unwrap_or_else(|_| ask_result.to_string());
         return Ok(json!({
@@ -25990,16 +26099,47 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     } else {
         Value::Null
     };
+    let workflow_effective_root = root_router["selectedRoot"].as_str().unwrap_or(root);
+    let workflow_effective_language = root_router["selectedLanguage"].as_str().unwrap_or(language);
+    let workflow_request_context = if root.is_empty() {
+        Value::Null
+    } else if root_router.is_null() {
+        FacadeRequestContext::unrouted(
+            "codelattice_workflow",
+            mode,
+            root,
+            language,
+            workflow_effective_language,
+            compact,
+        )
+        .to_json()
+    } else {
+        FacadeRequestContext::new(
+            "codelattice_workflow",
+            mode,
+            root,
+            workflow_effective_root,
+            language,
+            workflow_effective_language,
+            compact,
+            root_router.clone(),
+        )
+        .to_json()
+    };
 
-    let out = json!({
+    let mut out = json!({
         "schemaVersion": "ai.workflow.v1",
         "tool": "codelattice_workflow",
         "mode": mode,
         "language": language,
         "root": if root.is_empty() { Value::Null } else { json!(root) },
+        "effectiveRoot": if workflow_effective_root.is_empty() { Value::Null } else { json!(workflow_effective_root) },
+        "effectiveLanguage": workflow_effective_language,
         "rootDiagnosis": root_diagnosis,
         "rootRouter": root_router,
+        "requestContext": workflow_request_context,
         "analysisSemantics": build_analysis_semantics(),
+        "runtimeCapabilities": facade_language_runtime_capabilities(workflow_effective_language),
         "situation": situation,
         "riskLevel": risk_level,
         "confidence": "medium",
@@ -26032,6 +26172,29 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         "compact": compact,
         "underlyingTools": underlying
     });
+    if compact {
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "omitted".to_string(),
+                json!([
+                    {"field": "rootDiagnosis.sourceOnlyEntries", "reason": "compact workflow output keeps root summaries and routing hints"},
+                    {"field": "completedActions.fullPayloads", "reason": "workflow compact output keeps evidence summaries and nextActions"}
+                ]),
+            );
+        }
+        let estimated_bytes = serde_json::to_string(&out).map(|s| s.len()).unwrap_or(0);
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "tokenBudget".to_string(),
+                json!({
+                    "used": estimated_bytes,
+                    "max": 16 * 1024,
+                    "estimated": true,
+                    "policy": "compact workflow responses should stay within the AI decision budget"
+                }),
+            );
+        }
+    }
     Ok(tool_result(&out))
 }
 

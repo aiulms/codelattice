@@ -17,6 +17,7 @@ mod cangjie_bridge;
 mod cpp_bridge;
 mod engine_bridge;
 mod language_detect;
+mod mcp_facade;
 mod mcp_job;
 mod mcp_server;
 mod python_bridge;
