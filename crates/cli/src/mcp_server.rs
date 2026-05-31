@@ -24369,6 +24369,44 @@ fn workflow_action(tool: &str, arguments: Value, why: &str, required: bool) -> V
     })
 }
 
+fn workflow_action_targets_project(action: &Value) -> bool {
+    match action["tool"].as_str().unwrap_or("") {
+        "codelattice_project" | "codelattice_symbol" | "codelattice_change_review" => true,
+        "codelattice_workflow" => matches!(
+            action["arguments"]["mode"].as_str().unwrap_or(""),
+            "before_edit"
+                | "diagnose_issue"
+                | "explain_symbol"
+                | "delete_code"
+                | "root_cause"
+                | "public_api_change"
+                | "framework_route_change"
+                | "docs_tests_sync"
+                | "config_examples_sync"
+        ),
+        _ => false,
+    }
+}
+
+fn workflow_rewrite_actions_for_project(
+    actions: &mut [Value],
+    selected_root: &str,
+    selected_language: &str,
+    workspace_root: &str,
+) {
+    for action in actions {
+        if !workflow_action_targets_project(action) {
+            continue;
+        }
+        if let Some(args) = action.get_mut("arguments").and_then(|v| v.as_object_mut()) {
+            args.insert("root".to_string(), json!(selected_root));
+            args.insert("language".to_string(), json!(selected_language));
+            args.insert("workspaceRoot".to_string(), json!(workspace_root));
+            args.insert("selectedFromWorkspace".to_string(), json!(true));
+        }
+    }
+}
+
 fn workflow_missing(name: &str, reason: &str, suggestion: &str) -> Value {
     json!({
         "name": name,
@@ -25271,6 +25309,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let mut risk_level = "low";
     let situation;
     let human_review_needed = true;
+    let mut root_router = Value::Null;
 
     if root.is_empty() {
         missing_inputs.push(workflow_missing(
@@ -25785,32 +25824,54 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             | "config_examples_sync"
     );
     if root_is_workspace && symbol_project_workflow {
-        findings.push(json!(
-            "The provided root is a workspace root. Symbol-level actions need a specific project root; workspace actions remain available."
-        ));
-        missing_inputs.push(workflow_missing(
-            "projectRoot",
-            "This workflow needs a single project root before using codelattice_symbol or project-level change review.",
-            "Choose one entry from rootDiagnosis.recommendedProjectRoots, or run codelattice_workspace mode=graph first.",
-        ));
-        let mut workspace_actions = vec![workflow_action(
-            "codelattice_workspace",
-            json!({"mode":"graph","root":root,"compact":true}),
-            "Inspect the workspace graph and choose the concrete project root before symbol-level analysis.",
-            true,
-        )];
-        if !symbol.is_empty() {
-            workspace_actions.push(workflow_action(
-                "codelattice_workspace",
-                json!({"mode":"impact","root":root,"target":{"query":symbol},"direction":"both","maxDepth":3,"compact":true}),
-                "Optional: estimate cross-project impact from a workspace-level query while choosing the project root.",
-                false,
+        let route = workspace_auto_route_decision(
+            cache,
+            root,
+            language,
+            params,
+            "codelattice_workflow",
+            mode,
+        );
+        if let Some(Ok(route)) = route {
+            findings.push(json!(format!(
+                "Workspace root auto-routed to project root {} for {}.",
+                route.selected_root, mode
+            )));
+            workflow_rewrite_actions_for_project(
+                &mut next_actions,
+                &route.selected_root,
+                &route.selected_language,
+                root,
+            );
+            root_router = route.router;
+        } else {
+            findings.push(json!(
+                "The provided root is a workspace root. Symbol-level actions need a specific project root; workspace actions remain available."
             ));
-        }
-        next_actions = workspace_actions;
-        risk_level = "unknown";
-        if !underlying.contains(&"codelattice_workspace_graph") {
-            underlying.push("codelattice_workspace_graph");
+            missing_inputs.push(workflow_missing(
+                "projectRoot",
+                "This workflow needs a single project root before using codelattice_symbol or project-level change review.",
+                "Choose one entry from rootDiagnosis.recommendedProjectRoots, or run codelattice_workspace mode=graph first.",
+            ));
+            let mut workspace_actions = vec![workflow_action(
+                "codelattice_workspace",
+                json!({"mode":"graph","root":root,"compact":true}),
+                "Inspect the workspace graph and choose the concrete project root before symbol-level analysis.",
+                true,
+            )];
+            if !symbol.is_empty() {
+                workspace_actions.push(workflow_action(
+                    "codelattice_workspace",
+                    json!({"mode":"impact","root":root,"target":{"query":symbol},"direction":"both","maxDepth":3,"compact":true}),
+                    "Optional: estimate cross-project impact from a workspace-level query while choosing the project root.",
+                    false,
+                ));
+            }
+            next_actions = workspace_actions;
+            risk_level = "unknown";
+            if !underlying.contains(&"codelattice_workspace_graph") {
+                underlying.push("codelattice_workspace_graph");
+            }
         }
     }
 
@@ -25876,6 +25937,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         "language": language,
         "root": if root.is_empty() { Value::Null } else { json!(root) },
         "rootDiagnosis": root_diagnosis,
+        "rootRouter": root_router,
         "analysisSemantics": build_analysis_semantics(),
         "situation": situation,
         "riskLevel": risk_level,

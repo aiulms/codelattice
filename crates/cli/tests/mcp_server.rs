@@ -18507,6 +18507,80 @@ fn mcp_change_review_workspace_root_auto_routes_impact_to_matching_project() {
 }
 
 #[test]
+fn mcp_workflow_before_edit_workspace_root_auto_routes_and_executes() {
+    let workspace = create_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92193,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "symbol": "backend_target",
+            "execute": true,
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["mode"].as_str(), Some("before_edit"));
+    assert_eq!(
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "workflow should auto-route workspace root to a concrete project: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/backend"),
+        "workflow router should select backend project, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("rust")
+    );
+    assert!(
+        data["missingInputs"]
+            .as_array()
+            .map(|items| !items
+                .iter()
+                .any(|item| item["name"].as_str() == Some("projectRoot")))
+            .unwrap_or(false),
+        "routed workflow should not ask for projectRoot: {data:?}"
+    );
+    assert_eq!(data["execution"]["status"].as_str(), Some("completed"));
+    let completed = data["completedActions"]
+        .as_array()
+        .expect("completedActions array");
+    assert!(
+        completed
+            .iter()
+            .any(|item| item["tool"].as_str() == Some("codelattice_symbol")),
+        "workflow should execute symbol context on selected project: {data:?}"
+    );
+    assert!(
+        completed
+            .iter()
+            .any(|item| item["tool"].as_str() == Some("codelattice_change_review")),
+        "workflow should execute impact review on selected project: {data:?}"
+    );
+    let next = data["nextActions"].as_array().expect("nextActions array");
+    assert!(
+        next.iter().any(|item| {
+            item["tool"].as_str() == Some("codelattice_change_review")
+                && item["arguments"]["mode"].as_str() == Some("impact")
+                && item["arguments"]["root"].as_str() == Some(selected_root)
+                && item["arguments"]["language"].as_str() == Some("rust")
+        }),
+        "workflow nextActions should be rewritten to the selected project root: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_control_plane_always_available_during_jobs() {
     let large = create_large_ask_rust_project();
     let mut session = McpSession::start();
