@@ -18623,6 +18623,131 @@ fn mcp_project_auto_job_response_has_request_context() {
 }
 
 #[test]
+fn mcp_project_explicit_job_has_request_context() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92200,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root.to_string_lossy(),
+            "language": "auto",
+            "compact": true
+        }),
+    );
+
+    assert!(
+        data["jobId"].as_str().is_some(),
+        "explicit job response should still include jobId: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "explicit job responses should share the same facade request contract as auto-job responses: {data:?}"
+    );
+    assert_eq!(
+        data["requestContext"]["tool"].as_str(),
+        Some("codelattice_project")
+    );
+    assert_eq!(data["requestContext"]["mode"].as_str(), Some("job"));
+    assert_eq!(
+        data["requestContext"]["requestedLanguage"].as_str(),
+        Some("auto")
+    );
+    assert_eq!(
+        data["requestContext"]["effectiveLanguage"].as_str(),
+        Some("rust")
+    );
+    assert_eq!(
+        data["runtimeCapabilities"]["language"].as_str(),
+        Some("rust")
+    );
+}
+
+#[test]
+fn mcp_job_status_and_detail_infer_request_context_from_job() {
+    let root = portable_smoke_dir();
+    let root_str = root.to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let job = call_tool_json(
+        &mut session,
+        92201,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": root_str,
+            "language": "auto",
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().expect("jobId").to_string();
+
+    let status = call_tool_json(
+        &mut session,
+        92202,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job_status",
+            "jobId": job_id,
+            "compact": true
+        }),
+    );
+    assert_eq!(
+        status["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "job_status should infer root/language from the job when root is omitted: {status:?}"
+    );
+    assert_eq!(
+        status["requestContext"]["mode"].as_str(),
+        Some("job_status")
+    );
+    assert_eq!(
+        status["requestContext"]["effectiveLanguage"].as_str(),
+        Some("rust")
+    );
+    assert!(
+        status["requestContext"]["effectiveRoot"]
+            .as_str()
+            .is_some_and(|value| value.ends_with("fixtures/call-resolution/c1-same-module")),
+        "job_status should expose the job root as effectiveRoot: {status:?}"
+    );
+
+    let detail = call_tool_json(
+        &mut session,
+        92203,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job_detail",
+            "jobId": job["jobId"].as_str().unwrap(),
+            "page": 0,
+            "pageSize": 2,
+            "compact": true
+        }),
+    );
+    assert_eq!(
+        detail["requestContext"]["schemaVersion"].as_str(),
+        Some("codelattice.facadeRequest.v1"),
+        "job_detail should keep the same inferred job context: {detail:?}"
+    );
+    assert_eq!(
+        detail["requestContext"]["mode"].as_str(),
+        Some("job_detail")
+    );
+    assert_eq!(
+        detail["runtimeCapabilities"]["language"].as_str(),
+        Some("rust")
+    );
+}
+
+#[test]
 fn mcp_workspace_overview_has_request_context() {
     let workspace = create_workspace_root_router_fixture();
     let root = workspace.path();

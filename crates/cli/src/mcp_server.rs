@@ -16540,6 +16540,7 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
             match mode {
                 "job" => {
                     let root = params["root"].as_str().unwrap_or("");
+                    let compact = params["compact"].as_bool().unwrap_or(false);
                     if root.is_empty() {
                         return Some(Err(mcp_error(
                             "missing_parameter",
@@ -16554,7 +16555,15 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                             tool_name,
                             "job",
                         ) {
-                            return Some(Ok(tool_result(&error)));
+                            let response = attach_facade_job_contract(
+                                error,
+                                tool_name,
+                                mode,
+                                root,
+                                requested_language,
+                                compact,
+                            );
+                            return Some(Ok(tool_result(&response)));
                         }
                     }
                     let language = if tool_name == "codelattice_workspace" {
@@ -16611,10 +16620,21 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                             }
                         }
                     }
-                    Some(Ok(tool_result(&result)))
+                    let response = attach_facade_job_contract(
+                        result,
+                        tool_name,
+                        mode,
+                        root,
+                        requested_language,
+                        compact,
+                    );
+                    Some(Ok(tool_result(&response)))
                 }
                 "job_status" => {
                     let job_id = params["jobId"].as_str().unwrap_or("");
+                    let requested_language = params["language"].as_str().unwrap_or("auto");
+                    let requested_root = params["root"].as_str().unwrap_or("");
+                    let compact = params["compact"].as_bool().unwrap_or(false);
                     if job_id.is_empty() {
                         return Some(Err(mcp_error(
                             "missing_parameter",
@@ -16622,28 +16642,60 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                         )));
                     }
                     match crate::mcp_job::get_job_status(job_id) {
-                        Some(job) => Some(Ok(tool_result(&job))),
-                        None => Some(Ok(tool_result(&json!({
-                            "error": "job_not_found",
-                            "jobId": job_id,
-                            "facade": tool_name
-                        })))),
+                        Some(job) => {
+                            let response = attach_facade_job_contract(
+                                job,
+                                tool_name,
+                                mode,
+                                requested_root,
+                                requested_language,
+                                compact,
+                            );
+                            Some(Ok(tool_result(&response)))
+                        }
+                        None => {
+                            let response = attach_facade_job_contract(
+                                json!({
+                                    "error": "job_not_found",
+                                    "jobId": job_id,
+                                    "facade": tool_name
+                                }),
+                                tool_name,
+                                mode,
+                                requested_root,
+                                requested_language,
+                                compact,
+                            );
+                            Some(Ok(tool_result(&response)))
+                        }
                     }
                 }
                 "job_cancel" => {
                     let job_id = params["jobId"].as_str().unwrap_or("");
+                    let requested_language = params["language"].as_str().unwrap_or("auto");
+                    let requested_root = params["root"].as_str().unwrap_or("");
+                    let compact = params["compact"].as_bool().unwrap_or(false);
                     if job_id.is_empty() {
                         return Some(Err(mcp_error(
                             "missing_parameter",
                             "jobId required for job_cancel mode",
                         )));
                     }
-                    Some(Ok(tool_result(
-                        &crate::mcp_job::MCP_JOBS.cancel_job(job_id),
-                    )))
+                    let response = attach_facade_job_contract(
+                        crate::mcp_job::MCP_JOBS.cancel_job(job_id),
+                        tool_name,
+                        mode,
+                        requested_root,
+                        requested_language,
+                        compact,
+                    );
+                    Some(Ok(tool_result(&response)))
                 }
                 "job_detail" => {
                     let job_id = params["jobId"].as_str().unwrap_or("");
+                    let requested_language = params["language"].as_str().unwrap_or("auto");
+                    let requested_root = params["root"].as_str().unwrap_or("");
+                    let compact = params["compact"].as_bool().unwrap_or(false);
                     if job_id.is_empty() {
                         return Some(Err(mcp_error(
                             "missing_parameter",
@@ -16654,14 +16706,32 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                     let page_size =
                         params["pageSize"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
                     if crate::mcp_job::MCP_JOBS.get(job_id).is_none() {
-                        return Some(Ok(tool_result(&json!({
-                            "error": "job_not_found",
-                            "jobId": job_id,
-                            "facade": tool_name
-                        }))));
+                        let response = attach_facade_job_contract(
+                            json!({
+                                "error": "job_not_found",
+                                "jobId": job_id,
+                                "facade": tool_name
+                            }),
+                            tool_name,
+                            mode,
+                            requested_root,
+                            requested_language,
+                            compact,
+                        );
+                        return Some(Ok(tool_result(&response)));
                     }
                     match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
-                        Some(page_result) => Some(Ok(tool_result(&page_result))),
+                        Some(page_result) => {
+                            let response = attach_facade_job_contract(
+                                page_result,
+                                tool_name,
+                                mode,
+                                requested_root,
+                                requested_language,
+                                compact,
+                            );
+                            Some(Ok(tool_result(&response)))
+                        }
                         None => {
                             let handle = crate::mcp_job::MCP_JOBS.get(job_id);
                             let status_str = handle
@@ -16678,7 +16748,8 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                                 handle.as_ref().map(|h| h.status),
                                 Some(JobStatus::Running) | Some(JobStatus::Queued)
                             ) {
-                                Some(Ok(tool_result(&json!({
+                                let response = attach_facade_job_contract(
+                                    json!({
                                     "schemaVersion": "codelattice.jobNotReady.v1",
                                     "status": "job_not_ready",
                                     "jobId": job_id,
@@ -16689,13 +16760,28 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                                         {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": job_id}},
                                         {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job_id, "page": page, "pageSize": page_size}}
                                     ]
-                                }))))
+                                    }),
+                                    tool_name,
+                                    mode,
+                                    requested_root,
+                                    requested_language,
+                                    compact,
+                                );
+                                Some(Ok(tool_result(&response)))
                             } else {
-                                Some(Ok(tool_result(&json!({
-                                    "error": "job_detail_unavailable",
-                                    "jobId": job_id,
-                                    "facade": tool_name
-                                }))))
+                                let response = attach_facade_job_contract(
+                                    json!({
+                                        "error": "job_detail_unavailable",
+                                        "jobId": job_id,
+                                        "facade": tool_name
+                                    }),
+                                    tool_name,
+                                    mode,
+                                    requested_root,
+                                    requested_language,
+                                    compact,
+                                );
+                                Some(Ok(tool_result(&response)))
                             }
                         }
                     }
@@ -22127,20 +22213,84 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
 
 // ═══ Generic job runtime dispatch for all facades ═══
 
+fn attach_facade_job_contract(
+    mut response: Value,
+    facade: &str,
+    mode: &str,
+    requested_root: &str,
+    requested_language: &str,
+    compact: bool,
+) -> Value {
+    let job_id = response["jobId"].as_str().unwrap_or("");
+    let job_handle = if job_id.is_empty() {
+        None
+    } else {
+        crate::mcp_job::MCP_JOBS.get(job_id)
+    };
+    let effective_root = response["root"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| job_handle.as_ref().map(|job| job.root.clone()))
+        .unwrap_or_else(|| requested_root.to_string());
+    let effective_language = response["language"]
+        .as_str()
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| job_handle.as_ref().map(|job| job.language.clone()))
+        .unwrap_or_else(|| requested_language.to_string());
+    let original_root = if requested_root.is_empty() {
+        effective_root.as_str()
+    } else {
+        requested_root
+    };
+    let root_router = json!({
+        "schemaVersion": "codelattice.rootRouter.v1",
+        "routed": false,
+        "tool": facade,
+        "mode": mode,
+        "originalRoot": original_root,
+        "selectedRoot": effective_root.clone(),
+        "selectedLanguage": effective_language.clone(),
+        "confidence": "n/a",
+        "reason": "job control-plane response uses the submitted job root/language"
+    });
+    let context = FacadeRequestContext::new(
+        facade,
+        mode,
+        original_root,
+        &effective_root,
+        requested_language,
+        &effective_language,
+        compact,
+        root_router,
+    );
+    attach_facade_contract(&mut response, &context);
+    response
+}
+
 fn handle_facade_job(
     root: &str,
     language: &str,
     mode: &str,
     facade: &str,
     params: &Value,
-    _compact: bool,
+    compact: bool,
 ) -> Result<Value, Value> {
     match mode {
         "job_cancel" => {
             let job_id = params["jobId"]
                 .as_str()
                 .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
-            Ok(tool_result(&crate::mcp_job::MCP_JOBS.cancel_job(job_id)))
+            let response = attach_facade_job_contract(
+                crate::mcp_job::MCP_JOBS.cancel_job(job_id),
+                facade,
+                mode,
+                root,
+                language,
+                compact,
+            );
+            Ok(tool_result(&response))
         }
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
@@ -22182,13 +22332,23 @@ fn handle_facade_job(
                                             );
                                         }
                                     }
+                                    let response = attach_facade_job_contract(
+                                        response, facade, mode, root, language, compact,
+                                    );
                                     Ok(tool_result(&response))
                                 }
-                                None => Ok(tool_result(&job_resp)),
+                                None => {
+                                    let response = attach_facade_job_contract(
+                                        job_resp, facade, mode, root, language, compact,
+                                    );
+                                    Ok(tool_result(&response))
+                                }
                             };
                         }
                     }
-                    Ok(tool_result(&job_resp))
+                    let response =
+                        attach_facade_job_contract(job_resp, facade, mode, root, language, compact);
+                    Ok(tool_result(&response))
                 }
                 Err(e) => Err(mcp_error("job_failed", &e)),
             }
@@ -22198,10 +22358,28 @@ fn handle_facade_job(
                 .as_str()
                 .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
             match crate::mcp_job::MCP_JOBS.get(job_id) {
-                Some(handle) => Ok(tool_result(&crate::mcp_job::MCP_JOBS.to_response(&handle))),
-                None => Ok(tool_result(
-                    &json!({"error": "job_not_found", "jobId": job_id, "facade": facade}),
-                )),
+                Some(handle) => {
+                    let response = attach_facade_job_contract(
+                        crate::mcp_job::MCP_JOBS.to_response(&handle),
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
+                None => {
+                    let response = attach_facade_job_contract(
+                        json!({"error": "job_not_found", "jobId": job_id, "facade": facade}),
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
             }
         }
         "job_detail" => {
@@ -22211,15 +22389,39 @@ fn handle_facade_job(
             let page = params["page"].as_u64().unwrap_or(0) as usize;
             let page_size = params["pageSize"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
             if crate::mcp_job::MCP_JOBS.get(job_id).is_none() {
-                return Ok(tool_result(
-                    &json!({"error": "job_not_found", "jobId": job_id, "facade": facade}),
-                ));
+                let response = attach_facade_job_contract(
+                    json!({"error": "job_not_found", "jobId": job_id, "facade": facade}),
+                    facade,
+                    mode,
+                    root,
+                    language,
+                    compact,
+                );
+                return Ok(tool_result(&response));
             }
             match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
-                Some(page_result) => Ok(tool_result(&page_result)),
-                None => Ok(tool_result(
-                    &json!({"error": "job_detail_unavailable", "jobId": job_id, "facade": facade}),
-                )),
+                Some(page_result) => {
+                    let response = attach_facade_job_contract(
+                        page_result,
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
+                None => {
+                    let response = attach_facade_job_contract(
+                        json!({"error": "job_detail_unavailable", "jobId": job_id, "facade": facade}),
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
             }
         }
         _ => Err(mcp_error(
@@ -22377,14 +22579,23 @@ fn handle_project_job(
     language: &str,
     mode: &str,
     params: &Value,
-    _compact: bool,
+    compact: bool,
 ) -> Result<Value, Value> {
+    let facade = "codelattice_project";
     match mode {
         "job_cancel" => {
             let job_id = params["jobId"]
                 .as_str()
                 .ok_or_else(|| mcp_error("missing_parameter", "jobId required"))?;
-            Ok(tool_result(&crate::mcp_job::MCP_JOBS.cancel_job(job_id)))
+            let response = attach_facade_job_contract(
+                crate::mcp_job::MCP_JOBS.cancel_job(job_id),
+                facade,
+                mode,
+                root,
+                language,
+                compact,
+            );
+            Ok(tool_result(&response))
         }
         "job" => {
             let parallel = params["parallel"].as_bool().unwrap_or(false);
@@ -22418,23 +22629,45 @@ fn handle_project_job(
                                     );
                                 }
                             }
+                            let response = attach_facade_job_contract(
+                                response, facade, mode, root, language, compact,
+                            );
                             Ok(tool_result(&response))
                         }
-                        None => Ok(tool_result(&result)),
+                        None => {
+                            let response = attach_facade_job_contract(
+                                result, facade, mode, root, language, compact,
+                            );
+                            Ok(tool_result(&response))
+                        }
                     };
                 }
             }
-            Ok(tool_result(&result))
+            let response =
+                attach_facade_job_contract(result, facade, mode, root, language, compact);
+            Ok(tool_result(&response))
         }
         "job_status" => {
             let job_id = params["jobId"].as_str().ok_or_else(|| {
                 mcp_error("missing_parameter", "jobId required for job_status mode")
             })?;
             match crate::mcp_job::get_job_status(job_id) {
-                Some(job) => Ok(tool_result(&job)),
-                None => Ok(tool_result(
-                    &json!({"error": "job_not_found", "jobId": job_id, "facade": "codelattice_project"}),
-                )),
+                Some(job) => {
+                    let response =
+                        attach_facade_job_contract(job, facade, mode, root, language, compact);
+                    Ok(tool_result(&response))
+                }
+                None => {
+                    let response = attach_facade_job_contract(
+                        json!({"error": "job_not_found", "jobId": job_id, "facade": "codelattice_project"}),
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
             }
         }
         "job_detail" => {
@@ -22444,15 +22677,39 @@ fn handle_project_job(
             let page = params["page"].as_u64().unwrap_or(0) as usize;
             let page_size = params["pageSize"].as_u64().unwrap_or(50).clamp(1, 200) as usize;
             if crate::mcp_job::MCP_JOBS.get(job_id).is_none() {
-                return Ok(tool_result(
-                    &json!({"error": "job_not_found", "jobId": job_id, "facade": "codelattice_project"}),
-                ));
+                let response = attach_facade_job_contract(
+                    json!({"error": "job_not_found", "jobId": job_id, "facade": "codelattice_project"}),
+                    facade,
+                    mode,
+                    root,
+                    language,
+                    compact,
+                );
+                return Ok(tool_result(&response));
             }
             match crate::mcp_job::MCP_JOBS.get_detail_page(job_id, page, page_size) {
-                Some(page_result) => Ok(tool_result(&page_result)),
-                None => Ok(tool_result(
-                    &json!({"error": "job_detail_unavailable", "jobId": job_id, "facade": "codelattice_project"}),
-                )),
+                Some(page_result) => {
+                    let response = attach_facade_job_contract(
+                        page_result,
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
+                None => {
+                    let response = attach_facade_job_contract(
+                        json!({"error": "job_detail_unavailable", "jobId": job_id, "facade": "codelattice_project"}),
+                        facade,
+                        mode,
+                        root,
+                        language,
+                        compact,
+                    );
+                    Ok(tool_result(&response))
+                }
             }
         }
         _ => Err(mcp_error(

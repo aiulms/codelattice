@@ -109,6 +109,23 @@ This does not optimize every language in this pack. It creates the contract so f
    - project auto-job `analyzing` responses expose the normalized request context.
    - workspace compact responses expose the normalized request context.
 
+## Pack C Tasks
+
+1. Extend the same facade request contract to explicit job control-plane paths:
+   `mode=job`, `mode=job_status`, `mode=job_detail`, and `mode=job_cancel`.
+2. Keep root-less polling ergonomic: when `job_status` / `job_detail` omit `root`
+   and `language`, infer `effectiveRoot` and `effectiveLanguage` from the job
+   registry.
+3. Keep job responses copy-pasteable for AI agents by attaching
+   `requestContext`, `runtimeCapabilities`, compact `omitted`, and `tokenBudget`
+   metadata to both the busy-guard control-plane fast path and the facade job
+   handlers.
+4. Add tests covering:
+   - explicit `codelattice_project(mode=job)` responses expose
+     `requestContext` and the resolved `effectiveLanguage`.
+   - `job_status` and `job_detail` infer context from `jobId` without requiring
+     the caller to resend `root`.
+
 ## Verification
 
 Minimum:
