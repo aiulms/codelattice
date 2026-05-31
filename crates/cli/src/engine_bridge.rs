@@ -129,6 +129,8 @@ pub fn run_project_analysis_once(
         "typescript" | "ts" => "typescript",
         "javascript" | "js" => "javascript",
         "python" | "py" => "python",
+        "c" => "c",
+        "cpp" | "c++" => "cpp",
         other => return Err(format!("No project-level analyzer for language: {other}")),
     };
 
@@ -152,6 +154,14 @@ pub fn run_project_analysis_once(
         }
         "python" => {
             let (graph, nodes, edges, trace) = crate::run_python_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
+        }
+        "c" => {
+            let (graph, nodes, edges, trace) = crate::run_c_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
+        }
+        "cpp" => {
+            let (graph, nodes, edges, trace) = crate::run_cpp_analysis_with_trace(root)?;
             (graph, nodes, edges, Some(trace))
         }
         _ => unreachable!(),
@@ -800,6 +810,92 @@ impl LanguageAdapter for PythonEngineAdapter {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// C / C++ Project-once Adapters
+// ═══════════════════════════════════════════════════════════════
+
+struct ProjectOnceBridgeAdapter {
+    language: &'static str,
+    file_prefix: &'static str,
+    parser_version: &'static str,
+    extensions: &'static [&'static str],
+    supports_calls: bool,
+    notes: &'static str,
+}
+
+impl LanguageAdapter for ProjectOnceBridgeAdapter {
+    fn capabilities(&self) -> AdapterCapabilities {
+        AdapterCapabilities {
+            language: self.language.into(),
+            adapter_version: "1.3".into(),
+            parser_version: self.parser_version.into(),
+            supports_parse: true,
+            supports_symbols: true,
+            supports_imports: true,
+            supports_references: self.supports_calls,
+            supports_calls: self.supports_calls,
+            file_granularity: false,
+            max_preferred_concurrency: Some(4),
+            notes: vec![self.notes.into()],
+        }
+    }
+
+    fn discover_files(&self, root: &str) -> Result<Vec<FileUnit>, String> {
+        let root_path = Path::new(root);
+        let files = find_files_recursive(root_path, self.extensions, 4);
+        Ok(files
+            .into_iter()
+            .enumerate()
+            .map(|(i, p)| FileUnit {
+                id: format!("{}:{}", self.file_prefix, i),
+                path: p,
+                language: self.language.into(),
+                content_hash: Some(format!("{}{:x}", self.file_prefix, i)),
+                size_bytes: 0,
+            })
+            .collect())
+    }
+
+    fn parse_file(&self, _unit: &FileUnit) -> Result<ParseOutput, String> {
+        Ok(ParseOutput {
+            unit_id: _unit.id.clone(),
+            filename: _unit.path.clone(),
+            ast_node_count: 0,
+            tree_sitter_success: true,
+            diagnostics: vec![],
+            parse_duration_ms: 0,
+        })
+    }
+
+    fn extract_symbols(&self, _unit: &FileUnit) -> Result<SymbolOutput, String> {
+        Ok(SymbolOutput {
+            unit_id: _unit.id.clone(),
+            symbol_count: 0,
+            symbols: vec![],
+            duration_ms: 0,
+        })
+    }
+
+    fn extract_imports(&self, _unit: &FileUnit) -> Result<ImportOutput, String> {
+        Ok(ImportOutput {
+            unit_id: _unit.id.clone(),
+            import_count: 0,
+            imports: vec![],
+            duration_ms: 0,
+        })
+    }
+
+    fn extract_references(&self, _unit: &FileUnit) -> Result<ReferenceOutput, String> {
+        Ok(ReferenceOutput {
+            unit_id: _unit.id.clone(),
+            call_count: 0,
+            reference_count: 0,
+            calls: vec![],
+            duration_ms: 0,
+        })
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════
 // Factory
 // ═══════════════════════════════════════════════════════════════
 
@@ -809,6 +905,22 @@ pub fn get_adapter_for_language(language: &str) -> Option<Box<dyn LanguageAdapte
         "typescript" | "ts" => Some(Box::new(TypeScriptEngineAdapter)),
         "javascript" | "js" => Some(Box::new(JavaScriptEngineAdapter)),
         "python" | "py" => Some(Box::new(PythonEngineAdapter)),
+        "c" => Some(Box::new(ProjectOnceBridgeAdapter {
+            language: "c",
+            file_prefix: "c",
+            parser_version: "tree-sitter-c",
+            extensions: &["c", "h"],
+            supports_calls: true,
+            notes: "Project-level via run_c_analysis",
+        })),
+        "cpp" | "c++" => Some(Box::new(ProjectOnceBridgeAdapter {
+            language: "cpp",
+            file_prefix: "cpp",
+            parser_version: "tree-sitter-cpp",
+            extensions: &["cpp", "cxx", "cc", "hpp", "hxx", "hh", "h"],
+            supports_calls: true,
+            notes: "Project-level via run_cpp_analysis",
+        })),
         _ => None,
     }
 }

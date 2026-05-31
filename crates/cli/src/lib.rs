@@ -2508,7 +2508,9 @@ fn run_arkts_analysis(
 #[cfg(any(
     feature = "tree-sitter-typescript",
     feature = "tree-sitter-javascript",
-    feature = "tree-sitter-python"
+    feature = "tree-sitter-python",
+    feature = "tree-sitter-c",
+    feature = "tree-sitter-cpp"
 ))]
 fn elapsed_ms(start: std::time::Instant) -> u64 {
     (start.elapsed().as_millis() as u64).max(1)
@@ -2517,7 +2519,9 @@ fn elapsed_ms(start: std::time::Instant) -> u64 {
 #[cfg(any(
     feature = "tree-sitter-typescript",
     feature = "tree-sitter-javascript",
-    feature = "tree-sitter-python"
+    feature = "tree-sitter-python",
+    feature = "tree-sitter-c",
+    feature = "tree-sitter-cpp"
 ))]
 fn graph_trace_counts(
     nodes: &[serde_json::Value],
@@ -2549,7 +2553,9 @@ fn graph_trace_counts(
 #[cfg(any(
     feature = "tree-sitter-typescript",
     feature = "tree-sitter-javascript",
-    feature = "tree-sitter-python"
+    feature = "tree-sitter-python",
+    feature = "tree-sitter-c",
+    feature = "tree-sitter-cpp"
 ))]
 fn language_stage_trace(
     language: &str,
@@ -2987,23 +2993,29 @@ fn run_javascript_analysis(
 // ============================================================
 
 #[cfg(feature = "tree-sitter-c")]
-fn run_c_analysis(
+fn run_c_analysis_with_trace(
     root: &Path,
 ) -> Result<
     (
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        serde_json::Value,
     ),
     String,
 > {
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
     // 1. Build project model
+    let stage_start = std::time::Instant::now();
     let project = gitnexus_c::project::find_c_project_root(root).ok_or_else(|| {
         "C project root not found (no C markers or C++ files detected)".to_string()
     })?;
+    let project_root_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let (source_files, header_files) = gitnexus_c::project::list_c_source_files(&project)
         .map_err(|e| format!("Failed to list C source files: {e}"))?;
 
@@ -3012,8 +3024,10 @@ fn run_c_analysis(
         .chain(header_files.iter())
         .cloned()
         .collect();
+    let source_discovery_ms = elapsed_ms(stage_start);
 
     // 2. Extract per-file data
+    let stage_start = std::time::Instant::now();
     let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_c::CSymbol>> =
         BTreeMap::new();
     let mut includes_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_c::CInclude>> =
@@ -3034,8 +3048,10 @@ fn run_c_analysis(
             includes_by_file.insert(file.clone(), extraction.includes);
         }
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
     // 3. Build include resolver from compile_commands.json (if present)
+    let stage_start = std::time::Instant::now();
     let c_compile_db = root
         .join("compile_commands.json")
         .exists()
@@ -3045,15 +3061,19 @@ fn run_c_analysis(
         .flatten();
     let c_resolver =
         gitnexus_c::CIncludeResolver::build(root, &source_files, &header_files, c_compile_db);
+    let resolver_build_ms = elapsed_ms(stage_start);
 
     // 4. Build graph
+    let stage_start = std::time::Instant::now();
     let graph = gitnexus_c::build_c_graph(
         &project,
         &symbols_by_file,
         &includes_by_file,
         Some(&c_resolver),
     );
+    let graph_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("C graph JSON serialization failed: {e}"))?;
 
@@ -3068,8 +3088,62 @@ fn run_c_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
 
+    let trace = language_stage_trace(
+        "c",
+        root,
+        elapsed_ms(total_start),
+        all_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "extractionMs": extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
+            "resolverBuildMs": resolver_build_ms,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once C analyzer.",
+            "C extraction parses each source/header file once and derives symbols/includes from that tree.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
+}
+
+#[cfg(feature = "tree-sitter-c")]
+fn run_c_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_c_analysis_with_trace(root)?;
     Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-c"))]
+fn run_c_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
+    Err("C support is disabled in this dev binary. CodeLattice-Tool installed binary includes C. For source builds: cargo build --features tree-sitter-c or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 #[cfg(not(feature = "tree-sitter-c"))]
@@ -3100,23 +3174,29 @@ fn compute_c_quality_gates(
 // ============================================================
 
 #[cfg(feature = "tree-sitter-cpp")]
-fn run_cpp_analysis(
+fn run_cpp_analysis_with_trace(
     root: &Path,
 ) -> Result<
     (
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        serde_json::Value,
     ),
     String,
 > {
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
     // 1. Build project model
+    let stage_start = std::time::Instant::now();
     let project = gitnexus_cpp::project::find_cpp_project_root(root).ok_or_else(|| {
         "C++ project root not found (no C++ markers or files detected)".to_string()
     })?;
+    let project_root_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let (source_files, header_files) = gitnexus_cpp::project::list_cpp_source_files(&project)
         .map_err(|e| format!("Failed to list C++ source files: {e}"))?;
 
@@ -3125,8 +3205,10 @@ fn run_cpp_analysis(
         .chain(header_files.iter())
         .cloned()
         .collect();
+    let source_discovery_ms = elapsed_ms(stage_start);
 
     // 2. Extract per-file data
+    let stage_start = std::time::Instant::now();
     let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppSymbol>> =
         BTreeMap::new();
     let mut includes_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppInclude>> =
@@ -3159,8 +3241,10 @@ fn run_cpp_analysis(
         }
         parsed_files.push((file.clone(), source, tree));
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
     // 3. Build project function name index for call extraction
+    let stage_start = std::time::Instant::now();
     let project_fn_names: Vec<String> = symbols_by_file
         .values()
         .flat_map(|syms| {
@@ -3177,8 +3261,10 @@ fn run_cpp_analysis(
                 .flat_map(|s| [s.qualified_name.clone(), s.name.clone()])
         })
         .collect();
+    let function_index_ms = elapsed_ms(stage_start);
 
     // 4. Extract calls per file
+    let stage_start = std::time::Instant::now();
     let mut calls_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppCall>> =
         BTreeMap::new();
     for (file, source, tree) in &parsed_files {
@@ -3195,8 +3281,10 @@ fn run_cpp_analysis(
             calls_by_file.insert(file.clone(), calls);
         }
     }
+    let call_extraction_ms = elapsed_ms(stage_start);
 
     // 5. Build include resolver from compile_commands.json (if present)
+    let stage_start = std::time::Instant::now();
     let cpp_compile_db = root
         .join("compile_commands.json")
         .exists()
@@ -3206,8 +3294,10 @@ fn run_cpp_analysis(
         .flatten();
     let cpp_resolver =
         gitnexus_cpp::CppIncludeResolver::build(root, &source_files, &header_files, cpp_compile_db);
+    let resolver_build_ms = elapsed_ms(stage_start);
 
     // 6. Build graph
+    let stage_start = std::time::Instant::now();
     let graph = gitnexus_cpp::build_cpp_graph(
         &project,
         &symbols_by_file,
@@ -3215,7 +3305,9 @@ fn run_cpp_analysis(
         &calls_by_file,
         Some(&cpp_resolver),
     );
+    let graph_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("C++ graph JSON serialization failed: {e}"))?;
 
@@ -3230,8 +3322,64 @@ fn run_cpp_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
 
+    let trace = language_stage_trace(
+        "cpp",
+        root,
+        elapsed_ms(total_start),
+        all_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "extractionMs": extraction_ms,
+            "parsePassesPerFile": 1,
+            "sourceReadPasses": 1,
+            "functionIndexMs": function_index_ms,
+            "callExtractionMs": call_extraction_ms,
+            "resolverBuildMs": resolver_build_ms,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once C++ analyzer.",
+            "C++ extraction parses each source/header file once, then reuses the parsed tree for call extraction.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
+}
+
+#[cfg(feature = "tree-sitter-cpp")]
+fn run_cpp_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_cpp_analysis_with_trace(root)?;
     Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-cpp"))]
+fn run_cpp_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
+    Err("C++ support is disabled in this dev binary. CodeLattice-Tool installed binary includes C++. For source builds: cargo build --features tree-sitter-cpp or ALL_LANGUAGE_FEATURES.".to_string())
 }
 
 #[cfg(not(feature = "tree-sitter-cpp"))]

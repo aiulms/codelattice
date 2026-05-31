@@ -8304,6 +8304,57 @@ mod c_tests {
         assert!(data["sourceFileCount"].as_u64().unwrap_or(0) > 0);
     }
 
+    #[test]
+    fn mcp_c_project_job_trace_is_project_once() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = c_portable_smoke_dir();
+        let data = call_tool_json(
+            &mut session,
+            20003,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "job",
+                "root": root.to_string_lossy(),
+                "language": "c",
+                "compact": true,
+                "wait": true,
+                "timeoutMs": 30000
+            }),
+        );
+
+        assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+        assert_eq!(
+            data["summary"]["executor_mode"].as_str(),
+            Some("project-once"),
+            "C job should run through the project-once bridge: {data:?}"
+        );
+        let trace = &data["summary"]["analysisTrace"];
+        assert_eq!(
+            trace["schemaVersion"].as_str(),
+            Some("codelattice.languageAnalysisTrace.v1"),
+            "C project-once job should expose normalized analysis trace: {data:?}"
+        );
+        assert_eq!(trace["language"].as_str(), Some("c"));
+        assert_eq!(trace["granularity"].as_str(), Some("stage"));
+        assert_eq!(
+            trace["stages"]["parsePassesPerFile"].as_u64(),
+            Some(1),
+            "C project-once extraction should parse each source file once: {trace:?}"
+        );
+        assert_eq!(
+            trace["stages"]["sourceReadPasses"].as_u64(),
+            Some(1),
+            "C project-once extraction should read each source file once: {trace:?}"
+        );
+        assert_eq!(
+            data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+            Some("stage")
+        );
+    }
+
     /// C MCP calls_from: should return calls from main.
     #[test]
     fn mcp_c_calls_from_main() {
@@ -9909,6 +9960,61 @@ mod cpp_tests {
         assert!(data["edgeCount"].as_u64().unwrap_or(0) > 0);
         assert!(data["symbolCount"].as_u64().unwrap_or(0) > 0);
         assert!(data["sourceFileCount"].as_u64().unwrap_or(0) > 0);
+    }
+
+    #[test]
+    fn mcp_cpp_project_job_trace_is_project_once() {
+        let mut session = McpSession::start();
+        session.initialize();
+        session.send_notification_initialized();
+
+        let root = cpp_portable_smoke_dir();
+        let data = call_tool_json(
+            &mut session,
+            30003,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "job",
+                "root": root.to_string_lossy(),
+                "language": "cpp",
+                "compact": true,
+                "wait": true,
+                "timeoutMs": 30000
+            }),
+        );
+
+        assert_eq!(data["status"].as_str(), Some("succeeded"), "{data:?}");
+        assert_eq!(
+            data["summary"]["executor_mode"].as_str(),
+            Some("project-once"),
+            "C++ job should run through the project-once bridge: {data:?}"
+        );
+        let trace = &data["summary"]["analysisTrace"];
+        assert_eq!(
+            trace["schemaVersion"].as_str(),
+            Some("codelattice.languageAnalysisTrace.v1"),
+            "C++ project-once job should expose normalized analysis trace: {data:?}"
+        );
+        assert_eq!(trace["language"].as_str(), Some("cpp"));
+        assert_eq!(trace["granularity"].as_str(), Some("stage"));
+        assert_eq!(
+            trace["stages"]["parsePassesPerFile"].as_u64(),
+            Some(1),
+            "C++ project-once extraction should parse each source file once: {trace:?}"
+        );
+        assert_eq!(
+            trace["stages"]["sourceReadPasses"].as_u64(),
+            Some(1),
+            "C++ project-once extraction should read each source file once: {trace:?}"
+        );
+        assert!(
+            trace["stages"]["callExtractionMs"].as_u64().is_some(),
+            "C++ trace should expose call extraction timing: {trace:?}"
+        );
+        assert_eq!(
+            data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
+            Some("stage")
+        );
     }
 
     /// C++ MCP symbol_search: should find "Logger" class.
