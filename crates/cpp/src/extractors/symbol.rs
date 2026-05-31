@@ -128,11 +128,16 @@ pub fn extract_cpp_symbols(source: &str) -> Vec<CppSymbol> {
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_cpp_symbols_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-cpp")]
+pub fn extract_cpp_symbols_from_root(root: &tree_sitter::Node, source: &str) -> Vec<CppSymbol> {
     let mut symbols = Vec::new();
     let mut namespace_stack: Vec<String> = Vec::new();
     let mut class_stack: Vec<ClassContext> = Vec::new();
     collect_symbols(
-        &root,
+        root,
         source.as_bytes(),
         &mut symbols,
         &mut namespace_stack,

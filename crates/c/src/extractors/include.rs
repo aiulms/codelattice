@@ -34,8 +34,13 @@ pub fn extract_c_includes(source: &str) -> Vec<CInclude> {
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_c_includes_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-c")]
+pub fn extract_c_includes_from_root(root: &tree_sitter::Node, source: &str) -> Vec<CInclude> {
     let mut includes = Vec::new();
-    collect_includes(&root, source, &mut includes);
+    collect_includes(root, source, &mut includes);
     includes
 }
 

@@ -32,7 +32,11 @@ pub mod project;
 // Re-export key types for convenience
 pub use compile_commands::{load_compile_commands, CompileCommandDb, CompileCommandEntry};
 #[cfg(feature = "tree-sitter-cpp")]
-pub use extractors::{extract_cpp_calls, extract_cpp_includes, extract_cpp_symbols};
+pub use extractors::{
+    extract_cpp_calls, extract_cpp_calls_from_root, extract_cpp_file_base, extract_cpp_includes,
+    extract_cpp_includes_from_root, extract_cpp_symbols, extract_cpp_symbols_from_root,
+    CppBaseExtraction,
+};
 pub use extractors::{
     is_cpp_parser_available, CppCall, CppInclude, CppIncludeKind, CppSymbol, CppSymbolKind,
     CppVisibility,

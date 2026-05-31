@@ -47,10 +47,20 @@ pub fn extract_cpp_calls(
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_cpp_calls_from_root(&root, source, file_path, project_function_names)
+}
+
+#[cfg(feature = "tree-sitter-cpp")]
+pub fn extract_cpp_calls_from_root(
+    root: &tree_sitter::Node,
+    source: &str,
+    file_path: &str,
+    project_function_names: &[String],
+) -> Vec<CppCall> {
     let source_bytes = source.as_bytes();
     let mut calls = Vec::new();
     collect_calls(
-        &root,
+        root,
         source_bytes,
         file_path,
         project_function_names,

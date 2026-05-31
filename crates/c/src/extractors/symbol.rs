@@ -69,8 +69,13 @@ pub fn extract_c_symbols(source: &str) -> Vec<CSymbol> {
         None => return vec![],
     };
     let root = tree.root_node();
+    extract_c_symbols_from_root(&root, source)
+}
+
+#[cfg(feature = "tree-sitter-c")]
+pub fn extract_c_symbols_from_root(root: &tree_sitter::Node, source: &str) -> Vec<CSymbol> {
     let mut symbols = Vec::new();
-    collect_symbols(&root, source.as_bytes(), &mut symbols);
+    collect_symbols(root, source.as_bytes(), &mut symbols);
     symbols
 }
 

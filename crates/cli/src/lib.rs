@@ -3025,14 +3025,13 @@ fn run_c_analysis(
             Err(_) => continue,
         };
 
-        let syms = gitnexus_c::extract_c_symbols(&source);
-        let incs = gitnexus_c::extract_c_includes(&source);
+        let extraction = gitnexus_c::extract_c_file(&source);
 
-        if !syms.is_empty() {
-            symbols_by_file.insert(file.clone(), syms);
+        if !extraction.symbols.is_empty() {
+            symbols_by_file.insert(file.clone(), extraction.symbols);
         }
-        if !incs.is_empty() {
-            includes_by_file.insert(file.clone(), incs);
+        if !extraction.includes.is_empty() {
+            includes_by_file.insert(file.clone(), extraction.includes);
         }
     }
 
@@ -3133,14 +3132,24 @@ fn run_cpp_analysis(
     let mut includes_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppInclude>> =
         BTreeMap::new();
 
+    let mut parser = gitnexus_cpp::extractors::try_init_cpp_parser()
+        .ok_or_else(|| "C++ parser is unavailable".to_string())?;
+    let mut parsed_files = Vec::new();
+
     for file in &all_files {
         let source = match std::fs::read_to_string(file) {
             Ok(s) => s,
             Err(_) => continue,
         };
 
-        let syms = gitnexus_cpp::extract_cpp_symbols(&source);
-        let incs = gitnexus_cpp::extract_cpp_includes(&source);
+        let tree = match gitnexus_cpp::extractors::parse_cpp_source(&mut parser, &source) {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let root_node = tree.root_node();
+
+        let syms = gitnexus_cpp::extract_cpp_symbols_from_root(&root_node, &source);
+        let incs = gitnexus_cpp::extract_cpp_includes_from_root(&root_node, &source);
 
         if !syms.is_empty() {
             symbols_by_file.insert(file.clone(), syms);
@@ -3148,6 +3157,7 @@ fn run_cpp_analysis(
         if !incs.is_empty() {
             includes_by_file.insert(file.clone(), incs);
         }
+        parsed_files.push((file.clone(), source, tree));
     }
 
     // 3. Build project function name index for call extraction
@@ -3171,14 +3181,16 @@ fn run_cpp_analysis(
     // 4. Extract calls per file
     let mut calls_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_cpp::CppCall>> =
         BTreeMap::new();
-    for file in &all_files {
-        let source = match std::fs::read_to_string(file) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
+    for (file, source, tree) in &parsed_files {
         let rel = file.strip_prefix(root).unwrap_or(file);
-        let calls =
-            gitnexus_cpp::extract_cpp_calls(&source, &rel.to_string_lossy(), &project_fn_names);
+        let rel_path = rel.to_string_lossy();
+        let root_node = tree.root_node();
+        let calls = gitnexus_cpp::extract_cpp_calls_from_root(
+            &root_node,
+            source,
+            &rel_path,
+            &project_fn_names,
+        );
         if !calls.is_empty() {
             calls_by_file.insert(file.clone(), calls);
         }

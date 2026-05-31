@@ -28,7 +28,10 @@ pub mod project;
 // Re-export key types for convenience
 pub use compile_commands::{load_compile_commands, CompileCommandDb, CompileCommandEntry};
 #[cfg(feature = "tree-sitter-c")]
-pub use extractors::{extract_c_includes, extract_c_symbols};
+pub use extractors::{
+    extract_c_file, extract_c_includes, extract_c_includes_from_root, extract_c_symbols,
+    extract_c_symbols_from_root, CExtraction,
+};
 pub use extractors::{
     is_c_parser_available, CInclude, CIncludeKind, CSymbol, CSymbolKind, CVisibility,
 };
