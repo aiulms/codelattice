@@ -35,44 +35,13 @@
 use gitnexus_analysis_engine::executor::SerializableResult;
 use gitnexus_analysis_engine::job::JobStatus;
 
-/// McpCache 的 FacadeCacheWarmer 实现：job worker 完成后调用 run_analyze_subprocess
+/// McpCache 的 FacadeCacheWarmer 实现：job worker 完成后直接从 job result
 /// 把完整图谱分析结果灌入 McpCache.entries，实现闭环。
 struct McpCacheWarmer {
     cache: Arc<Mutex<McpCache>>,
 }
 
 impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
-    fn warm(&self, root: &str, language: &str) -> Result<(), String> {
-        let canonical = Path::new(root)
-            .canonicalize()
-            .map_err(|e| format!("canonicalize failed: {}", e))?;
-        let key = CacheKey {
-            root: canonical.to_string_lossy().to_string(),
-            language: language.to_string(),
-            strict: false,
-        };
-
-        {
-            let cache = self
-                .cache
-                .lock()
-                .map_err(|_| "facade cache lock poisoned".to_string())?;
-            if cache.entries.contains_key(&key) {
-                return Ok(());
-            }
-        }
-
-        // 重分析和 GraphView 构建可能很慢，必须在 McpCache 锁外完成。
-        // 只在最后插入 entry 时短暂加锁，避免 AI 的后续 facade 调用卡在取锁上。
-        let (key, entry) = build_warm_cache_entry(&canonical, language)?;
-        let mut cache = self
-            .cache
-            .lock()
-            .map_err(|_| "facade cache lock poisoned".to_string())?;
-        cache.entries.entry(key).or_insert(entry);
-        Ok(())
-    }
-
     /// Warm facade cache from job result. Returns (symbol_count, used_cli_fallback).
     fn warm_from_result(
         &self,
@@ -1846,77 +1815,6 @@ fn build_warm_cache_entry_from_result(
             warm_trace,
         },
     ))
-}
-
-fn build_warm_cache_entry(
-    canonical: &Path,
-    language: &str,
-) -> Result<(CacheKey, CacheEntry), String> {
-    let key = CacheKey {
-        root: canonical.to_string_lossy().to_string(),
-        language: language.to_string(),
-        strict: false,
-    };
-
-    let start = Instant::now();
-    let result = run_analyze_subprocess(canonical, language, "json", false)
-        .map_err(|e| format!("warm subprocess failed: {}", e))?;
-    let duration_ms = start.elapsed().as_millis() as u64;
-
-    let mut graph_view = GraphView::build(&result);
-    let file_mtimes = scan_file_mtimes(canonical);
-    let manifest_hashes = compute_manifest_hashes(canonical);
-    let docs_mtimes: HashMap<String, u64> = file_mtimes
-        .iter()
-        .filter(|(p, _)| p.ends_with(".md"))
-        .map(|(k, v)| (k.clone(), *v))
-        .collect();
-
-    let scheduler = build_scheduler_metadata(canonical, language, false, None, None);
-
-    graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(canonical)));
-
-    let mut result_with_meta = result.clone();
-    if let Some(obj) = result_with_meta.as_object_mut() {
-        obj.insert(
-            "__manifest_hashes".to_string(),
-            serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
-        );
-        obj.insert(
-            "__docs_mtimes".to_string(),
-            serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
-        );
-    }
-
-    let entry = CacheEntry {
-        analyze_result: result_with_meta,
-        graph_view,
-        scheduler: scheduler.value.clone(),
-        scheduler_files: scheduler.file_snapshot.clone(),
-        created_at: Instant::now(),
-        last_used_at: Instant::now(),
-        hit_count: 0,
-        analysis_duration_ms: duration_ms,
-        file_mtimes: file_mtimes.clone(),
-        root_canonical: canonical.to_string_lossy().to_string(),
-        stale_reason: None,
-    };
-
-    let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
-    save_persistent(
-        &cache_key_str,
-        &canonical.to_string_lossy(),
-        language,
-        &result,
-        &file_mtimes,
-        &manifest_hashes,
-        &docs_mtimes,
-        scheduler_fingerprint(&scheduler.value),
-        &scheduler.file_snapshot,
-        duration_ms,
-    );
-
-    Ok((key, entry))
 }
 
 /// Persistent cache schema version.

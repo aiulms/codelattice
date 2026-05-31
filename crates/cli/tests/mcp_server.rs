@@ -72,6 +72,38 @@ fn create_multi_project_workspace() -> tempfile::TempDir {
     dir
 }
 
+fn create_workspace_with_manifest_projects_and_source_only() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create workspace runtime fixture");
+    let root = dir.path();
+
+    for (name, body) in [
+        (
+            "backend",
+            "pub fn backend_entry() { backend_helper(); }\nfn backend_helper() {}\n",
+        ),
+        (
+            "worker",
+            "pub fn worker_entry() { worker_helper(); }\nfn worker_helper() {}\n",
+        ),
+    ] {
+        let src = root.join(name).join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            root.join(name).join("Cargo.toml"),
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"),
+        )
+        .unwrap();
+        std::fs::write(src.join("lib.rs"), body).unwrap();
+    }
+
+    let script_dir = root.join("scripts");
+    std::fs::create_dir_all(&script_dir).unwrap();
+    std::fs::write(script_dir.join("deploy.sh"), "echo deploy\n").unwrap();
+    std::fs::write(script_dir.join("smoke.sh"), "echo smoke\n").unwrap();
+
+    dir
+}
+
 fn create_source_heavy_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create source-heavy project");
     let root = dir.path();
@@ -4883,6 +4915,98 @@ fn mcp_workspace_job_response_is_compact_and_details_are_paged() {
         detail["items"][0]["project"].is_string(),
         "workspace project detail should live in job_detail items: {detail:?}"
     );
+}
+
+#[test]
+fn mcp_workspace_job_analyzes_manifest_projects_with_project_once_digest() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let workspace = create_workspace_with_manifest_projects_and_source_only();
+    let completed_job = call_tool_json(
+        &mut session,
+        11121,
+        "codelattice_workspace",
+        serde_json::json!({
+            "root": workspace.path().to_string_lossy(),
+            "language": "auto",
+            "mode": "job",
+            "compact": true,
+            "wait": true,
+            "timeoutMs": 30000
+        }),
+    );
+
+    assert_eq!(
+        completed_job["status"].as_str(),
+        Some("succeeded"),
+        "workspace job should complete with wait=true: {completed_job:?}"
+    );
+    let summary = &completed_job["summary"];
+    assert_eq!(
+        summary["projectSelectionStrategy"].as_str(),
+        Some("manifest_backed"),
+        "manifest-backed projects should be preferred over source-only areas: {summary:?}"
+    );
+    assert_eq!(
+        summary["analyzedManifestProjectCount"].as_u64(),
+        Some(2),
+        "only the two Cargo projects should be analyzed: {summary:?}"
+    );
+    assert_eq!(
+        summary["sourceOnlySkippedCount"].as_u64(),
+        Some(1),
+        "source-only scripts should be summarized, not analyzed as a project: {summary:?}"
+    );
+    assert!(
+        summary["totalSymbols"].as_u64().unwrap_or(0) >= 4,
+        "workspace digest should aggregate project symbols: {summary:?}"
+    );
+    assert!(
+        summary["totalCallEdges"].as_u64().unwrap_or(0) >= 2,
+        "workspace digest should aggregate project call edges: {summary:?}"
+    );
+
+    let job_id = completed_job["jobId"].as_str().expect("workspace jobId");
+    let detail = call_tool_json(
+        &mut session,
+        11122,
+        "codelattice_workspace",
+        serde_json::json!({
+            "mode": "job_detail",
+            "jobId": job_id,
+            "page": 0,
+            "pageSize": 10
+        }),
+    );
+    assert_paged_detail_schema(&detail, 10);
+    let items = detail["items"].as_array().expect("detail items");
+    assert_eq!(
+        items.len(),
+        2,
+        "workspace detail should contain project cards only: {detail:?}"
+    );
+    for item in items {
+        assert_eq!(
+            item["executorMode"].as_str(),
+            Some("project-once"),
+            "workspace project cards should use project-once execution: {item:?}"
+        );
+        assert_eq!(
+            item["manifestBacked"].as_bool(),
+            Some(true),
+            "source-only areas must not appear as analyzed detail cards: {item:?}"
+        );
+        assert!(
+            item["symbolCount"].as_u64().unwrap_or(0) >= 2,
+            "project card should include symbol count: {item:?}"
+        );
+        assert!(
+            item["callEdgeCount"].as_u64().unwrap_or(0) >= 1,
+            "project card should include call edge count: {item:?}"
+        );
+    }
 }
 
 #[test]

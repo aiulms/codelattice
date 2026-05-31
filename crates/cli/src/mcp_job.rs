@@ -9,19 +9,18 @@
 //! - Same root/language/mode jobs are deduplicated (SingleFlight)
 //! - Analysis runs in background worker threads, never blocks the MCP event loop
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 
 use serde_json::{json, Value};
 
-use gitnexus_analysis_engine::cache::{ArtifactCache, CacheKey, CacheStatus};
-use gitnexus_analysis_engine::dag::{
-    AnalysisArtifact, AnalysisPlan, AnalysisStage, AnalysisTask, ArtifactSemantics,
-};
-use gitnexus_analysis_engine::executor::{SerialExecutor, SerializableResult};
+use gitnexus_analysis_engine::cache::{ArtifactCache, CacheKey};
+use gitnexus_analysis_engine::dag::{AnalysisArtifact, AnalysisStage, ArtifactSemantics};
+use gitnexus_analysis_engine::executor::SerializableResult;
 use gitnexus_analysis_engine::job::JobStatus;
+use gitnexus_workspace_model::ProjectInfo;
 
 const MAX_CONCURRENT_ANALYSIS_JOBS: usize = 2;
 
@@ -49,9 +48,8 @@ impl McpFacadeCacheSlot {
     }
 }
 
-/// facade 图谱缓存预热 trait：job worker 完成后调用 warm() 把分析结果灌入缓存。
+/// facade 图谱缓存预热 trait：job worker 完成后直接从 job result 灌入缓存。
 pub trait FacadeCacheWarmer {
-    fn warm(&self, root: &str, language: &str) -> Result<(), String>;
     fn warm_from_result(
         &self,
         root: &str,
@@ -70,17 +68,6 @@ pub fn register_facade_cache(warmer: Box<dyn FacadeCacheWarmer + Send>) {
         return;
     }
     let _ = MCP_FACADE_CACHE.set(Mutex::new(slot));
-}
-
-/// job worker 完成后调用，尝试预热 facade 图谱缓存
-fn try_warm_facade_cache(root: &str, language: &str) -> Result<(), String> {
-    let slot = MCP_FACADE_CACHE
-        .get()
-        .ok_or_else(|| "facade cache warmer not registered".to_string())?;
-    let slot = slot
-        .lock()
-        .map_err(|_| "facade cache warmer lock poisoned".to_string())?;
-    slot.inner.warm(root, language)
 }
 
 /// Warm facade cache directly from job artifacts (no subprocess re-analysis).
@@ -1182,281 +1169,375 @@ fn spawn_workspace_job_worker(
         },
     );
 
-    // workspace job 的 warm 阶段也可能触发 run_rust_analysis，需要大栈
+    // workspace job 会在内部按项目运行 project-once analyzer。每个项目 worker
+    // 都使用大栈，避免 Rust 大图分析递归时栈溢出。
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
         .spawn(move || {
-        let _guard = ActiveAnalysisGuard;
+            let _guard = ActiveAnalysisGuard;
 
-        let inventory = match gitnexus_workspace_model::scan_workspace_inventory(
-            Path::new(&root_owned),
-            true,
-        ) {
-            Ok(inv) => inv,
-            Err(e) => {
-                MCP_JOBS.set_error(&job_id, format!("Workspace scan: {}", e));
-                return;
-            }
-        };
+            let inventory =
+                match gitnexus_workspace_model::scan_workspace_inventory(Path::new(&root_owned), true)
+                {
+                    Ok(inv) => inv,
+                    Err(e) => {
+                        MCP_JOBS.set_error(&job_id, format!("Workspace scan: {}", e));
+                        return;
+                    }
+                };
 
-        let supported: Vec<_> = inventory
-            .iter()
-            .filter(|p| p.supported && !p.path.is_empty())
-            .collect();
-        let unsupported: Vec<_> = inventory.iter().filter(|p| !p.supported).collect();
-
-        if supported.is_empty() {
-            MCP_JOBS.set_error(&job_id, "No supported projects found".to_string());
-            return;
-        }
-
-        MCP_JOBS.update_progress(
-            &job_id,
-            McpJobProgress {
-                stage: "analyzing".into(),
-                completed_units: 0,
-                total_units: supported.len(),
-                failed_units: 0,
-                elapsed_ms: 0,
-                executor_mode: mode_owned.clone(),
-                cache_hits: 0,
-                cache_misses: 0,
-            },
-        );
-
-        let worker_limit = 4usize;
-        let mut aggregated = Vec::new();
-        let total_symbols = 0usize;
-        let total_edges = 0usize;
-        let mut completed = 0usize;
-        let mut failed = 0usize;
-
-        for chunk in supported.chunks(worker_limit) {
-            let chunk_results: Vec<_> = chunk
+            let supported: Vec<ProjectInfo> = inventory
                 .iter()
-                .map(|p| {
-                    let proj_root = if p.path.starts_with('.') {
-                        Path::new(&root_owned)
-                            .join(&p.path)
-                            .to_string_lossy()
-                            .to_string()
-                    } else {
-                        p.path.clone()
-                    };
-                    let lang = p.language.clone();
-                    let proj_name = p.name.clone();
-
-                    if lang.is_empty() {
-                        return serde_json::json!({
-                            "project": proj_name, "path": proj_root, "status": "skipped", "reason": "empty language"
-                        });
-                    }
-
-                    match crate::engine_bridge::get_adapter_for_language(&lang) {
-                        Some(adapter) => {
-                            let files = adapter.discover_files(&proj_root).unwrap_or_default();
-                            if files.is_empty() {
-                                return serde_json::json!({
-                                    "project": proj_name, "path": proj_root,
-                                    "status": "completed", "files": 0, "symbols": 0,
-                                    "language": lang,
-                                });
-                            }
-                            let nf = files.len();
-                            let pn = &proj_name;
-                            let pr = &proj_root;
-                            let lg = &lang;
-                            let mut tasks: Vec<AnalysisTask> = Vec::new();
-                            for f in &files {
-                                for s in [AnalysisStage::Parse, AnalysisStage::Symbol] {
-                                    tasks.push(AnalysisTask {
-                                        id: format!("ws-{}:{}:{}", pn, s.name(), f.id),
-                                        stage: s,
-                                        root: pr.clone(),
-                                        language: lg.clone(),
-                                        unit_id: f.id.clone(),
-                                        depends_on: vec![],
-                                        cache_key: None,
-                                        parallelizable: s.is_file_parallelizable(),
-                                    });
-                                }
-                            }
-                            let mut cache_hit_count = 0usize;
-                            if let Ok(cache) = ENGINE_CACHE.lock() {
-                                for task in &tasks {
-                                    if matches!(
-                                        cache.check(&CacheKey {
-                                            path: task.unit_id.clone(),
-                                            content_hash: format!(
-                                                "{:x}",
-                                                task.unit_id.len()
-                                            ),
-                                            language: lang.clone(),
-                                            adapter_version: "1.3".into(),
-                                            parser_version: "1.0".into(),
-                                            stage: task.stage.name().to_string(),
-                                            engine_version: "1.3".into(),
-                                        }),
-                                        CacheStatus::Hit
-                                    ) {
-                                        cache_hit_count += 1;
-                                    }
-                                }
-                            }
-                            let all_cached =
-                                cache_hit_count > 0 && cache_hit_count == tasks.len();
-
-                            let plan = AnalysisPlan {
-                                schema_version: "1.0".into(),
-                                root: proj_root.to_string(),
-                                language: lang.clone(),
-                                total_tasks: tasks.len(),
-                                stages: vec![AnalysisStage::Parse, AnalysisStage::Symbol],
-                                parallelizable_tasks: tasks
-                                    .iter()
-                                    .filter(|t| t.parallelizable)
-                                    .count(),
-                                tasks,
-                                estimated_stages: [
-                                    ("parse".into(), nf),
-                                    ("symbol".into(), nf),
-                                ]
-                                .into(),
-                            };
-
-                            let result = if all_cached {
-                                SerializableResult {
-                                    total_tasks: plan.total_tasks,
-                                    completed: plan.total_tasks,
-                                    failed: 0,
-                                    total_duration_ms: 0,
-                                    artifacts: vec![],
-                                    stage_times: Default::default(),
-                                    executor_mode: "cache".into(),
-                                }
-                            } else {
-                                SerialExecutor.execute(&plan, adapter.as_ref())
-                            };
-                            for art in &result.artifacts {
-                                if art.error.is_none() {
-                                    cache_store(
-                                        CacheKey {
-                                            path: art.unit_id.clone(),
-                                            content_hash: format!(
-                                                "{:x}",
-                                                art.unit_id.len()
-                                            ),
-                                            language: lang.clone(),
-                                            adapter_version: "1.3".into(),
-                                            parser_version: "1.0".into(),
-                                            stage: art.stage.name().to_string(),
-                                            engine_version: "1.3".into(),
-                                        },
-                                        art.clone(),
-                                    );
-                                }
-                            }
-                            serde_json::json!({
-                                "project": proj_name, "path": proj_root,
-                                "status": if result.failed > 0 && result.completed == 0 { "failed" } else { "completed" },
-                                "files": nf, "tasks": result.total_tasks,
-                                "completed": result.completed, "failed": result.failed,
-                                "duration_ms": result.total_duration_ms,
-                                "cache_hits": cache_hit_count,
-                                "language": lang,
-                            })
-                        }
-                        None => serde_json::json!({
-                            "project": proj_name, "path": proj_root,
-                            "status": "skipped", "reason": "no engine adapter",
-                            "language": lang,
-                        }),
-                    }
-                })
+                .filter(|p| p.supported && !p.path.is_empty())
+                .cloned()
+                .collect();
+            let unsupported: Vec<ProjectInfo> =
+                inventory.iter().filter(|p| !p.supported).cloned().collect();
+            let manifest_projects: Vec<ProjectInfo> = supported
+                .iter()
+                .filter(|p| p.is_manifest_backed)
+                .cloned()
+                .collect();
+            let source_only_projects: Vec<ProjectInfo> = supported
+                .iter()
+                .filter(|p| !p.is_manifest_backed)
+                .cloned()
                 .collect();
 
-            for r in &chunk_results {
-                let status = r["status"].as_str().unwrap_or("unknown");
-                if status == "completed" {
-                    completed += 1;
-                } else if status == "failed" {
-                    failed += 1;
-                }
-                aggregated.push(r.clone());
+            let (selected_projects, project_selection_strategy, source_only_skipped_count) =
+                if manifest_projects.is_empty() {
+                    (
+                        source_only_projects.clone(),
+                        "source_only_fallback",
+                        0usize,
+                    )
+                } else {
+                    (
+                        manifest_projects.clone(),
+                        "manifest_backed",
+                        source_only_projects.len(),
+                    )
+                };
+
+            if selected_projects.is_empty() {
+                MCP_JOBS.set_error(&job_id, "No supported projects found".to_string());
+                return;
             }
 
             MCP_JOBS.update_progress(
                 &job_id,
                 McpJobProgress {
                     stage: "analyzing".into(),
-                    completed_units: completed + failed,
-                    total_units: supported.len(),
-                    failed_units: failed,
+                    completed_units: 0,
+                    total_units: selected_projects.len(),
+                    failed_units: 0,
                     elapsed_ms: 0,
-                    executor_mode: mode_owned.clone(),
+                    executor_mode: "workspace-project-once".into(),
                     cache_hits: 0,
                     cache_misses: 0,
                 },
             );
-        }
 
-        let mut summary = serde_json::json!({
-            "workspace": true,
-            "root": root_owned,
-            "totalProjects": inventory.len(),
-            "supportedCount": supported.len(),
-            "unsupportedCount": unsupported.len(),
-            "analyzedCount": completed,
-            "failedCount": failed,
-            "skippedCount": supported.len() - completed - failed,
-            "totalSymbols": total_symbols,
-            "totalEdges": total_edges,
-            "detailItems": aggregated.len(),
-            "detailsPaged": true,
-            "staticAnalysisOnly": true,
-            "targetCodeExecuted": false,
-        });
+            let worker_limit = std::env::var("CODELATTICE_WORKSPACE_PROJECT_FANOUT")
+                .ok()
+                .and_then(|v| v.parse::<usize>().ok())
+                .filter(|v| *v > 0)
+                .unwrap_or(2)
+                .min(8);
+            let mut aggregated = Vec::new();
+            let mut total_symbols = 0usize;
+            let mut total_call_edges = 0usize;
+            let mut total_nodes = 0usize;
+            let mut total_edges = 0usize;
+            let mut completed = 0usize;
+            let mut failed = 0usize;
 
-        let detail_items: Vec<Value> = aggregated.clone();
-        MCP_JOBS.store_detail(&job_id, detail_items);
+            for chunk in selected_projects.chunks(worker_limit) {
+                if MCP_JOBS.is_cancelled(&job_id) {
+                    return;
+                }
 
-        MCP_JOBS.update_progress(
-            &job_id,
-            McpJobProgress {
-                stage: "warming_facade_cache".into(),
-                completed_units: completed + failed,
-                total_units: supported.len(),
-                failed_units: failed,
-                elapsed_ms: 0,
-                executor_mode: mode_owned.clone(),
-                cache_hits: 0,
-                cache_misses: 0,
-            },
-        );
+                let chunk_results: Vec<Value> = chunk
+                    .iter()
+                    .cloned()
+                    .map(|project| {
+                        let root_for_project = root_owned.clone();
+                        std::thread::Builder::new()
+                            .stack_size(16 * 1024 * 1024)
+                            .spawn(move || {
+                                analyze_workspace_project_once(&root_for_project, project)
+                            })
+                    })
+                    .map(|spawned| match spawned {
+                        Ok(handle) => match handle.join() {
+                            Ok(value) => value,
+                            Err(_) => json!({
+                                "status": "failed",
+                                "error": "workspace project worker panicked",
+                                "executorMode": "project-once"
+                            }),
+                        },
+                        Err(e) => json!({
+                            "status": "failed",
+                            "error": format!("workspace project worker spawn failed: {e}"),
+                            "executorMode": "project-once"
+                        }),
+                    })
+                    .collect();
 
-        // workspace 闭环：预热 facade 图谱缓存（workspace 无单一 result，暂用慢路径）
-        let warm_result = try_warm_facade_cache(&root_owned, "auto");
-        if let Some(obj) = summary.as_object_mut() {
-            obj.insert(
-                "facadeCacheReady".to_string(),
-                serde_json::json!(warm_result.is_ok()),
-            );
-            obj.insert(
-                "facadeCacheWarmStatus".to_string(),
-                serde_json::json!(if warm_result.is_ok() {
-                    "ready"
-                } else {
-                    "failed"
-                }),
-            );
-            if let Err(e) = &warm_result {
-                obj.insert("facadeCacheWarmError".to_string(), serde_json::json!(e));
+                for r in &chunk_results {
+                    let status = r["status"].as_str().unwrap_or("unknown");
+                    if status == "completed" {
+                        completed += 1;
+                        total_symbols += r["symbolCount"].as_u64().unwrap_or(0) as usize;
+                        total_call_edges += r["callEdgeCount"].as_u64().unwrap_or(0) as usize;
+                        total_nodes += r["nodeCount"].as_u64().unwrap_or(0) as usize;
+                        total_edges += r["edgeCount"].as_u64().unwrap_or(0) as usize;
+                    } else if status == "failed" {
+                        failed += 1;
+                    }
+                    aggregated.push(r.clone());
+                }
+
+                MCP_JOBS.update_progress(
+                    &job_id,
+                    McpJobProgress {
+                        stage: "analyzing".into(),
+                        completed_units: completed + failed,
+                        total_units: selected_projects.len(),
+                        failed_units: failed,
+                        elapsed_ms: 0,
+                        executor_mode: "workspace-project-once".into(),
+                        cache_hits: 0,
+                        cache_misses: 0,
+                    },
+                );
             }
-        }
-        MCP_JOBS.set_summary(&job_id, summary);
-    }).map_err(|e| format!("workspace job thread spawn failed: {e}"))?;
+
+            let summary = serde_json::json!({
+                "workspace": true,
+                "root": root_owned,
+                "totalProjects": inventory.len(),
+                "projectSelectionStrategy": project_selection_strategy,
+                "boundedFanoutLimit": worker_limit,
+                "supportedCount": supported.len(),
+                "unsupportedCount": unsupported.len(),
+                "manifestBackedProjectCount": manifest_projects.len(),
+                "analyzedManifestProjectCount": if project_selection_strategy == "manifest_backed" { completed } else { 0 },
+                "sourceOnlyEntryCount": source_only_projects.len(),
+                "sourceOnlySkippedCount": source_only_skipped_count,
+                "sourceOnlySummary": workspace_source_only_summary(&source_only_projects),
+                "analyzedCount": completed,
+                "failedCount": failed,
+                "skippedCount": selected_projects.len().saturating_sub(completed + failed) + source_only_skipped_count,
+                "totalSymbols": total_symbols,
+                "totalCallEdges": total_call_edges,
+                "totalNodes": total_nodes,
+                "totalEdges": total_edges,
+                "detailItems": aggregated.len(),
+                "detailsPaged": true,
+                "facadeCacheReady": false,
+                "facadeCacheWarmStatus": "not_applicable_workspace_digest",
+                "staticAnalysisOnly": true,
+                "targetCodeExecuted": false,
+            });
+
+            MCP_JOBS.store_detail(&job_id, aggregated);
+            MCP_JOBS.set_summary(&job_id, summary);
+        })
+        .map_err(|e| format!("workspace job thread spawn failed: {e}"))?;
 
     Ok(())
+}
+
+fn workspace_project_root(root: &str, project: &ProjectInfo) -> String {
+    if project.path == "." {
+        return root.to_string();
+    }
+    if project.path.starts_with('.') {
+        Path::new(root)
+            .join(&project.path)
+            .to_string_lossy()
+            .to_string()
+    } else {
+        project.path.clone()
+    }
+}
+
+fn workspace_source_only_summary(source_only_projects: &[ProjectInfo]) -> Value {
+    let mut by_language: BTreeMap<String, usize> = BTreeMap::new();
+    for project in source_only_projects {
+        *by_language.entry(project.language.clone()).or_insert(0) += 1;
+    }
+    json!({
+        "total": source_only_projects.len(),
+        "byLanguage": by_language
+            .into_iter()
+            .map(|(language, count)| json!({"language": language, "count": count}))
+            .collect::<Vec<_>>(),
+        "preview": source_only_projects
+            .iter()
+            .take(5)
+            .map(|project| json!({
+                "name": project.name,
+                "path": project.path,
+                "relativePath": project.relative_path,
+                "language": project.language,
+                "reason": "source files without a supported project manifest"
+            }))
+            .collect::<Vec<_>>()
+    })
+}
+
+fn analyze_workspace_project_once(root: &str, project: ProjectInfo) -> Value {
+    let project_root = workspace_project_root(root, &project);
+    let language = project.language.clone();
+    let project_name = project.name.clone();
+
+    if language.is_empty() {
+        return json!({
+            "project": project_name,
+            "path": project_root,
+            "relativePath": project.relative_path,
+            "language": language,
+            "manifestFile": project.manifest_file,
+            "manifestBacked": project.is_manifest_backed,
+            "status": "failed",
+            "error": "empty language",
+            "executorMode": "project-once"
+        });
+    }
+
+    let Some(adapter) = crate::engine_bridge::get_adapter_for_language(&language) else {
+        return json!({
+            "project": project_name,
+            "path": project_root,
+            "relativePath": project.relative_path,
+            "language": language,
+            "manifestFile": project.manifest_file,
+            "manifestBacked": project.is_manifest_backed,
+            "status": "failed",
+            "error": "no project-level engine adapter",
+            "executorMode": "project-once"
+        });
+    };
+
+    let source_file_count = adapter
+        .discover_files(&project_root)
+        .map(|f| f.len())
+        .unwrap_or(0);
+    if source_file_count == 0 {
+        return json!({
+            "project": project_name,
+            "path": project_root,
+            "relativePath": project.relative_path,
+            "language": language,
+            "manifestFile": project.manifest_file,
+            "manifestBacked": project.is_manifest_backed,
+            "status": "completed",
+            "sourceFileCount": 0,
+            "symbolCount": 0,
+            "callEdgeCount": 0,
+            "nodeCount": 0,
+            "edgeCount": 0,
+            "durationMs": 0,
+            "executorMode": "project-once",
+            "facadeCacheReady": false,
+        });
+    }
+
+    let start = std::time::Instant::now();
+    let project_run = match crate::engine_bridge::run_project_analysis_once(
+        Path::new(&project_root),
+        &language,
+    ) {
+        Ok(run) => run,
+        Err(e) => {
+            return json!({
+                "project": project_name,
+                "path": project_root,
+                "relativePath": project.relative_path,
+                "language": language,
+                "manifestFile": project.manifest_file,
+                "manifestBacked": project.is_manifest_backed,
+                "status": "failed",
+                "error": e,
+                "sourceFileCount": source_file_count,
+                "executorMode": "project-once"
+            });
+        }
+    };
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    let artifact = AnalysisArtifact {
+        schema_version: "1.0".into(),
+        task_id: format!("workspace-project:{}:{}", language, project.relative_path),
+        stage: AnalysisStage::Merge,
+        language: language.clone(),
+        unit_id: "__project__".into(),
+        cache_key: None,
+        data: json!({
+            "analyzeValue": project_run.analyze_value,
+            "nodeCount": project_run.node_count,
+            "edgeCount": project_run.edge_count,
+            "symbolCount": project_run.symbol_count,
+            "callEdgeCount": project_run.call_edge_count,
+            "sourceFileCount": source_file_count,
+            "analysisTrace": project_run.analysis_trace,
+        }),
+        error: None,
+        duration_ms,
+        generated_from: ArtifactSemantics::default(),
+    };
+    let mut stage_times = HashMap::new();
+    stage_times.insert("project".to_string(), duration_ms);
+    let result = SerializableResult {
+        total_tasks: 1,
+        completed: 1,
+        failed: 0,
+        total_duration_ms: duration_ms,
+        artifacts: vec![artifact],
+        stage_times,
+        executor_mode: "project-once".into(),
+    };
+
+    let key = CacheKey {
+        path: format!("workspace:{}", project.relative_path),
+        content_hash: format!("{:x}", duration_ms),
+        language: language.clone(),
+        adapter_version: "1.3".into(),
+        parser_version: "project-once".into(),
+        stage: AnalysisStage::Merge.name().to_string(),
+        engine_version: "1.3".into(),
+    };
+    cache_store(key, result.artifacts[0].clone());
+
+    let warm_result = try_warm_facade_cache_from_result(&project_root, &language, &result);
+    let facade_symbol_count = warm_result.as_ref().map(|m| m.symbol_count).unwrap_or(0);
+    let facade_cache_ready = warm_result.is_ok() && facade_symbol_count > 0;
+
+    json!({
+        "project": project_name,
+        "path": project_root,
+        "relativePath": project.relative_path,
+        "language": language,
+        "manifestFile": project.manifest_file,
+        "manifestBacked": project.is_manifest_backed,
+        "status": "completed",
+        "sourceFileCount": source_file_count,
+        "symbolCount": project_run.symbol_count,
+        "callEdgeCount": project_run.call_edge_count,
+        "nodeCount": project_run.node_count,
+        "edgeCount": project_run.edge_count,
+        "durationMs": duration_ms,
+        "executorMode": "project-once",
+        "totalTasks": 1,
+        "facadeCacheReady": facade_cache_ready,
+        "facadeCacheWarmStatus": if facade_cache_ready { "ready" } else { "warm_failed_or_empty_graph" },
+        "facadeSymbolCount": facade_symbol_count,
+        "staticAnalysisOnly": true,
+        "targetCodeExecuted": false,
+    })
 }
 
 pub fn is_large_project(root: &str, language: &str) -> bool {
