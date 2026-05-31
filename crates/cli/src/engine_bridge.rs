@@ -143,16 +143,16 @@ pub fn run_project_analysis_once(
             )
         }
         "typescript" => {
-            let (graph, nodes, edges) = crate::run_typescript_analysis(root)?;
-            (graph, nodes, edges, None)
+            let (graph, nodes, edges, trace) = crate::run_typescript_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
         }
         "javascript" => {
-            let (graph, nodes, edges) = crate::run_javascript_analysis(root)?;
-            (graph, nodes, edges, None)
+            let (graph, nodes, edges, trace) = crate::run_javascript_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
         }
         "python" => {
-            let (graph, nodes, edges) = crate::run_python_analysis(root)?;
-            (graph, nodes, edges, None)
+            let (graph, nodes, edges, trace) = crate::run_python_analysis_with_trace(root)?;
+            (graph, nodes, edges, Some(trace))
         }
         _ => unreachable!(),
     };

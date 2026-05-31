@@ -18583,7 +18583,20 @@ fn mcp_typescript_job_summary_exposes_language_runtime_trace() {
         "TypeScript project-once job should expose a normalized analysis trace: {data:?}"
     );
     assert_eq!(trace["language"].as_str(), Some("typescript"));
-    assert_eq!(trace["granularity"].as_str(), Some("coarse"));
+    assert_eq!(trace["granularity"].as_str(), Some("stage"));
+    for key in [
+        "projectRootMs",
+        "sourceDiscoveryMs",
+        "extractionMs",
+        "resolverBuildMs",
+        "graphBuildMs",
+        "serializationMs",
+    ] {
+        assert!(
+            trace["stages"][key].as_u64().is_some(),
+            "trace should expose {key} stage timing: {trace:?}"
+        );
+    }
     assert!(
         trace["totalMs"].as_u64().unwrap_or(0) > 0,
         "trace should include wall-clock project analysis time: {trace:?}"
@@ -18599,8 +18612,8 @@ fn mcp_typescript_job_summary_exposes_language_runtime_trace() {
     );
     assert_eq!(
         data["summary"]["runtimeCapabilities"]["traceGranularity"].as_str(),
-        Some("coarse"),
-        "TypeScript trace should be marked coarse until detailed sub-stage timing lands: {data:?}"
+        Some("stage"),
+        "TypeScript trace should advertise stage-level sub-stage timing: {data:?}"
     );
 }
 

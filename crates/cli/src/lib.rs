@@ -2511,33 +2511,123 @@ fn run_arkts_analysis(
 // TypeScript 分析 + Graph 提取
 // ============================================================
 
+#[cfg(any(
+    feature = "tree-sitter-typescript",
+    feature = "tree-sitter-javascript",
+    feature = "tree-sitter-python"
+))]
+fn elapsed_ms(start: std::time::Instant) -> u64 {
+    (start.elapsed().as_millis() as u64).max(1)
+}
+
+#[cfg(any(
+    feature = "tree-sitter-typescript",
+    feature = "tree-sitter-javascript",
+    feature = "tree-sitter-python"
+))]
+fn graph_trace_counts(
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> (usize, usize, usize, usize) {
+    let symbol_count = nodes
+        .iter()
+        .filter(|n| {
+            n.get("label").and_then(|v| v.as_str()) == Some("symbol")
+                || n.get("kind").and_then(|v| v.as_str()) == Some("symbol")
+                || n.get("properties")
+                    .and_then(|p| p.get("symbolKind"))
+                    .is_some()
+        })
+        .count();
+    let call_edge_count = edges
+        .iter()
+        .filter(|e| {
+            e.get("type").and_then(|v| v.as_str()) == Some("CALLS")
+                || e.get("kind").and_then(|v| v.as_str()) == Some("calls")
+                || e.get("properties")
+                    .and_then(|p| p.get("callKind"))
+                    .is_some()
+        })
+        .count();
+    (nodes.len(), edges.len(), symbol_count, call_edge_count)
+}
+
+#[cfg(any(
+    feature = "tree-sitter-typescript",
+    feature = "tree-sitter-javascript",
+    feature = "tree-sitter-python"
+))]
+fn language_stage_trace(
+    language: &str,
+    root: &Path,
+    total_ms: u64,
+    source_file_count: usize,
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+    stages: serde_json::Value,
+    notes: Vec<&str>,
+) -> serde_json::Value {
+    let (node_count, edge_count, symbol_count, call_edge_count) = graph_trace_counts(nodes, edges);
+    json!({
+        "schemaVersion": "codelattice.languageAnalysisTrace.v1",
+        "language": language,
+        "root": root.to_string_lossy(),
+        "granularity": "stage",
+        "totalMs": total_ms.max(1),
+        "sourceFileCount": source_file_count,
+        "symbolCount": symbol_count,
+        "callEdgeCount": call_edge_count,
+        "nodeCount": node_count,
+        "edgeCount": edge_count,
+        "stages": stages,
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "projectOnceAnalyzer": true,
+            "targetCodeExecuted": false,
+            "scriptsExecuted": false,
+            "runtimeVerified": false
+        },
+        "notes": notes
+    })
+}
+
 #[cfg(feature = "tree-sitter-typescript")]
-fn run_typescript_analysis(
+fn run_typescript_analysis_with_trace(
     root: &Path,
 ) -> Result<
     (
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        serde_json::Value,
     ),
     String,
 > {
     use rayon::prelude::*;
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
     // 1. Build project model (tsconfig.json / package.json)
+    let stage_start = std::time::Instant::now();
     let project =
         gitnexus_typescript::project::find_typescript_project_root(root).ok_or_else(|| {
             "TypeScript project root not found (no tsconfig.json or package.json)".to_string()
         })?;
+    let project_root_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let source_files = gitnexus_typescript::project::list_source_files(&project)
         .map_err(|e| format!("Failed to list TypeScript source files: {e}"))?;
+    let source_discovery_ms = elapsed_ms(stage_start);
 
     // 2. Parse manifest
+    let stage_start = std::time::Instant::now();
     let manifest = gitnexus_typescript::load_ts_manifest(&project).ok();
+    let manifest_ms = elapsed_ms(stage_start);
 
     // 3. Extract per-file data
+    let stage_start = std::time::Instant::now();
     let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_typescript::TsSymbol>> =
         BTreeMap::new();
     let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_typescript::TsImport>> =
@@ -2570,8 +2660,10 @@ fn run_typescript_analysis(
         imports_by_file.insert(file.clone(), imps);
         references_by_file.insert(file, refs);
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
     // 4. Build graph
+    let stage_start = std::time::Instant::now();
     let kind = gitnexus_typescript::project::detect_project_kind(&project);
     let ts_project = gitnexus_typescript::TsProject {
         root: project,
@@ -2579,10 +2671,14 @@ fn run_typescript_analysis(
         manifest,
         source_files: source_files.clone(),
     };
+    let project_model_ms = elapsed_ms(stage_start);
 
     // Build module resolver for path alias / monorepo support
+    let stage_start = std::time::Instant::now();
     let resolver = gitnexus_typescript::TsModuleResolver::build(&ts_project.root, &source_files);
+    let resolver_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let graph = gitnexus_typescript::graph::build_ts_graph(
         &ts_project,
         &symbols_by_file,
@@ -2590,7 +2686,9 @@ fn run_typescript_analysis(
         &references_by_file,
         Some(&resolver),
     );
+    let graph_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("TypeScript graph JSON serialization failed: {e}"))?;
 
@@ -2605,33 +2703,36 @@ fn run_typescript_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
 
-    Ok((json_val, nodes, edges))
+    let trace = language_stage_trace(
+        "typescript",
+        root,
+        elapsed_ms(total_start),
+        source_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "manifestMs": manifest_ms,
+            "extractionMs": extraction_ms,
+            "projectModelMs": project_model_ms,
+            "resolverBuildMs": resolver_build_ms,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once TypeScript analyzer.",
+            "Extraction currently reads each source file once and runs symbol/import/reference extraction in that worker.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
 }
 
-#[cfg(not(feature = "tree-sitter-typescript"))]
+#[cfg(feature = "tree-sitter-typescript")]
 fn run_typescript_analysis(
-    _root: &Path,
-) -> Result<
-    (
-        serde_json::Value,
-        Vec<serde_json::Value>,
-        Vec<serde_json::Value>,
-    ),
-    String,
-> {
-    Err(
-        "TypeScript support is disabled in this dev binary. CodeLattice-Tool installed binary includes TypeScript. For source builds: cargo build --features tree-sitter-typescript or ALL_LANGUAGE_FEATURES."
-            .to_string(),
-    )
-}
-
-// ============================================================
-// JavaScript 分析 + Graph 提取
-// ============================================================
-
-#[cfg(feature = "tree-sitter-javascript")]
-fn run_javascript_analysis(
     root: &Path,
 ) -> Result<
     (
@@ -2641,27 +2742,89 @@ fn run_javascript_analysis(
     ),
     String,
 > {
+    let (json_val, nodes, edges, _trace) = run_typescript_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-typescript"))]
+fn run_typescript_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
+    Err(
+        "TypeScript support is disabled in this dev binary. CodeLattice-Tool installed binary includes TypeScript. For source builds: cargo build --features tree-sitter-typescript or ALL_LANGUAGE_FEATURES."
+            .to_string(),
+    )
+}
+
+#[cfg(not(feature = "tree-sitter-typescript"))]
+fn run_typescript_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_typescript_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
+}
+
+// ============================================================
+// JavaScript 分析 + Graph 提取
+// ============================================================
+
+#[cfg(feature = "tree-sitter-javascript")]
+fn run_javascript_analysis_with_trace(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
     use rayon::prelude::*;
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
     // 1. Build project model
+    let stage_start = std::time::Instant::now();
     let project =
         gitnexus_javascript::project::find_javascript_project_root(root).ok_or_else(|| {
             "JavaScript project root not found (no package.json or JS files)".to_string()
         })?;
+    let project_root_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let source_files = gitnexus_javascript::project::list_source_files(&project)
         .map_err(|e| format!("Failed to list JavaScript source files: {e}"))?;
+    let source_discovery_ms = elapsed_ms(stage_start);
 
     // 2. Parse manifest
+    let stage_start = std::time::Instant::now();
     let manifest_path = project.join("package.json");
     let manifest = if manifest_path.is_file() {
         gitnexus_javascript::parse_package_json(&manifest_path).ok()
     } else {
         None
     };
+    let manifest_ms = elapsed_ms(stage_start);
 
     // 3. Extract per-file data
+    let stage_start = std::time::Instant::now();
     let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_javascript::JsSymbol>> =
         BTreeMap::new();
     let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_javascript::JsImport>> =
@@ -2700,8 +2863,10 @@ fn run_javascript_analysis(
         imports_by_file.insert(file.clone(), imps);
         references_by_file.insert(file, refs);
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
     // 4. Build graph
+    let stage_start = std::time::Instant::now();
     let kind = gitnexus_javascript::project::detect_project_kind(&project);
     let js_project = gitnexus_javascript::JsProject {
         root: project.clone(),
@@ -2709,10 +2874,14 @@ fn run_javascript_analysis(
         manifest,
         source_files: source_files.clone(),
     };
+    let project_model_ms = elapsed_ms(stage_start);
 
     // Build module resolver
+    let stage_start = std::time::Instant::now();
     let resolver = gitnexus_javascript::JsModuleResolver::new(project);
+    let resolver_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let graph = gitnexus_javascript::graph::build_js_graph(
         &js_project,
         &symbols_by_file,
@@ -2720,7 +2889,9 @@ fn run_javascript_analysis(
         &references_by_file,
         Some(&resolver),
     );
+    let graph_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("JavaScript graph JSON serialization failed: {e}"))?;
 
@@ -2735,13 +2906,37 @@ fn run_javascript_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
 
-    Ok((json_val, nodes, edges))
+    let trace = language_stage_trace(
+        "javascript",
+        root,
+        elapsed_ms(total_start),
+        source_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "manifestMs": manifest_ms,
+            "extractionMs": extraction_ms,
+            "projectModelMs": project_model_ms,
+            "resolverBuildMs": resolver_build_ms,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once JavaScript analyzer.",
+            "Extraction currently reads each source file once and runs symbol/import/reference extraction in that worker.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
 }
 
-#[cfg(not(feature = "tree-sitter-javascript"))]
+#[cfg(feature = "tree-sitter-javascript")]
 fn run_javascript_analysis(
-    _root: &Path,
+    root: &Path,
 ) -> Result<
     (
         serde_json::Value,
@@ -2750,10 +2945,41 @@ fn run_javascript_analysis(
     ),
     String,
 > {
+    let (json_val, nodes, edges, _trace) = run_javascript_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-javascript"))]
+fn run_javascript_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
     Err(
         "JavaScript support is disabled in this dev binary. CodeLattice-Tool installed binary includes JavaScript. For source builds: cargo build --features tree-sitter-javascript or ALL_LANGUAGE_FEATURES."
             .to_string(),
     )
+}
+
+#[cfg(not(feature = "tree-sitter-javascript"))]
+fn run_javascript_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_javascript_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
 }
 
 // ============================================================
@@ -3023,24 +3249,30 @@ fn compute_cpp_quality_gates(
 // ============================================================
 
 #[cfg(feature = "tree-sitter-python")]
-fn run_python_analysis(
+fn run_python_analysis_with_trace(
     root: &Path,
 ) -> Result<
     (
         serde_json::Value,
         Vec<serde_json::Value>,
         Vec<serde_json::Value>,
+        serde_json::Value,
     ),
     String,
 > {
     use rayon::prelude::*;
     use std::collections::BTreeMap;
 
+    let total_start = std::time::Instant::now();
+
     // 1. Build project model
+    let stage_start = std::time::Instant::now();
     let project = gitnexus_python::project::find_python_project_root(root).ok_or_else(|| {
         "Python project root not found (no Python markers or files detected)".to_string()
     })?;
+    let project_root_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let (source_files, stub_files) =
         gitnexus_python::project::list_python_source_files(&project)
             .map_err(|e| format!("Failed to list Python source files: {e}"))?;
@@ -3050,8 +3282,10 @@ fn run_python_analysis(
         .chain(stub_files.iter())
         .cloned()
         .collect();
+    let source_discovery_ms = elapsed_ms(stage_start);
 
     // 2. Extract per-file data
+    let stage_start = std::time::Instant::now();
     let mut symbols_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonSymbol>> =
         BTreeMap::new();
     let mut imports_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonImport>> =
@@ -3082,8 +3316,10 @@ fn run_python_analysis(
             imports_by_file.insert(file, imps);
         }
     }
+    let extraction_ms = elapsed_ms(stage_start);
 
     // 3. Build project function name index for call extraction
+    let stage_start = std::time::Instant::now();
     let project_fn_names: Vec<String> = symbols_by_file
         .values()
         .flat_map(|syms| {
@@ -3100,8 +3336,10 @@ fn run_python_analysis(
                 .flat_map(|s| [s.qualified_name.clone(), s.name.clone()])
         })
         .collect();
+    let function_index_ms = elapsed_ms(stage_start);
 
     // 4. Extract calls per file
+    let stage_start = std::time::Instant::now();
     let mut calls_by_file: BTreeMap<std::path::PathBuf, Vec<gitnexus_python::PythonCall>> =
         BTreeMap::new();
     let call_entries = all_files
@@ -3126,12 +3364,16 @@ fn run_python_analysis(
     for (file, calls) in call_entries {
         calls_by_file.insert(file, calls);
     }
+    let call_extraction_ms = elapsed_ms(stage_start);
 
     // 5. Build module index for import resolution
+    let stage_start = std::time::Instant::now();
     let module_index =
         gitnexus_python::PythonModuleIndex::build(&project.root, &project.source_files);
+    let module_index_ms = elapsed_ms(stage_start);
 
     // 6. Build graph
+    let stage_start = std::time::Instant::now();
     let graph = gitnexus_python::build_python_graph(
         &project,
         &symbols_by_file,
@@ -3139,7 +3381,9 @@ fn run_python_analysis(
         &calls_by_file,
         Some(&module_index),
     );
+    let graph_build_ms = elapsed_ms(stage_start);
 
+    let stage_start = std::time::Instant::now();
     let json_val = serde_json::to_value(&graph)
         .map_err(|e| format!("Python graph JSON serialization failed: {e}"))?;
 
@@ -3154,13 +3398,37 @@ fn run_python_analysis(
         .and_then(|e| e.as_array())
         .cloned()
         .unwrap_or_default();
+    let serialization_ms = elapsed_ms(stage_start);
 
-    Ok((json_val, nodes, edges))
+    let trace = language_stage_trace(
+        "python",
+        root,
+        elapsed_ms(total_start),
+        all_files.len(),
+        &nodes,
+        &edges,
+        json!({
+            "projectRootMs": project_root_ms,
+            "sourceDiscoveryMs": source_discovery_ms,
+            "extractionMs": extraction_ms,
+            "functionIndexMs": function_index_ms,
+            "callExtractionMs": call_extraction_ms,
+            "moduleIndexMs": module_index_ms,
+            "graphBuildMs": graph_build_ms,
+            "serializationMs": serialization_ms
+        }),
+        vec![
+            "Stage trace measures the current project-once Python analyzer.",
+            "Python call extraction currently performs a second source read after symbol/import extraction.",
+        ],
+    );
+
+    Ok((json_val, nodes, edges, trace))
 }
 
-#[cfg(not(feature = "tree-sitter-python"))]
+#[cfg(feature = "tree-sitter-python")]
 fn run_python_analysis(
-    _root: &Path,
+    root: &Path,
 ) -> Result<
     (
         serde_json::Value,
@@ -3169,7 +3437,38 @@ fn run_python_analysis(
     ),
     String,
 > {
+    let (json_val, nodes, edges, _trace) = run_python_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
+}
+
+#[cfg(not(feature = "tree-sitter-python"))]
+fn run_python_analysis_with_trace(
+    _root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+        serde_json::Value,
+    ),
+    String,
+> {
     Err("Python support is disabled in this dev binary. CodeLattice-Tool installed binary includes Python. For source builds: cargo build --features tree-sitter-python or ALL_LANGUAGE_FEATURES.".to_string())
+}
+
+#[cfg(not(feature = "tree-sitter-python"))]
+fn run_python_analysis(
+    root: &Path,
+) -> Result<
+    (
+        serde_json::Value,
+        Vec<serde_json::Value>,
+        Vec<serde_json::Value>,
+    ),
+    String,
+> {
+    let (json_val, nodes, edges, _trace) = run_python_analysis_with_trace(root)?;
+    Ok((json_val, nodes, edges))
 }
 
 /// 计算 Python 质量门（复用通用质量门逻辑）
