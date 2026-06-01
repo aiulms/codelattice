@@ -1857,7 +1857,10 @@ fn extract_u64_map_from_analyze_meta(analyze_result: &Value, key: &str) -> HashM
 }
 
 /// Persistent cache schema version.
-const CACHE_SCHEMA_VERSION: u32 = 1;
+///
+/// v2 会淘汰旧 typed graph snapshot；旧 TypeScript CALLS edge 仍是
+/// `file -> ref:*` 占位符，无法支撑 callers/callees/impact 的符号级查询。
+const CACHE_SCHEMA_VERSION: u32 = 2;
 
 fn build_scheduler_metadata(
     root: &Path,

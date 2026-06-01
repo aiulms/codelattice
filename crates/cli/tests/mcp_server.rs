@@ -7864,6 +7864,13 @@ fn mcp_typescript_facade_callers_only_returns_calls_edges() {
             .all(|edge| !edge["source"].as_str().unwrap_or("").starts_with("file:")),
         "callers should report caller symbols, not source-file nodes: {data:?}"
     );
+    assert!(
+        edges.iter().any(|edge| {
+            edge["source"].as_str().unwrap_or("").contains(":main:")
+                && edge["target"].as_str().unwrap_or("").contains(":add:")
+        }),
+        "callers(add) should include the TypeScript main -> add CALLS edge: {data:?}"
+    );
 }
 
 #[cfg(feature = "tree-sitter-typescript")]
@@ -7902,6 +7909,12 @@ fn mcp_typescript_facade_callees_only_returns_calls_edges() {
             .iter()
             .all(|edge| !edge["target"].as_str().unwrap_or("").starts_with("file:")),
         "callees should report callee symbols, not source-file nodes: {data:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .any(|edge| edge["target"].as_str().unwrap_or("").contains(":add:")),
+        "callees(main) should include the TypeScript add callee: {data:?}"
     );
 }
 
