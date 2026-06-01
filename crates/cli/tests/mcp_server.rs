@@ -326,6 +326,33 @@ fn create_large_ask_rust_project() -> tempfile::TempDir {
     dir
 }
 
+fn create_call_chains_deferred_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create call_chains deferred project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"call-chains-deferred\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "fn main() { helper(); }\nfn helper() {}\n",
+    )
+    .unwrap();
+
+    for idx in 0..510 {
+        std::fs::write(
+            root.join("src").join(format!("module_{idx}.rs")),
+            format!("pub fn module_{idx}() {{}}\n"),
+        )
+        .unwrap();
+    }
+
+    dir
+}
+
 #[allow(dead_code)]
 fn cangjie_portable_smoke_dir() -> std::path::PathBuf {
     workspace_root()
@@ -1834,7 +1861,9 @@ fn mcp_project_compact_omits_root_diagnosis_source_only_entries() {
     assert!(
         data["decisionGuidance"]["compactSemantics"]["omitted"]
             .as_array()
-            .map(|items| items.iter().any(|v| v.as_str() == Some("result")))
+            .map(|items| items
+                .iter()
+                .any(|v| v.as_str() == Some("full sourceOnlyEntries")))
             .unwrap_or(false),
         "compact output should say what was omitted: {data:?}"
     );
@@ -17045,7 +17074,7 @@ fn mcp_workflow_ask_large_project_before_edit_defers_whatif() {
 
 #[test]
 fn mcp_symbol_call_chains_large_project_defers_to_job() {
-    let large = create_large_ask_rust_project();
+    let large = create_call_chains_deferred_rust_project();
     let mut s = McpSession::start();
     s.initialize();
     s.send_notification_initialized();
@@ -20053,6 +20082,141 @@ fn mcp_project_standard_compact_is_bounded_decision_card() {
     assert!(
         data["tokenBudget"]["used"].as_u64().unwrap_or(u64::MAX) < 16 * 1024,
         "standard compact should stay within the compact budget: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_compact_omits_repeated_root_diagnosis() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92202,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "context",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "name": "helper",
+            "compact": true,
+            "includeSnippet": false
+        }),
+    );
+
+    assert!(
+        data.get("rootDiagnosis").is_none(),
+        "compact symbol responses should not repeatedly inline rootDiagnosis: {data:?}"
+    );
+    assert!(
+        data["rootDiagnosisSummary"].is_object(),
+        "compact symbol responses should retain a small rootDiagnosisSummary: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_change_review_native_compact_omits_root_diagnosis_and_snippets() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92203,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "native_review",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "changedSymbols": ["helper"],
+            "compact": true
+        }),
+    );
+
+    assert!(
+        data.get("rootDiagnosis").is_none(),
+        "compact change_review responses should not repeatedly inline rootDiagnosis: {data:?}"
+    );
+    let changed = data["result"]["productionAssist"]["changedSymbols"]
+        .as_array()
+        .expect("native_review should include bounded changed symbol evidence");
+    assert!(
+        changed
+            .iter()
+            .all(|item| !item["sourceSnippet"].is_object()),
+        "compact native_review should omit sourceSnippet unless includeSnippet=true: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_compact_semantics_does_not_claim_result_omitted_when_present() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92204,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+
+    assert!(
+        data.get("result").is_some(),
+        "this compact shape keeps bounded result evidence"
+    );
+    let omitted = data["compactSemantics"]["omitted"]
+        .as_array()
+        .expect("compactSemantics.omitted should be an array");
+    assert!(
+        omitted.iter().all(|v| v.as_str() != Some("result")),
+        "compact semantics must not say result was omitted when result is present: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_call_chains_mid_sized_project_runs_synchronously() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92205,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "call_chains",
+            "root": large.path().to_string_lossy(),
+            "language": "rust",
+            "query": "helper",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["schemaVersion"].as_str(),
+        Some("codelattice.callChains.v1")
+    );
+    let missing = data["missingEvidence"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        !missing
+            .iter()
+            .any(|item| item["kind"].as_str() == Some("large_project_deferred")),
+        "mid-sized projects should run bounded call_chains synchronously instead of forcing job mode: {data:?}"
     );
 }
 

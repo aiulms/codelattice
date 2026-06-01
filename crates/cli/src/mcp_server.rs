@@ -654,9 +654,9 @@ fn compact_semantics(compact: bool) -> Value {
     if compact {
         json!({
             "enabled": true,
-            "kept": ["summary", "rootDiagnosis", "decisionGuidance", "nextActions", "analysisSemantics"],
-            "omitted": ["result", "large arrays", "full sourceOnlyEntries"],
-            "lossPolicy": "Compact keeps decision-critical routing/risk hints and omits bulky evidence lists.",
+            "kept": ["summary", "bounded result evidence", "rootDiagnosis or rootDiagnosisSummary/rootDiagnosisRef", "decisionGuidance", "nextActions", "analysisSemantics"],
+            "omitted": ["full rootDiagnosis in high-frequency facades", "large arrays", "full sourceOnlyEntries", "sourceSnippet unless includeSnippet=true"],
+            "lossPolicy": "Compact keeps decision-critical routing/risk hints and bounded evidence; repeated root/project diagnostics and bulky snippets are omitted.",
             "detailAvailableVia": "Re-run with compact=false, a deeper mode, or job_detail when the response provides a jobId."
         })
     } else {
@@ -667,6 +667,25 @@ fn compact_semantics(compact: bool) -> Value {
             "lossPolicy": "Full mode keeps detailed static evidence but can be large."
         })
     }
+}
+
+fn compact_root_diagnosis_summary(root_diagnosis: &Value) -> Value {
+    json!({
+        "kind": root_diagnosis.get("kind").cloned().unwrap_or_else(|| json!("unknown")),
+        "canonicalRoot": root_diagnosis.get("canonicalRoot").cloned().unwrap_or(Value::Null),
+        "recommendedTool": root_diagnosis.get("recommendedTool").cloned().unwrap_or(Value::Null),
+        "counts": root_diagnosis.get("counts").cloned().unwrap_or_else(|| json!({})),
+        "detectedProjectSummary": root_diagnosis.get("detectedProjectSummary").cloned().unwrap_or(Value::Null),
+        "sourceOnlySummary": root_diagnosis.get("sourceOnlySummary").cloned().unwrap_or(Value::Null),
+        "detailHint": "Full rootDiagnosis is omitted in compact high-frequency facade responses. Re-run with compact=false or codelattice_project/workspace if you need project-root diagnostics."
+    })
+}
+
+fn compact_should_omit_full_root_diagnosis(tool: &str) -> bool {
+    matches!(
+        tool,
+        "codelattice_symbol" | "codelattice_change_review" | "codelattice_cleanup"
+    )
 }
 
 fn decision_guidance(tool: &str, mode: &str, root_diagnosis: &Value, compact: bool) -> Value {
@@ -8738,6 +8757,12 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
     check_language_feature(language)?;
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(!compact);
+    let snippet_ctx = params["snippetContext"]
+        .as_u64()
+        .unwrap_or(if compact { 1 } else { 3 })
+        .min(if compact { 3 } else { 10 }) as usize;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
     let (node_count, edge_count, symbol_count) = gv.stats();
@@ -8824,7 +8849,11 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
                             "lineEnd": end,
                             "callerCount": callers,
                             "risk": if callers > 10 { "HIGH" } else if callers > 3 { "MEDIUM" } else { "LOW" },
-                            "sourceSnippet": read_source_snippet(&root_str, file, start, end, 3),
+                            "sourceSnippet": if include_snippet {
+                                read_source_snippet(&root_str, file, start, end, snippet_ctx)
+                            } else {
+                                Value::Null
+                            },
                         }))
                     }
                 })
@@ -22010,6 +22039,22 @@ fn wrap_facade_output(
                 }
             }
 
+            if compact_should_omit_full_root_diagnosis(tool) {
+                if let Some(root_diagnosis) = obj.remove("rootDiagnosis") {
+                    obj.insert(
+                        "rootDiagnosisSummary".to_string(),
+                        compact_root_diagnosis_summary(&root_diagnosis),
+                    );
+                    obj.insert(
+                        "rootDiagnosisRef".to_string(),
+                        json!({
+                            "$ref": "facade.v1.rootDiagnosis.full",
+                            "detailAvailableVia": "Re-run this call with compact=false, or run codelattice_project/codelattice_workspace for root diagnostics."
+                        }),
+                    );
+                }
+            }
+
             // 2. analysisSemantics 用 ref 替代完整展开
             obj.insert(
                 "analysisSemantics".to_string(),
@@ -22035,6 +22080,7 @@ fn wrap_facade_output(
                 json!({
                     "schemaVersion": "facade.v1",
                     "refs": [
+                        "rootDiagnosis",
                         "analysisSemantics",
                         "generatedFrom",
                         "cautions"
@@ -22050,12 +22096,24 @@ fn wrap_facade_output(
             facade_language_runtime_capabilities(language),
         );
         if compact {
+            let (root_omitted_field, root_omitted_reason) =
+                if compact_should_omit_full_root_diagnosis(tool) {
+                    (
+                        "rootDiagnosis",
+                        "compact high-frequency facade responses keep rootDiagnosisSummary/rootDiagnosisRef instead of repeating full root diagnostics",
+                    )
+                } else {
+                    (
+                        "rootDiagnosis.sourceOnlyEntries",
+                        "compact mode keeps only sourceOnlyEntryPreview/sourceOnlySummary",
+                    )
+                };
             obj.insert(
                 "omitted".to_string(),
                 json!([
                     {
-                        "field": "rootDiagnosis.sourceOnlyEntries",
-                        "reason": "compact mode keeps only sourceOnlyEntryPreview/sourceOnlySummary"
+                        "field": root_omitted_field,
+                        "reason": root_omitted_reason
                     },
                     {
                         "field": "schedule.phases",
@@ -24279,7 +24337,8 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                 .to_string();
             let root_path = PathBuf::from(root);
 
-            if let Some((file_count, sample_files)) = ask_large_project_info(root, language) {
+            if let Some((file_count, sample_files)) = call_chains_large_project_info(root, language)
+            {
                 let result_body = json!({
                     "schemaVersion": "codelattice.callChains.v1",
                     "target": query,
@@ -27434,6 +27493,7 @@ fn run_rust_analysis_if_available(root: &Path, language: &str) -> Option<Value> 
 }
 
 const ASK_SYNC_FILE_LIMIT: usize = 80;
+const CALL_CHAINS_SYNC_FILE_LIMIT: usize = 500;
 
 fn resolve_language_for_known_root(root: &str, language: &str) -> String {
     if root.is_empty() || language != "auto" {
@@ -27445,7 +27505,11 @@ fn resolve_language_for_known_root(root: &str, language: &str) -> String {
         .unwrap_or_else(|_| language.to_string())
 }
 
-fn ask_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<String>)> {
+fn large_project_info_with_limit(
+    root: &str,
+    language: &str,
+    sync_file_limit: usize,
+) -> Option<(usize, Vec<String>)> {
     if root.is_empty() {
         return None;
     }
@@ -27453,7 +27517,7 @@ fn ask_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<Stri
     let adapter = crate::engine_bridge::get_adapter_for_language(&language_owned)?;
     let files = adapter.discover_files(root).ok()?;
     let file_count = files.len();
-    if file_count <= ASK_SYNC_FILE_LIMIT {
+    if file_count <= sync_file_limit {
         return None;
     }
 
@@ -27470,6 +27534,14 @@ fn ask_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<Stri
         })
         .collect();
     Some((file_count, sample_files))
+}
+
+fn ask_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<String>)> {
+    large_project_info_with_limit(root, language, ASK_SYNC_FILE_LIMIT)
+}
+
+fn call_chains_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<String>)> {
+    large_project_info_with_limit(root, language, CALL_CHAINS_SYNC_FILE_LIMIT)
 }
 
 fn ask_large_project_next_actions(
