@@ -208,6 +208,51 @@ fn create_small_helper_rust_project() -> tempfile::TempDir {
     dir
 }
 
+fn create_many_callers_rust_project(caller_count: usize) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create many-callers project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"many-callers\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+
+    let mut body = String::from("pub fn target() {}\n");
+    for idx in 0..caller_count {
+        body.push_str(&format!("pub fn caller_{idx:03}() {{ target(); }}\n"));
+    }
+    std::fs::write(root.join("src/lib.rs"), body).unwrap();
+
+    dir
+}
+
+fn create_many_callees_rust_project(callee_count: usize) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create many-callees project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"many-callees\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+
+    let mut body = String::new();
+    for idx in 0..callee_count {
+        body.push_str(&format!("pub fn callee_{idx:03}() {{}}\n"));
+    }
+    body.push_str("pub fn source() {\n");
+    for idx in 0..callee_count {
+        body.push_str(&format!("    callee_{idx:03}();\n"));
+    }
+    body.push_str("}\n");
+    std::fs::write(root.join("src/lib.rs"), body).unwrap();
+
+    dir
+}
+
 fn create_qualified_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create qualified rust project");
     let root = dir.path();
@@ -1322,26 +1367,27 @@ fn mcp_workflow_before_edit_execute_runs_next_actions() {
     let plan = &data["investigationPlan"];
     assert_eq!(plan["mode"].as_str(), Some("before_edit"));
     assert!(
-        plan["evidenceFound"]
+        data["evidenceFound"]
             .as_array()
             .map(|items| !items.is_empty())
             .unwrap_or(false),
         "execute=true should return evidenceFound for AI decision making: {data:?}"
     );
     assert!(
-        plan["evidenceMissing"]
+        data["evidenceMissing"]
             .as_array()
             .map(|items| !items.is_empty())
             .unwrap_or(false),
         "investigationPlan should name static-analysis gaps: {data:?}"
     );
     assert!(
-        plan["humanVerificationNeeded"]
+        data["humanVerificationNeeded"]
             .as_array()
             .map(|items| !items.is_empty())
             .unwrap_or(false),
         "investigationPlan should tell AI what still needs human/runtime verification: {data:?}"
     );
+    assert_eq!(plan["evidenceFoundRef"].as_str(), Some("#/evidenceFound"));
     assert!(
         data["aiDecisionTrace"]
             .as_array()
@@ -1353,6 +1399,107 @@ fn mcp_workflow_before_edit_execute_runs_next_actions() {
             })
             .unwrap_or(false),
         "aiDecisionTrace should explain which facade actions ran: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_execute_returns_bounded_evidence_details() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        42024,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "symbol": "helper",
+            "execute": true,
+            "compact": true
+        }),
+    );
+
+    let details = data["evidenceDetails"]
+        .as_array()
+        .expect("execute=true should expose bounded evidenceDetails");
+    assert!(
+        details
+            .iter()
+            .any(|item| item["tool"].as_str() == Some("codelattice_symbol")
+                && item["mode"].as_str() == Some("context")
+                && item.get("selected").is_some()),
+        "context action should expose selected symbol detail: {data:?}"
+    );
+    assert!(
+        details.iter().any(
+            |item| item["tool"].as_str() == Some("codelattice_change_review")
+                && item["mode"].as_str() == Some("impact")
+                && (item.get("impactMetrics").is_some() || item.get("risk").is_some())
+        ),
+        "impact action should expose bounded risk/impact detail: {data:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|item| item["tool"].as_str() == Some("codelattice_symbol")
+                && item["mode"].as_str() == Some("callers")
+                && item["edges"]
+                    .as_array()
+                    .is_some_and(|edges| !edges.is_empty())),
+        "callers action should expose a bounded edge preview: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_compact_investigation_plan_uses_refs_for_top_level_evidence() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        42025,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "symbol": "helper",
+            "execute": true,
+            "compact": true
+        }),
+    );
+
+    assert!(
+        data["evidenceFound"]
+            .as_array()
+            .is_some_and(|items| !items.is_empty()),
+        "top-level evidenceFound should remain available: {data:?}"
+    );
+    let plan = &data["investigationPlan"];
+    assert!(
+        plan.get("evidenceFound").is_none(),
+        "compact investigationPlan should not repeat top-level evidenceFound: {data:?}"
+    );
+    assert_eq!(
+        plan["evidenceFoundRef"].as_str(),
+        Some("#/evidenceFound"),
+        "compact investigationPlan should point to top-level evidenceFound: {data:?}"
+    );
+    assert_eq!(
+        plan["evidenceMissingRef"].as_str(),
+        Some("#/evidenceMissing"),
+        "compact investigationPlan should point to top-level evidenceMissing: {data:?}"
+    );
+    assert_eq!(
+        plan["humanVerificationNeededRef"].as_str(),
+        Some("#/humanVerificationNeeded"),
+        "compact investigationPlan should point to top-level humanVerificationNeeded: {data:?}"
     );
 }
 
@@ -3017,6 +3164,142 @@ fn mcp_calls_to_helper() {
             .any(|e| e["sourceName"].as_str() == Some("main_fn")),
         "should have edge from main_fn"
     );
+}
+
+#[test]
+fn mcp_symbol_callers_supports_pagination() {
+    let project = create_many_callers_rust_project(30);
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let page0 = call_tool_json(
+        &mut session,
+        23001,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "callers",
+            "root": project.path().to_str().unwrap(),
+            "language": "rust",
+            "name": "target",
+            "page": 0,
+            "pageSize": 10,
+            "compact": true
+        }),
+    );
+    let page1 = call_tool_json(
+        &mut session,
+        23002,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "callers",
+            "root": project.path().to_str().unwrap(),
+            "language": "rust",
+            "name": "target",
+            "page": 1,
+            "pageSize": 10,
+            "compact": true
+        }),
+    );
+
+    let r0 = &page0["result"];
+    let r1 = &page1["result"];
+    assert_eq!(
+        r0["page"].as_u64(),
+        Some(0),
+        "page 0 metadata missing: {page0:?}"
+    );
+    assert_eq!(
+        r1["page"].as_u64(),
+        Some(1),
+        "page 1 metadata missing: {page1:?}"
+    );
+    assert_eq!(r0["pageSize"].as_u64(), Some(10));
+    assert_eq!(r1["pageSize"].as_u64(), Some(10));
+    assert!(
+        r0["totalEdges"].as_u64().unwrap_or(0) >= 30,
+        "callers should report totalEdges, not only first page: {page0:?}"
+    );
+    assert_eq!(
+        r0["edges"].as_array().map(|items| items.len()),
+        Some(10),
+        "first page should contain 10 caller edges: {page0:?}"
+    );
+    assert_eq!(
+        r1["edges"].as_array().map(|items| items.len()),
+        Some(10),
+        "second page should contain 10 caller edges: {page1:?}"
+    );
+    let first_page_name = r0["edges"][0]["sourceName"].as_str().unwrap_or("");
+    let second_page_name = r1["edges"][0]["sourceName"].as_str().unwrap_or("");
+    assert_ne!(
+        first_page_name, second_page_name,
+        "page 1 should not repeat page 0 callers: {page0:?} {page1:?}"
+    );
+    assert_eq!(r0["hasMore"].as_bool(), Some(true));
+}
+
+#[test]
+fn mcp_symbol_callees_supports_pagination() {
+    let project = create_many_callees_rust_project(30);
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let page0 = call_tool_json(
+        &mut session,
+        23003,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "callees",
+            "root": project.path().to_str().unwrap(),
+            "language": "rust",
+            "name": "source",
+            "page": 0,
+            "pageSize": 10,
+            "compact": true
+        }),
+    );
+    let page1 = call_tool_json(
+        &mut session,
+        23004,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "callees",
+            "root": project.path().to_str().unwrap(),
+            "language": "rust",
+            "name": "source",
+            "page": 1,
+            "pageSize": 10,
+            "compact": true
+        }),
+    );
+
+    let r0 = &page0["result"];
+    let r1 = &page1["result"];
+    assert_eq!(
+        r0["page"].as_u64(),
+        Some(0),
+        "page 0 metadata missing: {page0:?}"
+    );
+    assert_eq!(
+        r1["page"].as_u64(),
+        Some(1),
+        "page 1 metadata missing: {page1:?}"
+    );
+    assert!(
+        r0["totalEdges"].as_u64().unwrap_or(0) >= 30,
+        "callees should report totalEdges, not only first page: {page0:?}"
+    );
+    assert_eq!(r0["edges"].as_array().map(|items| items.len()), Some(10));
+    assert_eq!(r1["edges"].as_array().map(|items| items.len()), Some(10));
+    let first_page_name = r0["edges"][0]["targetName"].as_str().unwrap_or("");
+    let second_page_name = r1["edges"][0]["targetName"].as_str().unwrap_or("");
+    assert_ne!(
+        first_page_name, second_page_name,
+        "page 1 should not repeat page 0 callees: {page0:?} {page1:?}"
+    );
+    assert_eq!(r0["hasMore"].as_bool(), Some(true));
 }
 
 #[test]
@@ -20577,6 +20860,61 @@ fn mcp_change_review_workspace_root_auto_routes_impact_to_matching_project() {
     assert!(
         !risk.eq_ignore_ascii_case("UNKNOWN") && !risk.is_empty(),
         "routed impact should analyze the selected project instead of returning UNKNOWN: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workspace_impact_no_match_suggests_project_route_for_nested_path() {
+    let workspace = create_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92195,
+        "codelattice_workspace",
+        serde_json::json!({
+            "mode": "impact",
+            "root": root.to_str().unwrap(),
+            "target": {"path": "backend/src/lib.rs::backend_target"},
+            "direction": "both",
+            "maxDepth": 3,
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["target"]["resolutionReason"].as_str(),
+        Some("no-match"),
+        "fixture should exercise workspace no-match path routing guidance: {data:?}"
+    );
+    let suggestion = &data["projectRouteSuggestion"];
+    assert_eq!(
+        suggestion["selectedLanguage"].as_str(),
+        Some("rust"),
+        "workspace impact should infer the owning project for nested paths: {data:?}"
+    );
+    assert!(
+        suggestion["selectedRoot"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with("/backend"),
+        "workspace impact should suggest the backend project root: {data:?}"
+    );
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls array");
+    assert!(
+        next.iter().any(|item| {
+            item["tool"].as_str() == Some("codelattice_change_review")
+                && item["arguments"]["mode"].as_str() == Some("impact")
+                && item["arguments"]["root"]
+                    .as_str()
+                    .is_some_and(|path| path.ends_with("/backend"))
+        }),
+        "workspace impact should give a project-level follow-up call: {data:?}"
     );
 }
 

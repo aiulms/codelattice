@@ -6044,6 +6044,15 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
     let language = params["language"].as_str().unwrap_or("auto");
     let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
+    let page = params["page"].as_u64().unwrap_or(0) as usize;
+    let page_size = params["pageSize"]
+        .as_u64()
+        .unwrap_or(limit as u64)
+        .clamp(1, 100) as usize;
+    let traversal_cap = params["maxEdges"]
+        .as_u64()
+        .unwrap_or(1000)
+        .clamp(page_size as u64, 5000) as usize;
     let compact = params["compact"].as_bool().unwrap_or(false);
     // compact implies no snippets regardless of explicit includeSnippet
     let include_snippet = !compact && params["includeSnippet"].as_bool().unwrap_or(true);
@@ -6102,6 +6111,9 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
         .collect();
 
     while let Some((node_id, current_depth)) = queue.pop() {
+        if all_edges.len() >= traversal_cap {
+            break;
+        }
         if visited.contains(&node_id) || current_depth >= depth {
             continue;
         }
@@ -6109,7 +6121,7 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
 
         let edges = gv.edges_from(&node_id, Some("CALLS"));
         for edge in edges {
-            if all_edges.len() >= limit {
+            if all_edges.len() >= traversal_cap {
                 break;
             }
             let target_id = edge["target"].as_str().unwrap_or("");
@@ -6161,14 +6173,30 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
         }
     }
 
-    let truncated = all_edges.len() >= limit;
+    let total_edges = all_edges.len();
+    let start = page.saturating_mul(page_size);
+    let page_edges: Vec<Value> = all_edges.into_iter().skip(start).take(page_size).collect();
+    let truncated = total_edges >= traversal_cap;
+    let has_more = start.saturating_add(page_size) < total_edges || truncated;
 
     let mut result = json!({
         "symbol": symbol,
         "sourceCandidates": source_candidates,
-        "edgeCount": all_edges.len(),
-        "edges": all_edges,
-        "truncated": truncated
+        "edgeCount": page_edges.len(),
+        "totalEdges": total_edges,
+        "page": page,
+        "pageSize": page_size,
+        "hasMore": has_more,
+        "edges": page_edges,
+        "truncated": truncated || has_more,
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "totalEdges": total_edges,
+            "hasMore": has_more,
+            "maxEdges": traversal_cap,
+            "truncatedByMaxEdges": truncated
+        }
     });
     if compact {
         if let Some(map) = result.as_object_mut() {
@@ -6191,6 +6219,15 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     let language = params["language"].as_str().unwrap_or("auto");
     let depth = params["depth"].as_u64().unwrap_or(1).min(3) as usize;
     let limit = params["limit"].as_u64().unwrap_or(20).min(100) as usize;
+    let page = params["page"].as_u64().unwrap_or(0) as usize;
+    let page_size = params["pageSize"]
+        .as_u64()
+        .unwrap_or(limit as u64)
+        .clamp(1, 100) as usize;
+    let traversal_cap = params["maxEdges"]
+        .as_u64()
+        .unwrap_or(1000)
+        .clamp(page_size as u64, 5000) as usize;
     let compact = params["compact"].as_bool().unwrap_or(false);
     let include_snippet = !compact && params["includeSnippet"].as_bool().unwrap_or(true);
     let snippet_ctx = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
@@ -6247,6 +6284,9 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         .collect();
 
     while let Some((node_id, current_depth)) = queue.pop() {
+        if all_edges.len() >= traversal_cap {
+            break;
+        }
         if visited.contains(&node_id) || current_depth >= depth {
             continue;
         }
@@ -6254,7 +6294,7 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
 
         let edges = gv.edges_to(&node_id, Some("CALLS"));
         for edge in edges {
-            if all_edges.len() >= limit {
+            if all_edges.len() >= traversal_cap {
                 break;
             }
             let src_id = edge["source"].as_str().unwrap_or("");
@@ -6306,14 +6346,30 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         }
     }
 
-    let truncated = all_edges.len() >= limit;
+    let total_edges = all_edges.len();
+    let start = page.saturating_mul(page_size);
+    let page_edges: Vec<Value> = all_edges.into_iter().skip(start).take(page_size).collect();
+    let truncated = total_edges >= traversal_cap;
+    let has_more = start.saturating_add(page_size) < total_edges || truncated;
 
     let mut result = json!({
         "symbol": symbol,
         "targetCandidates": target_candidates,
-        "edgeCount": all_edges.len(),
-        "edges": all_edges,
-        "truncated": truncated
+        "edgeCount": page_edges.len(),
+        "totalEdges": total_edges,
+        "page": page,
+        "pageSize": page_size,
+        "hasMore": has_more,
+        "edges": page_edges,
+        "truncated": truncated || has_more,
+        "pagination": {
+            "page": page,
+            "pageSize": page_size,
+            "totalEdges": total_edges,
+            "hasMore": has_more,
+            "maxEdges": traversal_cap,
+            "truncatedByMaxEdges": truncated
+        }
     });
     if compact {
         if let Some(map) = result.as_object_mut() {
@@ -20508,7 +20564,7 @@ mod tests {
     fn mcp_change_review_job_cancel_control_plane_allowed() {
         let mut cache = McpCache::new();
         // 先提交一个 job
-        let job_result = handle_change_review(
+        let _job_result = handle_change_review(
             &mut cache,
             &json!({
                 "mode": "job",
@@ -21581,6 +21637,132 @@ fn handle_workspace_graph(_cache: &mut McpCache, params: &Value) -> Result<Value
 }
 
 /// codelattice_cross_project_impact handler — filesystem-only, no analysis cache needed.
+fn workspace_impact_target_symbol(target: &ImpactTarget) -> Option<String> {
+    target
+        .query
+        .as_deref()
+        .filter(|s| !s.trim().is_empty())
+        .map(|s| s.trim().to_string())
+        .or_else(|| {
+            target.path.as_deref().and_then(|path| {
+                path.split("::")
+                    .nth(1)
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(ToString::to_string)
+            })
+        })
+}
+
+fn normalize_workspace_rel_path(path: &str) -> String {
+    path.replace('\\', "/")
+        .trim_start_matches("./")
+        .trim_start_matches('/')
+        .to_string()
+}
+
+fn workspace_impact_project_route_suggestion(
+    workspace_root: &Path,
+    language: &str,
+    target: &ImpactTarget,
+) -> Option<Value> {
+    let target_text = target
+        .path
+        .as_deref()
+        .or(target.query.as_deref())
+        .unwrap_or("");
+    if target_text.trim().is_empty() {
+        return None;
+    }
+    let target_norm = normalize_workspace_rel_path(target_text);
+    let path_part = target_norm.split("::").next().unwrap_or(&target_norm);
+    let diagnosis = diagnose_root_compact(&workspace_root.to_string_lossy(), language);
+    let projects = diagnosis
+        .get("recommendedProjectRoots")
+        .and_then(|v| v.as_array())?;
+
+    let selected = projects.iter().find(|project| {
+        let rel = project
+            .get("relativePath")
+            .or_else(|| project.get("path"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let rel_norm = normalize_workspace_rel_path(rel);
+        !rel_norm.is_empty()
+            && rel_norm != "."
+            && (path_part == rel_norm || path_part.starts_with(&format!("{rel_norm}/")))
+    })?;
+
+    let rel = selected
+        .get("relativePath")
+        .or_else(|| selected.get("path"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    let rel_norm = normalize_workspace_rel_path(rel);
+    let selected_root = workspace_root.join(&rel_norm);
+    let selected_root_str = selected_root.to_string_lossy().to_string();
+    let selected_language = selected
+        .get("language")
+        .and_then(|v| v.as_str())
+        .unwrap_or(language);
+    let target_within_project = path_part
+        .strip_prefix(&format!("{rel_norm}/"))
+        .unwrap_or(path_part)
+        .to_string();
+    let symbol = workspace_impact_target_symbol(target);
+
+    let mut recommended = vec![json!({
+        "tool": "codelattice_project",
+        "mode": "quick",
+        "why": "Open the owning project map before symbol-level impact analysis.",
+        "arguments": {
+            "mode": "quick",
+            "root": selected_root_str.clone(),
+            "language": selected_language,
+            "compact": true
+        }
+    })];
+    if let Some(symbol_name) = symbol.as_deref() {
+        recommended.push(json!({
+            "tool": "codelattice_change_review",
+            "mode": "impact",
+            "why": "Workspace graph could not resolve this file/symbol target; run project-level impact in the owning project.",
+            "arguments": {
+                "mode": "impact",
+                "root": selected_root_str.clone(),
+                "language": selected_language,
+                "symbol": symbol_name,
+                "compact": true
+            }
+        }));
+        recommended.push(json!({
+            "tool": "codelattice_symbol",
+            "mode": "callers",
+            "why": "Inspect direct callers inside the owning project.",
+            "arguments": {
+                "mode": "callers",
+                "root": selected_root_str.clone(),
+                "language": selected_language,
+                "name": symbol_name,
+                "page": 0,
+                "pageSize": 20,
+                "compact": true
+            }
+        }));
+    }
+
+    Some(json!({
+        "schemaVersion": "codelattice.workspaceImpactProjectRoute.v1",
+        "selectedRoot": selected_root_str,
+        "selectedLanguage": selected_language,
+        "targetPath": target_text,
+        "targetPathWithinProject": target_within_project,
+        "targetSymbol": symbol,
+        "reason": "workspace impact did not resolve this path/query as a workspace graph node, but the path belongs to a manifest-backed project",
+        "recommendedNextCalls": recommended
+    }))
+}
+
 fn handle_cross_project_impact(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
@@ -21641,6 +21823,22 @@ fn handle_cross_project_impact(_cache: &mut McpCache, params: &Value) -> Result<
         if let Some(obj) = out.as_object_mut() {
             obj.remove("affected_assets");
             obj.remove("paths");
+        }
+    }
+    let unresolved = out["target"]["resolutionReason"].as_str() == Some("no-match")
+        || out["target"]["resolutionConfidence"].as_f64() == Some(0.0);
+    if unresolved {
+        if let Some(suggestion) =
+            workspace_impact_project_route_suggestion(&validated, "auto", &target)
+        {
+            let recommended = suggestion
+                .get("recommendedNextCalls")
+                .cloned()
+                .unwrap_or_else(|| json!([]));
+            if let Some(obj) = out.as_object_mut() {
+                obj.insert("projectRouteSuggestion".to_string(), suggestion);
+                obj.insert("recommendedNextCalls".to_string(), recommended);
+            }
         }
     }
 
@@ -25155,8 +25353,8 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
         }
         _ => unreachable!(),
     };
-    Ok(tool_result(&wrap_facade_output(
-        inner,
+    let mut output = wrap_facade_output(
+        inner.clone(),
         "codelattice_workspace",
         mode,
         language,
@@ -25165,7 +25363,21 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
         vec!["Use impact mode to analyze specific targets"],
         underlying,
         compact,
-    )))
+    );
+    if mode == "impact" {
+        if let Some(obj) = output.as_object_mut() {
+            if let Some(target) = inner.get("target") {
+                obj.insert("target".to_string(), target.clone());
+            }
+            if let Some(suggestion) = inner.get("projectRouteSuggestion") {
+                obj.insert("projectRouteSuggestion".to_string(), suggestion.clone());
+            }
+            if let Some(next) = inner.get("recommendedNextCalls") {
+                obj.insert("recommendedNextCalls".to_string(), next.clone());
+            }
+        }
+    }
+    Ok(tool_result(&output))
 }
 
 // ── codelattice_release_check ────────────────────────────────────────
@@ -25672,6 +25884,165 @@ fn workflow_evidence(tool: &str, args: &Value, result: &Value) -> Value {
     item
 }
 
+fn workflow_payload<'a>(result: &'a Value) -> &'a Value {
+    result
+        .get("result")
+        .filter(|v| !v.is_null())
+        .unwrap_or(result)
+}
+
+fn workflow_strip_bulk_fields(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for key in [
+                "sourceSnippet",
+                "targetSnippet",
+                "snippet",
+                "rootDiagnosis",
+                "analysisSemantics",
+                "generatedFrom",
+                "cautions",
+                "schedule",
+                "details",
+            ] {
+                map.remove(key);
+            }
+            for item in map.values_mut() {
+                workflow_strip_bulk_fields(item);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                workflow_strip_bulk_fields(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn workflow_sanitized_value(value: &Value) -> Value {
+    let mut cloned = value.clone();
+    workflow_strip_bulk_fields(&mut cloned);
+    cloned
+}
+
+fn workflow_copy_scalar_field(
+    obj: &mut serde_json::Map<String, Value>,
+    payload: &Value,
+    result: &Value,
+    key: &str,
+) {
+    if let Some(value) = payload.get(key).or_else(|| result.get(key)) {
+        if !value.is_array() && !value.is_object() {
+            obj.insert(key.to_string(), value.clone());
+        }
+    }
+}
+
+fn workflow_copy_value_field(
+    obj: &mut serde_json::Map<String, Value>,
+    payload: &Value,
+    result: &Value,
+    key: &str,
+) {
+    if let Some(value) = payload.get(key).or_else(|| result.get(key)) {
+        obj.insert(key.to_string(), workflow_sanitized_value(value));
+    }
+}
+
+fn workflow_copy_array_field(
+    obj: &mut serde_json::Map<String, Value>,
+    payload: &Value,
+    result: &Value,
+    key: &str,
+    limit: usize,
+) {
+    if let Some(items) = payload
+        .get(key)
+        .or_else(|| result.get(key))
+        .and_then(|v| v.as_array())
+    {
+        obj.insert(
+            key.to_string(),
+            json!(items
+                .iter()
+                .take(limit)
+                .map(workflow_sanitized_value)
+                .collect::<Vec<_>>()),
+        );
+    }
+}
+
+fn workflow_evidence_detail(tool: &str, args: &Value, result: &Value) -> Value {
+    let mode = args["mode"].as_str().unwrap_or("default");
+    let payload = workflow_payload(result);
+    let mut item = json!({
+        "tool": tool,
+        "mode": mode,
+        "ok": true
+    });
+
+    if let Some(obj) = item.as_object_mut() {
+        workflow_copy_value_field(obj, payload, result, "summary");
+        for key in [
+            "schemaVersion",
+            "risk",
+            "riskLevel",
+            "overallRisk",
+            "overall",
+            "freshness",
+            "matchCount",
+            "edgeCount",
+            "totalEdges",
+            "page",
+            "pageSize",
+            "hasMore",
+            "truncated",
+            "chainSummary",
+        ] {
+            workflow_copy_scalar_field(obj, payload, result, key);
+        }
+        for key in [
+            "selected",
+            "impactMetrics",
+            "confidence",
+            "pagination",
+            "riskScoreInterpretation",
+        ] {
+            workflow_copy_value_field(obj, payload, result, key);
+        }
+        for (key, limit) in [
+            ("candidates", 5usize),
+            ("sourceCandidates", 5),
+            ("targetCandidates", 5),
+            ("matches", 5),
+            ("edges", 10),
+            ("callers", 10),
+            ("callees", 10),
+            ("topEvidence", 5),
+            ("riskReasons", 5),
+            ("reviewFocus", 5),
+            ("impactedSymbols", 10),
+            ("likelyAreas", 5),
+            ("readFirst", 5),
+            ("entryPoints", 5),
+            ("callChains", 5),
+        ] {
+            workflow_copy_array_field(obj, payload, result, key, limit);
+        }
+        obj.insert(
+            "bounded".to_string(),
+            json!({
+                "maxEdges": 10,
+                "maxCandidates": 5,
+                "sourceSnippets": "omitted unless the underlying action was explicitly requested with includeSnippet=true outside workflow compact execution"
+            }),
+        );
+    }
+
+    item
+}
+
 fn execute_workflow_action(cache: &mut McpCache, tool: &str, args: &Value) -> Result<Value, Value> {
     match tool {
         "codelattice_project" => handle_project(cache, args),
@@ -26071,20 +26442,40 @@ fn workflow_investigation_plan(
     evidence_found: &[Value],
     evidence_missing: &[Value],
     human_verification: &[Value],
+    compact: bool,
 ) -> Value {
-    json!({
+    let mut plan = json!({
         "schemaVersion": "codelattice.workflowInvestigation.v1",
         "mode": mode,
         "status": execution["status"].as_str().unwrap_or("unknown"),
         "hypotheses": workflow_hypotheses(mode, evidence, completed),
         "readFirst": workflow_read_first(evidence, next_actions),
-        "evidenceFound": evidence_found,
-        "evidenceMissing": evidence_missing,
-        "humanVerificationNeeded": human_verification,
         "nextToolCalls": workflow_next_tool_calls(failed, skipped, next_actions),
         "staticOnly": true,
         "targetCodeExecuted": false
-    })
+    });
+    if let Some(obj) = plan.as_object_mut() {
+        if compact {
+            obj.insert("evidenceFoundRef".to_string(), json!("#/evidenceFound"));
+            obj.insert("evidenceMissingRef".to_string(), json!("#/evidenceMissing"));
+            obj.insert(
+                "humanVerificationNeededRef".to_string(),
+                json!("#/humanVerificationNeeded"),
+            );
+            obj.insert(
+                "dedupePolicy".to_string(),
+                json!("compact workflow responses keep evidence arrays at top level and use refs inside investigationPlan"),
+            );
+        } else {
+            obj.insert("evidenceFound".to_string(), json!(evidence_found));
+            obj.insert("evidenceMissing".to_string(), json!(evidence_missing));
+            obj.insert(
+                "humanVerificationNeeded".to_string(),
+                json!(human_verification),
+            );
+        }
+    }
+    plan
 }
 
 fn workflow_execute_next_actions(
@@ -26099,11 +26490,13 @@ fn workflow_execute_next_actions(
     Vec<Value>,
     Vec<Value>,
     Vec<Value>,
+    Vec<Value>,
     String,
 ) {
     if !execute {
         return (
             json!({"requested": false, "status": "not_requested"}),
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             Vec::new(),
@@ -26118,6 +26511,7 @@ fn workflow_execute_next_actions(
             Vec::new(),
             Vec::new(),
             Vec::new(),
+            Vec::new(),
             workflow_missing_summary(mode, missing_inputs),
         );
     }
@@ -26126,6 +26520,7 @@ fn workflow_execute_next_actions(
     let mut failed = Vec::new();
     let mut skipped = Vec::new();
     let mut evidence = Vec::new();
+    let mut evidence_details = Vec::new();
 
     for action in next_actions {
         let tool = action["tool"].as_str().unwrap_or("");
@@ -26147,6 +26542,7 @@ fn workflow_execute_next_actions(
                     "required": action["required"].as_bool().unwrap_or(false)
                 }));
                 evidence.push(workflow_evidence(tool, &args, &inner));
+                evidence_details.push(workflow_evidence_detail(tool, &args, &inner));
             }
             Err(err) => {
                 failed.push(json!({
@@ -26175,6 +26571,7 @@ fn workflow_execute_next_actions(
         failed,
         skipped,
         evidence,
+        evidence_details,
         summary,
     )
 }
@@ -27173,8 +27570,15 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         ));
     }
 
-    let (execution, completed_actions, failed_actions, skipped_actions, evidence, answer_summary) =
-        workflow_execute_next_actions(cache, mode, execute, &missing_inputs, &next_actions);
+    let (
+        execution,
+        completed_actions,
+        failed_actions,
+        skipped_actions,
+        evidence,
+        evidence_details,
+        answer_summary,
+    ) = workflow_execute_next_actions(cache, mode, execute, &missing_inputs, &next_actions);
     let evidence_found = workflow_evidence_found(&evidence, &completed_actions);
     let evidence_missing = workflow_evidence_missing(
         mode,
@@ -27195,6 +27599,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         &evidence_found,
         &evidence_missing,
         &human_verification_needed,
+        compact,
     );
     let ai_decision_trace = workflow_ai_decision_trace(
         mode,
@@ -27269,6 +27674,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         "failedActions": failed_actions,
         "skippedActions": skipped_actions,
         "evidence": evidence,
+        "evidenceDetails": evidence_details,
         "evidenceFound": evidence_found,
         "evidenceMissing": evidence_missing,
         "humanVerificationNeeded": human_verification_needed,
