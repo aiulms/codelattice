@@ -183,6 +183,69 @@ fn create_small_helper_rust_project() -> tempfile::TempDir {
     dir
 }
 
+fn create_qualified_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create qualified rust project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"qualified-rust\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/lib.rs"),
+        r#"
+pub struct MissionManager;
+
+impl MissionManager {
+    pub fn new() -> Self {
+        MissionManager
+    }
+
+    pub fn run(&self) {}
+}
+
+pub fn create_execution_run() {
+    let manager = MissionManager::new();
+    manager.run();
+}
+"#,
+    )
+    .unwrap();
+
+    dir
+}
+
+fn create_ambiguous_handler_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create ambiguous handler rust project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"ambiguous-handler\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src/api")).unwrap();
+    std::fs::write(
+        root.join("src/lib.rs"),
+        "pub mod api;\npub fn boot() { api::get_scheduler_readiness(); }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/api/mod.rs"),
+        "pub fn get_scheduler_readiness() -> bool { true }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/api/readiness_test.rs"),
+        "pub fn get_scheduler_readiness() -> bool { false }\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_dependency_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create dependency project");
     let root = dir.path();
@@ -3240,6 +3303,197 @@ fn mcp_impact_preview_nonexistent_symbol() {
     let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(content_text).expect("should be valid JSON");
     assert_eq!(data["risk"], "UNKNOWN");
+}
+
+#[test]
+fn mcp_symbol_search_accepts_qualified_rust_path() {
+    let project = create_qualified_rust_project();
+    let root = project.path().to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let search = call_tool_json(
+        &mut session,
+        28501,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": "MissionManager::new",
+            "compact": false
+        }),
+    );
+    let matches = search["result"]["matches"]
+        .as_array()
+        .or_else(|| search["matches"].as_array())
+        .expect("search should return matches array");
+    assert!(
+        matches.iter().any(|item| {
+            item["name"].as_str() == Some("new")
+                && item["kind"].as_str() == Some("associated-function")
+                && item["file"].as_str().unwrap_or("").ends_with("src/lib.rs")
+        }),
+        "qualified query should resolve to the associated function leaf symbol: {search:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_callers_accepts_qualified_rust_path() {
+    let project = create_qualified_rust_project();
+    let root = project.path().to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let callers = call_tool_json(
+        &mut session,
+        28502,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "callers",
+            "query": "MissionManager::new",
+            "compact": false
+        }),
+    );
+    let edges = callers["result"]["edges"]
+        .as_array()
+        .or_else(|| callers["edges"].as_array())
+        .expect("callers should return edges array");
+    assert!(
+        edges.iter().any(|edge| {
+            edge["sourceName"].as_str() == Some("create_execution_run")
+                && edge["target"].as_str().unwrap_or("").ends_with("::new")
+        }),
+        "qualified callers query should find create_execution_run -> new: {callers:?}"
+    );
+}
+
+#[test]
+fn mcp_facade_workflow_defaults_to_compact() {
+    let project = create_ambiguous_handler_rust_project();
+    let root = project.path().to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let explore = call_tool_json(
+        &mut session,
+        28503,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "explore"
+        }),
+    );
+
+    assert_eq!(
+        explore["compact"].as_bool(),
+        Some(true),
+        "facade workflow should default to compact AI output unless compact=false is explicit: {explore:?}"
+    );
+    assert!(
+        explore["rootDiagnosis"].get("sourceOnlyEntries").is_none(),
+        "default compact workflow output should not expand full rootDiagnosis.sourceOnlyEntries: {explore:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_prefers_unique_production_candidate() {
+    let project = create_ambiguous_handler_rust_project();
+    let root = project.path().to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let context = call_tool_json(
+        &mut session,
+        28504,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "context",
+            "name": "get_scheduler_readiness",
+            "compact": true
+        }),
+    );
+    let result = context.get("result").unwrap_or(&context);
+
+    assert_eq!(
+        result["ambiguous"].as_bool(),
+        Some(true),
+        "the response should still disclose that multiple candidates exist: {context:?}"
+    );
+    assert!(
+        result["selected"]["file"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with("src/api/mod.rs"),
+        "unique non-test candidate should be selected for first-pass AI context: {context:?}"
+    );
+    assert_eq!(
+        result["selectionPolicy"]["selectedBy"].as_str(),
+        Some("unique_non_test_candidate"),
+        "selection policy should explain the heuristic, not silently hide ambiguity: {context:?}"
+    );
+    let followups = result["disambiguation"]["recommendedNextCalls"]
+        .as_array()
+        .expect("ambiguous context should include runnable exact-id followups");
+    assert!(
+        followups.iter().any(|call| {
+            call["arguments"]["symbol"]
+                .as_str()
+                .unwrap_or("")
+                .contains("get_scheduler_readiness")
+        }),
+        "follow-up calls should carry exact symbol ids returned by search/context: {context:?}"
+    );
+}
+
+#[test]
+fn mcp_change_review_impact_prefers_unique_production_candidate() {
+    let project = create_ambiguous_handler_rust_project();
+    let root = project.path().to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let impact = call_tool_json(
+        &mut session,
+        28505,
+        "codelattice_change_review",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "impact",
+            "symbol": "get_scheduler_readiness",
+            "compact": true
+        }),
+    );
+    let result = impact.get("result").unwrap_or(&impact);
+
+    assert_ne!(
+        result["risk"].as_str(),
+        Some("UNKNOWN"),
+        "impact should use the unique non-test candidate instead of forcing a manual id hop: {impact:?}"
+    );
+    assert_eq!(
+        result["selectionPolicy"]["selectedBy"].as_str(),
+        Some("unique_non_test_candidate"),
+        "impact should disclose production-candidate disambiguation: {impact:?}"
+    );
+    assert!(
+        result["targetFile"]
+            .as_str()
+            .unwrap_or("")
+            .ends_with("src/api/mod.rs"),
+        "impact target should be the production handler, not its test duplicate: {impact:?}"
+    );
 }
 
 // ─── v0.3 Cache Tests ───────────────────────────────────────────────────
@@ -17760,6 +18014,55 @@ fn mcp_persistent_cache_write_read_smoke() {
             overview2
         );
     }
+}
+
+#[test]
+fn mcp_cache_status_facade_persistent_cache_not_confused_with_engine_artifacts() {
+    let cache_dir = make_isolated_cache_dir("facade-cache-status");
+    let project_dir = create_small_helper_rust_project();
+    let root = project_dir.path().to_string_lossy().to_string();
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+
+    let _overview = call_tool_json(
+        &mut session,
+        83020,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "overview",
+            "root": root,
+            "language": "rust",
+            "compact": true
+        }),
+    );
+
+    let cache_status = call_tool_json(
+        &mut session,
+        83021,
+        "codelattice_cache",
+        serde_json::json!({
+            "mode": "status",
+            "root": root,
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    assert!(
+        cache_status["facadePersistentCache"]["entryCount"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1,
+        "facade persistent cache status should show MCP query snapshots: {cache_status:?}"
+    );
+    assert!(
+        cache_status["cacheInterpretation"]["engineArtifacts"]
+            .as_str()
+            .unwrap_or("")
+            .contains("analysis-engine"),
+        "cache status should explain that cache.totalArtifacts is not the facade query cache: {cache_status:?}"
+    );
 }
 
 #[test]

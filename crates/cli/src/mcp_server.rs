@@ -999,6 +999,88 @@ fn node_line_start(node: &Value) -> u64 {
         .unwrap_or(0)
 }
 
+fn facade_compact_default(params: &Value) -> bool {
+    params["compact"].as_bool().unwrap_or(true)
+}
+
+fn symbol_candidate_card(node: &Value) -> Value {
+    json!({
+        "id": node["id"],
+        "name": node_display_name(node),
+        "kind": node_symbol_kind(node),
+        "file": node_source_path(node),
+        "line": node_line_start(node)
+    })
+}
+
+fn select_unique_non_test_candidate<'a>(nodes: &'a [Value]) -> Option<&'a Value> {
+    if nodes.len() <= 1 {
+        return None;
+    }
+    let production: Vec<&Value> = nodes
+        .iter()
+        .filter(|node| {
+            let name = node_display_name(node);
+            let file = node_source_path(node);
+            !is_test_symbol(&name, &file)
+        })
+        .collect();
+    let test_like = nodes.len().saturating_sub(production.len());
+    if production.len() == 1 && test_like > 0 {
+        production.first().copied()
+    } else {
+        None
+    }
+}
+
+fn symbol_disambiguation_payload(
+    root: &str,
+    language: &str,
+    query: &str,
+    candidates: &[Value],
+    selected: Option<&Value>,
+) -> Value {
+    let selected_id = selected.and_then(|node| node["id"].as_str()).unwrap_or("");
+    let candidate_cards: Vec<Value> = candidates.iter().map(symbol_candidate_card).collect();
+    let followups: Vec<Value> = candidates
+        .iter()
+        .take(5)
+        .flat_map(|node| {
+            let id = node["id"].as_str().unwrap_or("").to_string();
+            let card = symbol_candidate_card(node);
+            let reason = if !selected_id.is_empty() && id == selected_id {
+                "Continue with the auto-selected production candidate."
+            } else {
+                "Use this exact symbol id to disambiguate the next call."
+            };
+            vec![
+                json!({
+                    "tool": "codelattice_symbol",
+                    "mode": "context",
+                    "why": reason,
+                    "arguments": {"root": root, "language": language, "name": id, "compact": true},
+                    "candidate": card
+                }),
+                json!({
+                    "tool": "codelattice_change_review",
+                    "mode": "impact",
+                    "why": reason,
+                    "arguments": {"root": root, "language": language, "symbol": id, "compact": true},
+                    "candidate": symbol_candidate_card(node)
+                }),
+            ]
+        })
+        .collect();
+    json!({
+        "query": query,
+        "candidateCount": candidates.len(),
+        "selectedCandidateId": if selected_id.is_empty() { Value::Null } else { json!(selected_id) },
+        "candidates": candidate_cards,
+        "recommendedNextCalls": followups,
+        "guidance": "When several production candidates remain, do not guess. Use one recommendedNextCalls entry with the exact symbol id."
+    })
+}
+
 fn edge_source_id(edge: &Value) -> Option<&str> {
     edge["source"]
         .as_str()
@@ -5151,21 +5233,25 @@ impl GraphView {
             return Vec::new();
         }
 
-        // Search results expose stable graph ids. Accept those ids directly so
-        // downstream tools such as impact/context/callers can consume the exact
-        // value returned by codelattice_symbol without asking the AI to strip it
-        // back to a display name.
-        if let Some(node) = self.nodes_by_id.get(query) {
+        let kind_matches = |node: &Value| {
+            kind.map(|k| {
+                let sym_kind = node["properties"]["symbolKind"]
+                    .as_str()
+                    .or_else(|| node["properties"]["kind"].as_str())
+                    .unwrap_or("");
+                let label = node["label"].as_str().unwrap_or("");
+                sym_kind.eq_ignore_ascii_case(k) || label.eq_ignore_ascii_case(k)
+            })
+            .unwrap_or(true)
+        };
+        let is_symbol_like = |node: &Value| {
             let top_kind = node["kind"].as_str().unwrap_or("");
+            let label = node["label"].as_str().unwrap_or("");
             let node_kind = node["properties"]["symbolKind"]
                 .as_str()
                 .or_else(|| node["properties"]["kind"].as_str())
                 .unwrap_or("");
-            let label = node["label"].as_str().unwrap_or("");
-            let kind_matches = kind
-                .map(|k| node_kind.eq_ignore_ascii_case(k) || label.eq_ignore_ascii_case(k))
-                .unwrap_or(true);
-            let is_symbol_like = top_kind == "symbol"
+            top_kind == "symbol"
                 || label == "symbol"
                 || matches!(
                     node_kind,
@@ -5178,60 +5264,120 @@ impl GraphView {
                         | "trait"
                         | "const"
                         | "static"
-                );
-            if kind_matches && is_symbol_like {
+                )
+        };
+        let push_unique =
+            |results: &mut Vec<Value>, node: &Value, kind_matches: bool, is_symbol_like: bool| {
+                if results.len() >= limit || !kind_matches || !is_symbol_like {
+                    return;
+                }
+                let id = node["id"].as_str().unwrap_or("");
+                if !results.iter().any(|r| r["id"].as_str() == Some(id)) {
+                    results.push(node.clone());
+                }
+            };
+
+        // Search results expose stable graph ids. Accept those ids directly so
+        // downstream tools such as impact/context/callers can consume the exact
+        // value returned by codelattice_symbol without asking the AI to strip it
+        // back to a display name.
+        if let Some(node) = self.nodes_by_id.get(query) {
+            if kind_matches(node) && is_symbol_like(node) {
                 return vec![node.clone()];
             }
         }
 
-        let query_lower = query.to_lowercase();
+        let query_lower = query
+            .trim_end_matches("()")
+            .trim_end_matches('(')
+            .to_lowercase();
         let mut results = Vec::new();
 
-        // Exact name match first
-        if let Some(exact) = self.symbols_by_name.get(&query_lower) {
-            for sym in exact {
+        // Natural AI/user queries often use Rust/C++ style `Type::method`,
+        // JS/TS style `Type.method`, or a copied partial graph id. Symbol names
+        // in the query index are usually bare names, so first try matching the
+        // qualified text against ids/module paths, then fall back to the leaf
+        // segment. This keeps exact graph-id behavior while making the facade
+        // usable from code-reading context without exposing internal ids.
+        if query_lower.contains("::") || query_lower.contains('.') || query_lower.contains(':') {
+            let mut nodes: Vec<&Value> = self.nodes_by_id.values().collect();
+            nodes.sort_by(|a, b| {
+                a["id"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b["id"].as_str().unwrap_or(""))
+            });
+            for node in nodes {
                 if results.len() >= limit {
                     break;
                 }
-                if let Some(k) = kind {
-                    let sym_kind = sym["properties"]["symbolKind"]
-                        .as_str()
-                        .or_else(|| sym["properties"]["kind"].as_str())
-                        .unwrap_or("");
-                    if sym_kind.to_lowercase() != k.to_lowercase() {
-                        continue;
+                let id = node["id"].as_str().unwrap_or("").to_lowercase();
+                let name = node["properties"]["name"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_lowercase();
+                let module_path = node["properties"]["modulePath"]
+                    .as_str()
+                    .or_else(|| node["properties"]["qualifiedPath"].as_str())
+                    .or_else(|| node["properties"]["qualifiedName"].as_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+                let haystack = if module_path.is_empty() {
+                    id
+                } else {
+                    format!("{id}::{module_path}::{name}")
+                };
+                if haystack.contains(&query_lower) {
+                    push_unique(&mut results, node, kind_matches(node), is_symbol_like(node));
+                }
+            }
+        }
+
+        let mut search_terms = vec![query_lower.clone()];
+        if query_lower.contains("::") || query_lower.contains('.') {
+            if let Some(leaf) = query_lower
+                .rsplit("::")
+                .next()
+                .and_then(|s| s.rsplit('.').next())
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+            {
+                if leaf != query_lower {
+                    search_terms.push(leaf.to_string());
+                }
+            }
+        }
+        search_terms.dedup();
+
+        // Exact name match first, then qualified-query leaf fallback.
+        for term in &search_terms {
+            if results.len() >= limit {
+                break;
+            }
+            if let Some(exact) = self.symbols_by_name.get(term) {
+                for sym in exact {
+                    push_unique(&mut results, sym, kind_matches(sym), is_symbol_like(sym));
+                    if results.len() >= limit {
+                        break;
                     }
                 }
-                results.push(sym.clone());
             }
         }
 
         // Substring match
         if results.len() < limit {
-            for (name_lower, syms) in &self.symbols_by_name {
-                if name_lower.contains(&query_lower)
-                    && !self.symbols_by_name.contains_key(&query_lower)
-                {
-                    // Skip exact matches (already handled)
+            for term in &search_terms {
+                if results.len() >= limit {
+                    break;
                 }
-                if name_lower.contains(&query_lower) {
+                for (name_lower, syms) in &self.symbols_by_name {
+                    if !name_lower.contains(term) {
+                        continue;
+                    }
                     for sym in syms {
+                        push_unique(&mut results, sym, kind_matches(sym), is_symbol_like(sym));
                         if results.len() >= limit {
                             break;
-                        }
-                        if let Some(k) = kind {
-                            let sym_kind = sym["properties"]["symbolKind"]
-                                .as_str()
-                                .or_else(|| sym["properties"]["kind"].as_str())
-                                .unwrap_or("");
-                            if sym_kind.to_lowercase() != k.to_lowercase() {
-                                continue;
-                            }
-                        }
-                        // Avoid duplicates
-                        let id = sym["id"].as_str().unwrap_or("");
-                        if !results.iter().any(|r| r["id"].as_str() == Some(id)) {
-                            results.push(sym.clone());
                         }
                     }
                 }
@@ -5766,10 +5912,48 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
     }
 
     let ambiguous = matches.len() > 1;
+    let heuristic_selected = if ambiguous {
+        select_unique_non_test_candidate(&matches)
+    } else {
+        None
+    };
+    let selected_id = heuristic_selected.and_then(|node| node["id"].as_str());
     let selected = if ambiguous {
-        Value::Null
+        selected_id
+            .and_then(|sid| {
+                match_summaries
+                    .iter()
+                    .find(|summary| summary["id"].as_str() == Some(sid))
+                    .cloned()
+            })
+            .unwrap_or(Value::Null)
     } else {
         match_summaries.first().cloned().unwrap_or(Value::Null)
+    };
+    let selection_policy = if let Some(node) = heuristic_selected {
+        json!({
+            "selectedBy": "unique_non_test_candidate",
+            "reason": "Multiple symbols matched, but exactly one candidate is outside test/example/fixture paths.",
+            "selectedSymbolId": node["id"],
+            "staticOnly": true
+        })
+    } else if ambiguous {
+        json!({
+            "selectedBy": "none",
+            "reason": "Multiple non-test or equally plausible candidates matched; use disambiguation.recommendedNextCalls with an exact symbol id.",
+            "staticOnly": true
+        })
+    } else {
+        json!({
+            "selectedBy": "single_candidate",
+            "reason": "Only one symbol matched the query.",
+            "staticOnly": true
+        })
+    };
+    let disambiguation = if ambiguous {
+        symbol_disambiguation_payload(root, language, name, &matches, heuristic_selected)
+    } else {
+        Value::Null
     };
 
     // Find related docs
@@ -5807,8 +5991,14 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
             "ambiguous": ambiguous,
             "selected": selected,
             "candidates": match_summaries,
+            "selectionPolicy": selection_policy,
+            "disambiguation": disambiguation,
             "relatedDocs": related_docs,
-            "note": if ambiguous { "Multiple symbols match. Use kind/file parameters to disambiguate." } else { "" }
+            "note": if ambiguous && heuristic_selected.is_none() {
+                "Multiple symbols match. Use disambiguation.recommendedNextCalls with an exact symbol id."
+            } else if ambiguous {
+                "Multiple symbols match. CodeLattice selected the only non-test candidate for first-pass reading; use exact id follow-ups if this is wrong."
+            } else { "" }
         }),
         &cache_meta,
     ))
@@ -7100,26 +7290,56 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         ));
     }
 
-    if targets.len() > 1 {
+    let heuristic_selected = if targets.len() > 1 {
+        select_unique_non_test_candidate(&targets)
+    } else {
+        None
+    };
+    let target_owned: Value;
+    let disambiguation = if targets.len() > 1 {
+        symbol_disambiguation_payload(root, language, symbol, &targets, heuristic_selected)
+    } else {
+        Value::Null
+    };
+    let selection_policy = if let Some(node) = heuristic_selected {
+        target_owned = node.clone();
+        json!({
+            "selectedBy": "unique_non_test_candidate",
+            "reason": "Multiple symbols matched, but exactly one candidate is outside test/example/fixture paths.",
+            "selectedSymbolId": node["id"],
+            "staticOnly": true
+        })
+    } else if targets.len() > 1 {
         return Ok(merge_cache_and_result(
             &json!({
                 "symbol": symbol,
                 "risk": "UNKNOWN",
-                "reasons": [format!("Ambiguous: {} candidates found. Use kind/file to disambiguate.", targets.len())],
-                "candidates": targets.iter().map(|t| json!({
-                    "id": t["id"],
-                    "name": t["properties"]["name"],
-                    "kind": t["properties"]["symbolKind"]
-                })).collect::<Vec<_>>(),
+                "reasons": [format!("Ambiguous: {} candidates found. Use disambiguation.recommendedNextCalls with an exact symbol id.", targets.len())],
+                "candidates": targets.iter().map(symbol_candidate_card).collect::<Vec<_>>(),
+                "selectionPolicy": {
+                    "selectedBy": "none",
+                    "reason": "Multiple non-test or equally plausible candidates matched; exact symbol id is required.",
+                    "staticOnly": true
+                },
+                "disambiguation": disambiguation,
                 "impactedNodes": [],
                 "impactedEdges": []
             }),
             &cache_meta,
         ));
-    }
+    } else {
+        target_owned = targets[0].clone();
+        json!({
+            "selectedBy": "single_candidate",
+            "reason": "Only one symbol matched the query.",
+            "selectedSymbolId": targets[0]["id"],
+            "staticOnly": true
+        })
+    };
 
-    let target = &targets[0];
+    let target = &target_owned;
     let target_id = target["id"].as_str().unwrap_or("");
+    let target_file = node_source_path(target);
 
     // Traverse graph in requested direction(s)
     let mut impacted_nodes: HashMap<String, Value> = HashMap::new();
@@ -7430,6 +7650,9 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
         &json!({
             "symbol": symbol,
             "targetId": target_id,
+            "targetFile": target_file,
+            "selectionPolicy": selection_policy,
+            "disambiguation": disambiguation,
             "direction": direction,
             "risk": final_risk,
             "reasons": reasons,
@@ -12643,6 +12866,10 @@ fn is_test_like_path(file: &str) -> bool {
         || lower.contains("/__tests__")
         || lower.contains(".test.")
         || lower.contains(".spec.")
+        || lower.contains("_test.")
+        || lower.contains("_spec.")
+        || lower.ends_with("_test.rs")
+        || lower.ends_with("_spec.rs")
         || lower.contains("/example")
         || lower.contains("/examples")
         || lower.contains("/fixture")
@@ -16632,9 +16859,18 @@ fn handle_control_plane_call(tool_name: &str, params: &Value) -> Option<Result<V
                     } else {
                         None
                     };
+                    let filter_root = params["root"].as_str();
+                    let filter_lang = params["language"].as_str();
+                    let facade_persistent_cache = persistent_cache_status(filter_root, filter_lang);
                     let body = json!({
                         "schemaVersion": "codelattice.cacheStatus.v1",
                         "cache": stats,
+                        "facadePersistentCache": facade_persistent_cache,
+                        "cacheInterpretation": {
+                            "engineArtifacts": "cache.totalArtifacts counts analysis-engine job artifacts only.",
+                            "facadePersistent": "facadePersistentCache.entryCount counts MCP facade query snapshots used by project/symbol/change_review.",
+                            "memory": "Process-local facade memory cache is not exposed on this control-plane fast path because status bypasses the analysis mutex."
+                        },
                         "persistentCache": {
                             "available": persistent_available,
                             "cacheDir": cache_dir,
@@ -22980,7 +23216,7 @@ fn handle_project_job(
 
 fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("overview");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let detail = params["detail"]
         .as_str()
         .or_else(|| params["detailLevel"].as_str())
@@ -23032,6 +23268,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     let language = language_owned.as_str();
     let mut effective_params = params.clone();
     effective_params["language"] = json!(language);
+    effective_params["compact"] = json!(compact);
     let analysis_params = &effective_params;
 
     // 分析面 mode 的自动 job 化：cache miss/stale + 大项目 → 异步 job
@@ -23796,7 +24033,7 @@ fn attach_root_router_to_tool_result(result: Value, router: Value) -> Value {
 
 fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("search");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let requested_language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
@@ -23874,6 +24111,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     );
     let mut effective_params = params.clone();
     effective_params["language"] = json!(language);
+    effective_params["compact"] = json!(compact);
     let analysis_params = &effective_params;
 
     // 分析面 mode 的自动 job 化：大项目 cache miss → 异步 job
@@ -24148,7 +24386,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
 
 fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("impact");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let requested_language = params["language"].as_str().unwrap_or("auto");
     validate_facade_mode(
         mode,
@@ -24230,6 +24468,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
     let language = language_owned.as_str();
     let mut effective_params = params.clone();
     effective_params["language"] = json!(language);
+    effective_params["compact"] = json!(compact);
     let analysis_params = &effective_params;
 
     // 分析面 mode 的自动 job 化：大项目 cache miss → 异步 job
@@ -24540,8 +24779,11 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let mode = params["mode"].as_str().unwrap_or("dead_code");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let language = params["language"].as_str().unwrap_or("auto");
+    let mut effective_params = params.clone();
+    effective_params["compact"] = json!(compact);
+    let analysis_params = &effective_params;
     validate_facade_mode(
         mode,
         &[
@@ -24555,25 +24797,25 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     )?;
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "dead_code" => {
-            let r = handle_dead_code_candidates(cache, params)?;
+            let r = handle_dead_code_candidates(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_dead_code_candidates"],
             )
         }
         "reachability" => {
-            let r = handle_reachability_map(cache, params)?;
+            let r = handle_reachability_map(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_reachability_map"])
         }
         "external_api" => {
-            let r = handle_external_api_surface(cache, params)?;
+            let r = handle_external_api_surface(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_external_api_surface"],
             )
         }
         "framework_entries" => {
-            let r = handle_framework_entry_hints(cache, params)?;
+            let r = handle_framework_entry_hints(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_framework_entry_hints"],
@@ -24584,7 +24826,8 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             let mut errors = Vec::new();
             safe_insert_tool(&mut merged, &mut errors, "deadCode", "dead_code", || {
                 Ok(unwrap_tool_result(&handle_dead_code_candidates(
-                    cache, params,
+                    cache,
+                    analysis_params,
                 )?))
             });
             safe_insert_tool(
@@ -24592,7 +24835,12 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                 &mut errors,
                 "reachability",
                 "reachability",
-                || Ok(unwrap_tool_result(&handle_reachability_map(cache, params)?)),
+                || {
+                    Ok(unwrap_tool_result(&handle_reachability_map(
+                        cache,
+                        analysis_params,
+                    )?))
+                },
             );
             safe_insert_tool(
                 &mut merged,
@@ -24601,7 +24849,8 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                 "external_api",
                 || {
                     Ok(unwrap_tool_result(&handle_external_api_surface(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -24612,7 +24861,8 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                 "framework_entries",
                 || {
                     Ok(unwrap_tool_result(&handle_framework_entry_hints(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -24657,7 +24907,7 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
 fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("graph");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let language = "auto";
     validate_facade_mode(
         mode,
@@ -24684,21 +24934,24 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
     if matches!(mode, "job" | "job_status" | "job_detail") {
         return handle_facade_job(root, "auto", mode, "codelattice_workspace", params, compact);
     }
+    let mut effective_params = params.clone();
+    effective_params["compact"] = json!(compact);
+    let analysis_params = &effective_params;
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "graph" => {
-            let r = handle_workspace_graph(cache, params)?;
+            let r = handle_workspace_graph(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_workspace_graph"])
         }
         "impact" => {
-            let r = handle_cross_project_impact(cache, params)?;
+            let r = handle_cross_project_impact(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_cross_project_impact"],
             )
         }
         "overview" => {
-            let r = handle_workspace_graph(cache, params)?;
+            let r = handle_workspace_graph(cache, analysis_params)?;
             let g = unwrap_tool_result(&r);
             (
                 g.get("summary").cloned().unwrap_or(json!({})),
@@ -24709,7 +24962,10 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
             let mut merged = json!({});
             let mut errors = Vec::new();
             safe_insert_tool(&mut merged, &mut errors, "graph", "graph", || {
-                Ok(unwrap_tool_result(&handle_workspace_graph(cache, params)?))
+                Ok(unwrap_tool_result(&handle_workspace_graph(
+                    cache,
+                    analysis_params,
+                )?))
             });
             if let Some(obj) = merged.as_object_mut() {
                 if !errors.is_empty() {
@@ -24753,8 +25009,11 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let mode = params["mode"].as_str().unwrap_or("quick");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let language = params["language"].as_str().unwrap_or("auto");
+    let mut effective_params = params.clone();
+    effective_params["compact"] = json!(compact);
+    let analysis_params = &effective_params;
     validate_facade_mode(
         mode,
         &["quick", "full", "config", "docs_tests", "breaking_changes"],
@@ -24762,25 +25021,25 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
     )?;
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "quick" => {
-            let r = handle_quality(cache, params)?;
+            let r = handle_quality(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_quality"])
         }
         "config" => {
-            let r = handle_config_examples_review(cache, params)?;
+            let r = handle_config_examples_review(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_config_examples_review"],
             )
         }
         "docs_tests" => {
-            let r = handle_consistency_review(cache, params)?;
+            let r = handle_consistency_review(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_consistency_review"],
             )
         }
         "breaking_changes" => {
-            let r = handle_breaking_change_review(cache, params)?;
+            let r = handle_breaking_change_review(cache, analysis_params)?;
             (
                 unwrap_tool_result(&r),
                 vec!["codelattice_breaking_change_review"],
@@ -24790,11 +25049,12 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
             let mut merged = json!({});
             let mut errors = Vec::new();
             safe_insert_tool(&mut merged, &mut errors, "quality", "quality", || {
-                Ok(unwrap_tool_result(&handle_quality(cache, params)?))
+                Ok(unwrap_tool_result(&handle_quality(cache, analysis_params)?))
             });
             safe_insert_tool(&mut merged, &mut errors, "config", "config", || {
                 Ok(unwrap_tool_result(&handle_config_examples_review(
-                    cache, params,
+                    cache,
+                    analysis_params,
                 )?))
             });
             safe_insert_tool(
@@ -24804,7 +25064,8 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 "breaking_changes",
                 || {
                     Ok(unwrap_tool_result(&handle_breaking_change_review(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -24815,7 +25076,8 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 "consistency",
                 || {
                     Ok(unwrap_tool_result(&handle_consistency_review(
-                        cache, params,
+                        cache,
+                        analysis_params,
                     )?))
                 },
             );
@@ -25756,7 +26018,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         .as_str()
         .or_else(|| params["mode"].as_str())
         .unwrap_or("onboarding");
-    let compact = params["compact"].as_bool().unwrap_or(false);
+    let compact = facade_compact_default(params);
     let execute = params["execute"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
     let root = params["root"].as_str().unwrap_or("");

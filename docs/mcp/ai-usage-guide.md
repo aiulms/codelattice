@@ -74,6 +74,8 @@ Profiles:
 
 If you are unsure, start with `codelattice_workflow(mode=ask)` or `codelattice_workflow(mode=explore)`.
 
+AI facade responses default to compact output. Keep that default for normal exploration and issue triage. Use `compact=false` only when you explicitly need full evidence arrays, full source-only diagnostics, or deep export payloads.
+
 Use the facades by decision stage:
 
 | Stage | Use | Avoid |
@@ -100,6 +102,8 @@ codelattice_project(mode=quick)
 codelattice_workspace(mode=overview)
 ```
 Then select a `recommendedProjectRoots` entry and run `codelattice_project(mode=standard)` on it.
+
+If you accidentally pass a workspace root to a symbol or change-review facade, CodeLattice attempts to route to the best project root using the query/symbol/change text. Routed responses include `rootRouter.selectedRoot`, `rootRouter.selectedLanguage`, and `requestContext.effectiveRoot`. If confidence is low, follow `rootRouter.candidates` or `recommendedProjectRoots` instead of retrying random roots.
 
 ### Understanding Execution Flow
 
@@ -128,6 +132,23 @@ codelattice_symbol(mode=call_chains, query="mission_loop")
 codelattice_change_review(mode=impact, symbol="mission_loop")
 ```
 
+### Symbol Ambiguity
+
+Bare names can match production code and tests with the same symbol name. CodeLattice now handles that in two ways:
+
+- If exactly one candidate is outside test/example/fixture paths, `context` and `impact` may select it for first-pass AI reading and return `selectionPolicy.selectedBy="unique_non_test_candidate"`.
+- If several production candidates remain, the response includes `disambiguation.recommendedNextCalls` with exact symbol ids. Pick one of those calls; do not strip the id back to a bare name.
+
+Preferred flow:
+
+```
+codelattice_symbol(mode=search, query="get_scheduler_readiness")
+codelattice_symbol(mode=context, name="<exact id from search>")
+codelattice_change_review(mode=impact, symbol="<exact id from search>")
+```
+
+Qualified names such as `MissionManager::new`, copied graph ids, and exact ids returned by search are accepted by downstream symbol/change-review calls.
+
 ### Whatif / Pre-Edit Change Preview
 
 Before making changes, use `whatif` to preview impact without actually modifying code:
@@ -153,7 +174,7 @@ All whatif results are static-only. `targetCodeExecuted=false` means CodeLattice
 
 ### Compact Payloads
 
-Use `compact=true` by default when asking for orientation, call chains, or issue triage. Compact facade responses intentionally keep `rootDiagnosis` small: they include `sourceOnlySummary` and at most five `sourceOnlyEntryPreview` items, but omit full `sourceOnlyEntries`.
+Compact is the default for the AI facade. Compact facade responses intentionally keep `rootDiagnosis` small: they include `sourceOnlySummary` and at most five `sourceOnlyEntryPreview` items, but omit full `sourceOnlyEntries`.
 
 Compact facade responses include `decisionGuidance.compactSemantics`, which lists the fields that were kept and omitted. Treat compact output as safe for routing and first-pass risk decisions; switch to `compact=false`, `deep`, or `job_detail` when you need full evidence lists.
 
