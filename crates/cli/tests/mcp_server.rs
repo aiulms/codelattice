@@ -304,6 +304,32 @@ fn create_many_callees_rust_project(callee_count: usize) -> tempfile::TempDir {
     dir
 }
 
+fn create_dense_diagnose_rust_project(area_count: usize) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create dense diagnose project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"dense-diagnose\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(src.join("main.rs"), "fn main() {}\n").unwrap();
+
+    for idx in 0..area_count {
+        std::fs::write(
+            src.join(format!("auth_handler_{idx:02}.rs")),
+            format!(
+                "pub fn auth_handler_{idx:02}() {{ auth_leaf_{idx:02}(); }}\npub fn auth_leaf_{idx:02}() {{}}\n"
+            ),
+        )
+        .unwrap();
+    }
+
+    dir
+}
+
 fn create_qualified_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create qualified rust project");
     let root = dir.path();
@@ -18349,6 +18375,56 @@ fn mcp_project_diagnose_compact_returns_top_areas() {
     );
     let rf = data["summary"]["readFirst"].as_array();
     assert!(rf.is_some(), "readFirst should exist");
+}
+
+#[test]
+fn mcp_project_diagnose_compact_bounds_result_arrays() {
+    let dense = create_dense_diagnose_rust_project(14);
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99086,
+        "codelattice_project",
+        serde_json::json!({
+            "root": dense.path().to_str().unwrap(),
+            "language": "rust",
+            "mode": "diagnose",
+            "symptom": "auth handler error",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    let payload_len = serde_json::to_string(&data).unwrap().len();
+    assert!(
+        payload_len < 16 * 1024,
+        "dense compact diagnose should stay under budget, got {payload_len} bytes"
+    );
+
+    let result = &data["result"];
+    for (field, max) in [
+        ("likelyAreas", 5usize),
+        ("readFirst", 5usize),
+        ("entryPoints", 3usize),
+        ("impactHints", 5usize),
+    ] {
+        let len = result[field].as_array().map(|a| a.len()).unwrap_or(0);
+        assert!(
+            len <= max,
+            "compact diagnose result.{field} should be bounded to {max}, got {len}: {result:?}"
+        );
+    }
+    assert!(
+        result["omitted"].is_array(),
+        "compact diagnose should disclose omitted evidence counts: {result:?}"
+    );
+    assert!(
+        data["tokenBudget"]["used"].as_u64().unwrap_or(u64::MAX) <= 16 * 1024,
+        "tokenBudget should report compact diagnose under budget: {:?}",
+        data["tokenBudget"]
+    );
 }
 
 #[test]

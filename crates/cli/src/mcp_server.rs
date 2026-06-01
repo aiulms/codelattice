@@ -22955,6 +22955,22 @@ fn diagnose_candidate_json(candidate: &DiagnoseCandidate, idx: usize) -> Value {
     })
 }
 
+fn diagnose_candidate_compact_json(candidate: &DiagnoseCandidate, idx: usize) -> Value {
+    json!({
+        "rank": idx + 1,
+        "name": candidate.name,
+        "kind": candidate.kind,
+        "file": candidate.file,
+        "line": candidate.line,
+        "confidence": (candidate.confidence * 100.0).round() / 100.0,
+        "reason": candidate.reasons.first().cloned().unwrap_or_default(),
+        "fanIn": candidate.fan_in,
+        "fanOut": candidate.fan_out,
+        "entryKind": candidate.entry_kind,
+        "staticOnly": true
+    })
+}
+
 fn diagnose_file_read_item(file: &str, reason: &str, priority: usize) -> Value {
     json!({
         "kind": "file",
@@ -22965,13 +22981,31 @@ fn diagnose_file_read_item(file: &str, reason: &str, priority: usize) -> Value {
     })
 }
 
+fn diagnose_file_read_compact_item(file: &str, reason: &str, priority: usize) -> Value {
+    json!({
+        "kind": "file",
+        "file": file,
+        "priority": priority,
+        "reason": reason
+    })
+}
+
 fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
         .as_str()
         .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
     let validated = validate_root_path(root)?;
     let language = params["language"].as_str().unwrap_or("auto");
-    let limit = params["limit"].as_u64().unwrap_or(10).clamp(1, 50) as usize;
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let requested_limit = params["limit"].as_u64().unwrap_or(10).clamp(1, 50) as usize;
+    let limit = if compact {
+        requested_limit.min(5)
+    } else {
+        requested_limit
+    };
+    let read_first_limit = if compact { 5 } else { requested_limit.min(8) };
+    let entry_point_limit = if compact { 3 } else { requested_limit.min(8) };
+    let impact_hint_limit = if compact { 5 } else { requested_limit };
     check_language_feature(language)?;
 
     let input_text = diagnose_input_text(params);
@@ -23101,12 +23135,19 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             .then_with(|| a.file.cmp(&b.file))
             .then_with(|| a.name.cmp(&b.name))
     });
+    let total_likely_area_candidates = candidates.len();
     candidates.truncate(limit);
 
     let likely_areas: Vec<Value> = candidates
         .iter()
         .enumerate()
-        .map(|(i, c)| diagnose_candidate_json(c, i))
+        .map(|(i, c)| {
+            if compact {
+                diagnose_candidate_compact_json(c, i)
+            } else {
+                diagnose_candidate_json(c, i)
+            }
+        })
         .collect();
 
     let mut read_first: Vec<Value> = Vec::new();
@@ -23116,16 +23157,23 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             continue;
         }
         seen_files.push(candidate.file.clone());
-        read_first.push(diagnose_file_read_item(
-            &candidate.file,
-            &format!(
-                "contains likely symbol '{}': {}",
-                candidate.name,
-                candidate.reasons.join("; ")
-            ),
-            read_first.len() + 1,
-        ));
-        if read_first.len() >= limit.min(8) {
+        let reason = format!(
+            "contains likely symbol '{}': {}",
+            candidate.name,
+            candidate
+                .reasons
+                .iter()
+                .take(if compact { 1 } else { 3 })
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        read_first.push(if compact {
+            diagnose_file_read_compact_item(&candidate.file, &reason, read_first.len() + 1)
+        } else {
+            diagnose_file_read_item(&candidate.file, &reason, read_first.len() + 1)
+        });
+        if read_first.len() >= read_first_limit {
             break;
         }
     }
@@ -23143,17 +23191,30 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
         })
         .collect();
     file_rank.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-    for (file, _score, reasons) in file_rank.iter().take(limit) {
+    for (file, _score, reasons) in file_rank.iter().take(read_first_limit) {
         if seen_files.contains(file) {
             continue;
         }
-        read_first.push(diagnose_file_read_item(
-            file,
-            &format!("file-level symptom match: {}", reasons.join("; ")),
-            read_first.len() + 1,
-        ));
+        let reason = format!(
+            "file-level symptom match: {}",
+            reasons
+                .iter()
+                .take(if compact { 1 } else { 3 })
+                .cloned()
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        read_first.push(if compact {
+            diagnose_file_read_compact_item(file, &reason, read_first.len() + 1)
+        } else {
+            diagnose_file_read_item(file, &reason, read_first.len() + 1)
+        });
         seen_files.push(file.clone());
+        if read_first.len() >= read_first_limit {
+            break;
+        }
     }
+    read_first.truncate(read_first_limit);
 
     let mut entry_points: Vec<Value> = gv
         .nodes_by_id
@@ -23168,19 +23229,32 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             if !signal.primary_candidate {
                 return None;
             }
-            Some(json!({
-                "id": id,
-                "name": name,
-                "kind": kind,
-                "file": file,
-                "line": node_line_start(node),
-                "entryKind": signal.category,
-                "confidence": signal.confidence,
-                "evidence": signal.evidence,
-                "nextAction": signal.next_action,
-                "fanIn": fan_in,
-                "fanOut": fan_out
-            }))
+            if compact {
+                Some(json!({
+                    "name": name,
+                    "kind": kind,
+                    "file": file,
+                    "line": node_line_start(node),
+                    "entryKind": signal.category,
+                    "confidence": signal.confidence,
+                    "fanIn": fan_in,
+                    "fanOut": fan_out
+                }))
+            } else {
+                Some(json!({
+                    "id": id,
+                    "name": name,
+                    "kind": kind,
+                    "file": file,
+                    "line": node_line_start(node),
+                    "entryKind": signal.category,
+                    "confidence": signal.confidence,
+                    "evidence": signal.evidence,
+                    "nextAction": signal.next_action,
+                    "fanIn": fan_in,
+                    "fanOut": fan_out
+                }))
+            }
         })
         .collect();
     entry_points.sort_by(|a, b| {
@@ -23190,7 +23264,8 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             .partial_cmp(&a["confidence"].as_f64().unwrap_or(0.0))
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    entry_points.truncate(limit.min(8));
+    let total_entry_point_candidates = entry_points.len();
+    entry_points.truncate(entry_point_limit);
 
     let mut impact_hints: Vec<Value> = Vec::new();
     for candidate in candidates.iter().take(5) {
@@ -23219,7 +23294,8 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             }));
         }
     }
-    impact_hints.truncate(limit);
+    let total_impact_hint_candidates = impact_hints.len();
+    impact_hints.truncate(impact_hint_limit);
 
     let top_confidence = candidates.first().map(|c| c.confidence).unwrap_or(0.0);
     let risk_level = if candidates.is_empty() {
@@ -23249,8 +23325,36 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             "riskLevel": risk_level,
             "likelyAreaCount": likely_areas.len(),
             "readFirstCount": read_first.len(),
+            "entryPointCount": entry_points.len(),
             "impactHintCount": impact_hints.len(),
+            "totalLikelyAreaCandidateCount": total_likely_area_candidates,
+            "totalEntryPointCandidateCount": total_entry_point_candidates,
+            "totalImpactHintCandidateCount": total_impact_hint_candidates,
+            "omittedLikelyAreaCount": total_likely_area_candidates.saturating_sub(likely_areas.len()),
+            "omittedEntryPointCount": total_entry_point_candidates.saturating_sub(entry_points.len()),
+            "omittedImpactHintCount": total_impact_hint_candidates.saturating_sub(impact_hints.len()),
             "topConfidence": (top_confidence * 100.0).round() / 100.0
+        },
+        "compactLimits": if compact {
+            json!({
+                "likelyAreas": limit,
+                "readFirst": read_first_limit,
+                "entryPoints": entry_point_limit,
+                "impactHints": impact_hint_limit,
+                "policy": "compact diagnose keeps bounded, decision-critical evidence and exposes omitted counts"
+            })
+        } else {
+            Value::Null
+        },
+        "omitted": if compact {
+            json!([
+                {"field": "likelyAreas", "omittedCount": total_likely_area_candidates.saturating_sub(likely_areas.len()), "reason": "compact diagnose keeps top-ranked likely areas only"},
+                {"field": "readFirst", "omittedCount": 0, "reason": "compact diagnose keeps bounded read-first files"},
+                {"field": "entryPoints", "omittedCount": total_entry_point_candidates.saturating_sub(entry_points.len()), "reason": "compact diagnose keeps top entry-point evidence only"},
+                {"field": "impactHints", "omittedCount": total_impact_hint_candidates.saturating_sub(impact_hints.len()), "reason": "compact diagnose keeps top static impact hints only"}
+            ])
+        } else {
+            json!([])
         },
         "inputSignals": {
             "symptom": params["symptom"].as_str().unwrap_or(""),
@@ -23270,17 +23374,17 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
             "Use codelattice_change_review mode=impact before modifying a likelyArea.",
             "Confirm hypotheses with targeted tests or runtime reproduction outside CodeLattice."
         ],
-        "cautions": [
+        "cautions": if compact { json!(["static diagnosis only — not root-cause proof"]) } else { json!([
             "static diagnosis only — not root-cause proof",
             "target project code was not executed",
             "missing graph edges can hide runtime/framework behavior"
-        ],
-        "generatedFrom": {
+        ]) },
+        "generatedFrom": if compact { json!({"$ref": "facade.v1.generatedFrom.default"}) } else { json!({
             "graphBased": true,
             "staticAnalysis": true,
             "runtimeVerified": false,
             "scriptsExecuted": false
-        }
+        }) }
     });
     result = merge_cache_and_result(&result, &cache_meta);
     Ok(result)
@@ -24040,9 +24144,10 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             .and_then(|a| a.as_array())
             .cloned()
             .unwrap_or_default();
+        let top_area_limit = if compact { 3 } else { 5 };
         let top_areas: Vec<Value> = likely_areas
             .iter()
-            .take(5)
+            .take(top_area_limit)
             .map(|area| {
                 let name = area.get("name").and_then(|v| v.as_str()).unwrap_or("");
                 let file = area.get("file").and_then(|v| v.as_str()).unwrap_or("");
@@ -24055,8 +24160,15 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                     .and_then(|r| r.as_array())
                     .map(|arr| {
                         arr.iter()
+                            .take(if compact { 2 } else { usize::MAX })
                             .filter_map(|v| v.as_str().map(String::from))
                             .collect::<Vec<_>>()
+                    })
+                    .or_else(|| {
+                        area.get("reason")
+                            .and_then(|v| v.as_str())
+                            .filter(|s| !s.is_empty())
+                            .map(|s| vec![s.to_string()])
                     })
                     .unwrap_or_default();
                 let rank = area.get("rank").and_then(|v| v.as_u64()).unwrap_or(0);
@@ -24067,6 +24179,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                     "symbol": name,
                     "confidence": confidence,
                     "reasons": reasons,
+                    "line": area.get("line").cloned().unwrap_or(Value::Null),
                     "staticOnly": true
                 })
             })
@@ -26870,10 +26983,11 @@ fn workflow_take_array(value: &Value, paths: &[&[&str]], limit: usize) -> Vec<Va
 
 fn workflow_execution_args(tool: &str, args: &Value) -> Value {
     let mut exec_args = args.clone();
-    // Diagnosis is intentionally small and benefits from returning readFirst/likelyAreas.
-    // Keeping the action compact would hide the exact evidence the workflow report needs.
+    // Diagnose can be large on real projects. Preserve workflow compact mode and
+    // let project diagnose expose bounded evidence plus omitted counts.
     if tool == "codelattice_project" && args["mode"].as_str() == Some("diagnose") {
-        exec_args["compact"] = json!(false);
+        let compact = args["compact"].as_bool().unwrap_or(true);
+        exec_args["compact"] = json!(compact);
     }
     exec_args
 }
