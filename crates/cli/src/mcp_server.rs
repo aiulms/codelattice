@@ -22284,11 +22284,15 @@ fn build_cached_project_quick_progressive(
         .as_str()
         .unwrap_or("fresh_snapshot")
         .to_string();
+    let runtime_trace =
+        crate::ai_runtime::build_runtime_trace_envelope(language, Some(&cache_meta));
     let source_file_count = source_files.len().max(discovered_file_count);
     Ok(json!({
         "schemaVersion": "codelattice.projectProgressiveMap.v1",
         "analysisDepth": "quick",
         "freshness": freshness,
+        "analysisDurationMs": cache_meta["analysisDurationMs"].clone(),
+        "runtimeTrace": runtime_trace,
         "summary": {
             "mode": "quick",
             "language": language,
@@ -23394,12 +23398,17 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             if mode == "quick" {
                 quick_freshness = insights["freshness"].as_str().map(String::from);
             }
+            let runtime_trace =
+                crate::ai_runtime::build_runtime_trace_envelope(language, Some(&insights));
             let progressive = json!({
                 "schemaVersion": "codelattice.projectProgressiveMap.v1",
                 "analysisDepth": mode,
+                "freshness": insights["freshness"].clone(),
+                "analysisDurationMs": insights["analysisDurationMs"].clone(),
                 "summary": insights["summary"].clone(),
                 "aiDigest": build_project_ai_digest(&insights, mode, project_depth_limit(mode)),
                 "details": if mode == "deep" { insights.clone() } else { Value::Null },
+                "runtimeTrace": runtime_trace,
                 "generatedFrom": {
                     "staticAnalysis": true,
                     "runtimeVerified": false,
@@ -23608,31 +23617,45 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         next_actions = new_next_actions;
     }
 
-    Ok(tool_result(&if mode == "quick" && compact {
-        let detected_language = inner
-            .get("language")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-            .unwrap_or_else(|| language.to_string());
-        let facade = wrap_facade_output(
-            inner,
-            "codelattice_project",
-            mode,
-            language,
-            root,
-            summary,
-            next_actions,
-            underlying,
-            compact,
-        );
-        let freshness = quick_freshness.as_deref().unwrap_or("fresh_snapshot");
-        let evidence: Vec<Value> = facade
-            .get("result")
-            .and_then(|r| r.get("aiDigest"))
-            .and_then(|d| d.get("topRisks"))
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
+    Ok(tool_result(
+        &if matches!(mode, "quick" | "standard") && compact {
+            let detected_language = inner
+                .get("summary")
+                .and_then(|s| s.get("language"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+                .or_else(|| {
+                    inner
+                        .get("language")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .or_else(|| {
+                    summary
+                        .get("language")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_else(|| language.to_string());
+            let ai_digest = inner
+                .get("aiDigest")
+                .cloned()
+                .or_else(|| summary.get("aiDigest").cloned())
+                .unwrap_or_else(|| json!({}));
+            let project_summary = inner
+                .get("summary")
+                .cloned()
+                .unwrap_or_else(|| summary.clone());
+            let freshness = quick_freshness
+                .as_deref()
+                .or_else(|| inner.get("freshness").and_then(|v| v.as_str()))
+                .or_else(|| project_summary.get("freshness").and_then(|v| v.as_str()))
+                .unwrap_or("fresh_snapshot");
+            let evidence: Vec<Value> = ai_digest
+                .get("topRisks")
+                .and_then(|v| v.as_array())
+                .map(|arr| {
+                    arr.iter()
                     .take(5)
                     .map(|r| {
                         json!({
@@ -23642,84 +23665,99 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                         })
                     })
                     .collect()
-            })
-            .unwrap_or_default();
-        let symbol_count = facade
-            .get("result")
-            .and_then(|r| r.get("summary"))
-            .and_then(|s| s.get("symbolCount"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let source_file_count = facade
-            .get("result")
-            .and_then(|r| r.get("summary"))
-            .and_then(|s| s.get("sourceFileCount"))
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0);
-        let cached_quick_digest = facade
-            .get("result")
-            .and_then(|r| r.get("summary"))
-            .and_then(|s| s.get("cachedQuickDigest"))
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let risk_level = facade
-            .get("summary")
-            .and_then(|s| s.get("riskLevel"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let confidence_level = match risk_level {
-            "high" | "critical" => "high",
-            "medium" => "medium",
-            _ => "low",
-        };
-        let root_kind = facade
-            .get("rootDiagnosis")
-            .and_then(|d| d.get("kind"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("unknown");
-        let answer_summary = json!({
-            "mode": "quick",
-            "language": detected_language,
-            "riskLevel": risk_level,
-            "rootKind": root_kind,
-            "symbolCount": symbol_count,
-            "sourceFileCount": source_file_count,
-            "topRiskCount": evidence.len(),
-            "cachedQuickDigest": cached_quick_digest,
-        });
-        let estimated_bytes = answer_summary.to_string().len() + evidence.len() * 80;
-        let mut decision_card = json!({
-            "answerSummary": answer_summary,
-            "freshness": freshness,
-            "evidence": evidence,
-            "confidence": {
-                "level": confidence_level,
-                "missingEvidence": [
-                    {"kind": "runtime_verification", "explanation": "No runtime logs, test results, or coverage data were used."},
-                    {"kind": "no_code_execution", "explanation": "Target code was not executed. Verify hypotheses with targeted tests."}
-                ],
-            },
-            "omitted": {
-                "fields": ["fullResult", "fileMetrics", "qualityMetrics", "docsSignals", "riskMap", "sourceOnlyEntries"],
-                "detailAvailableVia": "codelattice_project mode=standard compact=false",
-            },
-            "tokenBudget": {
-                "used": estimated_bytes,
-                "max": 16384,
-                "estimated": true,
-            },
-            "symbolCount": symbol_count,
-        });
-        if detail == "medium" {
-            let dependency_summary =
-                crate::ai_runtime::build_dependency_framework_digest(Path::new(root), language);
-            let ai_digest = facade
-                .get("result")
-                .and_then(|r| r.get("aiDigest"))
-                .cloned()
-                .unwrap_or_else(|| json!({}));
-            if let Some(obj) = decision_card.as_object_mut() {
-                obj.insert(
+                })
+                .unwrap_or_default();
+            let symbol_count = project_summary
+                .get("symbolCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let source_file_count = project_summary
+                .get("sourceFileCount")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let cached_quick_digest = project_summary
+                .get("cachedQuickDigest")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let risk_level = summary
+                .get("riskLevel")
+                .and_then(|v| v.as_str())
+                .or_else(|| {
+                    project_summary
+                        .get("architectureRiskLevel")
+                        .and_then(|v| v.as_str())
+                })
+                .unwrap_or("unknown");
+            let confidence_level = match risk_level {
+                "high" | "critical" => "high",
+                "medium" => "medium",
+                _ => "low",
+            };
+            let compact_root_kind = diagnose_root_compact(root, language)
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let answer_summary = json!({
+                "mode": mode,
+                "language": detected_language,
+                "riskLevel": risk_level,
+                "rootKind": compact_root_kind,
+                "symbolCount": symbol_count,
+                "sourceFileCount": source_file_count,
+                "topRiskCount": evidence.len(),
+                "cachedQuickDigest": cached_quick_digest,
+            });
+            let detail_hint = if mode == "quick" {
+                "codelattice_project mode=standard compact=true, then compact=false only if you need full evidence"
+            } else {
+                "codelattice_project mode=standard compact=false or mode=job_detail for full evidence"
+            };
+            let estimated_bytes = answer_summary.to_string().len() + evidence.len() * 80;
+            let mut decision_card = json!({
+                "answerSummary": answer_summary,
+                "freshness": freshness,
+                "evidence": evidence,
+                "confidence": {
+                    "level": confidence_level,
+                    "missingEvidence": [
+                        {"kind": "runtime_verification", "explanation": "No runtime logs, test results, or coverage data were used."},
+                        {"kind": "no_code_execution", "explanation": "Target code was not executed. Verify hypotheses with targeted tests."}
+                    ],
+                },
+                "omitted": {
+                    "fields": ["fullResult", "rootDiagnosis", "fileMetrics", "qualityMetrics", "docsSignals", "riskMap", "sourceOnlyEntries"],
+                    "detailAvailableVia": detail_hint,
+                },
+                "tokenBudget": {
+                    "used": estimated_bytes,
+                    "max": 16384,
+                    "estimated": true,
+                },
+                "symbolCount": symbol_count,
+            });
+            if mode == "standard" {
+                if let Some(obj) = decision_card.as_object_mut() {
+                    obj.insert(
+                    "standardDetails".to_string(),
+                    json!({
+                        "schemaVersion": "codelattice.projectStandardDetail.v1",
+                        "entryPoints": take_json_items(&ai_digest["entryPoints"], 5),
+                        "readFirst": take_json_items(&ai_digest["readFirst"], 5),
+                        "reviewFirst": take_json_items(&ai_digest["reviewFirst"], 5),
+                        "topComponents": take_json_items(&ai_digest["topComponents"], 5),
+                        "topRisks": take_json_items(&ai_digest["topRisks"], 5),
+                        "missingEvidence": take_json_items(&ai_digest["missingEvidence"], 3),
+                        "detailHint": "Standard compact keeps top navigation and risk hints without the full graph or repeated root diagnosis."
+                    }),
+                );
+                }
+            }
+            if detail == "medium" {
+                let dependency_summary =
+                    crate::ai_runtime::build_dependency_framework_digest(Path::new(root), language);
+                if let Some(obj) = decision_card.as_object_mut() {
+                    obj.insert(
                     "mediumDetails".to_string(),
                     json!({
                         "schemaVersion": "codelattice.projectMediumDetail.v1",
@@ -23731,49 +23769,51 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                         "detailHint": "Medium detail keeps dependency/framework facts and top navigation hints without full graph payloads."
                     }),
                 );
+                }
             }
-        }
-        if let Some(runtime_trace) = facade.get("runtimeTrace").cloned() {
+            let runtime_trace = inner.get("runtimeTrace").cloned().unwrap_or_else(|| {
+                crate::ai_runtime::build_runtime_trace_envelope(language, Some(&inner))
+            });
             if let Some(obj) = decision_card.as_object_mut() {
                 obj.insert("runtimeTrace".to_string(), runtime_trace);
             }
-        }
-        let request_context = FacadeRequestContext::unrouted(
-            "codelattice_project",
-            mode,
-            root,
-            requested_language,
-            language,
-            compact,
-        );
-        attach_facade_contract(&mut decision_card, &request_context);
-        let estimated_bytes = serde_json::to_string(&decision_card)
-            .map(|s| s.len())
-            .unwrap_or(0);
-        if let Some(obj) = decision_card.as_object_mut() {
-            obj.insert(
-                "tokenBudget".to_string(),
-                json!({
-                    "used": estimated_bytes,
-                    "max": 16 * 1024,
-                    "estimated": true,
-                }),
+            let request_context = FacadeRequestContext::unrouted(
+                "codelattice_project",
+                mode,
+                root,
+                requested_language,
+                language,
+                compact,
             );
-        }
-        decision_card
-    } else {
-        wrap_facade_output(
-            inner,
-            "codelattice_project",
-            mode,
-            language,
-            root,
-            summary,
-            next_actions,
-            underlying,
-            compact,
-        )
-    }))
+            attach_facade_contract(&mut decision_card, &request_context);
+            let estimated_bytes = serde_json::to_string(&decision_card)
+                .map(|s| s.len())
+                .unwrap_or(0);
+            if let Some(obj) = decision_card.as_object_mut() {
+                obj.insert(
+                    "tokenBudget".to_string(),
+                    json!({
+                        "used": estimated_bytes,
+                        "max": 16 * 1024,
+                        "estimated": true,
+                    }),
+                );
+            }
+            decision_card
+        } else {
+            wrap_facade_output(
+                inner,
+                "codelattice_project",
+                mode,
+                language,
+                root,
+                summary,
+                next_actions,
+                underlying,
+                compact,
+            )
+        },
+    ))
 }
 
 // ── codelattice_symbol ───────────────────────────────────────────────

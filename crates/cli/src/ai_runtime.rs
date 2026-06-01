@@ -429,9 +429,45 @@ fn find_analysis_trace(value: &Value) -> Option<Value> {
     }
 }
 
+fn find_u64_field(value: &Value, field: &str) -> Option<u64> {
+    match value {
+        Value::Object(obj) => {
+            if let Some(found) = obj.get(field).and_then(|v| v.as_u64()) {
+                return Some(found);
+            }
+            obj.values().find_map(|child| find_u64_field(child, field))
+        }
+        Value::Array(items) => items.iter().find_map(|child| find_u64_field(child, field)),
+        _ => None,
+    }
+}
+
 pub(crate) fn build_runtime_trace_envelope(language: &str, result: Option<&Value>) -> Value {
     let language = normalize_language(language);
-    let trace = result.and_then(find_analysis_trace);
+    let detailed_trace = result.and_then(find_analysis_trace);
+    let analysis_duration_ms = result.and_then(|value| find_u64_field(value, "analysisDurationMs"));
+    let source_file_count_hint = result.and_then(|value| find_u64_field(value, "sourceFileCount"));
+    let trace_source = if detailed_trace.is_some() {
+        "analysisTrace"
+    } else if analysis_duration_ms.is_some() {
+        "analysisDurationMs"
+    } else {
+        "not_available"
+    };
+    let trace = detailed_trace.or_else(|| {
+        analysis_duration_ms.map(|duration_ms| {
+            json!({
+                "schemaVersion": "codelattice.languageAnalysisTrace.v1",
+                "language": language,
+                "granularity": "coarse",
+                "totalMs": duration_ms,
+                "sourceFileCount": source_file_count_hint,
+                "stages": {
+                    "analysisDurationMs": duration_ms
+                }
+            })
+        })
+    });
     let available = trace.is_some();
     let granularity = trace
         .as_ref()
@@ -455,7 +491,7 @@ pub(crate) fn build_runtime_trace_envelope(language: &str, result: Option<&Value
         "schemaVersion": "codelattice.languageRuntimeTrace.v1",
         "language": language,
         "available": available,
-        "source": if available { "analysisTrace" } else { "not_available" },
+        "source": trace_source,
         "granularity": granularity,
         "totalMs": total_ms,
         "sourceFileCount": source_file_count,

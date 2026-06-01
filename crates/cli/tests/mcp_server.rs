@@ -20005,6 +20005,58 @@ fn mcp_project_quick_decision_card_has_request_context() {
 }
 
 #[test]
+fn mcp_project_standard_compact_is_bounded_decision_card() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92201,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "standard",
+            "root": root.to_string_lossy(),
+            "language": "auto",
+            "compact": true,
+            "asyncOnMiss": false
+        }),
+    );
+
+    assert_eq!(
+        data["answerSummary"]["mode"].as_str(),
+        Some("standard"),
+        "standard compact should return the same bounded decision-card shape as quick compact: {data:?}"
+    );
+    assert!(
+        data.get("result").is_none(),
+        "standard compact decision card must not include full result payload: {data:?}"
+    );
+    assert!(
+        data.get("rootDiagnosis").is_none(),
+        "standard compact decision card should not inline repetitive rootDiagnosis: {data:?}"
+    );
+    assert!(
+        data["standardDetails"]["topComponents"].is_array(),
+        "standard compact should retain bounded module/risk guidance: {data:?}"
+    );
+    assert_eq!(
+        data["runtimeTrace"]["available"].as_bool(),
+        Some(true),
+        "standard compact should expose at least coarse timing from analysis/cache metadata: {data:?}"
+    );
+    assert!(
+        data["runtimeTrace"]["totalMs"].as_u64().is_some(),
+        "standard compact runtimeTrace should include totalMs: {data:?}"
+    );
+    assert!(
+        data["tokenBudget"]["used"].as_u64().unwrap_or(u64::MAX) < 16 * 1024,
+        "standard compact should stay within the compact budget: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_project_auto_job_response_has_request_context() {
     let large = create_large_ask_rust_project();
     let mut session = McpSession::start_default_toolset();
