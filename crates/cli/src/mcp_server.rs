@@ -5886,7 +5886,7 @@ fn handle_calls_from(cache: &mut McpCache, params: &Value) -> Result<Value, Valu
         }
         visited.insert(node_id.clone());
 
-        let edges = gv.edges_from(&node_id, None);
+        let edges = gv.edges_from(&node_id, Some("CALLS"));
         for edge in edges {
             if all_edges.len() >= limit {
                 break;
@@ -6031,7 +6031,7 @@ fn handle_calls_to(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         }
         visited.insert(node_id.clone());
 
-        let edges = gv.edges_to(&node_id, None);
+        let edges = gv.edges_to(&node_id, Some("CALLS"));
         for edge in edges {
             if all_edges.len() >= limit {
                 break;
@@ -12201,11 +12201,11 @@ fn tools_list() -> Value {
             },
             {
                 "name": "codelattice_cache",
-                "description": "Cache management (optional performance layer, NOT availability gate): status, clear, explain. Disabled persistent cache does NOT prevent fresh static analysis — CodeLattice works fine without it. Use mode=status to check memory and persistent cache state.",
+                "description": "Cache management (optional performance layer, NOT availability gate): status, clear, explain, prewarm. Disabled persistent cache does NOT prevent fresh static analysis — CodeLattice works fine without it. Use mode=status to check memory and persistent cache state.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
-                        "mode": { "type": "string", "enum": ["status", "clear", "explain"], "default": "status", "description": "Cache operation" },
+                        "mode": { "type": "string", "enum": ["status", "clear", "explain", "prewarm"], "default": "status", "description": "Cache operation" },
                         "compact": { "type": "boolean", "default": false }
                     }
                 }
@@ -21914,6 +21914,130 @@ fn build_project_ai_digest(insights: &Value, depth: &str, limit: usize) -> Value
     })
 }
 
+fn build_cached_project_quick_progressive(
+    cache: &mut McpCache,
+    validated_root: &Path,
+    root: &str,
+    language: &str,
+    discovered_file_count: usize,
+) -> Result<Value, Value> {
+    let (gv, _result, cache_meta) = cache.get_or_analyze(validated_root, language, false)?;
+    let (node_count, edge_count, symbol_count) = gv.stats();
+    let call_edge_count: usize = gv
+        .outgoing
+        .values()
+        .flat_map(|edges| edges.iter())
+        .filter(|edge| edge["type"].as_str() == Some("CALLS"))
+        .count();
+
+    let mut source_files: Vec<Value> = gv
+        .nodes_by_id
+        .values()
+        .filter(|node| {
+            node["label"].as_str() == Some("source-file")
+                || node["kind"].as_str() == Some("source-file")
+        })
+        .filter_map(|node| {
+            let path = node["properties"]["sourcePath"]
+                .as_str()
+                .or_else(|| node["path"].as_str())
+                .or_else(|| node["id"].as_str())?;
+            Some(json!({
+                "kind": "source",
+                "path": path,
+                "reason": "large-project cached quick digest"
+            }))
+        })
+        .collect();
+    source_files.sort_by_key(|item| item["path"].as_str().unwrap_or("").to_string());
+
+    let mut top_symbols: Vec<Value> = gv
+        .nodes_by_id
+        .values()
+        .filter(|node| {
+            node["label"].as_str() == Some("symbol") || node["kind"].as_str() == Some("symbol")
+        })
+        .filter_map(|node| {
+            let name = node["properties"]["name"].as_str()?;
+            let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+            if file.is_empty() {
+                return None;
+            }
+            Some(json!({
+                "name": name,
+                "kind": node["properties"]["symbolKind"].as_str().unwrap_or("symbol"),
+                "file": file,
+                "line": node["properties"]["lineStart"].as_u64().unwrap_or(0),
+                "id": node["id"].as_str().unwrap_or("")
+            }))
+        })
+        .collect();
+    top_symbols.sort_by(|a, b| {
+        a["file"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(b["file"].as_str().unwrap_or(""))
+            .then_with(|| {
+                a["line"]
+                    .as_u64()
+                    .unwrap_or(0)
+                    .cmp(&b["line"].as_u64().unwrap_or(0))
+            })
+    });
+
+    let freshness = cache_meta["freshness"]
+        .as_str()
+        .unwrap_or("fresh_snapshot")
+        .to_string();
+    let source_file_count = source_files.len().max(discovered_file_count);
+    Ok(json!({
+        "schemaVersion": "codelattice.projectProgressiveMap.v1",
+        "analysisDepth": "quick",
+        "freshness": freshness,
+        "summary": {
+            "mode": "quick",
+            "language": language,
+            "root": root,
+            "sourceFileCount": source_file_count,
+            "symbolCount": symbol_count,
+            "edgeCount": edge_count,
+            "nodeCount": node_count,
+            "callEdgeCount": call_edge_count,
+            "architectureRiskLevel": "unknown",
+            "architectureRiskScore": Value::Null,
+            "architectureComponentCount": Value::Null,
+            "entryPointCandidateCount": Value::Null,
+            "cachedQuickDigest": true,
+            "freshness": freshness
+        },
+        "aiDigest": {
+            "purpose": "Fast cached orientation for a large project. It avoids rebuilding full insights on hot cache paths.",
+            "readFirst": source_files.into_iter().take(6).collect::<Vec<_>>(),
+            "reviewFirst": [],
+            "entryPoints": [],
+            "topComponents": [],
+            "topRisks": [],
+            "topSymbols": top_symbols.into_iter().take(12).collect::<Vec<_>>(),
+            "missingEvidence": [
+                {"kind": "full_insights_omitted", "explanation": "Large-project compact quick used cached graph counts and previews. Use standard/deep for ranked components and risks."}
+            ],
+            "drillDownOptions": [
+                {"mode": "standard", "when": "you need component boundaries or ranked risks"},
+                {"mode": "deep", "when": "you need full static detail before a high-risk edit"},
+                {"tool": "codelattice_symbol", "mode": "search", "when": "you know a symbol/name and need exact code context"}
+            ]
+        },
+        "details": Value::Null,
+        "generatedFrom": {
+            "staticAnalysis": true,
+            "runtimeVerified": false,
+            "scriptsExecuted": false,
+            "coverageVerified": false,
+            "cachedGraphDigest": true
+        }
+    }))
+}
+
 fn build_project_progressive_summary(insights: &Value, depth: &str, root: &str) -> Value {
     let summary = &insights["summary"];
     let limit = project_depth_limit(depth);
@@ -22933,15 +23057,44 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             (unwrap_tool_result(&r), vec!["codelattice_project_overview"])
         }
         "quick" | "standard" | "deep" => {
-            let mut insight_params = analysis_params.clone();
-            insight_params["mode"] = json!("onboarding");
-            insight_params["compact"] = json!(true);
-            insight_params["limit"] = json!(project_depth_limit(mode));
-            if mode == "deep" {
-                insight_params["compact"] = json!(false);
-            }
-            let r = handle_project_insights(cache, &insight_params)?;
-            let insights = unwrap_tool_result(&r);
+            let cached_large_quick = if mode == "quick"
+                && compact
+                && detail != "medium"
+                && !analysis_params["forceSync"].as_bool().unwrap_or(false)
+            {
+                ask_large_project_info(root, language)
+                    .map(|(file_count, _)| {
+                        build_cached_project_quick_progressive(
+                            cache,
+                            &validated_root,
+                            root,
+                            language,
+                            file_count,
+                        )
+                    })
+                    .transpose()?
+            } else {
+                None
+            };
+            let (insights, underlying) = if let Some(cached) = cached_large_quick {
+                (cached, vec!["codelattice_project_cached_quick_digest"])
+            } else {
+                let mut insight_params = analysis_params.clone();
+                insight_params["mode"] = json!("onboarding");
+                insight_params["compact"] = json!(true);
+                insight_params["limit"] = json!(project_depth_limit(mode));
+                if mode == "deep" {
+                    insight_params["compact"] = json!(false);
+                }
+                let r = handle_project_insights(cache, &insight_params)?;
+                (
+                    unwrap_tool_result(&r),
+                    vec![
+                        "codelattice_project_insights",
+                        "codelattice_project_overview",
+                    ],
+                )
+            };
             if mode == "quick" {
                 quick_freshness = insights["freshness"].as_str().map(String::from);
             }
@@ -22958,13 +23111,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                     "coverageVerified": false
                 }
             });
-            (
-                progressive,
-                vec![
-                    "codelattice_project_insights",
-                    "codelattice_project_overview",
-                ],
-            )
+            (progressive, underlying)
         }
         "quality" => {
             let r = handle_quality(cache, analysis_params)?;
@@ -23213,6 +23360,12 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             .and_then(|s| s.get("sourceFileCount"))
             .and_then(|v| v.as_u64())
             .unwrap_or(0);
+        let cached_quick_digest = facade
+            .get("result")
+            .and_then(|r| r.get("summary"))
+            .and_then(|s| s.get("cachedQuickDigest"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         let risk_level = facade
             .get("summary")
             .and_then(|s| s.get("riskLevel"))
@@ -23236,6 +23389,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             "symbolCount": symbol_count,
             "sourceFileCount": source_file_count,
             "topRiskCount": evidence.len(),
+            "cachedQuickDigest": cached_quick_digest,
         });
         let estimated_bytes = answer_summary.to_string().len() + evidence.len() * 80;
         let mut decision_card = json!({
@@ -24704,7 +24858,11 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
 fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("status");
     let compact = params["compact"].as_bool().unwrap_or(false);
-    validate_facade_mode(mode, &["status", "clear", "explain"], "codelattice_cache")?;
+    validate_facade_mode(
+        mode,
+        &["status", "clear", "explain", "prewarm"],
+        "codelattice_cache",
+    )?;
     let (inner, underlying, persistent_enabled): (Value, Vec<&str>, bool) = match mode {
         "status" => {
             let r = handle_cache_status(cache, params)?;
@@ -24729,6 +24887,62 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             vec!["codelattice_cache_status"],
             false,
         ),
+        "prewarm" => {
+            let root = params["root"].as_str().ok_or_else(|| {
+                mcp_error("missing_parameter", "Missing required parameter: root")
+            })?;
+            let requested_language = params["language"].as_str().unwrap_or("auto");
+            let validated_root = validate_root_path(root)?;
+            let language_owned =
+                resolve_auto_language_for_root(&validated_root, requested_language)?;
+            let strict = params["strict"].as_bool().unwrap_or(false);
+            let async_on_miss = params["asyncOnMiss"].as_bool().unwrap_or(true);
+            let probe = cache.probe_analysis_cache(&validated_root, &language_owned, strict);
+            let probe_status = probe["status"].as_str().unwrap_or("miss");
+            let file_count = if let Some(adapter) =
+                crate::engine_bridge::get_adapter_for_language(&language_owned)
+            {
+                adapter
+                    .discover_files(root)
+                    .map(|files| files.len())
+                    .unwrap_or(0)
+            } else {
+                0
+            };
+
+            if async_on_miss && probe_status != "hit" && file_count > 10 {
+                let job = crate::mcp_job::submit_project_job(root, &language_owned, "parallel")
+                    .map_err(|e| mcp_error("job_submit_failed", &e.to_string()))?;
+                let job_id = job["jobId"].as_str().unwrap_or("").to_string();
+                (
+                    json!({
+                        "status": "analyzing",
+                        "warmed": false,
+                        "jobId": job_id,
+                        "effectiveLanguage": language_owned,
+                        "cacheProbe": probe,
+                        "fileCount": file_count,
+                        "message": "Prewarm submitted a non-blocking project job. Poll job_status until succeeded; facade cache will be ready afterward.",
+                        "recommendedNextCalls": [
+                            {"tool": "codelattice_project", "mode": "job_status", "arguments": {"jobId": job_id, "root": root, "language": language_owned, "compact": true}},
+                            {"tool": "codelattice_project", "mode": "job_detail", "arguments": {"jobId": job_id, "root": root, "language": language_owned, "page": 0, "pageSize": 50, "compact": true}}
+                        ]
+                    }),
+                    vec!["codelattice_project_job"],
+                    true,
+                )
+            } else {
+                let mut effective = params.clone();
+                effective["language"] = json!(language_owned);
+                let r = handle_cache_prewarm(cache, &effective)?;
+                let mut raw = unwrap_tool_result(&r);
+                if let Some(obj) = raw.as_object_mut() {
+                    obj.insert("effectiveLanguage".to_string(), json!(language_owned));
+                    obj.insert("cacheProbe".to_string(), probe);
+                }
+                (raw, vec!["codelattice_cache_prewarm"], true)
+            }
+        }
         _ => unreachable!(),
     };
     let mut output = wrap_facade_output(
@@ -25764,6 +25978,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 }
             }
         }
+        ask_language = resolve_language_for_known_root(&ask_root, &ask_language);
         let ask_root_ref = ask_root.as_str();
         let ask_language_ref = ask_language.as_str();
         let ask_request_context = if ask_root_ref.is_empty() {
@@ -26859,12 +27074,22 @@ fn run_rust_analysis_if_available(root: &Path, language: &str) -> Option<Value> 
 
 const ASK_SYNC_FILE_LIMIT: usize = 80;
 
+fn resolve_language_for_known_root(root: &str, language: &str) -> String {
+    if root.is_empty() || language != "auto" {
+        return language.to_string();
+    }
+
+    validate_root_path(root)
+        .and_then(|validated| resolve_auto_language_for_root(&validated, language))
+        .unwrap_or_else(|_| language.to_string())
+}
+
 fn ask_large_project_info(root: &str, language: &str) -> Option<(usize, Vec<String>)> {
     if root.is_empty() {
         return None;
     }
-    let lang = if language == "auto" { "rust" } else { language };
-    let adapter = crate::engine_bridge::get_adapter_for_language(lang)?;
+    let language_owned = resolve_language_for_known_root(root, language);
+    let adapter = crate::engine_bridge::get_adapter_for_language(&language_owned)?;
     let files = adapter.discover_files(root).ok()?;
     let file_count = files.len();
     if file_count <= ASK_SYNC_FILE_LIMIT {
@@ -26933,7 +27158,8 @@ fn ask_large_project_next_actions(
 }
 
 fn ask_submit_auto_job(root: &str, language: &str) -> Value {
-    match crate::mcp_job::submit_project_job(root, language, "parallel") {
+    let language_owned = resolve_language_for_known_root(root, language);
+    match crate::mcp_job::submit_project_job(root, &language_owned, "parallel") {
         Ok(job_response) => {
             let job_id = job_response
                 .get("jobId")
@@ -26949,6 +27175,7 @@ fn ask_submit_auto_job(root: &str, language: &str) -> Value {
                 "submitted": true,
                 "jobId": job_id,
                 "status": status,
+                "language": language_owned,
                 "detailPageHint": format!("codelattice_project(mode=job_detail, jobId={}, page=0, pageSize=50)", job_id)
             })
         }

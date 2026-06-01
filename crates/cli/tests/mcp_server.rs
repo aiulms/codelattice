@@ -4425,6 +4425,42 @@ fn mcp_cache_prewarm_warms_cache() {
 }
 
 #[test]
+fn mcp_facade_cache_prewarm_accepts_mode() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let fixture = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        4301,
+        "codelattice_cache",
+        serde_json::json!({
+            "mode": "prewarm",
+            "root": fixture.to_string_lossy(),
+            "language": "auto",
+            "compact": true
+        }),
+    );
+
+    assert_ne!(
+        data["error"].as_str(),
+        Some("invalid_mode"),
+        "facade cache should expose prewarm mode: {data:?}"
+    );
+    assert_eq!(
+        data["result"]["effectiveLanguage"].as_str(),
+        Some("rust"),
+        "prewarm should resolve language=auto before analysis: {data:?}"
+    );
+    assert_eq!(
+        data["result"]["warmed"].as_bool(),
+        Some(true),
+        "small project prewarm should warm synchronously: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_cache_prewarm_returns_hit_if_fresh() {
     let mut session = McpSession::start();
     session.initialize();
@@ -7788,6 +7824,84 @@ fn mcp_typescript_symbol_context() {
         first["file"].as_str().unwrap_or("").contains("math"),
         "Calculator should be in math.ts, got: {:?}",
         first["file"]
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_facade_callers_only_returns_calls_edges() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        12031,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root.to_string_lossy(),
+            "language": "typescript",
+            "mode": "callers",
+            "query": "add",
+            "compact": false
+        }),
+    );
+
+    let edges = data["result"]["edges"]
+        .as_array()
+        .or_else(|| data["edges"].as_array())
+        .expect("callers should return an edges array");
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge["type"].as_str() == Some("CALLS")),
+        "callers must not include non-CALLS ownership/import/file edges: {data:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|edge| !edge["source"].as_str().unwrap_or("").starts_with("file:")),
+        "callers should report caller symbols, not source-file nodes: {data:?}"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn mcp_typescript_facade_callees_only_returns_calls_edges() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = typescript_portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        12032,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root.to_string_lossy(),
+            "language": "typescript",
+            "mode": "callees",
+            "query": "main",
+            "compact": false
+        }),
+    );
+
+    let edges = data["result"]["edges"]
+        .as_array()
+        .or_else(|| data["edges"].as_array())
+        .expect("callees should return an edges array");
+    assert!(
+        edges
+            .iter()
+            .all(|edge| edge["type"].as_str() == Some("CALLS")),
+        "callees must not include non-CALLS ownership/import/file edges: {data:?}"
+    );
+    assert!(
+        edges
+            .iter()
+            .all(|edge| !edge["target"].as_str().unwrap_or("").starts_with("file:")),
+        "callees should report callee symbols, not source-file nodes: {data:?}"
     );
 }
 
@@ -16583,6 +16697,53 @@ fn mcp_workflow_ask_large_inspect_auto_job() {
 }
 
 #[test]
+fn mcp_workflow_ask_large_auto_language_resolves_before_job() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99070_1,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": large.path().to_str().unwrap(),
+            "language": "auto",
+            "mode": "ask",
+            "question": "这个项目结构是什么",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(data["intent"].as_str(), Some("inspect_project"));
+    assert_eq!(
+        data["effectiveLanguage"].as_str(),
+        Some("rust"),
+        "ask should resolve language=auto before submitting a project job: {data:?}"
+    );
+    assert_eq!(data["job"]["submitted"].as_bool(), Some(true));
+    let job_id = data["job"]["jobId"].as_str().expect("job id").to_string();
+    assert!(!job_id.is_empty());
+    let next = data["recommendedNextCalls"]
+        .as_array()
+        .expect("recommendedNextCalls");
+    assert!(
+        next.iter()
+            .all(|call| call["arguments"]["language"].as_str() != Some("auto")),
+        "follow-up calls must use the resolved language, not auto: {data:?}"
+    );
+
+    let status = wait_for_job_succeeded(&mut s, 99070_100, "codelattice_project", &job_id);
+    assert_eq!(status["status"].as_str(), Some("succeeded"));
+    assert_eq!(
+        status["language"].as_str(),
+        Some("rust"),
+        "auto-language ask job should run with the resolved Rust adapter: {status:?}"
+    );
+}
+
+#[test]
 fn mcp_workflow_ask_large_before_edit_auto_job() {
     let large = create_large_ask_rust_project();
     let mut s = McpSession::start();
@@ -17898,6 +18059,50 @@ fn mcp_symbol_search_finds_symbols_after_job_warm() {
         "impact should not be UNKNOWN after job warm, got risk={}, reasons={:?}",
         risk,
         impact_inner.get("reasons")
+    );
+}
+
+#[test]
+fn mcp_project_quick_large_cache_hit_uses_cached_digest() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = large.path().to_str().unwrap();
+    let job = call_tool_json(
+        &mut session,
+        84105,
+        "codelattice_project",
+        serde_json::json!({"mode":"job","root":root,"language":"rust","compact":true}),
+    );
+    let job_id = job["jobId"].as_str().expect("jobId").to_string();
+    let status = wait_for_job_succeeded(&mut session, 84106, "codelattice_project", &job_id);
+    assert_eq!(status["status"].as_str(), Some("succeeded"));
+
+    let quick = call_tool_json(
+        &mut session,
+        84107,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "asyncOnMiss": true
+        }),
+    );
+    assert_eq!(
+        quick["answerSummary"]["cachedQuickDigest"].as_bool(),
+        Some(true),
+        "large project compact quick should use the cached digest path after job warm: {quick:?}"
+    );
+    assert!(
+        quick["answerSummary"]["sourceFileCount"]
+            .as_u64()
+            .unwrap_or(0)
+            > 80,
+        "digest should still expose orientation counts: {quick:?}"
     );
 }
 
