@@ -23296,6 +23296,9 @@ fn facade_auto_job_check(
     if probe_status == "hit" {
         return None;
     }
+    if probe_status == "stale" {
+        return None;
+    }
 
     // 检查是否有 running/succeeded 的同 root/language job（SingleFlight + 闭环）
     let running_jobs = crate::mcp_job::get_running_jobs_info();
@@ -25825,43 +25828,76 @@ fn workflow_action_mode(action: &Value) -> String {
 
 fn workflow_evidence(tool: &str, args: &Value, result: &Value) -> Value {
     let mode = args["mode"].as_str().unwrap_or("default");
+    let payload = workflow_payload(result);
     let mut item = json!({
         "tool": tool,
         "mode": mode,
         "ok": true
     });
     if let Some(obj) = item.as_object_mut() {
-        if let Some(summary) = result.get("summary") {
-            obj.insert("summary".to_string(), summary.clone());
+        obj.insert(
+            "summary".to_string(),
+            workflow_summary_from_result(tool, mode, result),
+        );
+        for key in ["status", "jobId", "waitTimedOut", "message"] {
+            if let Some(value) = payload.get(key).or_else(|| result.get(key)) {
+                obj.insert(key.to_string(), workflow_sanitized_value(value));
+            }
         }
-        if let Some(risk) = result.get("risk").or_else(|| result.get("riskLevel")) {
+        if let Some(risk) = payload
+            .get("risk")
+            .or_else(|| result.get("risk"))
+            .or_else(|| payload.get("riskLevel"))
+            .or_else(|| result.get("riskLevel"))
+        {
             obj.insert("risk".to_string(), risk.clone());
         }
-        if let Some(overall) = result.get("overallRisk").or_else(|| result.get("overall")) {
+        if let Some(overall) = payload
+            .get("overallRisk")
+            .or_else(|| result.get("overallRisk"))
+            .or_else(|| payload.get("overall"))
+            .or_else(|| result.get("overall"))
+        {
             obj.insert("overall".to_string(), overall.clone());
         }
-        if let Some(count) = result.get("matchCount") {
+        if let Some(count) = payload
+            .get("matchCount")
+            .or_else(|| result.get("matchCount"))
+        {
             obj.insert("matchCount".to_string(), count.clone());
         }
-        if let Some(selected) = result.get("selected") {
-            obj.insert("selected".to_string(), selected.clone());
+        if let Some(selected) = payload.get("selected").or_else(|| result.get("selected")) {
+            obj.insert("selected".to_string(), workflow_sanitized_value(selected));
         }
-        if let Some(metrics) = result.get("impactMetrics") {
-            obj.insert("impactMetrics".to_string(), metrics.clone());
+        if let Some(metrics) = payload
+            .get("impactMetrics")
+            .or_else(|| result.get("impactMetrics"))
+        {
+            obj.insert(
+                "impactMetrics".to_string(),
+                workflow_sanitized_value(metrics),
+            );
         }
         // Include callers/callees summaries if present (before_edit context)
-        if let Some(callers) = result.get("callers") {
+        if let Some(callers) = payload.get("callers").or_else(|| result.get("callers")) {
             if let Some(arr) = callers.as_array() {
                 obj.insert("callerCount".to_string(), json!(arr.len()));
             }
         }
-        if let Some(callees) = result.get("callees") {
+        if let Some(callees) = payload.get("callees").or_else(|| result.get("callees")) {
             if let Some(arr) = callees.as_array() {
                 obj.insert("calleeCount".to_string(), json!(arr.len()));
             }
         }
-        let likely_areas =
-            workflow_take_array(result, &[&["result", "likelyAreas"], &["likelyAreas"]], 5);
+        let likely_areas = workflow_take_array(
+            result,
+            &[
+                &["result", "likelyAreas"],
+                &["likelyAreas"],
+                &["summary", "topLikelyAreas"],
+            ],
+            5,
+        );
         if !likely_areas.is_empty() {
             obj.insert("likelyAreas".to_string(), json!(likely_areas));
         }
@@ -25983,9 +26019,18 @@ fn workflow_evidence_detail(tool: &str, args: &Value, result: &Value) -> Value {
     });
 
     if let Some(obj) = item.as_object_mut() {
-        workflow_copy_value_field(obj, payload, result, "summary");
+        obj.insert(
+            "summary".to_string(),
+            workflow_summary_from_result(tool, mode, result),
+        );
         for key in [
             "schemaVersion",
+            "status",
+            "jobId",
+            "message",
+            "waitTimedOut",
+            "retryAfterSeconds",
+            "estimatedSeconds",
             "risk",
             "riskLevel",
             "overallRisk",
@@ -26027,6 +26072,8 @@ fn workflow_evidence_detail(tool: &str, args: &Value, result: &Value) -> Value {
             ("readFirst", 5),
             ("entryPoints", 5),
             ("callChains", 5),
+            ("recommendedNextCalls", 5),
+            ("evidence", 5),
         ] {
             workflow_copy_array_field(obj, payload, result, key, limit);
         }
@@ -26129,6 +26176,97 @@ fn workflow_execution_args(tool: &str, args: &Value) -> Value {
         exec_args["compact"] = json!(false);
     }
     exec_args
+}
+
+fn workflow_summary_from_result(tool: &str, mode: &str, result: &Value) -> Value {
+    let payload = workflow_payload(result);
+    if let Some(summary) = payload
+        .get("summary")
+        .or_else(|| result.get("summary"))
+        .filter(|v| {
+            !v.is_null()
+                && !(v.as_object().map(|obj| obj.is_empty()).unwrap_or(false))
+                && !(v.as_array().map(|arr| arr.is_empty()).unwrap_or(false))
+        })
+    {
+        return workflow_sanitized_value(summary);
+    }
+
+    let mut summary = serde_json::Map::new();
+    summary.insert("tool".to_string(), json!(tool));
+    summary.insert("mode".to_string(), json!(mode));
+    for key in [
+        "status",
+        "jobId",
+        "waitTimedOut",
+        "risk",
+        "riskLevel",
+        "overallRisk",
+        "freshness",
+        "matchCount",
+        "edgeCount",
+        "totalEdges",
+        "hasMore",
+        "estimatedSeconds",
+        "retryAfterSeconds",
+    ] {
+        if let Some(value) = payload.get(key).or_else(|| result.get(key)) {
+            summary.insert(key.to_string(), workflow_sanitized_value(value));
+        }
+    }
+    if let Some(answer) = payload
+        .get("answerSummary")
+        .or_else(|| result.get("answerSummary"))
+    {
+        summary.insert(
+            "answerSummary".to_string(),
+            workflow_sanitized_value(answer),
+        );
+    }
+    if let Some(metrics) = payload
+        .get("impactMetrics")
+        .or_else(|| result.get("impactMetrics"))
+    {
+        summary.insert(
+            "impactMetrics".to_string(),
+            workflow_sanitized_value(metrics),
+        );
+    }
+    if let Some(selected) = payload.get("selected").or_else(|| result.get("selected")) {
+        summary.insert("selected".to_string(), workflow_sanitized_value(selected));
+    }
+    if let Some(confidence) = payload
+        .get("confidence")
+        .or_else(|| result.get("confidence"))
+    {
+        summary.insert(
+            "confidence".to_string(),
+            workflow_sanitized_value(confidence),
+        );
+    }
+    if summary.len() == 2 {
+        summary.insert(
+            "note".to_string(),
+            json!("Action returned no compact evidence fields."),
+        );
+    }
+    Value::Object(summary)
+}
+
+fn workflow_result_is_deferred(result: &Value) -> bool {
+    let payload = workflow_payload(result);
+    matches!(
+        payload
+            .get("status")
+            .or_else(|| result.get("status"))
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
+        "analyzing" | "queued" | "running" | "analysis_ready_cache_unavailable"
+    ) || payload
+        .get("waitTimedOut")
+        .or_else(|| result.get("waitTimedOut"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 fn workflow_evidence_found(evidence: &[Value], completed: &[Value]) -> Vec<Value> {
@@ -26536,6 +26674,20 @@ fn workflow_execute_next_actions(
         match execute_workflow_action(cache, tool, &args) {
             Ok(result) => {
                 let inner = unwrap_tool_result(&result);
+                if workflow_result_is_deferred(&inner) {
+                    skipped.push(json!({
+                        "tool": tool,
+                        "mode": args["mode"].as_str().unwrap_or("default"),
+                        "required": action["required"].as_bool().unwrap_or(false),
+                        "reason": "analysis deferred to background job; poll job status or retry after cache warmup",
+                        "jobId": inner["jobId"].clone(),
+                        "status": inner["status"].clone(),
+                        "waitTimedOut": inner["waitTimedOut"].clone(),
+                    }));
+                    evidence.push(workflow_evidence(tool, &args, &inner));
+                    evidence_details.push(workflow_evidence_detail(tool, &args, &inner));
+                    continue;
+                }
                 completed.push(json!({
                     "tool": tool,
                     "mode": args["mode"].as_str().unwrap_or("default"),

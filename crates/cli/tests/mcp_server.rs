@@ -1455,6 +1455,144 @@ fn mcp_workflow_execute_returns_bounded_evidence_details() {
 }
 
 #[test]
+fn mcp_workflow_execute_large_cache_miss_returns_deferred_job_evidence() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        42024_1,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "symbol": "helper",
+            "execute": true,
+            "compact": true,
+        }),
+    );
+
+    assert_eq!(data["execution"]["requested"].as_bool(), Some(true));
+    assert_eq!(
+        data["execution"]["status"].as_str(),
+        Some("skipped"),
+        "execute=true should not pretend deferred job results are completed evidence: {data:?}"
+    );
+    let evidence_found = data["evidenceFound"]
+        .as_array()
+        .expect("evidenceFound should be an array");
+    assert!(
+        evidence_found
+            .iter()
+            .any(|item| item["summary"]["mode"].as_str() == Some("impact")
+                && item["summary"]["status"].as_str() == Some("analyzing")
+                && item["summary"]["jobId"].as_str().is_some()),
+        "deferred evidenceFound should include job status/id, not summary={{}}: {data:?}"
+    );
+    let details = data["evidenceDetails"]
+        .as_array()
+        .expect("evidenceDetails should be an array");
+    assert!(
+        details.iter().any(|item| item["mode"].as_str() == Some("context")
+            && item["status"].as_str() == Some("analyzing")
+            && item["jobId"].as_str().is_some()
+            && item["recommendedNextCalls"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty())),
+        "context evidenceDetails should include deferred job evidence and follow-up calls: {data:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|item| item["mode"].as_str() == Some("impact")
+                && item["status"].as_str() == Some("analyzing")
+                && item["jobId"].as_str().is_some()),
+        "impact evidenceDetails should include deferred job evidence: {data:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|item| item["mode"].as_str() == Some("callers")
+                && item["status"].as_str() == Some("analyzing")
+                && item["jobId"].as_str().is_some()),
+        "callers evidenceDetails should include deferred job evidence: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_large_stale_file_added_uses_delta_overlay_not_auto_job() {
+    let large = create_large_ask_rust_project();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let job = call_tool_json(
+        &mut session,
+        42024_2,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "job",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "wait": true,
+            "timeoutMs": 30000,
+            "compact": true
+        }),
+    );
+    let job_id = job["jobId"].as_str().expect("job id").to_string();
+    assert_eq!(
+        job["status"].as_str(),
+        Some("succeeded"),
+        "large project warmup job should complete for stale/delta test: {job:?}"
+    );
+
+    std::fs::write(
+        large.path().join("src").join("delta_fresh.rs"),
+        "pub fn delta_fresh_function() {}\n",
+    )
+    .unwrap();
+
+    let data = call_tool_json(
+        &mut session,
+        42024_3,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "query": "delta_fresh_function",
+            "compact": true
+        }),
+    );
+
+    assert_ne!(
+        data["status"].as_str(),
+        Some("analyzing"),
+        "stale file_added should use stale baseline + delta overlay, not submit another auto job after {job_id}: {data:?}"
+    );
+    assert_eq!(
+        data["result"]["freshness"].as_str(),
+        Some("fresh_delta_plus_stale_baseline"),
+        "delta overlay freshness should be exposed: {data:?}"
+    );
+    assert_eq!(data["result"]["deltaSymbolCount"].as_u64(), Some(1));
+    assert!(
+        data["result"]["matches"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item["name"].as_str() == Some("delta_fresh_function")
+                    || item["id"]
+                        .as_str()
+                        .is_some_and(|id| id.contains("delta_fresh_function"))
+            })),
+        "search should see the added file's fresh delta symbol: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_workflow_compact_investigation_plan_uses_refs_for_top_level_evidence() {
     let mut session = McpSession::start_default_toolset();
     session.initialize();
