@@ -691,6 +691,11 @@ fn compact_should_omit_full_root_diagnosis(tool: &str) -> bool {
     )
 }
 
+fn compact_should_omit_full_root_diagnosis_for(tool: &str, mode: &str) -> bool {
+    compact_should_omit_full_root_diagnosis(tool)
+        || (tool == "codelattice_project" && mode == "diagnose")
+}
+
 fn decision_guidance(tool: &str, mode: &str, root_diagnosis: &Value, compact: bool) -> Value {
     let root_kind = root_diagnosis["kind"].as_str().unwrap_or("not_applicable");
     let recommended_next = recommended_next_tool(tool, mode, root_kind);
@@ -5958,6 +5963,22 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
     } else {
         match_summaries.first().cloned().unwrap_or(Value::Null)
     };
+    let selected_summary_id = selected["id"].as_str().map(str::to_string);
+    if include_snippet {
+        if let Some(selected_summary_id) = selected_summary_id {
+            for summary in &mut match_summaries {
+                if summary["id"].as_str() == Some(selected_summary_id.as_str()) {
+                    if let Some(obj) = summary.as_object_mut() {
+                        obj.insert("sourceSnippet".to_string(), Value::Null);
+                        obj.insert(
+                            "sourceSnippetRef".to_string(),
+                            json!("#/selected/sourceSnippet"),
+                        );
+                    }
+                }
+            }
+        }
+    }
     let selection_policy = if let Some(node) = heuristic_selected {
         json!({
             "selectedBy": "unique_non_test_candidate",
@@ -9084,6 +9105,30 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     if failed > 0 {
         overall_risk_reasons.push(format!("{} quality gate(s) failed", failed));
     }
+    if changed_symbols_info.is_empty() {
+        if unresolved_count > 10 {
+            overall_risk_reasons.push(format!(
+                "{} low-confidence/unresolved call edge(s) raise project-level review risk",
+                unresolved_count
+            ));
+        } else if unresolved_count > 3 {
+            overall_risk_reasons.push(format!(
+                "{} unresolved call edge(s) require targeted review",
+                unresolved_count
+            ));
+        }
+        if diag_count > 5 {
+            overall_risk_reasons.push(format!(
+                "{} static diagnostic(s) raise project-level review risk",
+                diag_count
+            ));
+        } else if diag_count > 2 {
+            overall_risk_reasons.push(format!(
+                "{} static diagnostic(s) require review",
+                diag_count
+            ));
+        }
+    }
 
     // unknown hunks as risk signal
     if !unknown_hunks.is_empty() {
@@ -9205,6 +9250,27 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     if low_conf_call_rate > 0.3 {
         review_checklist
             .push("High low-confidence call rate: check call resolution quality".to_string());
+        if changed_symbols_info.is_empty()
+            && !overall_risk_reasons
+                .iter()
+                .any(|reason| reason.contains("low-confidence call rate"))
+        {
+            overall_risk_reasons.push(format!(
+                "low-confidence call rate is {:.1}% — static graph quality limits certainty",
+                low_conf_call_rate * 100.0
+            ));
+        }
+    }
+    if matches!(overall_risk, "HIGH" | "MEDIUM" | "CRITICAL") {
+        review_checklist.retain(|item| !item.contains("project looks healthy"));
+        if review_checklist.is_empty() {
+            review_checklist
+                .push("Review project-level static risk signals before proceeding".to_string());
+        }
+        if overall_risk_reasons.is_empty() {
+            overall_risk_reasons
+                .push("project-level static quality signals raised review risk".to_string());
+        }
     }
 
     Ok(merge_cache_and_result(
@@ -15130,7 +15196,12 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
     check_language_feature(language)?;
 
     let compact = params["compact"].as_bool().unwrap_or(true);
-    let limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let requested_limit = params["limit"].as_u64().unwrap_or(50).min(200) as usize;
+    let limit = if compact {
+        requested_limit.min(10)
+    } else {
+        requested_limit
+    };
     let include_files = params["includeFiles"].as_bool().unwrap_or(true);
     let include_symbols = params["includeSymbols"].as_bool().unwrap_or(true);
     let include_tests = params["includeTests"].as_bool().unwrap_or(false);
@@ -15194,6 +15265,10 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
     } else {
         Vec::new()
     };
+
+    let total_symbol_candidate_count = symbol_candidates.len();
+    let total_file_candidate_count = file_candidates.len();
+    let total_entry_point_count = entry_points.len();
 
     // Apply limit
     symbol_candidates.truncate(limit);
@@ -15264,7 +15339,7 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
     }
 
     // Build entry points output
-    let entry_points_json: Vec<Value> = entry_points
+    let mut entry_points_json: Vec<Value> = entry_points
         .iter()
         .map(|(id, name, kind, file, line)| {
             json!({
@@ -15276,24 +15351,63 @@ fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<V
             })
         })
         .collect();
+    if compact {
+        entry_points_json.truncate(10);
+    }
+
+    let mut dead_code_candidates: Vec<Value> = Vec::new();
+    for candidate in symbol_candidates.iter().take(limit) {
+        dead_code_candidates.push(json!({
+            "candidateType": "symbol",
+            "id": candidate.get("id").cloned().unwrap_or(Value::Null),
+            "name": candidate.get("name").cloned().unwrap_or(Value::Null),
+            "kind": candidate.get("kind").cloned().unwrap_or(Value::Null),
+            "file": candidate.get("file").cloned().unwrap_or(Value::Null),
+            "line": candidate.get("line").cloned().unwrap_or(Value::Null),
+            "confidence": candidate.get("confidence").cloned().unwrap_or(Value::Null),
+            "reasons": take_json_items(&candidate["reasons"], 3),
+            "cautions": take_json_items(&candidate["cautions"], 3),
+        }));
+    }
+    for candidate in file_candidates.iter().take(limit) {
+        dead_code_candidates.push(json!({
+            "candidateType": "file",
+            "path": candidate.get("path").cloned().unwrap_or(Value::Null),
+            "confidence": candidate.get("confidence").cloned().unwrap_or(Value::Null),
+            "reasons": take_json_items(&candidate["reasons"], 3),
+            "cautions": take_json_items(&candidate["cautions"], 3),
+        }));
+    }
+    dead_code_candidates.truncate(limit);
 
     let result_data = json!({
         "language": language,
         "root": root,
         "summary": {
+            "candidateCount": total_symbol_candidate_count + total_file_candidate_count,
+            "reportedCandidateCount": symbol_candidates.len() + file_candidates.len(),
             "candidateSymbolCount": symbol_candidates.len(),
-            "entryPointCount": entry_points.len(),
+            "totalCandidateSymbolCount": total_symbol_candidate_count,
+            "entryPointCount": total_entry_point_count,
+            "reportedEntryPointCount": entry_points_json.len(),
             "reachableSymbolCount": reachable.len(),
             "candidateFileCount": file_candidates.len(),
+            "totalCandidateFileCount": total_file_candidate_count,
             "highConfidenceCandidateCount": high_count,
             "mediumConfidenceCandidateCount": medium_count,
             "lowConfidenceCandidateCount": low_count,
             "publicApiCautionCount": public_api_caution_count,
             "dynamicFeatureCautionCount": dynamic_caution_count
         },
+        "deadCodeCandidates": dead_code_candidates,
         "candidateSymbols": symbol_candidates,
         "candidateFiles": file_candidates,
         "entryPoints": entry_points_json,
+        "entryPointsOmitted": if compact {
+            total_entry_point_count.saturating_sub(10)
+        } else {
+            0
+        },
         "warnings": warnings,
         "generatedFrom": {
             "graphBased": true,
@@ -19677,6 +19791,10 @@ fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Val
     let include_tests = params["includeTests"].as_bool().unwrap_or(true);
     let _include_dead = params["includeDeadCode"].as_bool().unwrap_or(true);
     let _include_breaking = params["includeBreakingRisk"].as_bool().unwrap_or(true);
+    let changed_symbols_provided = params["changedSymbols"]
+        .as_array()
+        .map(|items| !items.is_empty())
+        .unwrap_or(false);
 
     let (changed, ambiguous, unknown) = resolve_changed_for_consistency(gv, params);
 
@@ -19816,7 +19934,9 @@ fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Val
         || !stale_tests.is_empty()
         || !missing_tests.is_empty();
 
-    let consistency_risk = if stale_high > 0 && missing_high > 0 {
+    let consistency_risk = if !changed_symbols_provided {
+        "unassessable"
+    } else if stale_high > 0 && missing_high > 0 {
         "critical"
     } else if stale_high > 0 || missing_high > 0 {
         "high"
@@ -19844,8 +19964,15 @@ fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Val
         checklist.push(json!({"priority":"P0","item":format!("Review stale test: {}", s["path"]),"reason":"test references symbols that no longer exist"}));
     }
 
-    let warnings: Vec<String> = if changed.is_empty() && ambiguous.is_empty() && unknown.is_empty()
-    {
+    if !changed_symbols_provided {
+        checklist.push(json!({
+            "priority": "P1",
+            "item": "Provide changedSymbols or run changed_symbols before consistency review",
+            "reason": "No concrete changed symbols were supplied, so docs/tests consistency cannot be assessed."
+        }));
+    }
+
+    let warnings: Vec<String> = if !changed_symbols_provided {
         vec!["no-changed-symbols-provided".to_string()]
     } else {
         Vec::new()
@@ -19854,6 +19981,7 @@ fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Val
     json!({
         "summary": {
             "consistencyRisk": consistency_risk,
+            "assessmentStatus": if changed_symbols_provided { "assessed" } else { "no_symbols_provided" },
             "changedSymbolCount": changed.len(),
             "staleDocCandidateCount": stale_docs.len(),
             "missingDocUpdateCandidateCount": missing_docs.len(),
@@ -22248,7 +22376,7 @@ fn wrap_facade_output(
                 }
             }
 
-            if compact_should_omit_full_root_diagnosis(tool) {
+            if compact_should_omit_full_root_diagnosis_for(tool, mode) {
                 if let Some(root_diagnosis) = obj.remove("rootDiagnosis") {
                     obj.insert(
                         "rootDiagnosisSummary".to_string(),
@@ -22306,7 +22434,7 @@ fn wrap_facade_output(
         );
         if compact {
             let (root_omitted_field, root_omitted_reason) =
-                if compact_should_omit_full_root_diagnosis(tool) {
+                if compact_should_omit_full_root_diagnosis_for(tool, mode) {
                     (
                         "rootDiagnosis",
                         "compact high-frequency facade responses keep rootDiagnosisSummary/rootDiagnosisRef instead of repeating full root diagnostics",
@@ -25220,11 +25348,14 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                 vec!["codelattice_consistency_review"],
             )
         }
-        "safe_cleanup_review"
-        | "dead_code"
-        | "reachability"
-        | "external_api"
-        | "framework_entries" => {
+        "dead_code" => {
+            let r = handle_dead_code_candidates(cache, analysis_params)?;
+            (
+                unwrap_tool_result(&r),
+                vec!["codelattice_dead_code_candidates"],
+            )
+        }
+        "safe_cleanup_review" | "reachability" | "external_api" | "framework_entries" => {
             let mut cleanup_params = analysis_params.clone();
             cleanup_params["mode"] = json!(mode);
             let r = handle_cleanup(cache, &cleanup_params)?;
@@ -25437,13 +25568,31 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
         }
         _ => unreachable!(),
     };
+    let facade_summary = if mode == "dead_code" {
+        json!({
+            "riskLevel": "medium",
+            "mode": mode,
+            "deadCodeCandidateCount": inner["summary"]["candidateCount"].as_u64().unwrap_or(0),
+            "reportedCandidateCount": inner["summary"]["reportedCandidateCount"].as_u64().unwrap_or(0),
+            "entryPointCount": inner["summary"]["entryPointCount"].as_u64().unwrap_or(0),
+            "deletionSafe": false
+        })
+    } else if mode == "consistency" {
+        json!({
+            "riskLevel": inner["summary"]["consistencyRisk"].as_str().unwrap_or("unknown"),
+            "mode": mode,
+            "assessmentStatus": inner["summary"]["assessmentStatus"].as_str().unwrap_or("unknown")
+        })
+    } else {
+        json!({"riskLevel":"medium","mode":mode})
+    };
     Ok(tool_result(&wrap_facade_output(
         inner,
         "codelattice_change_review",
         mode,
         language,
         root,
-        json!({"riskLevel":"medium","mode":mode}),
+        facade_summary,
         vec!["Use full_review mode for comprehensive analysis"],
         underlying,
         compact,
@@ -29348,6 +29497,159 @@ fn issue_triage_from_call_context(
     })
 }
 
+fn ask_question_search_terms(question: &str, extracted: &str) -> Vec<String> {
+    fn push_unique(terms: &mut Vec<String>, term: &str) {
+        if term.len() >= 3 && !terms.iter().any(|existing| existing == term) {
+            terms.push(term.to_string());
+        }
+    }
+
+    let lower = question.to_lowercase();
+    let mut terms: Vec<String> = Vec::new();
+
+    for (needle, expansions) in [
+        (
+            "authentication",
+            &["authentication", "authenticate", "auth"][..],
+        ),
+        ("auth", &["auth", "authenticate"][..]),
+        ("token", &["token"][..]),
+        ("login", &["login", "auth"][..]),
+        ("session", &["session", "token"][..]),
+        ("credential", &["credential", "auth"][..]),
+        ("jwt", &["jwt", "token"][..]),
+        ("oauth", &["oauth", "auth"][..]),
+        ("approval", &["approval", "approve"][..]),
+        ("route", &["route", "handler", "endpoint"][..]),
+        ("handler", &["handler"][..]),
+        ("endpoint", &["endpoint", "route"][..]),
+    ] {
+        if lower.contains(needle) {
+            for expansion in expansions {
+                push_unique(&mut terms, expansion);
+            }
+        }
+    }
+
+    let generic_tail_words = [
+        "which",
+        "function",
+        "functions",
+        "handle",
+        "handles",
+        "management",
+        "manager",
+        "api",
+        "code",
+        "project",
+        "flow",
+    ];
+    if terms.is_empty() && !extracted.is_empty() {
+        let ex = extracted.to_lowercase();
+        if !generic_tail_words.contains(&ex.as_str()) {
+            push_unique(&mut terms, &ex);
+        }
+    }
+    if terms.is_empty() {
+        for raw in question.split(|c: char| !c.is_alphanumeric() && c != '_') {
+            let term = raw.to_lowercase();
+            if term.len() >= 3 && !generic_tail_words.contains(&term.as_str()) {
+                push_unique(&mut terms, &term);
+            }
+            if terms.len() >= 4 {
+                break;
+            }
+        }
+    }
+
+    terms
+}
+
+fn ask_find_symbols_in_graph(gv: &GraphView, search_terms: &[String]) -> Vec<Value> {
+    fn score_symbol_for_terms(node: &Value, search_terms: &[String]) -> i64 {
+        let name = node_display_name(node).to_lowercase();
+        let file = node_source_path(node).to_lowercase();
+        let id_lower = node["id"].as_str().unwrap_or("").to_lowercase();
+        let id_tail = id_lower.split("::").last().unwrap_or("");
+        let mut score = 0;
+
+        for term in search_terms {
+            let term_lower = term.to_lowercase();
+            if name == term_lower {
+                score += 12;
+            } else if name.contains(&term_lower) {
+                score += 6;
+            }
+            if id_tail.contains(&term_lower) {
+                score += 3;
+            }
+            if file.contains(&term_lower) {
+                score += 1;
+            }
+        }
+
+        score
+    }
+
+    let mut found_symbols: Vec<(i64, Value)> = Vec::new();
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    for term in search_terms {
+        let term_lower = term.to_lowercase();
+        if let Some(candidates) = gv.symbols_by_name.get(&term_lower) {
+            for sym in candidates.iter().take(3) {
+                if let Some(id) = sym["id"].as_str() {
+                    let score = score_symbol_for_terms(sym, search_terms);
+                    if score > 0 && seen.insert(id.to_string()) {
+                        found_symbols.push((score, sym.clone()));
+                    }
+                }
+            }
+        }
+        for (id, node) in gv.nodes_by_id.iter() {
+            if found_symbols.len() >= 8 {
+                break;
+            }
+            let name = node_display_name(node).to_lowercase();
+            let file = node_source_path(node).to_lowercase();
+            let id_lower = id.to_lowercase();
+            if !(name.contains(&term_lower)
+                || id_lower.contains(&term_lower)
+                || file.contains(&term_lower))
+            {
+                continue;
+            }
+            let kind = node["kind"].as_str().unwrap_or("");
+            let label = node["label"].as_str().unwrap_or("");
+            if kind == "function"
+                || kind == "method"
+                || kind == "associated-function"
+                || label == "symbol"
+                || kind == "struct"
+                || kind == "enum"
+            {
+                let score = score_symbol_for_terms(node, search_terms);
+                if score > 0 && seen.insert(id.to_string()) {
+                    found_symbols.push((score, node.clone()));
+                }
+            }
+        }
+    }
+
+    found_symbols.sort_by(|(left_score, left), (right_score, right)| {
+        right_score.cmp(left_score).then_with(|| {
+            node_display_name(left)
+                .to_lowercase()
+                .cmp(&node_display_name(right).to_lowercase())
+        })
+    });
+    found_symbols
+        .into_iter()
+        .take(8)
+        .map(|(_, symbol)| symbol)
+        .collect()
+}
+
 fn route_ask_intent(
     cache: &mut McpCache,
     root: &str,
@@ -30179,44 +30481,9 @@ fn route_ask_intent(
             orchestration["stepsAttempted"] =
                 json!(["intent-classification:general", "lightweight_symbol_search"]);
 
-            // 构建 multi-keyword 搜索列表：优先业务关键词
-            let business_terms = [
-                "approval",
-                "approve",
-                "route",
-                "handler",
-                "api",
-                "endpoint",
-                "mission",
-                "service",
-                "controller",
-                "middleware",
-                "auth",
-                "config",
-                "model",
-                "view",
-                "component",
-                "module",
-                "plugin",
-            ];
-            let mut search_terms: Vec<String> = Vec::new();
-            // 先加入提取的符号
-            if !extracted.is_empty() {
-                search_terms.push(extracted.clone());
-            }
-            // 再加入问题中匹配到的业务关键词
-            for word in question.split_whitespace() {
-                let w: String = word
-                    .chars()
-                    .filter(|c| c.is_alphanumeric() || *c == '_')
-                    .collect();
-                let w_lower = w.to_lowercase();
-                if business_terms.contains(&w_lower.as_str())
-                    && !search_terms.iter().any(|t| t.to_lowercase() == w_lower)
-                {
-                    search_terms.push(w);
-                }
-            }
+            // 构建 multi-keyword 搜索列表：安全/认证等业务词优先，避免
+            // "API authentication and token management" 被最后的 management/api 噪音带跑。
+            let search_terms = ask_question_search_terms(question, &extracted);
 
             // canonicalize root 用于 cache 查询
             let canonical_root = std::path::Path::new(root)
@@ -30224,114 +30491,64 @@ fn route_ask_intent(
                 .map(|p| p.to_string_lossy().to_string())
                 .unwrap_or_else(|_| root.to_string());
 
-            // 轻量 symbol search：利用已缓存 GraphView
-            if let Some(entry) = cache.entries.get(&CacheKey {
+            // 轻量 symbol search：优先利用已缓存 GraphView；小项目无缓存时允许同步分析一次。
+            let found_symbols = if let Some(entry) = cache.entries.get(&CacheKey {
                 root: canonical_root,
                 language: language.to_string(),
                 strict: false,
             }) {
-                let gv = &entry.graph_view;
-                let search_refs: Vec<&str> = search_terms.iter().map(|s| s.as_str()).collect();
-                // 提取匹配关键词的符号
-                let search_terms_final: Vec<&str> = if search_refs.is_empty() {
-                    // 如果没有明确的 symbol，从问题中提取关键词
-                    question
-                        .split_whitespace()
-                        .filter(|w| {
-                            w.len() >= 3 && w.chars().all(|c| c.is_alphanumeric() || c == '_')
-                        })
-                        .take(3)
-                        .collect()
-                } else {
-                    search_refs
-                };
-
-                let mut found_symbols: Vec<Value> = Vec::new();
-                for term in &search_terms_final {
-                    let term_lower = term.to_lowercase();
-                    if let Some(candidates) = gv.symbols_by_name.get(&term_lower) {
-                        for sym in candidates.iter().take(3) {
-                            found_symbols.push(sym.clone());
-                        }
-                    }
-                    // 也搜索 id 中包含关键词的
-                    for (id, node) in gv.nodes_by_id.iter() {
-                        if id.to_lowercase().contains(&term_lower) && found_symbols.len() < 5 {
-                            let kind = node["kind"].as_str().unwrap_or("");
-                            let label = node["label"].as_str().unwrap_or("");
-                            if kind == "function"
-                                || kind == "method"
-                                || kind == "associated-function"
-                                || label == "symbol"
-                                || kind == "struct"
-                                || kind == "enum"
-                            {
-                                if !found_symbols
-                                    .iter()
-                                    .any(|f| f["id"].as_str() == Some(id.as_str()))
-                                {
-                                    found_symbols.push(node.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // 构建 evidence
-                for sym in found_symbols.iter().take(5) {
-                    evidence.push(json!({
-                        "kind": "symbol_match",
-                        "file": sym["properties"]["sourcePath"].as_str()
-                            .or_else(|| sym["file"].as_str())
-                            .unwrap_or("unknown"),
-                        "line": sym["properties"]["lineStart"].as_u64()
-                            .or_else(|| sym["startLine"].as_u64()),
-                        "name": sym["properties"]["name"].as_str()
-                            .or_else(|| sym["name"].as_str())
-                            .unwrap_or("unknown"),
-                        "reason": "matched by keyword search in cached graph",
-                        "source": "static_graph",
-                        "staticOnly": true
-                    }));
-                }
-
-                if !evidence.is_empty() {
-                    answer_summary = format!(
-                        "Found {} relevant symbol(s) for '{}'. See evidence for details.",
-                        evidence.len(),
-                        question
-                    );
-                    // 添加深入查询的 next calls
-                    for ev in evidence.iter().take(3) {
-                        if let Some(name) = ev["name"].as_str() {
-                            next_actions.push(json!({
-                                "tool": "codelattice_symbol",
-                                "mode": "call_chains",
-                                "why": format!("Trace call flow for '{}'", name),
-                                "arguments": {"query": name, "root": root, "language": language, "direction": "both", "maxDepth": 4, "compact": true}
-                            }));
-                        }
-                    }
-                } else {
-                    answer_summary = format!(
-                        "No matching symbols found for '{}' in the cached graph. The analysis may not be complete yet.",
-                        question
-                    );
-                    missing_evidence.push(json!({
-                        "kind": "no_cached_match",
-                        "explanation": "No symbols matched in current graph. Try broader terms or submit a job for full analysis."
-                    }));
-                    auto_job = ask_submit_auto_job(root, language);
-                    next_actions = ask_job_next_actions(root, language, &auto_job, None);
+                ask_find_symbols_in_graph(&entry.graph_view, &search_terms)
+            } else if let Ok(validated) = validate_root_path(root) {
+                match cache.get_or_analyze(&validated, language, false) {
+                    Ok((gv, _, _)) => ask_find_symbols_in_graph(&gv, &search_terms),
+                    Err(_) => Vec::new(),
                 }
             } else {
-                // 无缓存，提交 job
+                Vec::new()
+            };
+
+            // 构建 evidence
+            for sym in found_symbols.iter().take(5) {
+                evidence.push(json!({
+                    "kind": "symbol_match",
+                    "file": sym["properties"]["sourcePath"].as_str()
+                        .or_else(|| sym["file"].as_str())
+                        .unwrap_or("unknown"),
+                    "line": sym["properties"]["lineStart"].as_u64()
+                        .or_else(|| sym["startLine"].as_u64()),
+                    "name": sym["properties"]["name"].as_str()
+                        .or_else(|| sym["name"].as_str())
+                        .unwrap_or("unknown"),
+                    "reason": "matched by keyword search in cached graph",
+                    "source": "static_graph",
+                    "staticOnly": true
+                }));
+            }
+            if !evidence.is_empty() {
                 answer_summary = format!(
-                    "No cached analysis for this project. Submitting a background analysis job — retry after completion."
+                    "Found {} relevant symbol(s) for '{}'. See evidence for details.",
+                    evidence.len(),
+                    question
+                );
+                // 添加深入查询的 next calls
+                for ev in evidence.iter().take(3) {
+                    if let Some(name) = ev["name"].as_str() {
+                        next_actions.push(json!({
+                            "tool": "codelattice_symbol",
+                            "mode": "call_chains",
+                            "why": format!("Trace call flow for '{}'", name),
+                            "arguments": {"query": name, "root": root, "language": language, "direction": "both", "maxDepth": 4, "compact": true}
+                        }));
+                    }
+                }
+            } else {
+                answer_summary = format!(
+                    "No matching symbols found for '{}' in the cached graph. The analysis may not be complete yet.",
+                    question
                 );
                 missing_evidence.push(json!({
-                    "kind": "no_cache",
-                    "explanation": "Project graph not yet loaded. A job has been submitted."
+                    "kind": "no_cached_match",
+                    "explanation": "No symbols matched in current graph. Try broader terms or submit a job for full analysis."
                 }));
                 auto_job = ask_submit_auto_job(root, language);
                 next_actions = ask_job_next_actions(root, language, &auto_job, None);

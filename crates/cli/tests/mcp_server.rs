@@ -395,6 +395,40 @@ serde = { version = "1", features = ["derive"] }
     dir
 }
 
+fn create_auth_token_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create auth token project");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"auth-token-app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    let src = root.join("src");
+    std::fs::create_dir_all(&src).unwrap();
+    std::fs::write(
+        src.join("lib.rs"),
+        r#"
+pub fn create_task() -> u32 { 1 }
+
+pub fn authenticate_token(raw: &str) -> bool {
+    validate_token(raw)
+}
+
+pub fn validate_token(raw: &str) -> bool {
+    !raw.is_empty()
+}
+
+pub fn refresh_session_token() -> &'static str {
+    "ok"
+}
+"#,
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_large_ask_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create large ask project");
     let root = dir.path();
@@ -4819,19 +4853,36 @@ fn mcp_symbol_context_snippet_candidates_all_have_snippets() {
     let text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
     let data: serde_json::Value = serde_json::from_str(text).expect("valid JSON");
 
+    let selected = &data["selected"];
+    assert!(
+        selected["sourceSnippet"].is_object(),
+        "selected should keep the requested sourceSnippet: {data:?}"
+    );
+    let selected_id = selected["id"].as_str().unwrap_or("");
     let candidates = data["candidates"]
         .as_array()
         .expect("candidates should be array");
     for c in candidates {
-        let snippet = &c["sourceSnippet"];
-        assert!(
-            snippet.is_object(),
-            "every candidate should have sourceSnippet object"
-        );
-        assert!(
-            snippet["lines"].is_string(),
-            "snippet should have lines string"
-        );
+        if c["id"].as_str() == Some(selected_id) {
+            assert!(
+                !c["sourceSnippet"].is_object(),
+                "selected candidate should not duplicate selected.sourceSnippet"
+            );
+            assert_eq!(
+                c["sourceSnippetRef"].as_str(),
+                Some("#/selected/sourceSnippet")
+            );
+        } else {
+            let snippet = &c["sourceSnippet"];
+            assert!(
+                snippet.is_object(),
+                "non-selected candidates should still have sourceSnippet object"
+            );
+            assert!(
+                snippet["lines"].is_string(),
+                "snippet should have lines string"
+            );
+        }
     }
 }
 
@@ -13183,6 +13234,55 @@ fn mcp_dead_code_candidates_compact_shape() {
 
 #[cfg(feature = "tree-sitter-typescript")]
 #[test]
+fn mcp_change_review_dead_code_compact_keeps_candidates_without_token_bloat() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = dead_code_candidates_dir();
+    let data = call_tool_json(
+        &mut session,
+        20061,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "dead_code",
+            "root": root.to_string_lossy(),
+            "language": "typescript",
+            "compact": true,
+            "includeTests": true
+        }),
+    );
+
+    let payload_len = serde_json::to_string(&data).unwrap().len();
+    assert!(
+        payload_len < 16 * 1024,
+        "compact dead_code should stay under budget, got {payload_len} bytes: {data:?}"
+    );
+    assert!(
+        data["summary"]["deadCodeCandidateCount"]
+            .as_u64()
+            .unwrap_or(0)
+            > 0,
+        "facade summary should expose candidate count instead of 0: {data:?}"
+    );
+    assert!(
+        data["result"]["deadCodeCandidates"]
+            .as_array()
+            .map(|items| !items.is_empty())
+            .unwrap_or(false),
+        "compact result should keep bounded deadCodeCandidates evidence: {data:?}"
+    );
+    assert!(
+        data["result"]["entryPoints"]
+            .as_array()
+            .map(|items| items.len() <= 10)
+            .unwrap_or(false),
+        "compact dead_code should not inline hundreds of entry points: {data:?}"
+    );
+}
+
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
 fn mcp_dead_code_candidates_limit() {
     let mut session = McpSession::start();
     session.initialize();
@@ -15876,6 +15976,15 @@ fn mcp_consistency_review_no_symbols() {
     let resp = session.recv();
     let data = extract_tool_data(&resp);
     assert!(data["summary"].is_object());
+    assert_eq!(
+        data["summary"]["consistencyRisk"].as_str(),
+        Some("unassessable"),
+        "no changedSymbols means no consistency assessment was performed: {data:?}"
+    );
+    assert_eq!(
+        data["summary"]["assessmentStatus"].as_str(),
+        Some("no_symbols_provided")
+    );
     assert_eq!(data["generatedFrom"]["heuristic"].as_bool(), Some(true));
 }
 
@@ -16571,6 +16680,58 @@ fn mcp_workflow_ask_inspect_project() {
         has_project,
         "nextActions should include codelattice_project: {:?}",
         next
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_auth_token_prefers_security_terms_over_api_noise() {
+    let project = create_auth_token_rust_project();
+    let root = project.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let _ = call_tool_json(
+        &mut session,
+        93110,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+
+    let data = call_tool_json(
+        &mut session,
+        93111,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "question": "Which functions handle API authentication and token management?",
+            "compact": true
+        }),
+    );
+
+    let evidence_names = data["evidence"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|item| item["name"].as_str().map(str::to_string))
+        .collect::<Vec<_>>();
+    assert!(
+        evidence_names
+            .iter()
+            .any(|name| name.contains("token") || name.contains("auth")),
+        "ask should return auth/token evidence, got {evidence_names:?}: {data:?}"
+    );
+    assert!(
+        !evidence_names.iter().any(|name| name == "create_task"),
+        "ask should not prefer unrelated API/task noise for auth/token query: {data:?}"
     );
 }
 
@@ -17984,6 +18145,19 @@ fn mcp_project_diagnose_compact_returns_top_areas() {
         }),
     );
     assert_eq!(data["schemaVersion"].as_str(), Some("facade.v1"));
+    let payload_len = serde_json::to_string(&data).unwrap().len();
+    assert!(
+        payload_len < 16 * 1024,
+        "compact diagnose should stay under budget, got {payload_len} bytes: {data:?}"
+    );
+    assert!(
+        data.get("rootDiagnosis").is_none(),
+        "compact diagnose should use rootDiagnosisSummary/rootDiagnosisRef, not full rootDiagnosis: {data:?}"
+    );
+    assert!(
+        data["rootDiagnosisRef"].is_object(),
+        "compact diagnose should keep rootDiagnosisRef: {data:?}"
+    );
     let ta = data["summary"]["topLikelyAreas"].as_array();
     assert!(
         ta.is_some(),
@@ -20762,6 +20936,52 @@ fn mcp_change_review_native_compact_omits_root_diagnosis_and_snippets() {
             .all(|item| !item["sourceSnippet"].is_object()),
         "compact native_review should omit sourceSnippet unless includeSnippet=true: {data:?}"
     );
+}
+
+#[test]
+fn mcp_change_review_native_risk_signals_are_not_contradictory() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92209,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "native_review",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+
+    let production = &data["result"]["productionAssist"];
+    let risk = production["overallRisk"].as_str().unwrap_or("UNKNOWN");
+    let reasons = production["overallRiskReasons"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let checklist_text = production["reviewChecklist"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|v| v.as_str().map(str::to_string))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if matches!(risk, "HIGH" | "MEDIUM" | "CRITICAL") {
+        assert!(
+            !reasons.is_empty(),
+            "non-low native_review risk must explain reasons: {data:?}"
+        );
+        assert!(
+            !checklist_text.contains("project looks healthy"),
+            "non-low native_review risk must not claim healthy checklist: {data:?}"
+        );
+    }
 }
 
 #[test]
