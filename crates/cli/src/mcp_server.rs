@@ -4990,16 +4990,115 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
             }));
         }
     }
+    let suggestions = if matches.is_empty() {
+        fuzzy_symbol_suggestions(&gv, query, kind_filter, limit.min(5))
+    } else {
+        Vec::new()
+    };
+    let has_suggestions = !suggestions.is_empty();
 
     Ok(merge_cache_and_result(
         &json!({
             "language": result["language"],
             "query": query,
             "matchCount": matches.len(),
-            "matches": matches
+            "matches": matches,
+            "suggestions": suggestions,
+            "missingEvidence": if has_suggestions {
+                json!([{
+                    "kind": "no_exact_symbol_match",
+                    "reason": "No exact/substring symbol matched the query; suggestions are fuzzy name matches from the same graph."
+                }])
+            } else {
+                json!([])
+            }
         }),
         &cache_meta,
     ))
+}
+
+fn fuzzy_distance(a: &str, b: &str, max_distance: usize) -> usize {
+    if a == b {
+        return 0;
+    }
+    if a.is_empty() {
+        return b.len();
+    }
+    if b.is_empty() {
+        return a.len();
+    }
+    if a.len().abs_diff(b.len()) > max_distance {
+        return max_distance + 1;
+    }
+
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut curr = vec![0; b_chars.len() + 1];
+    for (i, ca) in a.chars().enumerate() {
+        curr[0] = i + 1;
+        let mut row_min = curr[0];
+        for (j, cb) in b_chars.iter().enumerate() {
+            let cost = if ca == *cb { 0 } else { 1 };
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+            row_min = row_min.min(curr[j + 1]);
+        }
+        if row_min > max_distance {
+            return max_distance + 1;
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[b_chars.len()]
+}
+
+fn fuzzy_symbol_suggestions(
+    gv: &GraphView,
+    query: &str,
+    kind_filter: Option<&str>,
+    limit: usize,
+) -> Vec<Value> {
+    let query = query
+        .trim()
+        .trim_end_matches("()")
+        .trim_end_matches('(')
+        .to_lowercase();
+    if query.len() < 3 || limit == 0 {
+        return Vec::new();
+    }
+
+    let max_distance = if query.len() <= 5 { 2 } else { 3 };
+    let mut scored: Vec<(usize, String, Value)> = Vec::new();
+    for (name, nodes) in &gv.symbols_by_name {
+        let distance = fuzzy_distance(&query, name, max_distance);
+        if distance > max_distance {
+            continue;
+        }
+        for node in nodes.iter().take(2) {
+            if let Some(kind) = kind_filter {
+                let node_kind = node_symbol_kind(node);
+                if !node_kind.eq_ignore_ascii_case(kind) {
+                    continue;
+                }
+            }
+            scored.push((distance, name.clone(), node.clone()));
+        }
+    }
+
+    scored.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+    scored
+        .into_iter()
+        .take(limit)
+        .map(|(distance, _, node)| {
+            json!({
+                "id": node["id"],
+                "name": node_display_name(&node),
+                "kind": node_symbol_kind(&node),
+                "file": node_source_path(&node),
+                "line": node_line_start(&node),
+                "score": distance,
+                "reason": "fuzzy_symbol_name"
+            })
+        })
+        .collect()
 }
 
 fn handle_export_bridge(_cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
@@ -9248,6 +9347,12 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     let low_conf_call_rate = quality_metrics["callQuality"]["lowConfidenceCallRate"]
         .as_f64()
         .unwrap_or(0.0);
+    let unknown_conf_edge_rate = quality_metrics["edgeConfidence"]["unknownConfidenceEdgeRate"]
+        .as_f64()
+        .unwrap_or(0.0);
+    let unknown_conf_edge_count = quality_metrics["edgeConfidence"]["unknownConfidenceEdgeCount"]
+        .as_u64()
+        .unwrap_or(0);
     if dangling_count > 0 {
         review_checklist.push(format!(
             "Dangling edges detected: {} edges reference non-existent source nodes",
@@ -9265,6 +9370,23 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
             overall_risk_reasons.push(format!(
                 "low-confidence call rate is {:.1}% — static graph quality limits certainty",
                 low_conf_call_rate * 100.0
+            ));
+        }
+    }
+    if unknown_conf_edge_rate > 0.3 {
+        review_checklist.push(format!(
+            "Review graph confidence before acting: {:.1}% of graph edges have unknown confidence",
+            unknown_conf_edge_rate * 100.0
+        ));
+        if changed_symbols_info.is_empty()
+            && !overall_risk_reasons
+                .iter()
+                .any(|reason| reason.contains("unknown-confidence edge rate"))
+        {
+            overall_risk_reasons.push(format!(
+                "unknown-confidence edge rate is {:.1}% ({} edge(s)) — static graph quality limits certainty",
+                unknown_conf_edge_rate * 100.0,
+                unknown_conf_edge_count
             ));
         }
     }
@@ -24243,7 +24365,7 @@ fn workspace_project_absolute_root(workspace_root: &str, project: &Value) -> Str
 }
 
 fn workspace_route_query(params: &Value) -> String {
-    for key in ["query", "symbol", "name", "symbolId", "file"] {
+    for key in ["query", "symbol", "name", "symbolId", "file", "question"] {
         if let Some(value) = params[key].as_str().filter(|s| !s.trim().is_empty()) {
             return value.trim().to_string();
         }
@@ -24276,6 +24398,86 @@ fn workspace_project_text(project: &Value) -> String {
     ]
     .join(" ")
     .to_lowercase()
+}
+
+fn workspace_semantic_project_bias(
+    project: &Value,
+    query_lower: &str,
+    query_tokens: &[String],
+) -> (f64, Vec<String>) {
+    let language = project["language"].as_str().unwrap_or("").to_lowercase();
+    let project_text = workspace_project_text(project);
+    let has_token = |candidates: &[&str]| -> bool {
+        candidates.iter().any(|candidate| {
+            query_lower.contains(candidate)
+                || query_tokens
+                    .iter()
+                    .any(|token| token == candidate || token.contains(candidate))
+        })
+    };
+
+    let frontend_cue = has_token(&[
+        "react",
+        "component",
+        "components",
+        "dashboard",
+        "tsx",
+        "jsx",
+        "ui",
+        "frontend",
+        "view",
+        "page",
+        "screen",
+    ]);
+    let backend_cue = has_token(&[
+        "rust",
+        "backend",
+        "cargo",
+        "crate",
+        "server",
+        "handler",
+        "service",
+        "database",
+        "repository",
+    ]);
+
+    let mut score = 0.0;
+    let mut reasons = Vec::new();
+    if frontend_cue
+        && matches!(
+            language.as_str(),
+            "typescript" | "javascript" | "arkts" | "tsx" | "jsx"
+        )
+    {
+        score += 320.0;
+        reasons.push(
+            "frontend/UI query cues (React/component/dashboard) match this project language"
+                .to_string(),
+        );
+    }
+    if frontend_cue
+        && (project_text.contains("frontend")
+            || project_text.contains("web")
+            || project_text.contains("ui"))
+    {
+        score += 120.0;
+        reasons.push("frontend/UI query cues match project path/name".to_string());
+    }
+
+    if backend_cue && language == "rust" {
+        score += 180.0;
+        reasons.push("backend/server query cues match Rust project language".to_string());
+    }
+    if backend_cue
+        && (project_text.contains("backend")
+            || project_text.contains("server")
+            || project_text.contains("core"))
+    {
+        score += 100.0;
+        reasons.push("backend/server query cues match project path/name".to_string());
+    }
+
+    (score, reasons)
 }
 
 fn workspace_symbol_evidence(gv: &GraphView, query: &str) -> (usize, Vec<Value>) {
@@ -24710,6 +24912,12 @@ fn workspace_auto_route_decision(
             {
                 score += 30.0;
                 reasons.push("query text matches project name/path/language".to_string());
+            }
+            let (semantic_score, semantic_reasons) =
+                workspace_semantic_project_bias(project, &query_lower, &query_tokens);
+            if semantic_score > 0.0 {
+                score += semantic_score;
+                reasons.extend(semantic_reasons);
             }
 
             if ask_large_project_info(&selected_root, &selected_language).is_some() {
@@ -25310,7 +25518,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
         }
     }
 
-    let (inner, underlying): (Value, Vec<&str>) = match mode {
+    let (mut inner, underlying): (Value, Vec<&str>) = match mode {
         "changed_symbols" => {
             let r = handle_changed_symbols(cache, analysis_params)?;
             (unwrap_tool_result(&r), vec!["codelattice_changed_symbols"])
@@ -25575,6 +25783,31 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
         }
         _ => unreachable!(),
     };
+    if compact && mode == "dead_code" {
+        if let Some(obj) = inner.as_object_mut() {
+            let removed_symbols = obj
+                .get("candidateSymbols")
+                .and_then(|v| v.as_array())
+                .map(|items| items.len())
+                .unwrap_or(0);
+            let removed_files = obj
+                .get("candidateFiles")
+                .and_then(|v| v.as_array())
+                .map(|items| items.len())
+                .unwrap_or(0);
+            obj.remove("candidateSymbols");
+            obj.remove("candidateFiles");
+            obj.insert(
+                "candidateListsRef".to_string(),
+                json!({
+                    "$ref": "codelattice.deadCode.fullCandidateLists",
+                    "removedCandidateSymbols": removed_symbols,
+                    "removedCandidateFiles": removed_files,
+                    "detailAvailableVia": "Re-run codelattice_change_review mode=dead_code with compact=false for candidateSymbols/candidateFiles."
+                }),
+            );
+        }
+    }
     let facade_summary = if mode == "dead_code" {
         json!({
             "riskLevel": "medium",

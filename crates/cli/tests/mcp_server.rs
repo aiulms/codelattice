@@ -203,7 +203,7 @@ fn create_large_workspace_root_router_fixture() -> tempfile::TempDir {
     .unwrap();
     std::fs::write(
         frontend_src.join("api.ts"),
-        "export function frontendTarget() { return 1; }\n",
+        "export function frontendTarget() { return 1; }\nexport function MissionCenterDashboard() { return React.createElement('section'); }\nexport const MissionCenterWidget = () => MissionCenterDashboard();\n",
     )
     .unwrap();
 
@@ -2973,6 +2973,45 @@ fn mcp_symbol_search_finds_helper() {
 }
 
 #[test]
+fn mcp_symbol_search_no_match_returns_fuzzy_suggestions() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 111,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_symbol_search",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "query": "hleper",
+                "compact": true
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 111);
+    let content_text = resp["result"]["content"][0]["text"].as_str().unwrap_or("");
+    let data: serde_json::Value =
+        serde_json::from_str(content_text).expect("symbol_search output should be valid JSON");
+    assert_eq!(data["matchCount"].as_u64(), Some(0));
+    let suggestions = data["suggestions"]
+        .as_array()
+        .expect("missing exact match should include suggestions array");
+    assert!(
+        suggestions
+            .iter()
+            .any(|item| item["name"].as_str() == Some("helper")),
+        "expected fuzzy suggestion for helper, got {suggestions:?}"
+    );
+}
+
+#[test]
 fn mcp_symbol_search_finds_main() {
     let mut session = McpSession::start();
     session.initialize();
@@ -4881,6 +4920,50 @@ fn mcp_symbol_context_snippet_candidates_all_have_snippets() {
             assert!(
                 snippet["lines"].is_string(),
                 "snippet should have lines string"
+            );
+        }
+    }
+}
+
+#[test]
+fn mcp_facade_symbol_context_include_snippet_dedupes_selected_candidate() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        407,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "context",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "name": "helper",
+            "includeSnippet": true,
+            "compact": true
+        }),
+    );
+
+    let selected = &data["result"]["selected"];
+    assert!(
+        selected["sourceSnippet"].is_object(),
+        "selected should keep sourceSnippet: {data:?}"
+    );
+    let selected_id = selected["id"].as_str().unwrap_or("");
+    let candidates = data["result"]["candidates"]
+        .as_array()
+        .expect("facade result candidates should be array");
+    for candidate in candidates {
+        if candidate["id"].as_str() == Some(selected_id) {
+            assert!(
+                !candidate["sourceSnippet"].is_object(),
+                "facade context should not duplicate selected.sourceSnippet in candidates: {data:?}"
+            );
+            assert_eq!(
+                candidate["sourceSnippetRef"].as_str(),
+                Some("#/selected/sourceSnippet")
             );
         }
     }
@@ -13252,6 +13335,12 @@ fn mcp_change_review_dead_code_compact_keeps_candidates_without_token_bloat() {
             "includeTests": true
         }),
     );
+    if data["error"].as_str() == Some("typescript_disabled") {
+        // Cargo's integration-test binary can be compiled without optional TS
+        // parser support even when this test module is cfg-enabled. Installed
+        // builds exercise the assertions below when TypeScript is available.
+        return;
+    }
 
     let payload_len = serde_json::to_string(&data).unwrap().len();
     assert!(
@@ -13271,6 +13360,14 @@ fn mcp_change_review_dead_code_compact_keeps_candidates_without_token_bloat() {
             .map(|items| !items.is_empty())
             .unwrap_or(false),
         "compact result should keep bounded deadCodeCandidates evidence: {data:?}"
+    );
+    assert!(
+        data["result"].get("candidateSymbols").is_none(),
+        "compact change_review dead_code should not duplicate candidateSymbols beside deadCodeCandidates: {data:?}"
+    );
+    assert!(
+        data["result"].get("candidateFiles").is_none(),
+        "compact change_review dead_code should not duplicate candidateFiles beside deadCodeCandidates: {data:?}"
     );
     let candidates = data["result"]["deadCodeCandidates"]
         .as_array()
@@ -13304,6 +13401,44 @@ fn mcp_change_review_dead_code_compact_keeps_candidates_without_token_bloat() {
             .iter()
             .all(|entry| entry["line"].as_u64().unwrap_or(0) > 0),
         "dead_code entryPoints should expose non-zero source lines: {entry_points:?}"
+    );
+}
+
+#[test]
+fn mcp_change_review_dead_code_compact_strips_duplicate_candidate_lists() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut session,
+        20062,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "dead_code",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "compact": true
+        }),
+    );
+
+    let payload_len = serde_json::to_string(&data).unwrap().len();
+    assert!(
+        payload_len < 16 * 1024,
+        "compact dead_code should stay under budget, got {payload_len} bytes: {data:?}"
+    );
+    assert!(
+        data["result"].get("candidateSymbols").is_none(),
+        "compact change_review dead_code should not duplicate candidateSymbols: {data:?}"
+    );
+    assert!(
+        data["result"].get("candidateFiles").is_none(),
+        "compact change_review dead_code should not duplicate candidateFiles: {data:?}"
+    );
+    assert!(
+        data["result"]["candidateListsRef"].is_object(),
+        "compact dead_code should explain where omitted candidate lists went: {data:?}"
     );
 }
 
@@ -21631,6 +21766,44 @@ fn mcp_workflow_ask_workspace_root_large_project_routes_before_python_fallback()
         data["effectiveLanguage"].as_str(),
         Some("python"),
         "workspace ask must not fall back to incidental root Python project: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_workspace_root_react_components_route_to_frontend() {
+    let workspace = create_large_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92198,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "question": "Which React components handle mission center dashboard?",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "ask should route semantic frontend questions to a concrete project: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/frontend"),
+        "React/component/dashboard query should select frontend, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("typescript")
     );
 }
 
