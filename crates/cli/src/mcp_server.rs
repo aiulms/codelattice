@@ -24164,6 +24164,304 @@ fn workspace_symbol_evidence(gv: &GraphView, query: &str) -> (usize, Vec<Value>)
     (matches.len(), evidence)
 }
 
+fn workspace_source_extensions(language: &str) -> &'static [&'static str] {
+    match language {
+        "rust" => &["rs"],
+        "typescript" => &["ts", "tsx"],
+        "javascript" => &["js", "jsx", "mjs", "cjs"],
+        "python" => &["py"],
+        "shell" => &["sh", "bash", "zsh"],
+        "c" => &["c", "h"],
+        "cpp" => &["cpp", "cc", "cxx", "hpp", "hh", "hxx"],
+        "arkts" => &["ets", "ts", "tsx"],
+        "cangjie" => &["cj"],
+        _ => &[],
+    }
+}
+
+fn workspace_lightweight_source_evidence(
+    project_root: &str,
+    language: &str,
+    query: &str,
+) -> (usize, Vec<Value>) {
+    // workspace 自动路由不能为了找归属项目触发大项目全量分析；
+    // 这里只做有界源码文本探测，用作低成本路由证据，真正分析仍交给 routed tool/job。
+    let query = query.trim();
+    let tokens = workspace_query_tokens(query);
+    if query.is_empty() && tokens.is_empty() {
+        return (0, Vec::new());
+    }
+
+    let extensions = workspace_source_extensions(language);
+    if extensions.is_empty() {
+        return (0, Vec::new());
+    }
+
+    let query_lower = query.to_lowercase();
+    let exact_needles = if query_lower.len() >= 3 {
+        vec![query_lower.as_str()]
+    } else {
+        Vec::new()
+    };
+    let root_path = Path::new(project_root);
+    let mut stack = vec![root_path.to_path_buf()];
+    let mut scanned_files = 0usize;
+    let mut matches = 0usize;
+    let mut evidence = Vec::new();
+
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = std::fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name().to_string_lossy().to_string();
+            if path.is_dir() {
+                if matches!(
+                    name.as_str(),
+                    ".git"
+                        | "target"
+                        | "node_modules"
+                        | "dist"
+                        | "build"
+                        | ".next"
+                        | ".cache"
+                        | "coverage"
+                ) {
+                    continue;
+                }
+                stack.push(path);
+                continue;
+            }
+
+            let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if !extensions.iter().any(|candidate| candidate == &ext) {
+                continue;
+            }
+            scanned_files += 1;
+            if scanned_files > 600 {
+                break;
+            }
+
+            let Ok(content) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            let content_lower = content.to_lowercase();
+            let matched = exact_needles
+                .iter()
+                .copied()
+                .find(|needle| content_lower.contains(*needle))
+                .map(str::to_string)
+                .or_else(|| {
+                    tokens
+                        .iter()
+                        .find(|token| content_lower.contains(token.as_str()))
+                        .cloned()
+                });
+            let Some(matched) = matched else {
+                continue;
+            };
+
+            matches += 1;
+            if evidence.len() < 3 {
+                let line = content
+                    .lines()
+                    .position(|line| line.to_lowercase().contains(&matched))
+                    .map(|idx| idx + 1)
+                    .unwrap_or(1);
+                let rel = path
+                    .strip_prefix(root_path)
+                    .unwrap_or(&path)
+                    .to_string_lossy()
+                    .to_string();
+                evidence.push(json!({
+                    "file": rel,
+                    "line": line,
+                    "matched": matched,
+                    "reason": "lightweight source scan matched query before full graph analysis"
+                }));
+            }
+        }
+    }
+
+    (matches, evidence)
+}
+
+fn build_workspace_ask_result(
+    root: &str,
+    language: &str,
+    question: &str,
+    root_diagnosis: &Value,
+    root_router: Value,
+    compact: bool,
+) -> Value {
+    let recommended = root_diagnosis
+        .get("recommendedProjectRoots")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let counts = root_diagnosis
+        .get("counts")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
+    let q = question.to_lowercase();
+    let intent = if q.contains("项目结构")
+        || q.contains("这个项目")
+        || q.contains("架构")
+        || q.contains("overview")
+        || q.contains("architecture")
+        || q.contains("project structure")
+    {
+        "inspect_workspace"
+    } else {
+        "workspace_project_selection"
+    };
+
+    let projects = recommended
+        .iter()
+        .take(5)
+        .map(|project| {
+            let mut item = project.clone();
+            if let Some(obj) = item.as_object_mut() {
+                obj.insert(
+                    "root".to_string(),
+                    json!(workspace_project_absolute_root(root, project)),
+                );
+            }
+            item
+        })
+        .collect::<Vec<_>>();
+    let mut next_actions = vec![json!({
+        "tool": "codelattice_workspace",
+        "mode": "overview",
+        "why": "Summarize workspace boundaries and choose project roots",
+        "arguments": {"root": root, "language": language, "compact": true}
+    })];
+    for project in recommended.iter().take(3) {
+        let project_root = workspace_project_absolute_root(root, project);
+        let project_language = project
+            .get("language")
+            .and_then(|v| v.as_str())
+            .unwrap_or("auto");
+        next_actions.push(json!({
+            "tool": "codelattice_project",
+            "mode": "quick",
+            "why": "Inspect this concrete project root without using the workspace root as a single project",
+            "arguments": {"root": project_root, "language": project_language, "compact": true}
+        }));
+    }
+
+    let recommended_count = recommended.len();
+    let answer_summary = if recommended_count == 0 {
+        format!(
+            "Workspace root '{}' did not expose manifest-backed project roots. Static workspace routing only.",
+            root
+        )
+    } else {
+        let names = recommended
+            .iter()
+            .take(3)
+            .filter_map(|project| project.get("name").and_then(|v| v.as_str()))
+            .collect::<Vec<_>>();
+        format!(
+            "Workspace root contains {} recommended project root(s): {}. Use a concrete project root for symbol/project analysis.",
+            recommended_count,
+            if names.is_empty() { "n/a".to_string() } else { names.join(", ") }
+        )
+    };
+
+    let mut result = json!({
+        "schemaVersion": "codelattice.ask.v2",
+        "intent": intent,
+        "question": question,
+        "root": root,
+        "language": language,
+        "effectiveRoot": root,
+        "effectiveLanguage": "workspace",
+        "rootRouter": root_router,
+        "requestContext": {
+            "schemaVersion": "codelattice.facadeRequest.v1",
+            "tool": "codelattice_workflow",
+            "mode": "ask",
+            "originalRoot": root,
+            "effectiveRoot": root,
+            "requestedLanguage": language,
+            "effectiveLanguage": "workspace",
+            "compact": compact
+        },
+        "runtimeCapabilities": facade_language_runtime_capabilities("workspace"),
+        "runtimeTrace": crate::ai_runtime::build_runtime_trace_envelope("workspace", None),
+        "targetQuery": Value::Null,
+        "answerSummary": answer_summary,
+        "evidence": projects.iter().take(5).map(|project| json!({
+            "kind": "recommended_project_root",
+            "name": project["name"].clone(),
+            "root": project["root"].clone(),
+            "language": project["language"].clone(),
+            "score": project["score"].clone(),
+            "reason": "workspace manifest-backed project candidate"
+        })).collect::<Vec<_>>(),
+        "confidence": {"level": "medium", "reason": "Workspace answer is based on manifest-backed root diagnosis; no runtime code was executed."},
+        "aiGuidance": "This is a workspace-level answer. Run project or symbol tools on one recommended concrete project root for detailed graph evidence.",
+        "orchestration": {
+            "stepsAttempted": ["intent-classification:workspace_root", "workspace_root_diagnosis:executed"],
+            "stepsSkipped": ["single_project_analysis:not_applicable_to_workspace_root"]
+        },
+        "job": Value::Null,
+        "callChains": [],
+        "readOrder": [],
+        "projectDigest": {
+            "rootKind": root_diagnosis["kind"].clone(),
+            "recommendedProjectCount": recommended_count,
+            "counts": counts,
+            "recommendedProjectRoots": projects,
+            "sourceOnlySummary": root_diagnosis.get("sourceOnlySummary").cloned().unwrap_or(Value::Null),
+            "staticOnly": true
+        },
+        "triagePlan": Value::Null,
+        "whatIf": Value::Null,
+        "filesInvolved": [],
+        "missingEvidence": [{
+            "kind": "workspace_not_single_project",
+            "explanation": "Workspace roots are not analyzed as one incidental language project; select a manifest-backed project root for symbol-level evidence."
+        }],
+        "recommendedNextCalls": next_actions,
+        "analysisSemantics": {
+            "staticAnalysis": true,
+            "targetCodeExecuted": false,
+            "runtimeVerified": false,
+            "scriptsExecuted": false
+        },
+        "generatedFrom": {"engine": "intent-router", "version": "v2"}
+    });
+
+    if compact {
+        if let Some(obj) = result.as_object_mut() {
+            obj.insert(
+                "omitted".to_string(),
+                json!([
+                    {"field": "full rootDiagnosis", "reason": "workspace ask returns project candidates and summary only"},
+                    {"field": "runtime proof", "reason": "ask uses static analysis only"}
+                ]),
+            );
+        }
+        let estimated_bytes = serde_json::to_string(&result).map(|s| s.len()).unwrap_or(0);
+        if let Some(obj) = result.as_object_mut() {
+            obj.insert(
+                "tokenBudget".to_string(),
+                json!({
+                    "used": estimated_bytes,
+                    "max": 16 * 1024,
+                    "estimated": true,
+                    "policy": "compact ask responses should stay within the AI decision budget"
+                }),
+            );
+        }
+    }
+
+    result
+}
+
 fn workspace_root_selection_guidance(
     root: &str,
     requested_language: &str,
@@ -24285,6 +24583,19 @@ fn workspace_auto_route_decision(
                     "large project not synchronously probed; routed call can submit/read job"
                         .to_string(),
                 );
+                let (matches, match_evidence) = workspace_lightweight_source_evidence(
+                    &selected_root,
+                    &selected_language,
+                    &query,
+                );
+                if matches > 0 {
+                    score += 90.0 + matches as f64;
+                    symbol_match_count = matches;
+                    evidence = match_evidence;
+                    reasons.push(format!(
+                        "{matches} lightweight source match(es) found before full graph analysis"
+                    ));
+                }
             } else if let Ok((gv, _result, _cache_meta)) =
                 cache.get_or_analyze(&PathBuf::from(&selected_root), &selected_language, false)
             {
@@ -26957,6 +27268,24 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     }
                 }
             }
+        }
+        if root_is_workspace
+            && ask_root == root
+            && ask_root_router.get("routed").and_then(|v| v.as_bool()) != Some(true)
+        {
+            let workspace_result = build_workspace_ask_result(
+                root,
+                language,
+                &question,
+                &root_diagnosis,
+                ask_root_router,
+                ask_compact,
+            );
+            let ask_text = serde_json::to_string_pretty(&workspace_result)
+                .unwrap_or_else(|_| workspace_result.to_string());
+            return Ok(json!({
+                "content": [{"type": "text", "text": ask_text}],
+            }));
         }
         ask_language = resolve_language_for_known_root(&ask_root, &ask_language);
         let ask_root_ref = ask_root.as_str();

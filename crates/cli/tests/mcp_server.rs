@@ -159,6 +159,57 @@ fn create_workspace_root_router_fixture() -> tempfile::TempDir {
     dir
 }
 
+fn create_large_workspace_root_router_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("large workspace root router fixture");
+    let root = dir.path();
+
+    std::fs::write(
+        root.join("pyproject.toml"),
+        "[project]\nname = \"mixed-root\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("main.py"),
+        "def incidental_root_script():\n    return 1\n",
+    )
+    .unwrap();
+
+    let backend_src = root.join("backend/src");
+    std::fs::create_dir_all(&backend_src).unwrap();
+    std::fs::write(
+        root.join("backend/Cargo.toml"),
+        "[package]\nname = \"backend\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        backend_src.join("lib.rs"),
+        "pub fn backend_target() { backend_helper(); }\nfn backend_helper() {}\n",
+    )
+    .unwrap();
+    for idx in 0..90 {
+        std::fs::write(
+            backend_src.join(format!("module_{idx}.rs")),
+            format!("pub fn backend_noise_{idx}() {{}}\n"),
+        )
+        .unwrap();
+    }
+
+    let frontend_src = root.join("frontend/src");
+    std::fs::create_dir_all(&frontend_src).unwrap();
+    std::fs::write(
+        root.join("frontend/package.json"),
+        r#"{"name":"frontend","version":"0.1.0"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        frontend_src.join("api.ts"),
+        "export function frontendTarget() { return 1; }\n",
+    )
+    .unwrap();
+
+    dir
+}
+
 fn create_source_heavy_rust_project() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create source-heavy project");
     let root = dir.path();
@@ -20349,6 +20400,48 @@ fn mcp_symbol_workspace_root_auto_routes_to_matching_project() {
 }
 
 #[test]
+fn mcp_symbol_workspace_root_large_project_routes_by_lightweight_source_scan() {
+    let workspace = create_large_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92196,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "query": "backend_target",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "large workspace root should auto-route without requiring manual project selection: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/backend"),
+        "router should select backend from lightweight source evidence, got {selected_root}: {data:?}"
+    );
+    assert_eq!(
+        data["rootRouter"]["selectedLanguage"].as_str(),
+        Some("rust")
+    );
+    assert_ne!(
+        data["status"].as_str(),
+        Some("needs_project_selection"),
+        "symbol search should not force AI to manually retry with backend root: {data:?}"
+    );
+}
+
+#[test]
 fn mcp_symbol_request_context_resolves_auto_language() {
     let root = portable_smoke_dir();
     let mut session = McpSession::start_default_toolset();
@@ -21251,6 +21344,96 @@ fn mcp_workflow_ask_before_edit_workspace_root_auto_routes() {
                 && item["arguments"]["language"].as_str() == Some("rust")
         }),
         "ask follow-up calls should use selected project root/language: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_workspace_root_large_project_routes_before_python_fallback() {
+    let workspace = create_large_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92197,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "question": "backend_target 的执行流程是什么",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["rootRouter"]["routed"].as_bool(),
+        Some(true),
+        "ask should route workspace root to the owning project before resolving language=auto: {data:?}"
+    );
+    let selected_root = data["rootRouter"]["selectedRoot"].as_str().unwrap_or("");
+    assert!(
+        selected_root.ends_with("/backend"),
+        "ask should select backend for backend_target, got {selected_root}: {data:?}"
+    );
+    assert_eq!(data["effectiveRoot"].as_str(), Some(selected_root));
+    assert_eq!(data["effectiveLanguage"].as_str(), Some("rust"));
+    assert_ne!(
+        data["effectiveLanguage"].as_str(),
+        Some("python"),
+        "workspace ask must not fall back to incidental root Python project: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_ask_workspace_root_inspect_uses_workspace_digest_not_python_root() {
+    let workspace = create_large_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92198,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "question": "这个项目结构是什么",
+            "compact": true
+        }),
+    );
+
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("inspect_workspace"),
+        "workspace-level ask should answer with workspace digest instead of analyzing incidental root Python files: {data:?}"
+    );
+    assert_eq!(data["effectiveRoot"].as_str(), Some(root.to_str().unwrap()));
+    assert_eq!(data["effectiveLanguage"].as_str(), Some("workspace"));
+    assert_ne!(data["effectiveLanguage"].as_str(), Some("python"));
+    assert_eq!(
+        data["projectDigest"]["recommendedProjectCount"].as_u64(),
+        Some(2),
+        "workspace digest should include backend/frontend project choices: {data:?}"
+    );
+    assert!(
+        data["recommendedNextCalls"]
+            .as_array()
+            .is_some_and(|items| items.iter().any(|item| {
+                item["tool"].as_str() == Some("codelattice_project")
+                    && item["arguments"]["root"]
+                        .as_str()
+                        .is_some_and(|root| root.ends_with("/backend"))
+                    && item["arguments"]["language"].as_str() == Some("rust")
+            })),
+        "workspace ask should recommend concrete project calls: {data:?}"
     );
 }
 
