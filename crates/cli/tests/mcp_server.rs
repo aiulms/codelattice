@@ -13272,12 +13272,38 @@ fn mcp_change_review_dead_code_compact_keeps_candidates_without_token_bloat() {
             .unwrap_or(false),
         "compact result should keep bounded deadCodeCandidates evidence: {data:?}"
     );
+    let candidates = data["result"]["deadCodeCandidates"]
+        .as_array()
+        .unwrap_or(empty_arr());
+    let symbol_candidates: Vec<&serde_json::Value> = candidates
+        .iter()
+        .filter(|candidate| candidate["candidateType"].as_str() == Some("symbol"))
+        .collect();
+    assert!(
+        !symbol_candidates.is_empty(),
+        "fixture should expose symbol-level dead code candidates: {data:?}"
+    );
+    assert!(
+        symbol_candidates
+            .iter()
+            .all(|candidate| candidate["line"].as_u64().unwrap_or(0) > 0),
+        "dead_code symbol candidates should expose non-zero source lines: {symbol_candidates:?}"
+    );
     assert!(
         data["result"]["entryPoints"]
             .as_array()
             .map(|items| items.len() <= 10)
             .unwrap_or(false),
         "compact dead_code should not inline hundreds of entry points: {data:?}"
+    );
+    let entry_points = data["result"]["entryPoints"]
+        .as_array()
+        .unwrap_or(empty_arr());
+    assert!(
+        entry_points
+            .iter()
+            .all(|entry| entry["line"].as_u64().unwrap_or(0) > 0),
+        "dead_code entryPoints should expose non-zero source lines: {entry_points:?}"
     );
 }
 

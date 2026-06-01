@@ -1022,7 +1022,14 @@ fn node_source_path(node: &Value) -> String {
 fn node_line_start(node: &Value) -> u64 {
     node["properties"]["lineStart"]
         .as_u64()
+        .or_else(|| node["properties"]["startLine"].as_u64())
         .or_else(|| node["properties"]["line"].as_u64())
+        .or_else(|| {
+            node["id"]
+                .as_str()
+                .and_then(|id| id.rsplit(':').next())
+                .and_then(|part| part.parse::<u64>().ok())
+        })
         .unwrap_or(0)
 }
 
@@ -12947,7 +12954,7 @@ fn detect_entry_points(
             .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
             .unwrap_or("");
         let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
-        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+        let line = node_line_start(node);
         let id = node["id"].as_str().unwrap_or("").to_string();
 
         let fan_out = gv.outgoing.get(&id).map(|v| v.len()).unwrap_or(0);
@@ -13181,7 +13188,7 @@ fn score_candidate_symbols(
             .as_str()
             .unwrap_or("")
             .to_string();
-        let line = node["properties"]["startLine"].as_u64().unwrap_or(0);
+        let line = node_line_start(node);
 
         // Skip generated paths
         if is_generated_path(&file) {
