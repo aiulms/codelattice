@@ -1599,7 +1599,7 @@ fn mcp_workflow_explore_workspace_uses_concrete_project_root() {
     let data = extract_tool_data(&session.recv());
     assert_eq!(data["schemaVersion"].as_str(), Some("ai.workflow.v1"));
     assert_eq!(
-        data["rootDiagnosis"]["kind"].as_str(),
+        data["rootDiagnosisSummary"]["kind"].as_str(),
         Some("workspace"),
         "fixture should be diagnosed as a workspace: {data:?}"
     );
@@ -3480,23 +3480,24 @@ fn mcp_workflow_compact_root_diagnosis_bounds_detected_projects() {
         payload_len < 16 * 1024,
         "compact workflow response should stay under budget, got {payload_len} bytes: {explore:?}"
     );
-    let root_diag = &explore["rootDiagnosis"];
     assert!(
-        root_diag["detectedProjects"]
-            .as_array()
-            .map(|items| items.len() <= 5)
-            .unwrap_or(false),
-        "compact rootDiagnosis should cap detectedProjects: {root_diag:?}"
+        explore.get("rootDiagnosis").is_none(),
+        "compact workflow should use rootDiagnosisSummary/rootDiagnosisRef instead of inlining full rootDiagnosis: {explore:?}"
+    );
+    let root_diag = &explore["rootDiagnosisSummary"];
+    assert!(
+        root_diag.is_object(),
+        "compact workflow should retain bounded rootDiagnosisSummary: {explore:?}"
     );
     assert_eq!(
         root_diag["detectedProjectSummary"]["total"].as_u64(),
         Some(18),
-        "compact rootDiagnosis should preserve full detected project count: {root_diag:?}"
+        "compact rootDiagnosisSummary should preserve full detected project count: {root_diag:?}"
     );
     assert_eq!(
         root_diag["detectedProjectSummary"]["truncated"].as_bool(),
         Some(true),
-        "compact rootDiagnosis should disclose detectedProjects truncation: {root_diag:?}"
+        "compact rootDiagnosisSummary should disclose detectedProjects truncation: {root_diag:?}"
     );
 }
 
@@ -20113,6 +20114,104 @@ fn mcp_symbol_context_compact_omits_repeated_root_diagnosis() {
     assert!(
         data["rootDiagnosisSummary"].is_object(),
         "compact symbol responses should retain a small rootDiagnosisSummary: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_workflow_compact_omits_repeated_root_diagnosis() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92206,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "symbol": "helper",
+            "compact": true
+        }),
+    );
+
+    assert!(
+        data.get("rootDiagnosis").is_none(),
+        "compact workflow responses should not repeatedly inline rootDiagnosis: {data:?}"
+    );
+    assert!(
+        data["rootDiagnosisSummary"].is_object(),
+        "compact workflow responses should retain a small rootDiagnosisSummary: {data:?}"
+    );
+    assert!(
+        data["rootDiagnosisRef"].is_object(),
+        "compact workflow responses should expose a rootDiagnosisRef for follow-up detail: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_compact_omits_snippets_by_default() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92207,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "context",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "name": "helper",
+            "compact": true
+        }),
+    );
+
+    let selected = &data["result"]["selected"];
+    assert!(
+        !selected["sourceSnippet"].is_object(),
+        "compact symbol context should omit sourceSnippet by default: {data:?}"
+    );
+    let candidates = data["result"]["candidates"]
+        .as_array()
+        .expect("symbol context should include bounded candidates");
+    assert!(
+        candidates
+            .iter()
+            .all(|candidate| !candidate["sourceSnippet"].is_object()),
+        "compact symbol context candidates should omit sourceSnippet by default: {data:?}"
+    );
+}
+
+#[test]
+fn mcp_symbol_context_compact_include_snippet_opt_in() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        92208,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "context",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "name": "helper",
+            "compact": true,
+            "includeSnippet": true,
+            "snippetContext": 1
+        }),
+    );
+
+    assert!(
+        data["result"]["selected"]["sourceSnippet"].is_object(),
+        "compact symbol context should still allow explicit sourceSnippet opt-in: {data:?}"
     );
 }
 

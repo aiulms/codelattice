@@ -684,7 +684,10 @@ fn compact_root_diagnosis_summary(root_diagnosis: &Value) -> Value {
 fn compact_should_omit_full_root_diagnosis(tool: &str) -> bool {
     matches!(
         tool,
-        "codelattice_symbol" | "codelattice_change_review" | "codelattice_cleanup"
+        "codelattice_symbol"
+            | "codelattice_change_review"
+            | "codelattice_workflow"
+            | "codelattice_cleanup"
     )
 }
 
@@ -5746,8 +5749,14 @@ fn handle_symbol_context(cache: &mut McpCache, params: &Value) -> Result<Value, 
     let language = params["language"].as_str().unwrap_or("auto");
     let kind_filter = params["kind"].as_str();
     let limit = params["limit"].as_u64().unwrap_or(10).min(50) as usize;
-    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(true);
-    let snippet_context = params["snippetContext"].as_u64().unwrap_or(3).min(10) as usize;
+    let compact = params["compact"].as_bool().unwrap_or(false);
+    let include_snippet = params["includeSnippet"].as_bool().unwrap_or(!compact);
+    let snippet_context_default = if compact { 1 } else { 3 };
+    let snippet_context_max = if compact { 3 } else { 10 };
+    let snippet_context = params["snippetContext"]
+        .as_u64()
+        .unwrap_or(snippet_context_default)
+        .min(snippet_context_max) as usize;
     check_language_feature(language)?;
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
@@ -12418,7 +12427,9 @@ fn tools_list() -> Value {
                         "query": { "type": "string", "description": "Search query (for search mode)" },
                         "kind": { "type": "string", "description": "Filter by symbol kind" },
                         "limit": { "type": "integer", "default": 20, "description": "Max results" },
-                        "depth": { "type": "integer", "default": 1, "description": "Call depth for callers/callees" }
+                        "depth": { "type": "integer", "default": 1, "description": "Call depth for callers/callees" },
+                        "includeSnippet": { "type": "boolean", "description": "For context/call modes: include source snippets. Defaults to false in compact mode and true in full mode." },
+                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around source snippets; compact mode caps this to 3." }
                     },
                     "required": []
                 }
@@ -27281,10 +27292,37 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     });
     if compact {
         if let Some(obj) = out.as_object_mut() {
+            if let Some(root_diagnosis) = obj.remove("rootDiagnosis") {
+                obj.insert(
+                    "rootDiagnosisSummary".to_string(),
+                    compact_root_diagnosis_summary(&root_diagnosis),
+                );
+                obj.insert(
+                    "rootDiagnosisRef".to_string(),
+                    json!({
+                        "$ref": "facade.v1.rootDiagnosis.full",
+                        "detailAvailableVia": "Re-run this workflow with compact=false, or run codelattice_project/codelattice_workspace for root diagnostics."
+                    }),
+                );
+            }
+            obj.insert("compactSemantics".to_string(), compact_semantics(true));
+            obj.insert(
+                "contextRefs".to_string(),
+                json!({
+                    "schemaVersion": "facade.v1",
+                    "refs": [
+                        "rootDiagnosis",
+                        "analysisSemantics",
+                        "generatedFrom",
+                        "cautions"
+                    ],
+                    "explanation": "Workflow compact mode keeps rootDiagnosisSummary/rootDiagnosisRef and omits repeated full root diagnostics."
+                }),
+            );
             obj.insert(
                 "omitted".to_string(),
                 json!([
-                    {"field": "rootDiagnosis.sourceOnlyEntries", "reason": "compact workflow output keeps root summaries and routing hints"},
+                    {"field": "rootDiagnosis", "reason": "compact workflow output keeps rootDiagnosisSummary/rootDiagnosisRef instead of repeating full root diagnostics"},
                     {"field": "completedActions.fullPayloads", "reason": "workflow compact output keeps evidence summaries and nextActions"}
                 ]),
             );
