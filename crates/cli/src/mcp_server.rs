@@ -8554,8 +8554,26 @@ fn map_hunks_to_symbols(
 }
 
 /// Detect changed symbols from git diff.
+fn find_git_root_upwards(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut current = if start.is_file() {
+        start.parent()?.to_path_buf()
+    } else {
+        start.to_path_buf()
+    };
+
+    loop {
+        if current.join(".git").exists() {
+            return Some(current);
+        }
+        if !current.pop() {
+            return None;
+        }
+    }
+}
+
 fn detect_changed_symbols(
-    root: &std::path::Path,
+    git_root: &std::path::Path,
+    analysis_root: &std::path::Path,
     gv: &GraphView,
     diff_mode: &str,
     base_ref: Option<&str>,
@@ -8578,6 +8596,13 @@ fn detect_changed_symbols(
         args.push(format!("{}...", base));
     }
 
+    if let Ok(relative_root) = analysis_root.strip_prefix(git_root) {
+        let relative = relative_root.to_string_lossy();
+        if !relative.is_empty() {
+            args.push(format!("--relative={relative}"));
+        }
+    }
+
     // Add common flags for machine-readable output
     args.push("--unified=0".to_string());
     args.push("--no-color".to_string());
@@ -8585,7 +8610,7 @@ fn detect_changed_symbols(
 
     let output = std::process::Command::new("git")
         .args(&args)
-        .current_dir(root)
+        .current_dir(git_root)
         .output()
         .map_err(|e| mcp_error("git_error", &format!("Failed to run git diff: {e}")))?;
 
@@ -8604,7 +8629,7 @@ fn detect_changed_symbols(
     let diff_text = String::from_utf8_lossy(&output.stdout);
     let changes = parse_git_diff(&diff_text);
 
-    let root_str = root;
+    let root_str = analysis_root;
     let (matched_symbols, unknown_hunks) = map_hunks_to_symbols(
         &changes,
         gv,
@@ -8675,20 +8700,21 @@ fn handle_changed_symbols(cache: &mut McpCache, params: &Value) -> Result<Value,
     let limit = params["limit"].as_u64().unwrap_or(100).min(500) as usize;
     check_language_feature(language)?;
 
-    // Check that root is a git repo
-    let git_dir = validated.join(".git");
-    if !git_dir.exists() {
+    let git_root = if let Some(git_root) = find_git_root_upwards(&validated) {
+        git_root
+    } else {
         return Err(mcp_error_with_hint(
             "not_a_git_repo",
             "Root directory is not a git repository",
             "codelattice_changed_symbols requires a git repository to run git diff",
-            "Point root at a directory containing .git, or use git init to create one",
+            "Point root at a git worktree or one of its project subdirectories, or use git init to create one",
         ));
-    }
+    };
 
     let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     let diff_result = detect_changed_symbols(
+        &git_root,
         &validated,
         &gv,
         diff_mode,
@@ -8806,9 +8832,9 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
         (info, false, vec![], 0)
     } else {
         // Auto-detect from git diff
-        let git_dir = validated.join(".git");
-        if git_dir.exists() {
+        if let Some(git_root) = find_git_root_upwards(&validated) {
             match detect_changed_symbols(
+                &git_root,
                 &validated,
                 &gv,
                 "working-tree",
@@ -11080,17 +11106,37 @@ fn handle_review_plan(cache: &mut McpCache, params: &Value) -> Result<Value, Val
                     if f.is_empty(){None}else{let sym=&f[0];let id=sym["id"].as_str().unwrap_or("");
                     Some(json!({"name":name,"kind":sym["properties"]["symbolKind"],"file":sym["properties"]["sourcePath"].as_str().unwrap_or(""),"line":sym["properties"]["lineStart"].as_u64().unwrap_or(0),"callerCount":gv.edges_to(id,Some("CALLS")).len(),"id":id}))}
                 }).collect()
-            } else if validated.join(".git").exists() {
-                detect_changed_symbols(&validated, &gv, "working-tree", None, true, false, 2, 50)
-                    .map(|d| d["changedSymbols"].as_array().cloned().unwrap_or_default())
-                    .unwrap_or_default()
+            } else if let Some(git_root) = find_git_root_upwards(&validated) {
+                detect_changed_symbols(
+                    &git_root,
+                    &validated,
+                    &gv,
+                    "working-tree",
+                    None,
+                    true,
+                    false,
+                    2,
+                    50,
+                )
+                .map(|d| d["changedSymbols"].as_array().cloned().unwrap_or_default())
+                .unwrap_or_default()
             } else {
                 vec![]
             };
-            let uhunks: Vec<Value> = if validated.join(".git").exists() {
-                detect_changed_symbols(&validated, &gv, "working-tree", None, true, false, 2, 50)
-                    .map(|d| d["unknownHunks"].as_array().cloned().unwrap_or_default())
-                    .unwrap_or_default()
+            let uhunks: Vec<Value> = if let Some(git_root) = find_git_root_upwards(&validated) {
+                detect_changed_symbols(
+                    &git_root,
+                    &validated,
+                    &gv,
+                    "working-tree",
+                    None,
+                    true,
+                    false,
+                    2,
+                    50,
+                )
+                .map(|d| d["unknownHunks"].as_array().cloned().unwrap_or_default())
+                .unwrap_or_default()
             } else {
                 vec![]
             };
@@ -18715,11 +18761,50 @@ struct BrReview {
     recommended_verification: Vec<String>,
 }
 
+/// Resolve a changed-symbol query with the same symbol lookup semantics used by
+/// symbol/search and impact. Older review modes looked at top-level `name/file`
+/// fields, but modern graph nodes keep those under `properties`; using GraphView
+/// avoids mode-specific "symbol not found" drift.
+fn resolve_changed_symbol_query(gv: &GraphView, raw: &str) -> Vec<Value> {
+    if let Some(node) = gv.nodes_by_id.get(raw) {
+        return vec![node.clone()];
+    }
+
+    let mut matches = gv.find_symbols(raw, None, 20);
+    if matches.len() > 1 {
+        if let Some(selected) = select_unique_non_test_candidate(&matches) {
+            return vec![selected.clone()];
+        }
+    }
+
+    if matches.is_empty() {
+        let mut file_matches: Vec<Value> = gv
+            .nodes_by_id
+            .values()
+            .filter(|node| {
+                let file = node_source_path(node);
+                !file.is_empty() && file.contains(raw)
+            })
+            .cloned()
+            .collect();
+        file_matches.sort_by(|a, b| {
+            node_source_path(a)
+                .cmp(&node_source_path(b))
+                .then_with(|| node_line_start(a).cmp(&node_line_start(b)))
+                .then_with(|| node_display_name(a).cmp(&node_display_name(b)))
+        });
+        file_matches.truncate(50);
+        matches = file_matches;
+    }
+
+    matches
+}
+
 /// Resolve changed symbols — explicit list or git diff auto-detect.
 fn resolve_changed_symbols_for_review(
     gv: &GraphView,
     params: &Value,
-    root: &str,
+    _root: &str,
 ) -> (Vec<(String, Value)>, Vec<String>, Vec<String>) {
     let changed_raw: Vec<String> = params["changedSymbols"]
         .as_array()
@@ -18739,42 +18824,13 @@ fn resolve_changed_symbols_for_review(
     let mut unknown: Vec<String> = Vec::new();
 
     for raw in &changed_raw {
-        // Try exact ID match
-        if let Some(node) = gv.nodes_by_id.get(raw.as_str()) {
-            found.push((raw.clone(), node.clone()));
-            continue;
-        }
-
-        // Try exact name match
-        let name_matches: Vec<(&String, &Value)> = gv
-            .nodes_by_id
-            .iter()
-            .filter(|(_, n)| n["name"].as_str() == Some(raw.as_str()))
-            .collect();
-
-        if name_matches.len() == 1 {
-            found.push((raw.clone(), name_matches[0].1.clone()));
-        } else if name_matches.len() > 1 {
+        let matches = resolve_changed_symbol_query(gv, raw);
+        if matches.len() == 1 {
+            found.push((raw.clone(), matches[0].clone()));
+        } else if matches.len() > 1 {
             ambiguous.push(raw.clone());
         } else {
-            // Try file path match
-            let file_matches: Vec<(&String, &Value)> = gv
-                .nodes_by_id
-                .iter()
-                .filter(|(_, n)| {
-                    n["file"]
-                        .as_str()
-                        .map(|f| f.contains(raw.as_str()))
-                        .unwrap_or(false)
-                })
-                .collect();
-            if !file_matches.is_empty() {
-                for (_, fm) in file_matches {
-                    found.push((raw.clone(), fm.clone()));
-                }
-            } else {
-                unknown.push(raw.clone());
-            }
+            unknown.push(raw.clone());
         }
     }
 
@@ -18800,10 +18856,10 @@ fn classify_ext_api(
     root: &str,
     include_docs: bool,
 ) -> Option<BrReview> {
-    let name = node["name"].as_str().unwrap_or("");
-    let file = node["file"].as_str().unwrap_or("");
-    let kind = node["kind"].as_str().unwrap_or("function");
-    let line = node["line"].as_u64().unwrap_or(0);
+    let name = node_display_name(node);
+    let file = node_source_path(node);
+    let kind = node_symbol_kind(node);
+    let line = node_line_start(node);
     let properties = &node["properties"];
 
     let is_pub = properties["visibility"].as_str() == Some("public")
@@ -18817,7 +18873,7 @@ fn classify_ext_api(
         reasons.push("exported-or-public".to_string());
     }
 
-    if is_entry_file(file, language) {
+    if is_entry_file(&file, language) {
         score += 0.25;
         reasons.push("package-entry-file".to_string());
     }
@@ -18827,7 +18883,7 @@ fn classify_ext_api(
         reasons.push("reexported-from-entry".to_string());
     }
 
-    if include_docs && is_documented_in_readme(root, name) {
+    if include_docs && is_documented_in_readme(root, &name) {
         score += 0.15;
         reasons.push("documented-in-readme".to_string());
     }
@@ -18852,9 +18908,9 @@ fn classify_ext_api(
 
     Some(BrReview {
         id: node_id.to_string(),
-        name: name.to_string(),
-        kind: kind.to_string(),
-        file: file.to_string(),
+        name,
+        kind,
+        file,
         line,
         risk: risk_level.to_string(),
         reasons,
@@ -18868,10 +18924,10 @@ fn classify_ext_api(
 
 /// Classify a symbol against framework entry hints.
 fn classify_fw_entry(node: &Value, language: &str) -> Option<BrReview> {
-    let name = node["name"].as_str().unwrap_or("");
-    let file = node["file"].as_str().unwrap_or("");
-    let kind = node["kind"].as_str().unwrap_or("function");
-    let line = node["line"].as_u64().unwrap_or(0);
+    let name = node_display_name(node);
+    let file = node_source_path(node);
+    let kind = node_symbol_kind(node);
+    let line = node_line_start(node);
     let id = node["id"].as_str().unwrap_or("").to_string();
     let properties = &node["properties"];
 
@@ -18884,12 +18940,13 @@ fn classify_fw_entry(node: &Value, language: &str) -> Option<BrReview> {
         || properties["exported"].as_bool() == Some(true);
 
     let lower_file = file.to_lowercase();
-    let has_fw_name = name.to_lowercase().contains("handler")
-        || name.to_lowercase().contains("callback")
-        || name.to_lowercase().contains("route")
-        || name.to_lowercase().contains("command")
-        || name.to_lowercase().starts_with("handle_")
-        || name.to_lowercase().starts_with("on_");
+    let lower_name = name.to_lowercase();
+    let has_fw_name = lower_name.contains("handler")
+        || lower_name.contains("callback")
+        || lower_name.contains("route")
+        || lower_name.contains("command")
+        || lower_name.starts_with("handle_")
+        || lower_name.starts_with("on_");
 
     match language {
         "python" => {
@@ -18925,7 +18982,7 @@ fn classify_fw_entry(node: &Value, language: &str) -> Option<BrReview> {
                 score += 0.25;
             }
             if matches!(
-                name,
+                name.as_str(),
                 "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "loader" | "action"
             ) {
                 if hint_kind.is_empty() {
@@ -18980,9 +19037,9 @@ fn classify_fw_entry(node: &Value, language: &str) -> Option<BrReview> {
 
     Some(BrReview {
         id,
-        name: name.to_string(),
-        kind: kind.to_string(),
-        file: file.to_string(),
+        name,
+        kind,
+        file,
         line,
         risk: risk_level.to_string(),
         reasons,
@@ -19132,8 +19189,7 @@ fn compute_breaking_change_review(gv: &GraphView, params: &Value, root: &str) ->
     let mut has_critical = false;
 
     for (raw, node) in &changed {
-        let name = node["name"].as_str().unwrap_or("");
-        let file = node["file"].as_str().unwrap_or("");
+        let name = node_display_name(node);
         let node_id_val = node["id"].as_str().unwrap_or(raw);
         let nid = if node_id_val.is_empty() {
             raw.as_str()
@@ -19147,7 +19203,7 @@ fn compute_breaking_change_review(gv: &GraphView, params: &Value, root: &str) ->
                     has_critical = true;
                 }
                 if r.reasons.iter().any(|x| x == "documented-in-readme") {
-                    doc_names.push(name.to_string());
+                    doc_names.push(name.clone());
                 }
                 ext_reviews.push(r);
             }
@@ -19159,9 +19215,9 @@ fn compute_breaking_change_review(gv: &GraphView, params: &Value, root: &str) ->
             }
         }
 
-        if include_docs && !doc_names.contains(&name.to_string()) {
-            if is_documented_in_readme(root, name) {
-                doc_names.push(name.to_string());
+        if include_docs && !doc_names.contains(&name) {
+            if is_documented_in_readme(root, &name) {
+                doc_names.push(name.clone());
             }
         }
     }
@@ -19507,37 +19563,13 @@ fn resolve_changed_for_consistency(
     let mut unk: Vec<String> = Vec::new();
 
     for raw in &changed_raw {
-        if let Some(node) = gv.nodes_by_id.get(raw.as_str()) {
-            found.push((raw.clone(), node.clone()));
-            continue;
-        }
-        let name_matches: Vec<(&String, &Value)> = gv
-            .nodes_by_id
-            .iter()
-            .filter(|(_, n)| n["name"].as_str() == Some(raw.as_str()))
-            .collect();
-        if name_matches.len() == 1 {
-            found.push((raw.clone(), name_matches[0].1.clone()));
-        } else if name_matches.len() > 1 {
+        let matches = resolve_changed_symbol_query(gv, raw);
+        if matches.len() == 1 {
+            found.push((raw.clone(), matches[0].clone()));
+        } else if matches.len() > 1 {
             amb.push(raw.clone());
         } else {
-            let file_matches: Vec<(&String, &Value)> = gv
-                .nodes_by_id
-                .iter()
-                .filter(|(_, n)| {
-                    n["file"]
-                        .as_str()
-                        .map(|f| f.contains(raw.as_str()))
-                        .unwrap_or(false)
-                })
-                .collect();
-            if !file_matches.is_empty() {
-                for (_, fm) in file_matches {
-                    found.push((raw.clone(), fm.clone()));
-                }
-            } else {
-                unk.push(raw.clone());
-            }
+            unk.push(raw.clone());
         }
     }
     (found, amb, unk)
@@ -19558,14 +19590,14 @@ fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Val
     let mut has_fw_entry = false;
 
     for (_, node) in &changed {
-        let name = node["name"].as_str().unwrap_or("").to_string();
-        let file = node["file"].as_str().unwrap_or("").to_string();
+        let name = node_display_name(node);
+        let file = node_source_path(node);
         let props = &node["properties"];
         let is_pub = props["visibility"].as_str() == Some("public")
             || props["exported"].as_bool() == Some(true);
 
         if !name.is_empty() {
-            changed_names.push(name);
+            changed_names.push(name.clone());
         }
         if !file.is_empty() {
             changed_files.push(file);
@@ -19574,7 +19606,7 @@ fn compute_consistency_review(gv: &GraphView, params: &Value, root: &str) -> Val
             has_public_api = true;
         }
 
-        let fw_name = node["name"].as_str().unwrap_or("");
+        let fw_name = name.as_str();
         if matches!(
             fw_name,
             "GET" | "POST" | "PUT" | "DELETE" | "loader" | "action"
@@ -21605,6 +21637,7 @@ fn diagnose_root_with_source_only_limit(
     _language: &str,
     source_only_limit: usize,
 ) -> Value {
+    let compact = source_only_limit == 0;
     let path = match PathBuf::from(root).canonicalize() {
         Ok(p) => p,
         Err(_) => {
@@ -21729,11 +21762,21 @@ fn diagnose_root_with_source_only_limit(
             recommended_candidates.push(*p);
         }
     }
-    let recommended_project_roots = ranked_project_roots_json(recommended_candidates, 12);
+    let recommended_project_roots =
+        ranked_project_roots_json(recommended_candidates, if compact { 5 } else { 12 });
 
+    let detected_project_total = inventory
+        .iter()
+        .filter(|p| !p.manifest_file.is_empty() || !p.supported || p.relative_path == ".")
+        .count();
     let detected_projects: Vec<_> = inventory
         .iter()
         .filter(|p| !p.manifest_file.is_empty() || !p.supported || p.relative_path == ".")
+        .take(if compact {
+            5
+        } else {
+            detected_project_total.max(1)
+        })
         .map(|p| {
             json!({
                 "path": p.path,
@@ -21785,6 +21828,19 @@ fn diagnose_root_with_source_only_limit(
     });
 
     if let Some(obj) = diagnosis.as_object_mut() {
+        obj.insert(
+            "detectedProjectSummary".to_string(),
+            json!({
+                "total": detected_project_total,
+                "reported": detected_projects.len(),
+                "truncated": compact && detected_projects.len() < detected_project_total,
+                "detailHint": if compact && detected_projects.len() < detected_project_total {
+                    "Re-run with compact=false to include all detectedProjects and more recommendedProjectRoots."
+                } else {
+                    ""
+                }
+            }),
+        );
         if source_only_limit == 0 {
             obj.insert(
                 "sourceOnlyEntryPreview".to_string(),

@@ -10,11 +10,15 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BIN="$REPO_ROOT/target/debug/codelattice"
 TMP="$(mktemp -d /tmp/codelattice-detect-changes-smoke-XXXXXX)"
+NONGIT_TMP=""
 PASS=0
 FAIL=0
 
 cleanup() {
   rm -rf "$TMP"
+  if [[ -n "${NONGIT_TMP:-}" ]]; then
+    rm -rf "$NONGIT_TMP"
+  fi
 }
 trap cleanup EXIT
 
@@ -161,7 +165,8 @@ assert 'codelattice_cross_project_impact' in tools, 'missing cross_project_impac
 PY"
 
 echo "2. Non-git repo graceful failure"
-NONGIT="$TMP/nongit"
+NONGIT_TMP="$(mktemp -d /tmp/codelattice-detect-nongit-XXXXXX)"
+NONGIT="$NONGIT_TMP/nongit"
 mkdir -p "$NONGIT/src"
 cat >"$NONGIT/Cargo.toml" <<'EOF'
 [package]

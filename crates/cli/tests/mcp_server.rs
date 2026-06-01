@@ -72,6 +72,31 @@ fn create_multi_project_workspace() -> tempfile::TempDir {
     dir
 }
 
+fn create_many_manifest_workspace(project_count: usize) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create many-project workspace");
+    let root = dir.path();
+
+    for idx in 0..project_count {
+        let project_name = format!("service-{idx:02}");
+        let src = root.join(&project_name).join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            root.join(&project_name).join("Cargo.toml"),
+            format!(
+                "[package]\nname = \"{project_name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            src.join("lib.rs"),
+            format!("pub fn service_{idx}_entry() {{}}\n"),
+        )
+        .unwrap();
+    }
+
+    dir
+}
+
 fn create_workspace_with_manifest_projects_and_source_only() -> tempfile::TempDir {
     let dir = tempfile::tempdir().expect("failed to create workspace runtime fixture");
     let root = dir.path();
@@ -3403,6 +3428,50 @@ fn mcp_facade_workflow_defaults_to_compact() {
 }
 
 #[test]
+fn mcp_workflow_compact_root_diagnosis_bounds_detected_projects() {
+    let workspace = create_many_manifest_workspace(18);
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let explore = call_tool_json(
+        &mut session,
+        28506,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": workspace.path(),
+            "language": "rust",
+            "mode": "explore"
+        }),
+    );
+
+    assert_eq!(explore["compact"].as_bool(), Some(true));
+    let payload_len = serde_json::to_string(&explore).unwrap().len();
+    assert!(
+        payload_len < 16 * 1024,
+        "compact workflow response should stay under budget, got {payload_len} bytes: {explore:?}"
+    );
+    let root_diag = &explore["rootDiagnosis"];
+    assert!(
+        root_diag["detectedProjects"]
+            .as_array()
+            .map(|items| items.len() <= 5)
+            .unwrap_or(false),
+        "compact rootDiagnosis should cap detectedProjects: {root_diag:?}"
+    );
+    assert_eq!(
+        root_diag["detectedProjectSummary"]["total"].as_u64(),
+        Some(18),
+        "compact rootDiagnosis should preserve full detected project count: {root_diag:?}"
+    );
+    assert_eq!(
+        root_diag["detectedProjectSummary"]["truncated"].as_bool(),
+        Some(true),
+        "compact rootDiagnosis should disclose detectedProjects truncation: {root_diag:?}"
+    );
+}
+
+#[test]
 fn mcp_symbol_context_prefers_unique_production_candidate() {
     let project = create_ambiguous_handler_rust_project();
     let root = project.path().to_string_lossy().to_string();
@@ -3493,6 +3562,67 @@ fn mcp_change_review_impact_prefers_unique_production_candidate() {
             .unwrap_or("")
             .ends_with("src/api/mod.rs"),
         "impact target should be the production handler, not its test duplicate: {impact:?}"
+    );
+}
+
+#[test]
+fn mcp_change_review_modes_share_symbol_resolution() {
+    let project = create_ambiguous_handler_rust_project();
+    let root = project.path().to_string_lossy().to_string();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let breaking = call_tool_json(
+        &mut session,
+        28507,
+        "codelattice_change_review",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "breaking_change",
+            "changedSymbols": ["get_scheduler_readiness"],
+            "compact": true
+        }),
+    );
+    let breaking_result = breaking.get("result").unwrap_or(&breaking);
+    assert_eq!(
+        breaking_result["summary"]["unknownCount"].as_u64(),
+        Some(0),
+        "breaking_change should resolve symbols the same way impact/search do: {breaking:?}"
+    );
+    assert!(
+        breaking_result["summary"]["changedSymbolCount"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1,
+        "breaking_change should find at least one candidate: {breaking:?}"
+    );
+
+    let consistency = call_tool_json(
+        &mut session,
+        28508,
+        "codelattice_change_review",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "consistency",
+            "changedSymbols": ["get_scheduler_readiness"],
+            "compact": true
+        }),
+    );
+    let consistency_result = consistency.get("result").unwrap_or(&consistency);
+    assert_eq!(
+        consistency_result["summary"]["unknownCount"].as_u64(),
+        Some(0),
+        "consistency should resolve symbols the same way impact/search do: {consistency:?}"
+    );
+    assert!(
+        consistency_result["summary"]["changedSymbolCount"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 1,
+        "consistency should find at least one candidate: {consistency:?}"
     );
 }
 
@@ -6705,6 +6835,60 @@ edition = "2021"
     dir
 }
 
+/// Helper: create a git repo whose actual Rust project lives in a subdirectory.
+fn create_nested_project_git_repo() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let root = dir.path();
+    let project = root.join("backend");
+    let src_dir = project.join("src");
+    std::fs::create_dir_all(&src_dir).unwrap();
+    std::fs::write(
+        src_dir.join("lib.rs"),
+        r#"pub fn nested_helper() -> i32 {
+    1
+}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        project.join("Cargo.toml"),
+        r#"[package]
+name = "nested-project"
+version = "0.1.0"
+edition = "2021"
+"#,
+    )
+    .unwrap();
+
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(root)
+        .output()
+        .expect("git init failed");
+    std::process::Command::new("git")
+        .args(["config", "user.email", "test@test.com"])
+        .current_dir(root)
+        .output()
+        .expect("git config email failed");
+    std::process::Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(root)
+        .output()
+        .expect("git config name failed");
+    std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(root)
+        .output()
+        .expect("git add failed");
+    std::process::Command::new("git")
+        .args(["commit", "-m", "baseline"])
+        .current_dir(root)
+        .output()
+        .expect("git commit failed");
+
+    dir
+}
+
 #[test]
 fn mcp_changed_symbols_detects_modified_function() {
     let dir = create_test_git_repo();
@@ -6955,6 +7139,67 @@ fn mcp_changed_symbols_non_git_repo_graceful_error() {
         resp.get("error").is_some() || resp["result"]["isError"].as_bool().unwrap_or(false),
         "non-git repo should return graceful error, got: {:?}",
         resp
+    );
+}
+
+#[test]
+fn mcp_changed_symbols_finds_git_root_above_project_root() {
+    let dir = create_nested_project_git_repo();
+    let project = dir.path().join("backend");
+
+    std::fs::write(
+        project.join("src/lib.rs"),
+        r#"pub fn nested_helper() -> i32 {
+    2
+}
+"#,
+    )
+    .unwrap();
+
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 9005,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_changed_symbols",
+            "arguments": {
+                "root": project.to_string_lossy(),
+                "language": "rust",
+                "diffMode": "unstaged",
+                "compact": true,
+                "includeSnippet": false
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    assert_eq!(resp["id"], 9005);
+    assert!(
+        resp.get("error").is_none(),
+        "changed_symbols should discover the parent git root instead of failing: {resp:?}"
+    );
+    let data = extract_tool_data(&resp);
+    assert!(
+        data["changedFiles"]
+            .as_array()
+            .map(|files| files.iter().any(|file| file["path"] == "src/lib.rs"))
+            .unwrap_or(false),
+        "changed files should be relative to the project root, got: {data:?}"
+    );
+    assert!(
+        data["changedSymbols"]
+            .as_array()
+            .map(|symbols| {
+                symbols
+                    .iter()
+                    .any(|symbol| symbol["name"].as_str() == Some("nested_helper"))
+            })
+            .unwrap_or(false),
+        "changed_symbols should still map hunks to project symbols from a nested git root: {data:?}"
     );
 }
 
