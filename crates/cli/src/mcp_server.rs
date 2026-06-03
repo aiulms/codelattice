@@ -24802,6 +24802,21 @@ fn build_workspace_ask_result(
     }
 
     let recommended_count = recommended.len();
+    let best_pick = recommended
+        .first()
+        .and_then(|p| {
+            let abs_root = workspace_project_absolute_root(root, p);
+            let name = p.get("name").and_then(|v| v.as_str()).unwrap_or("");
+            let lang = p.get("language").and_then(|v| v.as_str()).unwrap_or("auto");
+            Some(json!({
+                "name": name,
+                "root": abs_root,
+                "language": lang,
+                "score": p.get("score").cloned().unwrap_or(Value::Null),
+                "reason": "highest-scoring manifest-backed project root"
+            }))
+        })
+        .unwrap_or(Value::Null);
     let answer_summary = if recommended_count == 0 {
         format!(
             "Workspace root '{}' did not expose manifest-backed project roots. Static workspace routing only.",
@@ -24858,6 +24873,7 @@ fn build_workspace_ask_result(
             "stepsSkipped": ["single_project_analysis:not_applicable_to_workspace_root"]
         },
         "job": Value::Null,
+        "bestPick": best_pick,
         "callChains": [],
         "readOrder": [],
         "projectDigest": {
@@ -27595,6 +27611,8 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let question = params["question"].as_str().unwrap_or("").to_string();
         let ask_compact = compact;
         let ask_execute = execute;
+        let ask_wait = params["wait"].as_bool().unwrap_or(false);
+        let ask_timeout_ms = params["timeoutMs"].as_u64().unwrap_or(10000).min(30000);
         let ask_job_id = params["jobId"].as_str().unwrap_or("").to_string();
         if !ask_job_id.is_empty() {
             let job_status = crate::mcp_job::get_job_status(&ask_job_id);
@@ -27639,12 +27657,12 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     }));
                     if let Some(q) = question.strip_prefix("继续") {
                         if !q.trim().is_empty() {
-                            next_actions.push(json!({
+                            next_actions.push(with_expected_cost(json!({
                                 "tool": "codelattice_symbol",
                                 "mode": "call_chains",
                                 "why": "Dive deeper into specific symbols",
                                 "arguments": {"query": q.trim(), "root": job_root, "language": job_language, "direction": "both", "maxDepth": 4, "compact": true}
-                            }));
+                            }), "large"));
                         }
                     }
 
@@ -27845,6 +27863,26 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             ask_execute,
         );
 
+        // wait passthrough: if ask_wait=true and a job was submitted, block until completion
+        let mut ask_job_wait_result = Value::Null;
+        if ask_wait {
+            if let Some(job_id) = auto_job.get("jobId").and_then(|v| v.as_str()) {
+                if !job_id.is_empty() {
+                    let (status_opt, timed_out) =
+                        crate::mcp_job::MCP_JOBS.wait_for_job(job_id, ask_timeout_ms);
+                    ask_job_wait_result = json!({
+                        "waited": true,
+                        "timedOut": timed_out,
+                        "finalStatus": status_opt
+                            .as_ref()
+                            .and_then(|s| s["status"].as_str())
+                            .unwrap_or("unknown"),
+                        "timeoutMs": ask_timeout_ms
+                    });
+                }
+            }
+        }
+
         let what_if = if intent == "before_edit" || intent == "whatif" {
             let query = target_query.as_ref().unwrap_or(&String::new()).clone();
             if !ask_root_ref.is_empty() && !query.is_empty() {
@@ -27914,6 +27952,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             "aiGuidance": ai_guidance,
             "orchestration": orchestration,
             "job": auto_job,
+            "jobWait": ask_job_wait_result,
             "callChains": call_chains,
             "readOrder": read_order,
             "projectDigest": project_digest,
@@ -28994,12 +29033,12 @@ fn ask_large_project_next_actions(
     ];
 
     if let Some(symbol) = query.filter(|q| !q.is_empty()) {
-        actions.push(json!({
+        actions.push(with_expected_cost(json!({
             "tool": "codelattice_symbol",
             "mode": "call_chains",
             "why": format!("Trace '{}' after the project graph is available", symbol),
             "arguments": {"root": root, "language": language, "query": symbol, "direction": "both", "maxDepth": 4, "compact": true}
-        }));
+        }), "large"));
         actions.push(json!({
             "tool": "codelattice_change_review",
             "mode": "impact",
@@ -29016,6 +29055,13 @@ fn ask_large_project_next_actions(
     }
 
     actions
+}
+
+fn with_expected_cost(mut action: Value, cost: &str) -> Value {
+    if let Some(obj) = action.as_object_mut() {
+        obj.insert("expectedCost".to_string(), json!(cost));
+    }
+    action
 }
 
 fn ask_submit_auto_job(root: &str, language: &str) -> Value {
@@ -29079,12 +29125,12 @@ fn ask_job_next_actions(
     }
     if let Some(q) = query {
         if !q.is_empty() {
-            actions.push(json!({
+            actions.push(with_expected_cost(json!({
                 "tool": "codelattice_symbol",
                 "mode": "call_chains",
                 "why": format!("Trace call chains for '{}' after job completes", q),
                 "arguments": {"query": q, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-            }));
+            }), "large"));
         }
     }
     actions
@@ -30031,6 +30077,7 @@ fn route_ask_intent(
 ) {
     let q = question.to_lowercase();
 
+    let approval_keywords = ["approval", "approve", "审批", "批准", "decision", "review"];
     let flow_keywords = [
         "流程",
         "怎么运行",
@@ -30131,7 +30178,87 @@ fn route_ask_intent(
     let mut auto_job = Value::Null;
     let mut confidence = json!({"level": "low", "reason": "default"});
 
-    if flow_keywords.iter().any(|k| q.contains(k)) {
+    // approval/business keywords take priority over generic flow keywords
+    // so "审批流程" / "approval flow" routes as a business query, not a call-chain request
+    let approval_flow_overlap = approval_keywords.iter().any(|k| q.contains(k))
+        && (q.contains("流程") || q.contains("flow") || q.contains("process"));
+    if approval_flow_overlap {
+        intent = "general".to_string();
+        let extracted = extract_symbol_from_question(question);
+        target_query = if extracted.is_empty() {
+            None
+        } else {
+            Some(extracted.clone())
+        };
+        orchestration["stepsAttempted"] = json!(["intent-classification:approval_business"]);
+        answer_summary = format!(
+            "Detected approval/business query: '{}'. Searching for relevant symbols in the project.",
+            question
+        );
+        if !root.is_empty() {
+            let search_terms = ask_question_search_terms(question, &extracted);
+            let canonical_root = std::path::Path::new(root)
+                .canonicalize()
+                .map(|p| p.to_string_lossy().to_string())
+                .unwrap_or_else(|_| root.to_string());
+            let found_symbols = if let Some(entry) = cache.entries.get(&CacheKey {
+                root: canonical_root,
+                language: language.to_string(),
+                strict: false,
+            }) {
+                ask_find_symbols_in_graph(&entry.graph_view, &search_terms)
+            } else if let Ok(validated) = validate_root_path(root) {
+                match cache.get_or_analyze(&validated, language, false) {
+                    Ok((gv, _, _)) => ask_find_symbols_in_graph(&gv, &search_terms),
+                    Err(_) => Vec::new(),
+                }
+            } else {
+                Vec::new()
+            };
+            for sym in found_symbols.iter().take(5) {
+                evidence.push(json!({
+                    "kind": "symbol_match",
+                    "file": sym["properties"]["sourcePath"].as_str()
+                        .or_else(|| sym["file"].as_str())
+                        .unwrap_or("unknown"),
+                    "line": sym["properties"]["lineStart"].as_u64()
+                        .or_else(|| sym["startLine"].as_u64()),
+                    "name": sym["properties"]["name"].as_str()
+                        .or_else(|| sym["name"].as_str())
+                        .unwrap_or("unknown"),
+                    "reason": "matched by approval/business keyword search in cached graph",
+                    "source": "static_graph",
+                    "staticOnly": true
+                }));
+            }
+            if !evidence.is_empty() {
+                answer_summary = format!(
+                    "Found {} relevant symbol(s) for '{}'. See evidence for details.",
+                    evidence.len(),
+                    question
+                );
+                for ev in evidence.iter().take(3) {
+                    if let Some(name) = ev["name"].as_str() {
+                        next_actions.push(with_expected_cost(json!({
+                            "tool": "codelattice_symbol",
+                            "mode": "call_chains",
+                            "why": format!("Trace call flow for '{}'", name),
+                            "arguments": {"query": name, "root": root, "language": language, "direction": "both", "maxDepth": 4, "compact": true}
+                        }), "large"));
+                    }
+                }
+            } else {
+                auto_job = ask_submit_auto_job(root, language);
+                next_actions = ask_job_next_actions(root, language, &auto_job, None);
+            }
+        }
+        confidence = if !evidence.is_empty() {
+            json!({"level": "medium", "reason": "symbol evidence from cached graph matching approval/business keywords"})
+        } else {
+            json!({"level": "low", "reason": "no matching symbols found for approval/business query"})
+        };
+        ai_guidance = "Approval/business query results are from static analysis only. Verify with runtime behavior and logs.".to_string();
+    } else if flow_keywords.iter().any(|k| q.contains(k)) {
         intent = "explain_flow".to_string();
         let query = extract_symbol_from_question(question);
         target_query = if query.is_empty() {
@@ -30170,12 +30297,12 @@ fn route_ask_intent(
                 read_first = rf;
                 missing_evidence = me;
                 next_actions = na;
-                next_actions.push(json!({
+                next_actions.push(with_expected_cost(json!({
                     "tool": "codelattice_symbol",
                     "mode": "call_chains",
                     "why": format!("Get full call chains for '{}'", query),
                     "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-                }));
+                }), "large"));
                 read_order_out = ro;
                 files_involved = fi;
                 orchestration["stepsAttempted"] =
@@ -30208,6 +30335,13 @@ fn route_ask_intent(
                 "explanation": "root path or symbol not provided"
             }));
         }
+        confidence = if !evidence.is_empty() {
+            json!({"level": "medium", "reason": "call chain candidates found in static graph"})
+        } else if !call_chains.is_empty() {
+            json!({"level": "medium", "reason": "call chains traced from static graph"})
+        } else {
+            json!({"level": "low", "reason": "no matching symbols or call chains found for flow query"})
+        };
         ai_guidance = "Call chains are derived from static analysis only. Runtime dispatch, trait objects, and dynamic calls are not captured. Use the readFirst entries to verify the actual code flow.".to_string();
     } else if find_keywords.iter().any(|k| q.contains(k)) {
         intent = "find_symbol".to_string();
@@ -30228,6 +30362,11 @@ fn route_ask_intent(
             "why": format!("Search for symbols matching '{}'", query),
             "arguments": {"query": query, "language": language, "root": root}
         }));
+        confidence = if query.is_empty() {
+            json!({"level": "low", "reason": "find_symbol intent but no symbol extracted from question"})
+        } else {
+            json!({"level": "low", "reason": "find_symbol routed to search; results pending next call"})
+        };
         ai_guidance =
             "Use codelattice_symbol(mode=search) to find the symbol, then mode=context for details."
                 .to_string();
@@ -30436,6 +30575,13 @@ fn route_ask_intent(
                 "explanation": "root path required"
             }));
         }
+        confidence = if !evidence.is_empty() {
+            json!({"level": "medium", "reason": "project overview from static graph analysis"})
+        } else if root.is_empty() {
+            json!({"level": "low", "reason": "no root path provided for project inspection"})
+        } else {
+            json!({"level": "low", "reason": "project inspection could not run static analysis"})
+        };
         ai_guidance = "Use codelattice_project(mode=quick) for a fast project overview, or mode=standard for more detail.".to_string();
     } else if route_keywords.iter().any(|k| q.contains(k)) {
         intent = "inspect_routes".to_string();
@@ -30484,6 +30630,13 @@ fn route_ask_intent(
         } else {
             ai_guidance = "Provide a project root to inspect API routes and handlers.".to_string();
         }
+        confidence = if !files_involved.is_empty() {
+            json!({"level": "medium", "reason": "route handlers found via static analysis"})
+        } else if root.is_empty() {
+            json!({"level": "low", "reason": "no root path provided for route inspection"})
+        } else {
+            json!({"level": "low", "reason": "no route handlers found in static analysis"})
+        };
     } else if edit_keywords.iter().any(|k| q.contains(k)) {
         intent = "before_edit".to_string();
         let query = extract_symbol_from_question(question);
@@ -30597,12 +30750,12 @@ fn route_ask_intent(
                     "why": format!("Assess impact of changing '{}'", query),
                     "arguments": {"symbol": query, "language": language, "root": root, "compact": true}
                 }));
-                next_actions.push(json!({
+                next_actions.push(with_expected_cost(json!({
                     "tool": "codelattice_symbol",
                     "mode": "call_chains",
                     "why": format!("Trace call chains for '{}'", query),
                     "arguments": {"query": query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-                }));
+                }), "large"));
             }
         } else {
             answer_summary = format!(
@@ -30617,6 +30770,13 @@ fn route_ask_intent(
                 "arguments": {"change": question, "language": language, "root": root, "compact": true}
             }));
         }
+        confidence = if !evidence.is_empty() {
+            json!({"level": "medium", "reason": "whatif preview from static impact analysis"})
+        } else if root.is_empty() || target_query.is_none() {
+            json!({"level": "low", "reason": "before_edit requires root path and symbol name"})
+        } else {
+            json!({"level": "low", "reason": "no matching symbols found for edit impact query"})
+        };
         ai_guidance = "Impact analysis is static-only. Review test coverage and runtime behavior manually before making changes.".to_string();
     } else if issue_keywords.iter().any(|k| q.contains(k)) {
         intent = "locate_issue".to_string();
@@ -30783,12 +30943,12 @@ fn route_ask_intent(
         }));
         if let Some(ref tq) = target_query {
             if !tq.is_empty() {
-                next_actions.push(json!({
+                next_actions.push(with_expected_cost(json!({
                     "tool": "codelattice_symbol",
                     "mode": "call_chains",
                     "why": format!("Trace call chains for '{}'", tq),
                     "arguments": {"query": tq, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-                }));
+                }), "large"));
             }
         }
         next_actions.push(json!({
@@ -30797,6 +30957,13 @@ fn route_ask_intent(
             "why": "Run structured diagnosis",
             "arguments": {"root": root, "language": language, "symptom": question, "compact": true}
         }));
+        confidence = if !evidence.is_empty() || !call_chains.is_empty() {
+            json!({"level": "medium", "reason": "issue triage found evidence from static call chains and project diagnosis"})
+        } else if root.is_empty() {
+            json!({"level": "low", "reason": "issue triage requires a valid root path"})
+        } else {
+            json!({"level": "low", "reason": "no call chains or diagnose evidence found for issue query"})
+        };
         ai_guidance = "Issue location is static-only. Check logs, runtime behavior, and test failures to confirm root cause.".to_string();
     } else {
         // ── 通用 intent：尝试从问题中提取目标做轻量分析 ──
@@ -30887,12 +31054,12 @@ fn route_ask_intent(
                 // 添加深入查询的 next calls
                 for ev in evidence.iter().take(3) {
                     if let Some(name) = ev["name"].as_str() {
-                        next_actions.push(json!({
+                        next_actions.push(with_expected_cost(json!({
                             "tool": "codelattice_symbol",
                             "mode": "call_chains",
                             "why": format!("Trace call flow for '{}'", name),
                             "arguments": {"query": name, "root": root, "language": language, "direction": "both", "maxDepth": 4, "compact": true}
-                        }));
+                        }), "large"));
                     }
                 }
             } else {
@@ -31265,12 +31432,12 @@ fn build_whatif_result(
         }
     }
 
-    next_actions.push(json!({
+    next_actions.push(with_expected_cost(json!({
         "tool": "codelattice_symbol",
         "mode": "call_chains",
         "why": format!("Trace full call chains for '{}'", target_query),
         "arguments": {"query": target_query, "language": language, "root": root, "direction": "both", "maxDepth": 4, "compact": true}
-    }));
+    }), "large"));
     next_actions.push(json!({
         "tool": "codelattice_change_review",
         "mode": "impact",

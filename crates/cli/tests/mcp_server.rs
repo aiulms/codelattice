@@ -22738,3 +22738,258 @@ fn mcp_delta_tombstone_preserved_after_fixes() {
         "deleted symbol must not be fresh_snapshot"
     );
 }
+
+// ═══════════════════════════════════════════════════════════════
+// Regression tests for ask routing, bestPick, expectedCost, wait
+// ═══════════════════════════════════════════════════════════════
+
+/// Helper: recursively find all JSON objects matching criteria in a Value tree.
+fn find_actions_matching(
+    root: &serde_json::Value,
+    pred: &dyn Fn(&serde_json::Value) -> bool,
+) -> Vec<serde_json::Value> {
+    let mut results = Vec::new();
+    fn walk(
+        v: &serde_json::Value,
+        pred: &dyn Fn(&serde_json::Value) -> bool,
+        out: &mut Vec<serde_json::Value>,
+    ) {
+        match v {
+            serde_json::Value::Object(map) => {
+                if pred(v) {
+                    out.push(v.clone());
+                }
+                for val in map.values() {
+                    walk(val, pred, out);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    walk(item, pred, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(root, pred, &mut results);
+    results
+}
+
+#[test]
+fn ask_chinese_flow_still_routes_to_explain_flow() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99031,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "helper 的执行流程是什么"
+        }),
+    );
+    assert_eq!(
+        data["intent"].as_str(),
+        Some("explain_flow"),
+        "Chinese flow question should route to explain_flow, got: {:?}",
+        data["intent"]
+    );
+    let steps = data["orchestration"]["stepsAttempted"].as_array();
+    assert!(
+        steps.is_some_and(|s| s
+            .iter()
+            .any(|st| st.as_str() == Some("call_chains:executed")
+                || st.as_str() == Some("intent-classification:explain_flow"))),
+        "stepsAttempted should include explain_flow: {:?}",
+        steps
+    );
+}
+
+#[test]
+fn ask_approval_flow_does_not_route_to_explain_flow() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+    let data = call_tool_json(
+        &mut s,
+        99032,
+        "codelattice_workflow",
+        serde_json::json!({
+            "root": root.to_str().unwrap(),
+            "language": "rust",
+            "mode": "ask",
+            "question": "审批流程是什么"
+        }),
+    );
+    assert_ne!(
+        data["intent"].as_str(),
+        Some("explain_flow"),
+        "审批流程 should NOT route to explain_flow, got: {:?}",
+        data["intent"]
+    );
+    let reason = data["confidence"]["reason"].as_str().unwrap_or("");
+    assert_ne!(
+        reason, "default",
+        "confidence.reason should not be 'default', got: {}",
+        reason
+    );
+}
+
+#[test]
+fn ask_workspace_returns_best_pick() {
+    let workspace = create_large_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let data = call_tool_json(
+        &mut s,
+        99033,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "question": "这个项目结构是什么",
+            "compact": true
+        }),
+    );
+    assert_eq!(data["schemaVersion"].as_str(), Some("codelattice.ask.v2"));
+    let best_pick = &data["bestPick"];
+    assert!(
+        best_pick["root"].as_str().is_some_and(|r| !r.is_empty()),
+        "bestPick.root should be non-empty: {:?}",
+        best_pick
+    );
+    assert!(
+        best_pick["language"]
+            .as_str()
+            .is_some_and(|l| !l.is_empty()),
+        "bestPick.language should be non-empty: {:?}",
+        best_pick
+    );
+    let reason = best_pick["reason"].as_str().unwrap_or("");
+    assert!(
+        !reason.is_empty() && reason != "default",
+        "bestPick.reason should be semantic: {:?}",
+        reason
+    );
+}
+
+#[test]
+fn ask_all_call_chains_recommendations_have_expected_cost() {
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = portable_smoke_dir();
+
+    // Test multiple ask intents that produce call_chains recommendations
+    let questions = vec![
+        ("explain_flow", "helper 的执行流程是什么"),
+        ("before_edit", "如果改 helper 会有什么影响"),
+        ("locate_issue", "helper 报错了怎么定位问题"),
+    ];
+
+    for (label, question) in questions {
+        let data = call_tool_json(
+            &mut s,
+            99034,
+            "codelattice_workflow",
+            serde_json::json!({
+                "root": root.to_str().unwrap(),
+                "language": "rust",
+                "mode": "ask",
+                "question": question
+            }),
+        );
+
+        let is_call_chains_depth4 = |v: &serde_json::Value| {
+            v["tool"].as_str() == Some("codelattice_symbol")
+                && v["mode"].as_str() == Some("call_chains")
+                && v["arguments"]["maxDepth"].as_u64() == Some(4)
+        };
+
+        let matching = find_actions_matching(&data, &is_call_chains_depth4);
+        for action in &matching {
+            assert_eq!(
+                action["expectedCost"].as_str(),
+                Some("large"),
+                "[{}] call_chains maxDepth=4 action should have expectedCost=large: {:?}",
+                label,
+                action
+            );
+        }
+    }
+}
+
+#[test]
+fn ask_wait_true_returns_job_wait() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut s,
+        99035,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "question": "main 的调用流程是什么",
+            "wait": true,
+            "timeoutMs": 1,
+            "compact": true
+        }),
+    );
+    assert!(
+        !data["jobWait"].is_null(),
+        "jobWait should not be null when wait=true: {:?}",
+        data
+    );
+    assert_eq!(
+        data["jobWait"]["waited"].as_bool(),
+        Some(true),
+        "jobWait.waited should be true: {:?}",
+        data["jobWait"]
+    );
+    assert_eq!(
+        data["jobWait"]["timeoutMs"].as_u64(),
+        Some(1),
+        "jobWait.timeoutMs should be 1: {:?}",
+        data["jobWait"]
+    );
+}
+
+#[test]
+fn cli_help_hides_legacy_entries() {
+    let bin = cli_binary();
+    let output = std::process::Command::new(bin)
+        .arg("--help")
+        .output()
+        .expect("failed to run --help");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    // ProjectModel and Cangjie should be hidden (not shown in help)
+    assert!(
+        !stdout.contains("ProjectModel"),
+        "--help should not show ProjectModel: {}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Cangjie"),
+        "--help should not show Cangjie: {}",
+        stdout
+    );
+    // But analyze should still be visible
+    assert!(
+        stdout.contains("analyze"),
+        "--help should show analyze: {}",
+        stdout
+    );
+}

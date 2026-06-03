@@ -56,12 +56,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// ProjectModel 子命令域（保留现有入口）
+    /// [deprecated: use `codelattice analyze` instead] ProjectModel legacy entry
+    #[command(hide = true)]
     ProjectModel {
         #[command(subcommand)]
         sub: ProjectModelCommands,
     },
-    /// Cangjie 子命令域（保留现有入口）
+    /// [deprecated: use `codelattice analyze --language cangjie` instead] Cangjie legacy entry
+    #[command(hide = true)]
     Cangjie {
         #[command(subcommand)]
         sub: CangjieCommands,
