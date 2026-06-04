@@ -2159,6 +2159,15 @@ fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
                     }
                     walk_dir(&path, root, mtimes);
                 } else {
+                    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    // Skip temp file suffixes
+                    if file_name.ends_with(".tmp")
+                        || file_name.ends_with(".swp")
+                        || file_name.ends_with('~')
+                        || file_name == ".DS_Store"
+                    {
+                        continue;
+                    }
                     let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                     if SOURCE_EXTENSIONS.contains(&ext) {
                         if let Ok(meta) = std::fs::metadata(&path) {
@@ -2180,6 +2189,59 @@ fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
 
     walk_dir(root, root, &mut mtimes);
     mtimes
+}
+
+/// Paths/dirs that should not affect fingerprint/stale detection.
+const IGNORED_DIR_NAMES: &[&str] = &[
+    ".git",
+    "target",
+    "node_modules",
+    ".codelattice",
+    ".codelattice-cache",
+    ".DS_Store",
+];
+
+/// Temp file suffixes that should not affect fingerprint.
+const IGNORED_FILE_SUFFIXES: &[&str] = &[".tmp", ".swp", "~"];
+
+/// Check if a relative path should be ignored for fingerprint/stale detection.
+fn should_ignore_for_fingerprint(rel_path: &str, root: &Path) -> bool {
+    let path = Path::new(rel_path);
+
+    // Check if any component is an ignored dir name
+    for component in path.components() {
+        if let std::path::Component::Normal(name) = component {
+            if let Some(name_str) = name.to_str() {
+                if IGNORED_DIR_NAMES.contains(&name_str) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    // Check temp file suffixes
+    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+        if name == ".DS_Store" {
+            return true;
+        }
+        for suffix in IGNORED_FILE_SUFFIXES {
+            if name.ends_with(suffix) {
+                return true;
+            }
+        }
+    }
+
+    // Check if the path is inside CODELATTICE_CACHE_DIR when it's under the project root
+    if let Ok(cache_dir) = std::env::var("CODELATTICE_CACHE_DIR") {
+        if !cache_dir.is_empty() {
+            let abs_path = root.join(rel_path);
+            if abs_path.starts_with(&cache_dir) {
+                return true;
+            }
+        }
+    }
+
+    false
 }
 
 /// Compute a fast hash of manifest file content for change detection.
@@ -2205,23 +2267,28 @@ fn compute_manifest_hashes(root: &Path) -> HashMap<String, u64> {
 
 /// Check if cached mtimes are still fresh by comparing with current filesystem.
 /// Returns Some(StaleReason) if stale, None if fresh.
+/// Paths matching should_ignore_for_fingerprint are excluded from stale detection.
 fn check_stale(root: &Path, cached_mtimes: &HashMap<String, u64>) -> Option<StaleReason> {
     let current = scan_file_mtimes(root);
 
-    // Detect added files
+    // Detect added files (excluding ignored paths)
     let added: Vec<String> = current
         .keys()
         .filter(|p| !cached_mtimes.contains_key(*p))
+        .filter(|p| !should_ignore_for_fingerprint(p, root))
         .cloned()
         .collect();
     if !added.is_empty() {
         return Some(StaleReason::FileAdded(added));
     }
 
-    // Detect removed and modified files
+    // Detect removed and modified files (excluding ignored paths)
     let mut removed = Vec::new();
     let mut modified = Vec::new();
     for (path, mtime) in cached_mtimes {
+        if should_ignore_for_fingerprint(path, root) {
+            continue;
+        }
         match current.get(path) {
             Some(current_mtime) if *current_mtime == *mtime => {}
             Some(_) => modified.push(path.clone()),
@@ -2756,6 +2823,182 @@ fn is_leap_year(year: u64) -> bool {
 }
 
 // ============================================================
+// Conversation Context (Goal A)
+// ============================================================
+
+#[derive(Clone, Debug)]
+enum ContextSource {
+    ExplicitArgument,
+    WorkspaceBestPick,
+    JobResponse,
+    SymbolSearch,
+    AskResult,
+    ConversationContext,
+}
+
+impl ContextSource {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ContextSource::ExplicitArgument => "explicit_argument",
+            ContextSource::WorkspaceBestPick => "workspace_best_pick",
+            ContextSource::JobResponse => "job_response",
+            ContextSource::SymbolSearch => "symbol_search",
+            ContextSource::AskResult => "ask_result",
+            ContextSource::ConversationContext => "conversation_context",
+        }
+    }
+}
+
+/// Per-session conversation context for MCP facade continuity.
+#[derive(Clone, Debug)]
+struct ConversationContext {
+    context_id: String,
+    last_root: Option<String>,
+    last_language: Option<String>,
+    last_resolved_project_root: Option<String>,
+    last_intent: Option<String>,
+    last_target_query: Option<String>,
+    last_symbol: Option<String>,
+    last_job_id: Option<String>,
+    last_job_status: Option<String>,
+    last_page: Option<u64>,
+    last_page_size: Option<u64>,
+    best_pick: Option<Value>,
+    freshness: Option<String>,
+    updated_at_ms: u64,
+    source: Option<ContextSource>,
+}
+
+impl ConversationContext {
+    fn new() -> Self {
+        ConversationContext {
+            context_id: "default".to_string(),
+            last_root: None,
+            last_language: None,
+            last_resolved_project_root: None,
+            last_intent: None,
+            last_target_query: None,
+            last_symbol: None,
+            last_job_id: None,
+            last_job_status: None,
+            last_page: None,
+            last_page_size: None,
+            best_pick: None,
+            freshness: None,
+            updated_at_ms: 0,
+            source: None,
+        }
+    }
+
+    fn update_from_explicit(&mut self, root: &str, language: &str, symbol: &str) {
+        if !root.is_empty() {
+            self.last_root = Some(root.to_string());
+        }
+        if language != "auto" && !language.is_empty() {
+            self.last_language = Some(language.to_string());
+        }
+        if !symbol.is_empty() {
+            self.last_symbol = Some(symbol.to_string());
+        }
+        self.source = Some(ContextSource::ExplicitArgument);
+        self.updated_at_ms = now_epoch_ms();
+    }
+
+    fn update_from_job(&mut self, job_id: &str, status: &str, root: &str, language: &str) {
+        if !job_id.is_empty() {
+            self.last_job_id = Some(job_id.to_string());
+        }
+        if !status.is_empty() {
+            self.last_job_status = Some(status.to_string());
+        }
+        if !root.is_empty() {
+            self.last_root = Some(root.to_string());
+        }
+        if !language.is_empty() && language != "auto" {
+            self.last_language = Some(language.to_string());
+        }
+        self.source = Some(ContextSource::JobResponse);
+        self.updated_at_ms = now_epoch_ms();
+    }
+
+    fn update_from_best_pick(&mut self, pick: &Value) {
+        if let Some(root) = pick["root"].as_str() {
+            if !root.is_empty() {
+                self.last_root = Some(root.to_string());
+            }
+        }
+        if let Some(lang) = pick["language"].as_str() {
+            if !lang.is_empty() {
+                self.last_language = Some(lang.to_string());
+            }
+        }
+        self.best_pick = Some(pick.clone());
+        self.source = Some(ContextSource::WorkspaceBestPick);
+        self.updated_at_ms = now_epoch_ms();
+    }
+
+    fn update_from_ask(
+        &mut self,
+        intent: &str,
+        target_query: Option<&str>,
+        root: &str,
+        language: &str,
+    ) {
+        if !intent.is_empty() {
+            self.last_intent = Some(intent.to_string());
+        }
+        if let Some(q) = target_query {
+            if !q.is_empty() {
+                self.last_target_query = Some(q.to_string());
+            }
+        }
+        if !root.is_empty() {
+            self.last_root = Some(root.to_string());
+        }
+        if !language.is_empty() && language != "auto" {
+            self.last_language = Some(language.to_string());
+        }
+        self.source = Some(ContextSource::AskResult);
+        self.updated_at_ms = now_epoch_ms();
+    }
+
+    fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    fn to_compact_json(&self) -> Value {
+        let mut obj = serde_json::Map::new();
+        obj.insert("contextId".to_string(), json!(self.context_id));
+        if let Some(ref root) = self.last_root {
+            obj.insert("root".to_string(), json!(root));
+        }
+        if let Some(ref lang) = self.last_language {
+            obj.insert("language".to_string(), json!(lang));
+        }
+        if let Some(ref job_id) = self.last_job_id {
+            obj.insert("jobId".to_string(), json!(job_id));
+        }
+        if let Some(ref query) = self.last_target_query {
+            obj.insert("targetQuery".to_string(), json!(query));
+        }
+        if let Some(ref source) = self.source {
+            obj.insert("rootSource".to_string(), json!(source.as_str()));
+        }
+        if self.updated_at_ms > 0 {
+            obj.insert("updatedAtMs".to_string(), json!(self.updated_at_ms));
+        }
+        Value::Object(obj)
+    }
+}
+
+fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+// ============================================================
 // Two-Layer Cache Container
 // ============================================================
 
@@ -2769,6 +3012,8 @@ struct McpCache {
     /// Counters for persistent layer.
     persistent_hits: u64,
     persistent_misses: u64,
+    /// Per-session conversation context for facade continuity.
+    conversation_context: ConversationContext,
 }
 
 impl McpCache {
@@ -2780,7 +3025,22 @@ impl McpCache {
             total_evictions: 0,
             persistent_hits: 0,
             persistent_misses: 0,
+            conversation_context: ConversationContext::new(),
         }
+    }
+
+    /// Submit a background refresh job for stale cache, with singleflight dedup.
+    /// Returns the job info (jobId, submitted, reusedExistingJob).
+    fn maybe_submit_background_refresh(root: &str, language: &str, stale_reason: &str) -> Value {
+        let handle = crate::mcp_job::MCP_JOBS.submit(root, language, "background_refresh");
+        json!({
+            "submitted": true,
+            "jobId": handle.job_id,
+            "reusedExistingJob": handle.reused_existing_job,
+            "reason": if handle.reused_existing_job { "reused running background refresh" } else { "stale cache, background refresh submitted" },
+            "staleReason": stale_reason,
+            "retryAfterMs": 5000
+        })
     }
 
     /// Get cached analysis or run fresh analyze subprocess.
@@ -3242,6 +3502,11 @@ impl McpCache {
                 } else {
                     "stale_baseline"
                 };
+                let bg_refresh = Self::maybe_submit_background_refresh(
+                    &entry.root_canonical,
+                    language,
+                    reason_code,
+                );
                 let mut meta = json!({
                     "cacheHit": true,
                     "cacheLayer": "memory_stale",
@@ -3249,6 +3514,7 @@ impl McpCache {
                     "freshness": freshness,
                     "staleReason": reason_code,
                     "staleBaseline": true,
+                    "backgroundRefresh": bg_refresh,
                     "cachedAtMs": entry.created_at.elapsed().as_millis() as u64,
                     "analysisDurationMs": entry.analysis_duration_ms,
                 });
@@ -3263,6 +3529,25 @@ impl McpCache {
                         meta.as_object_mut()
                             .unwrap()
                             .insert("deltaCallCount".to_string(), json!(delta_call_count));
+                    }
+                }
+                // Tombstone for deleted source files
+                if let Some(StaleReason::FileRemoved(files)) = &file_stale_reason {
+                    if !files.is_empty() {
+                        meta.as_object_mut().unwrap().insert(
+                            "tombstone".to_string(),
+                            json!({
+                                "deletedFiles": files,
+                                "explanation": "Source files were deleted since last analysis. Graph may reference symbols that no longer exist."
+                            }),
+                        );
+                        meta.as_object_mut().unwrap().insert(
+                            "missingEvidence".to_string(),
+                            json!([{
+                                "kind": "deleted_sources",
+                                "explanation": format!("{} source file(s) deleted since last analysis. Symbol references may be stale.", files.len())
+                            }]),
+                        );
                     }
                 }
                 return Ok((
@@ -3736,6 +4021,11 @@ impl McpCache {
                 } else {
                     "stale_baseline"
                 };
+                let bg_refresh = Self::maybe_submit_background_refresh(
+                    &canonical.to_string_lossy(),
+                    language,
+                    &reason,
+                );
                 let mut meta = json!({
                     "cacheHit": true,
                     "cacheLayer": "persistent",
@@ -3743,6 +4033,7 @@ impl McpCache {
                     "freshness": freshness,
                     "staleBaseline": true,
                     "staleReason": reason,
+                    "backgroundRefresh": bg_refresh,
                     "analysisDurationMs": persistent.analysis_duration_ms,
                     "graphViewCache": graph_view_cache,
                     "schedule": persistent.scheduler,
@@ -3758,6 +4049,25 @@ impl McpCache {
                         meta.as_object_mut()
                             .unwrap()
                             .insert("deltaCallCount".to_string(), json!(delta_call_count));
+                    }
+                }
+                // Tombstone for deleted source files in persistent stale
+                if let Some(StaleReason::FileRemoved(files)) = &file_stale_reason {
+                    if !files.is_empty() {
+                        meta.as_object_mut().unwrap().insert(
+                            "tombstone".to_string(),
+                            json!({
+                                "deletedFiles": files,
+                                "explanation": "Source files were deleted since last analysis. Graph may reference symbols that no longer exist."
+                            }),
+                        );
+                        meta.as_object_mut().unwrap().insert(
+                            "missingEvidence".to_string(),
+                            json!([{
+                                "kind": "deleted_sources",
+                                "explanation": format!("{} source file(s) deleted since last analysis. Symbol references may be stale.", files.len())
+                            }]),
+                        );
                     }
                 }
 
@@ -23981,6 +24291,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     }
 
     let mut quick_freshness: Option<String> = None;
+    let mut quick_background_refresh: Option<Value> = None;
 
     let (inner, underlying): (Value, Vec<&str>) = match mode {
         "overview" => {
@@ -24028,6 +24339,9 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             };
             if mode == "quick" {
                 quick_freshness = insights["freshness"].as_str().map(String::from);
+                if insights["backgroundRefresh"].is_object() {
+                    quick_background_refresh = Some(insights["backgroundRefresh"].clone());
+                }
             }
             let runtime_trace =
                 crate::ai_runtime::build_runtime_trace_envelope(language, Some(&insights));
@@ -24416,6 +24730,15 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             });
             if let Some(obj) = decision_card.as_object_mut() {
                 obj.insert("runtimeTrace".to_string(), runtime_trace);
+                // Add backgroundRefresh from stale cache metadata
+                if let Some(ref bg) = quick_background_refresh {
+                    obj.insert("backgroundRefresh".to_string(), bg.clone());
+                }
+                // Add conversation context
+                obj.insert(
+                    "conversationContext".to_string(),
+                    cache.conversation_context.to_compact_json(),
+                );
             }
             let request_context = FacadeRequestContext::unrouted(
                 "codelattice_project",
@@ -27608,12 +27931,30 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     )?;
 
     if mode == "ask" {
+        // Reset context if requested
+        if params["resetContext"].as_bool() == Some(true) {
+            cache.conversation_context.reset();
+        }
+
         let question = params["question"].as_str().unwrap_or("").to_string();
         let ask_compact = compact;
         let ask_execute = execute;
         let ask_wait = params["wait"].as_bool().unwrap_or(false);
         let ask_timeout_ms = params["timeoutMs"].as_u64().unwrap_or(10000).min(30000);
-        let ask_job_id = params["jobId"].as_str().unwrap_or("").to_string();
+        let mut ask_job_id = params["jobId"].as_str().unwrap_or("").to_string();
+        // Conversation context: if no jobId provided but question implies continue, use context
+        if ask_job_id.is_empty()
+            && (question.contains("继续")
+                || question.contains("continue")
+                || question.contains("下一页")
+                || question.contains("next page"))
+        {
+            if let Some(ref ctx_job) = cache.conversation_context.last_job_id {
+                if !ctx_job.is_empty() {
+                    ask_job_id = ctx_job.clone();
+                }
+            }
+        }
         if !ask_job_id.is_empty() {
             let job_status = crate::mcp_job::get_job_status(&ask_job_id);
             let page = params["page"].as_u64().unwrap_or(0) as usize;
@@ -27666,7 +28007,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                         }
                     }
 
-                    let job_followup = json!({
+                    let mut job_followup = json!({
                         "schemaVersion": "codelattice.ask.v2",
                         "intent": "job_followup",
                         "question": question,
@@ -27697,6 +28038,19 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                         "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false, "runtimeVerified": false, "scriptsExecuted": false},
                         "generatedFrom": {"engine": "intent-router", "version": "v2"}
                     });
+                    // Update context from job followup
+                    cache.conversation_context.update_from_job(
+                        job_id,
+                        job_status_val,
+                        job_root,
+                        job_language,
+                    );
+                    if let Some(obj) = job_followup.as_object_mut() {
+                        obj.insert(
+                            "conversationContext".to_string(),
+                            cache.conversation_context.to_compact_json(),
+                        );
+                    }
                     let text = serde_json::to_string_pretty(&job_followup)
                         .unwrap_or_else(|_| job_followup.to_string());
                     return Ok(json!({"content": [{"type": "text", "text": text}]}));
@@ -27755,6 +28109,31 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         let mut ask_root = root.to_string();
         let mut ask_language = language.to_string();
         let mut ask_root_router = Value::Null;
+        let mut context_used_for_root = false;
+
+        // Conversation context fallback: if no root/language provided, use context
+        if ask_root.is_empty() {
+            if let Some(ref ctx_root) = cache.conversation_context.last_root {
+                if !ctx_root.is_empty() {
+                    ask_root = ctx_root.clone();
+                    context_used_for_root = true;
+                }
+            }
+        }
+        if ask_language.is_empty() || ask_language == "auto" {
+            if let Some(ref ctx_lang) = cache.conversation_context.last_language {
+                if !ctx_lang.is_empty() && ctx_lang != "auto" {
+                    ask_language = ctx_lang.clone();
+                }
+            }
+        }
+
+        // Update context from explicit arguments
+        if !root.is_empty() {
+            cache
+                .conversation_context
+                .update_from_explicit(root, language, "");
+        }
         if root_is_workspace {
             let mut route_params = params.clone();
             if workspace_route_query(&route_params).is_empty() {
@@ -27794,7 +28173,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
             && ask_root == root
             && ask_root_router.get("routed").and_then(|v| v.as_bool()) != Some(true)
         {
-            let workspace_result = build_workspace_ask_result(
+            let mut workspace_result = build_workspace_ask_result(
                 root,
                 language,
                 &question,
@@ -27802,6 +28181,19 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 ask_root_router,
                 ask_compact,
             );
+            // Update conversation context from workspace bestPick
+            if let Some(bp) = workspace_result.get("bestPick") {
+                if !bp.is_null() {
+                    cache.conversation_context.update_from_best_pick(bp);
+                }
+            }
+            // Attach conversationContext to workspace result
+            if let Some(obj) = workspace_result.as_object_mut() {
+                obj.insert(
+                    "conversationContext".to_string(),
+                    cache.conversation_context.to_compact_json(),
+                );
+            }
             let ask_text = serde_json::to_string_pretty(&workspace_result)
                 .unwrap_or_else(|_| workspace_result.to_string());
             return Ok(json!({
@@ -27972,6 +28364,44 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                 "version": "v2"
             }
         });
+        // Update conversation context from ask result
+        cache.conversation_context.update_from_ask(
+            &intent,
+            target_query.as_deref(),
+            if ask_root_ref.is_empty() {
+                root
+            } else {
+                ask_root_ref
+            },
+            ask_language_ref,
+        );
+        if let Some(job_id) = auto_job.get("jobId").and_then(|v| v.as_str()) {
+            if !job_id.is_empty() {
+                let job_status_str = auto_job
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("submitted");
+                cache.conversation_context.update_from_job(
+                    job_id,
+                    job_status_str,
+                    if ask_root_ref.is_empty() {
+                        root
+                    } else {
+                        ask_root_ref
+                    },
+                    ask_language_ref,
+                );
+            }
+        }
+        if let Some(obj) = ask_result.as_object_mut() {
+            let mut ctx_json = cache.conversation_context.to_compact_json();
+            if context_used_for_root {
+                if let Some(ctx_obj) = ctx_json.as_object_mut() {
+                    ctx_obj.insert("rootSource".to_string(), json!("conversation_context"));
+                }
+            }
+            obj.insert("conversationContext".to_string(), ctx_json);
+        }
         if ask_result["intent"].as_str() == Some("inspect_dependencies") {
             let dependency_summary = ask_result["projectDigest"].clone();
             if let Some(obj) = ask_result.as_object_mut() {

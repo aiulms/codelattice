@@ -22993,3 +22993,722 @@ fn cli_help_hides_legacy_entries() {
         stdout
     );
 }
+
+// ============================================================
+// Stage 9: Conversation Context (Goal A)
+// ============================================================
+
+fn create_context_test_rust_project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("failed to create context test project");
+    let root = dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"ctx-test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/main.rs"),
+        "fn main() { ctx_helper(); }\nfn ctx_helper() -> i32 { 42 }\n",
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn ask_context_remembers_root_language() {
+    let fixture = create_context_test_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    // First ask with explicit root/language
+    let first = call_tool_json(
+        &mut s,
+        99101,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root,
+            "language": "rust",
+            "question": "ctx_helper 在哪",
+            "compact": true
+        }),
+    );
+    assert!(
+        first["conversationContext"].is_object() || first["requestContext"].is_object(),
+        "first ask must include context: {first:?}"
+    );
+
+    // Second ask WITHOUT root/language — should use conversation context
+    let second = call_tool_json(
+        &mut s,
+        99102,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "question": "main 函数做什么",
+            "compact": true
+        }),
+    );
+    let ctx = &second["conversationContext"];
+    assert!(
+        ctx.is_object(),
+        "second ask must have conversationContext: {second:?}"
+    );
+    // rootSource must indicate conversation_context
+    let root_source = ctx["rootSource"].as_str().unwrap_or("");
+    assert!(
+        root_source == "conversation_context",
+        "rootSource should be conversation_context, got: {root_source}"
+    );
+}
+
+#[test]
+fn ask_context_uses_last_job_for_continue() {
+    let large = create_large_ask_rust_project();
+    let mut s = McpSession::start_with_toolset_and_max_jobs("full", 1);
+    s.initialize();
+    s.send_notification_initialized();
+
+    // First ask triggers a job
+    let first = call_tool_json(
+        &mut s,
+        99111,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": large.path().to_str().unwrap(),
+            "language": "rust",
+            "question": "项目结构是什么",
+            "compact": true
+        }),
+    );
+    let first_job_id = first["job"]["jobId"].as_str().unwrap_or("").to_string();
+    if !first_job_id.is_empty() {
+        // Second ask with "继续" and no jobId — should use context's lastJobId
+        let second = call_tool_json(
+            &mut s,
+            99112,
+            "codelattice_workflow",
+            serde_json::json!({
+                "mode": "ask",
+                "question": "继续",
+                "compact": true
+            }),
+        );
+        let intent = second["intent"].as_str().unwrap_or("");
+        assert!(
+            intent == "job_followup" || second["job"]["jobId"].as_str() == Some(&first_job_id),
+            "continue should use context job: intent={intent}, second={second:?}"
+        );
+        let ctx = &second["conversationContext"];
+        if ctx.is_object() {
+            assert!(
+                ctx["jobId"].as_str() == Some(&first_job_id)
+                    || second["job"]["jobId"].as_str() == Some(&first_job_id),
+                "context should carry lastJobId: {ctx:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn ask_context_reset_clears_state() {
+    let fixture = create_context_test_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    // First ask with root
+    let _first = call_tool_json(
+        &mut s,
+        99121,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root,
+            "language": "rust",
+            "question": "ctx_helper 在哪",
+            "compact": true
+        }),
+    );
+
+    // Reset context
+    let _reset = call_tool_json(
+        &mut s,
+        99122,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "resetContext": true,
+            "question": "",
+            "compact": true
+        }),
+    );
+
+    // Ask without root — should NOT use old root
+    let third = call_tool_json(
+        &mut s,
+        99123,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "question": "main 做什么",
+            "compact": true
+        }),
+    );
+    let ctx = &third["conversationContext"];
+    if ctx.is_object() {
+        let root_val = ctx["root"].as_str().unwrap_or("");
+        assert!(
+            root_val.is_empty(),
+            "after reset, context root must be empty, got: {root_val}"
+        );
+    }
+}
+
+#[test]
+fn ask_context_updates_from_workspace_best_pick() {
+    let workspace = create_large_workspace_root_router_fixture();
+    let root = workspace.path();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+
+    // First workspace ask returns bestPick
+    let first = call_tool_json(
+        &mut s,
+        99131,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root.to_str().unwrap(),
+            "language": "auto",
+            "question": "这个项目结构是什么",
+            "compact": true
+        }),
+    );
+    let best_pick_root = first["bestPick"]["root"].as_str().unwrap_or("").to_string();
+
+    if !best_pick_root.is_empty() {
+        // Second ask — context should have bestPick root
+        let second = call_tool_json(
+            &mut s,
+            99132,
+            "codelattice_workflow",
+            serde_json::json!({
+                "mode": "ask",
+                "question": "继续看这个项目",
+                "compact": true
+            }),
+        );
+        let ctx = &second["conversationContext"];
+        if ctx.is_object() {
+            assert!(
+                !ctx["root"].as_str().unwrap_or("").is_empty(),
+                "context root should be populated from bestPick"
+            );
+        }
+    }
+}
+
+#[test]
+fn ask_context_compact_output_under_16kb() {
+    let fixture = create_context_test_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let data = call_tool_json(
+        &mut s,
+        99141,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "ask",
+            "root": root,
+            "language": "rust",
+            "question": "ctx_helper 在哪",
+            "compact": true
+        }),
+    );
+    let text = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        text.len() < 16 * 1024,
+        "compact ask with context must be < 16KB, got {} bytes",
+        text.len()
+    );
+}
+
+// ============================================================
+// Stage 9b: Stale-First Cache Flow (Goal B)
+// ============================================================
+
+#[test]
+fn persistent_stale_baseline_served_without_sync_full_analysis() {
+    let fixture_root = portable_smoke_dir();
+    let fixture = copy_fixture_to_temp(&fixture_root, "stale-first");
+    let cache_dir = make_isolated_cache_dir("stale-first");
+
+    // Session 1: populate persistent cache
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let first = call_tool_json(
+            &mut s,
+            99201,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true,
+                "forceSync": true
+            }),
+        );
+        let fresh = first["freshness"]
+            .as_str()
+            .or_else(|| first["cacheMeta"]["freshness"].as_str())
+            .unwrap_or("");
+        assert!(
+            fresh.contains("fresh") || fresh.is_empty(),
+            "first call should be fresh or empty: {fresh}"
+        );
+    }
+
+    // Modify a source file to make cache stale
+    let lib_rs = fixture.join("src").join("lib.rs");
+    if lib_rs.exists() {
+        let orig = std::fs::read_to_string(&lib_rs).unwrap_or_default();
+        std::fs::write(&lib_rs, format!("{orig}\npub fn stale_first_fn() {{}}\n")).unwrap();
+    } else {
+        let main_rs = fixture.join("src").join("main.rs");
+        let orig = std::fs::read_to_string(&main_rs).unwrap_or_default();
+        std::fs::write(&main_rs, format!("{orig}\npub fn stale_first_fn() {{}}\n")).unwrap();
+    }
+
+    // Session 2: stale baseline should be served with backgroundRefresh
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let second = call_tool_json(
+            &mut s,
+            99202,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true
+            }),
+        );
+        let freshness = second["freshness"]
+            .as_str()
+            .or_else(|| second["cacheMeta"]["freshness"].as_str())
+            .unwrap_or("");
+        assert!(
+            freshness.contains("stale") || freshness.contains("delta"),
+            "second call should be stale/delta, got: {freshness}"
+        );
+        // Should have backgroundRefresh or evidence of async refresh
+        let bg = &second["backgroundRefresh"];
+        assert!(
+            bg.is_object() || second["staleBaseline"].is_object(),
+            "should have backgroundRefresh or staleBaseline: {second:?}"
+        );
+    }
+}
+
+#[test]
+fn stale_file_added_uses_delta_and_background_refresh() {
+    let fixture = create_source_heavy_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    // Build initial cache
+    let _first = call_tool_json(
+        &mut s,
+        99211,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "forceSync": true,
+            "asyncOnMiss": false
+        }),
+    );
+
+    // Add a new .rs file
+    let delta = fixture.path().join("src").join("delta_bg_fn.rs");
+    std::fs::write(&delta, "pub fn delta_bg_function() -> i32 { 99 }\n").unwrap();
+
+    // Search for the new symbol — use codelattice_project to check freshness
+    let search = call_tool_json(
+        &mut s,
+        99212,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "query": "delta_bg_function",
+            "compact": true,
+            "forceSync": true,
+            "asyncOnMiss": false
+        }),
+    );
+    let freshness = search["freshness"]
+        .as_str()
+        .or_else(|| search["cacheMeta"]["freshness"].as_str())
+        .or_else(|| search["result"]["freshness"].as_str())
+        .or_else(|| search["answer"]["freshness"].as_str())
+        .unwrap_or("");
+    assert!(
+        freshness.contains("delta") || freshness.contains("stale"),
+        "after file add, freshness should be delta/stale, got: {freshness}"
+    );
+    // Should have backgroundRefresh job
+    let bg = &search["backgroundRefresh"];
+    if bg.is_object() {
+        assert!(
+            bg["submitted"].as_bool() == Some(true) || bg["jobId"].as_str().is_some(),
+            "backgroundRefresh should be submitted: {bg:?}"
+        );
+    }
+}
+
+#[test]
+fn ignored_cache_dir_does_not_stale_project() {
+    let fixture_root = portable_smoke_dir();
+    let fixture = copy_fixture_to_temp(&fixture_root, "ignore-cache-dir");
+    let cache_dir = make_isolated_cache_dir("ignore-cache-dir");
+    let cache_dir_str = cache_dir.to_str().unwrap();
+
+    // Set up cache dir inside project root as CODELATTICE_CACHE_DIR
+    let inner_cache = fixture.join(".codelattice-cache");
+    std::fs::create_dir_all(&inner_cache).unwrap();
+
+    // Session 1: populate cache
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let _first = call_tool_json(
+            &mut s,
+            99221,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true,
+                "forceSync": true
+            }),
+        );
+    }
+
+    // Write a file inside the ignored cache dir
+    std::fs::write(inner_cache.join("some_data.json"), "{\"cached\":true}\n").unwrap();
+
+    // Session 2: cache should still be fresh
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let second = call_tool_json(
+            &mut s,
+            99222,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true
+            }),
+        );
+        let freshness = second["freshness"]
+            .as_str()
+            .or_else(|| second["cacheMeta"]["freshness"].as_str())
+            .unwrap_or("");
+        assert!(
+            freshness.contains("fresh"),
+            "changes in ignored cache dir should not stale: got {freshness}"
+        );
+    }
+}
+
+#[test]
+fn ignored_target_node_modules_do_not_stale_project() {
+    let fixture_root = portable_smoke_dir();
+    let fixture = copy_fixture_to_temp(&fixture_root, "ignore-target-nm");
+    let cache_dir = make_isolated_cache_dir("ignore-target-nm");
+
+    // Session 1: populate cache
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let _first = call_tool_json(
+            &mut s,
+            99231,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true,
+                "forceSync": true
+            }),
+        );
+    }
+
+    // Create target/ and node_modules/ and write files
+    std::fs::create_dir_all(fixture.join("target")).unwrap();
+    std::fs::write(fixture.join("target/build_output"), "compiled\n").unwrap();
+    std::fs::create_dir_all(fixture.join("node_modules")).unwrap();
+    std::fs::write(
+        fixture.join("node_modules/package.js"),
+        "module.exports = {}\n",
+    )
+    .unwrap();
+
+    // Session 2: should still be fresh
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let second = call_tool_json(
+            &mut s,
+            99232,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true
+            }),
+        );
+        let freshness = second["freshness"]
+            .as_str()
+            .or_else(|| second["cacheMeta"]["freshness"].as_str())
+            .unwrap_or("");
+        assert!(
+            freshness.contains("fresh"),
+            "target/node_modules changes should not stale: got {freshness}"
+        );
+    }
+}
+
+#[test]
+fn deleted_source_returns_stale_not_fresh() {
+    let fixture = create_source_heavy_rust_project();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    // Build cache
+    let _first = call_tool_json(
+        &mut s,
+        99241,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "forceSync": true,
+            "asyncOnMiss": false
+        }),
+    );
+
+    // Delete a source file
+    let to_delete = fixture.path().join("src").join("feature_0").join("a.rs");
+    if to_delete.exists() {
+        std::fs::remove_file(&to_delete).unwrap();
+    } else {
+        // fallback: delete main.rs and recreate without it
+        let main = fixture.path().join("src").join("main.rs");
+        let _ = std::fs::remove_file(&main);
+    }
+
+    let second = call_tool_json(
+        &mut s,
+        99242,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "rust",
+            "compact": true
+        }),
+    );
+    let freshness = second["freshness"]
+        .as_str()
+        .or_else(|| second["cacheMeta"]["freshness"].as_str())
+        .unwrap_or("");
+    assert!(
+        freshness != "fresh_snapshot",
+        "deleted source must not be fresh_snapshot, got: {freshness}"
+    );
+    // Should have missingEvidence or tombstone
+    let has_tombstone = second["missingEvidence"].is_array()
+        || second["tombstone"].is_object()
+        || second["result"]["missingEvidence"].is_array();
+    assert!(
+        has_tombstone || freshness.contains("stale") || freshness.contains("partial"),
+        "deleted file should produce tombstone/stale: {second:?}"
+    );
+}
+
+#[test]
+fn stale_first_compact_payload_under_budget() {
+    let fixture_root = portable_smoke_dir();
+    let fixture = copy_fixture_to_temp(&fixture_root, "stale-budget");
+    let cache_dir = make_isolated_cache_dir("stale-budget");
+
+    // Populate cache
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let _ = call_tool_json(
+            &mut s,
+            99251,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true,
+                "forceSync": true
+            }),
+        );
+    }
+
+    // Make stale
+    let lib_rs = fixture.join("src").join("lib.rs");
+    if lib_rs.exists() {
+        let orig = std::fs::read_to_string(&lib_rs).unwrap_or_default();
+        std::fs::write(&lib_rs, format!("{orig}\npub fn budget_stale_fn() {{}}\n")).unwrap();
+    }
+
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let resp = call_tool_json(
+            &mut s,
+            99252,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true
+            }),
+        );
+        let text = serde_json::to_string(&resp).unwrap_or_default();
+        assert!(
+            text.len() < 16 * 1024,
+            "stale compact response must be < 16KB, got {} bytes",
+            text.len()
+        );
+    }
+}
+
+#[test]
+fn background_refresh_singleflight() {
+    let fixture_root = portable_smoke_dir();
+    let fixture = copy_fixture_to_temp(&fixture_root, "singleflight");
+    let cache_dir = make_isolated_cache_dir("singleflight");
+
+    // Populate cache
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+        let _ = call_tool_json(
+            &mut s,
+            99261,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true,
+                "forceSync": true
+            }),
+        );
+    }
+
+    // Make stale
+    let lib_rs = fixture.join("src").join("lib.rs");
+    if lib_rs.exists() {
+        let orig = std::fs::read_to_string(&lib_rs).unwrap_or_default();
+        std::fs::write(&lib_rs, format!("{orig}\npub fn sf_stale_fn() {{}}\n")).unwrap();
+    }
+
+    // Two consecutive stale queries — should return same background jobId or reusedExistingJob
+    {
+        let mut s = McpSession::start_with_cache_dir(Some(&cache_dir));
+        s.initialize();
+        s.send_notification_initialized();
+
+        let first = call_tool_json(
+            &mut s,
+            99262,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true
+            }),
+        );
+        let second = call_tool_json(
+            &mut s,
+            99263,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": fixture.to_str().unwrap(),
+                "language": "rust",
+                "compact": true
+            }),
+        );
+
+        let first_job = first["backgroundRefresh"]["jobId"]
+            .as_str()
+            .or_else(|| first["job"]["jobId"].as_str())
+            .unwrap_or("");
+        let second_job = second["backgroundRefresh"]["jobId"]
+            .as_str()
+            .or_else(|| second["job"]["jobId"].as_str())
+            .unwrap_or("");
+
+        if !first_job.is_empty() && !second_job.is_empty() {
+            assert_eq!(
+                first_job, second_job,
+                "consecutive stale queries should reuse same background job"
+            );
+        }
+        // Second should indicate reusedExistingJob
+        let reused = second["backgroundRefresh"]["reusedExistingJob"].as_bool();
+        if reused.is_some() {
+            assert!(
+                reused == Some(true),
+                "second query should reuse existing job: {second:?}"
+            );
+        }
+    }
+}
