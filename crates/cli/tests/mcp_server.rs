@@ -1530,7 +1530,8 @@ fn mcp_workflow_execute_returns_bounded_evidence_details() {
             "language": "rust",
             "symbol": "helper",
             "execute": true,
-            "compact": true
+            "compact": true,
+            "includeDetails": true
         }),
     );
 
@@ -1583,6 +1584,7 @@ fn mcp_workflow_execute_large_cache_miss_returns_deferred_job_evidence() {
             "symbol": "helper",
             "execute": true,
             "compact": true,
+            "includeDetails": true
         }),
     );
 
@@ -24095,5 +24097,285 @@ fn ts_deleted_file_returns_stale_not_fresh() {
     assert!(
         !freshness.contains("fresh_snapshot"),
         "deleted TS file must not return fresh_snapshot, got: {freshness}"
+    );
+}
+
+// ============================================================
+// Stage X: Workflow Compact Payload Budget & TS Delta Overlay
+// ============================================================
+
+#[test]
+fn workflow_execute_compact_payload_under_16kb() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        99801,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "symbol": "helper",
+            "execute": true,
+            "compact": true
+        }),
+    );
+    let text = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        text.len() < 16 * 1024,
+        "execute=true compact=true payload must be < 16KB, got {} bytes",
+        text.len()
+    );
+    // evidenceDetails must be omitted by default in compact
+    assert!(
+        data.get("evidenceDetails").is_none(),
+        "compact mode must omit evidenceDetails by default"
+    );
+    // detailHint should be present instead
+    assert!(
+        data.get("detailHint").is_some(),
+        "compact mode must provide detailHint in place of evidenceDetails"
+    );
+    // evidence should be capped
+    let ev_count = data["evidence"].as_array().map(|a| a.len()).unwrap_or(0);
+    assert!(
+        ev_count <= 5,
+        "compact mode must cap evidence at 5, got {}",
+        ev_count
+    );
+}
+
+#[test]
+fn workflow_execute_compact_include_details_preserves_evidence_details() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        99802,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "symbol": "helper",
+            "execute": true,
+            "compact": true,
+            "includeDetails": true
+        }),
+    );
+    // includeDetails=true should keep evidenceDetails
+    assert!(
+        data.get("evidenceDetails").is_some(),
+        "includeDetails=true must preserve evidenceDetails in compact mode"
+    );
+    // detailHint should not appear when details are included
+    assert!(
+        data.get("detailHint").is_none(),
+        "detailHint should not appear when includeDetails=true"
+    );
+}
+
+#[test]
+fn workflow_execute_compact_completed_actions_slim() {
+    let root = portable_smoke_dir();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let data = call_tool_json(
+        &mut session,
+        99803,
+        "codelattice_workflow",
+        serde_json::json!({
+            "mode": "before_edit",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "symbol": "helper",
+            "execute": true,
+            "compact": true
+        }),
+    );
+    let completed = data["completedActions"]
+        .as_array()
+        .expect("completedActions must be array");
+    for action in completed {
+        // compact mode: only tool/mode/status/required
+        assert!(
+            action.get("tool").is_some(),
+            "completedAction must have tool"
+        );
+        assert!(
+            action.get("mode").is_some(),
+            "completedAction must have mode"
+        );
+        // should NOT have heavy fields from full evidence
+        assert!(
+            action.get("selected").is_none(),
+            "compact completedAction must not include full evidence payload fields"
+        );
+    }
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-typescript")]
+fn ts_delta_overlay_extracts_symbols_from_new_file() {
+    let fixture = create_ts_delta_fixture();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _first = call_tool_json(
+        &mut s,
+        99810,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+
+    // Add a new TS file with multiple symbols
+    std::fs::write(
+        fixture.path().join("src/new_module.ts"),
+        "export function newModuleFn(): string { return 'hello'; }\n\
+         export class NewModuleClass { method() { return 1; } }\n\
+         export interface NewModuleIface { x: number; }\n",
+    )
+    .unwrap();
+
+    // Search for the new symbol - delta overlay should make it available
+    let search = call_tool_json(
+        &mut s,
+        99811,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root,
+            "language": "typescript",
+            "query": "newModuleFn",
+            "compact": true
+        }),
+    );
+
+    let result_str = serde_json::to_string(&search).unwrap_or_default();
+    assert!(
+        result_str.contains("newModuleFn"),
+        "delta overlay must make newModuleFn discoverable, got: {result_str}"
+    );
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-typescript")]
+fn ts_delta_overlay_extracts_class_method_symbols() {
+    let fixture = create_ts_delta_fixture();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _first = call_tool_json(
+        &mut s,
+        99820,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+
+    // Modify existing file to add a class with methods
+    std::fs::write(
+        fixture.path().join("src/existing.ts"),
+        "export function existingHelper() { return 1; }\n\
+         export class MyService {\n\
+             fetchData() { return null; }\n\
+             processData() { return true; }\n\
+         }\n",
+    )
+    .unwrap();
+
+    let search = call_tool_json(
+        &mut s,
+        99821,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root,
+            "language": "typescript",
+            "query": "MyService",
+            "compact": true
+        }),
+    );
+
+    let result_str = serde_json::to_string(&search).unwrap_or_default();
+    assert!(
+        result_str.contains("MyService"),
+        "delta overlay must extract class MyService from modified file, got: {result_str}"
+    );
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-typescript")]
+fn ts_delta_overlay_impact_query_uses_delta_symbols() {
+    let fixture = create_ts_delta_fixture();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _first = call_tool_json(
+        &mut s,
+        99830,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+
+    // Add a new TS file with a function that references existing symbols
+    std::fs::write(
+        fixture.path().join("src/consumer.ts"),
+        "import { existingHelper } from './existing';\n\
+         export function consumerFn() { return existingHelper(); }\n",
+    )
+    .unwrap();
+
+    // Impact query on the new symbol should work via delta overlay
+    let impact = call_tool_json(
+        &mut s,
+        99831,
+        "codelattice_change_review",
+        serde_json::json!({
+            "mode": "impact",
+            "root": root,
+            "language": "typescript",
+            "symbol": "consumerFn",
+            "compact": true
+        }),
+    );
+
+    // Should not error; impact should reference the delta-extracted symbol
+    let text = serde_json::to_string(&impact).unwrap_or_default();
+    assert!(
+        !text.contains("\"error\""),
+        "impact query on delta symbol must not error, got: {text}"
     );
 }

@@ -3219,13 +3219,42 @@ impl McpCache {
                             }
                             Ok(delta_syms)
                         })();
-                    let delta_symbols = match delta_result {
+                    let mut delta_symbols = match delta_result {
                         Ok(syms) => {
                             delta_files = files_to_extract.clone();
                             syms
                         }
                         Err(_) => Vec::new(),
                     };
+
+                    // TypeScript / JavaScript delta 符号提取：
+                    // Rust extractor 对 .ts/.tsx/.js/.jsx 返回 0 symbols，
+                    // 使用 TS/JS tree-sitter extractor 补充。
+                    if files_to_extract.iter().any(|f| is_tsjs_path(f)) {
+                        let (tsjs_nodes, _tsjs_count) =
+                            extract_tsjs_delta_symbols(&files_to_extract, root_path, language);
+                        for (node, sym) in &tsjs_nodes {
+                            let node_id = node["id"].as_str().unwrap_or("").to_string();
+                            entry
+                                .graph_view
+                                .nodes_by_id
+                                .insert(node_id.clone(), node.clone());
+                            let name_lower = sym.name.to_lowercase();
+                            entry
+                                .graph_view
+                                .symbols_by_name
+                                .entry(name_lower)
+                                .or_default()
+                                .push(node.clone());
+                            delta_symbol_count += 1;
+                        }
+                        let tsjs_syms: Vec<gitnexus_project_model::model::Symbol> =
+                            tsjs_nodes.into_iter().map(|(_, s)| s).collect();
+                        if !tsjs_syms.is_empty() {
+                            delta_files = files_to_extract.clone();
+                            delta_symbols.extend(tsjs_syms);
+                        }
+                    }
 
                     if !delta_symbols.is_empty() {
                         let _baseline_symbols: Vec<gitnexus_project_model::model::Symbol> = entry
@@ -3857,13 +3886,42 @@ impl McpCache {
                             }
                             Ok(delta_syms)
                         })();
-                    let delta_symbols = match delta_result {
+                    let mut delta_symbols = match delta_result {
                         Ok(syms) => {
                             delta_files = files_to_extract.clone();
                             syms
                         }
                         Err(_) => Vec::new(),
                     };
+
+                    // TypeScript / JavaScript delta 符号提取（persistent 路径）
+                    if files_to_extract.iter().any(|f| is_tsjs_path(f)) {
+                        let (tsjs_nodes, _tsjs_count) =
+                            extract_tsjs_delta_symbols(&files_to_extract, &canonical, language);
+                        for (node, sym) in &tsjs_nodes {
+                            let node_id = node["id"].as_str().unwrap_or("").to_string();
+                            if let Some(entry) = self.entries.get_mut(&key) {
+                                entry
+                                    .graph_view
+                                    .nodes_by_id
+                                    .insert(node_id.clone(), node.clone());
+                                let name_lower = sym.name.to_lowercase();
+                                entry
+                                    .graph_view
+                                    .symbols_by_name
+                                    .entry(name_lower)
+                                    .or_default()
+                                    .push(node.clone());
+                            }
+                            delta_symbol_count += 1;
+                        }
+                        let tsjs_syms: Vec<gitnexus_project_model::model::Symbol> =
+                            tsjs_nodes.into_iter().map(|(_, s)| s).collect();
+                        if !tsjs_syms.is_empty() {
+                            delta_files = files_to_extract.clone();
+                            delta_symbols.extend(tsjs_syms);
+                        }
+                    }
 
                     if !delta_symbols.is_empty() {
                         let baseline_symbols: Vec<gitnexus_project_model::model::Symbol> = {
@@ -5817,6 +5875,243 @@ fn is_tsjs_path(path: &str) -> bool {
         || path.ends_with(".tsx")
         || path.ends_with(".js")
         || path.ends_with(".jsx")
+}
+
+/// Delta 提取：对 .ts/.tsx/.js/.jsx 文件使用 tree-sitter 提取符号。
+/// 返回 (symbols_as_json_nodes, delta_symbol_count)。
+/// 每个 JSON node 已包含 id / label / evidenceSource / properties。
+fn extract_tsjs_delta_symbols(
+    files: &[String],
+    root_path: &std::path::Path,
+    language: &str,
+) -> (Vec<(Value, gitnexus_project_model::model::Symbol)>, u32) {
+    let mut results = Vec::new();
+    let mut count: u32 = 0;
+
+    for rel_path in files {
+        if !is_tsjs_path(rel_path) {
+            continue;
+        }
+        let abs_path = root_path.join(rel_path);
+        let content = match std::fs::read_to_string(&abs_path) {
+            Ok(c) => c,
+            Err(_) => continue,
+        };
+
+        let symbols: Vec<(String, String, String, usize, usize)> = {
+            let is_tsx = rel_path.ends_with(".tsx");
+            let is_jsx = rel_path.ends_with(".jsx");
+            let is_js = rel_path.ends_with(".js") || is_jsx;
+
+            // 优先使用 tree-sitter 提取；fallback 到文本正则
+            #[cfg(feature = "tree-sitter-typescript")]
+            {
+                if is_js {
+                    // JS crate 内部复用 TS grammar
+                    #[cfg(feature = "tree-sitter-javascript")]
+                    {
+                        let lang = if is_jsx {
+                            gitnexus_javascript::extractors::JsLanguage::Jsx
+                        } else {
+                            gitnexus_javascript::extractors::JsLanguage::JavaScript
+                        };
+                        let extraction =
+                            gitnexus_javascript::extractors::extract_js_file(&content, lang);
+                        extraction
+                            .symbols
+                            .iter()
+                            .map(|s| {
+                                let kind_str = format!("{:?}", s.kind).to_lowercase();
+                                (
+                                    s.name.clone(),
+                                    kind_str,
+                                    s.owner_name.clone().unwrap_or_default(),
+                                    s.start_line,
+                                    s.end_line,
+                                )
+                            })
+                            .collect()
+                    }
+                    #[cfg(not(feature = "tree-sitter-javascript"))]
+                    {
+                        extract_tsjs_symbols_fallback(&content)
+                    }
+                } else {
+                    let lang = if is_tsx {
+                        gitnexus_typescript::extractors::TsLanguage::Tsx
+                    } else {
+                        gitnexus_typescript::extractors::TsLanguage::TypeScript
+                    };
+                    let extraction =
+                        gitnexus_typescript::extractors::extract_ts_file(&content, lang);
+                    extraction
+                        .symbols
+                        .iter()
+                        .map(|s| {
+                            let kind_str = format!("{:?}", s.kind).to_lowercase();
+                            (
+                                s.name.clone(),
+                                kind_str,
+                                s.owner_name.clone().unwrap_or_default(),
+                                s.start_line,
+                                s.end_line,
+                            )
+                        })
+                        .collect()
+                }
+            }
+            #[cfg(not(feature = "tree-sitter-typescript"))]
+            {
+                extract_tsjs_symbols_fallback(&content)
+            }
+        };
+
+        for (name, kind_str, owner, start_line, end_line) in symbols {
+            let sym_id = if owner.is_empty() {
+                format!(
+                    "symbol:ts-delta::{}::{}",
+                    rel_path.replace('/', ":").replace('\\', ":"),
+                    name
+                )
+            } else {
+                format!(
+                    "symbol:ts-delta::{}::{}::{}",
+                    rel_path.replace('/', ":").replace('\\', ":"),
+                    owner,
+                    name
+                )
+            };
+            let sym_node_id = sym_id.clone();
+            let sym_node = json!({
+                "id": sym_node_id,
+                "label": "symbol",
+                "evidenceSource": "fresh_delta",
+                "properties": {
+                    "name": name,
+                    "symbolKind": kind_str,
+                    "sourcePath": rel_path,
+                    "packageName": "",
+                    "targetName": Value::Null,
+                    "modulePath": Value::Null,
+                    "visibility": "exported",
+                    "lineStart": start_line as u32,
+                    "lineEnd": end_line as u32,
+                    "genericParams": "",
+                    "isAsync": false,
+                    "isUnsafe": false,
+                    "isConstFn": false,
+                    "isPub": true,
+                    "implDetails": if owner.is_empty() { Value::Null } else { json!({"ownerName": owner}) },
+                }
+            });
+            let dummy_sym = gitnexus_project_model::model::Symbol {
+                id: sym_id,
+                name: name.clone(),
+                symbol_kind: kind_str,
+                source_path: rel_path.clone(),
+                package_name: String::new(),
+                target_name: None,
+                module_path: None,
+                visibility: "exported".to_string(),
+                parent_id: None,
+                line_start: start_line as u32,
+                line_end: end_line as u32,
+                generic_params: None,
+                is_async: false,
+                is_unsafe: false,
+                is_const_fn: false,
+                is_pub: true,
+                impl_details: None,
+                type_annotations: Vec::new(),
+            };
+            results.push((sym_node, dummy_sym));
+            count += 1;
+        }
+    }
+    (results, count)
+}
+
+/// TS/JS 文本正则 fallback：提取 function / class / export const 等声明。
+/// 仅在 tree-sitter 不可用时使用。
+fn extract_tsjs_symbols_fallback(content: &str) -> Vec<(String, String, String, usize, usize)> {
+    let mut syms = Vec::new();
+    for (idx, line) in content.lines().enumerate() {
+        let line_num = idx + 1;
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("//") || trimmed.starts_with("/*") {
+            continue;
+        }
+        // export function name / async function name / function name
+        if let Some(rest) = trimmed.strip_prefix("export ").or_else(|| Some(trimmed)) {
+            let async_stripped = rest.strip_prefix("async ").unwrap_or(rest);
+            if let Some(name_rest) = async_stripped.strip_prefix("function ") {
+                let name = name_rest.split('(').next().unwrap_or("").trim();
+                if !name.is_empty()
+                    && name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_ascii_alphabetic())
+                        .unwrap_or(false)
+                {
+                    syms.push((
+                        name.to_string(),
+                        "function".to_string(),
+                        String::new(),
+                        line_num,
+                        line_num,
+                    ));
+                    continue;
+                }
+            }
+            if let Some(name_rest) = async_stripped.strip_prefix("class ") {
+                let name = name_rest.split('{').next().unwrap_or("").trim();
+                let name = name.split_whitespace().next().unwrap_or(name).trim();
+                if !name.is_empty()
+                    && name
+                        .chars()
+                        .next()
+                        .map(|c| c.is_ascii_alphabetic())
+                        .unwrap_or(false)
+                {
+                    syms.push((
+                        name.to_string(),
+                        "class".to_string(),
+                        String::new(),
+                        line_num,
+                        line_num,
+                    ));
+                    continue;
+                }
+            }
+            if let Some(name_rest) = async_stripped.strip_prefix("interface ") {
+                let name = name_rest.split('{').next().unwrap_or("").trim();
+                if !name.is_empty() {
+                    syms.push((
+                        name.to_string(),
+                        "interface".to_string(),
+                        String::new(),
+                        line_num,
+                        line_num,
+                    ));
+                    continue;
+                }
+            }
+            if let Some(name_rest) = async_stripped.strip_prefix("type ") {
+                let name = name_rest.split('=').next().unwrap_or("").trim();
+                if !name.is_empty() {
+                    syms.push((
+                        name.to_string(),
+                        "typealias".to_string(),
+                        String::new(),
+                        line_num,
+                        line_num,
+                    ));
+                    continue;
+                }
+            }
+        }
+    }
+    syms
 }
 
 /// Serializable query index persisted alongside full analyze JSON.
@@ -28392,6 +28687,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
         .unwrap_or("onboarding");
     let compact = facade_compact_default(params);
     let execute = params["execute"].as_bool().unwrap_or(false);
+    let include_details = params["includeDetails"].as_bool().unwrap_or(false);
     let language = params["language"].as_str().unwrap_or("auto");
     let root = params["root"].as_str().unwrap_or("");
     let symbol = params["symbol"]
@@ -29655,6 +29951,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
     });
     if compact {
         if let Some(obj) = out.as_object_mut() {
+            // 1. Replace rootDiagnosis with summary + ref
             if let Some(root_diagnosis) = obj.remove("rootDiagnosis") {
                 obj.insert(
                     "rootDiagnosisSummary".to_string(),
@@ -29668,6 +29965,79 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     }),
                 );
             }
+            // 2. Omit evidenceDetails unless includeDetails=true; replace with detailHint
+            if !include_details {
+                if obj.remove("evidenceDetails").is_some() {
+                    obj.insert(
+                        "detailHint".to_string(),
+                        json!("evidenceDetails omitted in compact mode; re-run with compact=false or includeDetails=true for full detail payloads."),
+                    );
+                }
+            }
+            // 3. Cap evidence at 5 decision-critical summaries
+            if let Some(ev) = obj.get_mut("evidence") {
+                if let Some(arr) = ev.as_array_mut() {
+                    arr.truncate(5);
+                }
+            }
+            // 4. Slim completedActions to tool/mode/status/required only
+            if let Some(ca) = obj.get_mut("completedActions") {
+                if let Some(arr) = ca.as_array_mut() {
+                    *arr = arr
+                        .iter()
+                        .map(|a| {
+                            json!({
+                                "tool": a["tool"],
+                                "mode": a["mode"],
+                                "status": "completed",
+                                "required": a["required"]
+                            })
+                        })
+                        .collect();
+                }
+            }
+            // 5. Slim skippedActions similarly
+            if let Some(sa) = obj.get_mut("skippedActions") {
+                if let Some(arr) = sa.as_array_mut() {
+                    *arr = arr.iter().map(|a| {
+                        json!({
+                            "tool": a["tool"],
+                            "mode": a["mode"],
+                            "status": "skipped",
+                            "required": a.get("required").and_then(|v| v.as_bool()).unwrap_or(false)
+                        })
+                    }).collect();
+                }
+            }
+            // 6. Trim investigationPlan to a brief string if large
+            if let Some(ip) = obj.get_mut("investigationPlan") {
+                if let Some(s) = ip.as_str() {
+                    if s.len() > 200 {
+                        *ip = json!(format!(
+                            "{}… [truncated, {} chars total]",
+                            &s[..200],
+                            s.len()
+                        ));
+                    }
+                } else if let Some(obj_ip) = ip.as_object_mut() {
+                    // If it's a JSON object, replace with a compact string hint
+                    *ip = json!("[investigationPlan object omitted in compact mode; use compact=false for full plan]");
+                }
+            }
+            // 7. Trim aiDecisionTrace to a brief string if large
+            if let Some(adt) = obj.get_mut("aiDecisionTrace") {
+                if let Some(s) = adt.as_str() {
+                    if s.len() > 200 {
+                        *adt = json!(format!(
+                            "{}… [truncated, {} chars total]",
+                            &s[..200],
+                            s.len()
+                        ));
+                    }
+                } else if let Some(obj_adt) = adt.as_object_mut() {
+                    *adt = json!("[aiDecisionTrace object omitted in compact mode; use compact=false for full trace]");
+                }
+            }
             obj.insert("compactSemantics".to_string(), compact_semantics(true));
             obj.insert(
                 "contextRefs".to_string(),
@@ -29677,16 +30047,21 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                         "rootDiagnosis",
                         "analysisSemantics",
                         "generatedFrom",
-                        "cautions"
+                        "cautions",
+                        "evidenceDetails"
                     ],
-                    "explanation": "Workflow compact mode keeps rootDiagnosisSummary/rootDiagnosisRef and omits repeated full root diagnostics."
+                    "explanation": "Workflow compact mode keeps summaries and refs; omits full diagnostics, evidence details, and truncated plans."
                 }),
             );
             obj.insert(
                 "omitted".to_string(),
                 json!([
-                    {"field": "rootDiagnosis", "reason": "compact workflow output keeps rootDiagnosisSummary/rootDiagnosisRef instead of repeating full root diagnostics"},
-                    {"field": "completedActions.fullPayloads", "reason": "workflow compact output keeps evidence summaries and nextActions"}
+                    {"field": "rootDiagnosis", "reason": "replaced by rootDiagnosisSummary + rootDiagnosisRef"},
+                    {"field": "evidenceDetails", "reason": "replaced by detailHint; use compact=false or includeDetails=true for full payloads"},
+                    {"field": "evidence", "reason": "capped at 5 items; use compact=false for all evidence"},
+                    {"field": "completedActions.fullPayloads", "reason": "slimmed to tool/mode/status/required"},
+                    {"field": "investigationPlan", "reason": "truncated to 200 chars if longer"},
+                    {"field": "aiDecisionTrace", "reason": "truncated to 200 chars if longer"}
                 ]),
             );
         }
