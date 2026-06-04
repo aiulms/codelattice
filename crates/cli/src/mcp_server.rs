@@ -3145,12 +3145,12 @@ impl McpCache {
                 let files_to_extract: Vec<String> = match &file_stale_reason {
                     Some(StaleReason::FileAdded(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs"))
+                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
                         .cloned()
                         .collect(),
                     Some(StaleReason::FileModified(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs"))
+                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
                         .cloned()
                         .collect(),
                     _ => Vec::new(),
@@ -3184,6 +3184,7 @@ impl McpCache {
                                 let sym_node = json!({
                                     "id": sym_node_id,
                                     "label": "symbol",
+                                    "evidenceSource": "fresh_delta",
                                     "properties": {
                                         "name": sym.name,
                                         "symbolKind": sym.symbol_kind,
@@ -3495,6 +3496,136 @@ impl McpCache {
                             }
                         }
                     }
+
+                    // TypeScript / JavaScript 最小 call-evidence 通道。
+                    // 对 .ts/.tsx/.js/.jsx delta 文件扫描 identifier( 模式，
+                    // 不做 Rust 特定过滤（无 use / #[ / impl 规则）。
+                    if !delta_symbols.is_empty() {
+                        for rel_path in &files_to_extract {
+                            if !is_tsjs_path(rel_path) {
+                                continue;
+                            }
+                            let abs_path = root_path.join(rel_path);
+                            let content = match std::fs::read_to_string(&abs_path) {
+                                Ok(c) => c,
+                                Err(_) => continue,
+                            };
+                            let tsjs_callers: Vec<(String, u32, u32, String)> = delta_symbols
+                                .iter()
+                                .filter(|s| s.source_path == *rel_path)
+                                .filter(|s| {
+                                    s.symbol_kind == "function" || s.symbol_kind == "method"
+                                })
+                                .map(|s| (s.name.clone(), s.line_start, s.line_end, s.id.clone()))
+                                .collect();
+                            if tsjs_callers.is_empty() {
+                                continue;
+                            }
+                            for (line_idx, line) in content.lines().enumerate() {
+                                let line_num = (line_idx + 1) as u32;
+                                let trimmed = line.trim();
+                                if trimmed.is_empty()
+                                    || trimmed.starts_with("//")
+                                    || trimmed.starts_with("/*")
+                                    || trimmed.starts_with("*")
+                                {
+                                    continue;
+                                }
+                                let caller = tsjs_callers
+                                    .iter()
+                                    .find(|(_, ls, le, _)| line_num >= *ls && line_num <= *le);
+                                let (caller_name, caller_id) = match caller {
+                                    Some((name, _, _, id)) => (name.clone(), id.clone()),
+                                    None => continue,
+                                };
+                                let bytes = trimmed.as_bytes();
+                                let mut pos = 0;
+                                while pos < bytes.len() {
+                                    if bytes[pos] != b'(' || pos == 0 {
+                                        pos += 1;
+                                        continue;
+                                    }
+                                    let mut start = pos;
+                                    while start > 0
+                                        && (bytes[start - 1] == b'.' || bytes[start - 1] == b'?')
+                                    {
+                                        start -= 1;
+                                    }
+                                    let id_end = start;
+                                    while start > 0
+                                        && (bytes[start - 1].is_ascii_alphanumeric()
+                                            || bytes[start - 1] == b'_'
+                                            || bytes[start - 1] == b'$')
+                                    {
+                                        start -= 1;
+                                    }
+                                    if start < id_end {
+                                        let callee_name = &trimmed[start..id_end];
+                                        if [
+                                            "if", "for", "while", "switch", "catch", "return",
+                                            "typeof", "void", "delete", "new", "throw", "console",
+                                            "Math", "JSON", "Object", "Array", "Promise", "String",
+                                            "Number", "Boolean",
+                                        ]
+                                        .contains(&callee_name)
+                                            || callee_name == caller_name
+                                        {
+                                            pos += 1;
+                                            continue;
+                                        }
+                                        let callee_lower = callee_name.to_lowercase();
+                                        let target_node_id = entry
+                                            .graph_view
+                                            .symbols_by_name
+                                            .get(&callee_lower)
+                                            .and_then(|syms| syms.first())
+                                            .and_then(|n| n["id"].as_str().map(|s| s.to_string()));
+                                        if let Some(ref target_nid) = target_node_id {
+                                            let target_sym_id = target_nid
+                                                .strip_prefix("symbol:")
+                                                .unwrap_or(target_nid)
+                                                .to_string();
+                                            let source_sym_id = caller_id.clone();
+                                            let edge = json!({
+                                                "id": format!(
+                                                    "{}::tsjs_delta_call::{}::{}",
+                                                    rel_path, line_num, callee_name
+                                                ),
+                                                "type": "CALLS",
+                                                "source": format!("symbol:{}", source_sym_id),
+                                                "target": format!("symbol:{}", target_sym_id),
+                                                "properties": {
+                                                    "calleeName": callee_name,
+                                                    "callKind": "tsjs-member-or-call",
+                                                    "confidence": 0.55,
+                                                    "reason": "tsjs_delta_call_extracted_from_modified_file",
+                                                    "sourcePath": rel_path,
+                                                    "lineStart": line_num,
+                                                    "evidenceSource": "fresh_delta",
+                                                }
+                                            });
+                                            let source_key = format!("symbol:{}", source_sym_id);
+                                            entry
+                                                .graph_view
+                                                .outgoing
+                                                .entry(source_key)
+                                                .or_default()
+                                                .push(edge.clone());
+                                            let target_key = format!("symbol:{}", target_sym_id);
+                                            entry
+                                                .graph_view
+                                                .incoming
+                                                .entry(target_key)
+                                                .or_default()
+                                                .push(edge);
+                                            delta_call_count += 1;
+                                        }
+                                    }
+                                    pos += 1;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 let freshness = if delta_symbol_count > 0 || delta_call_count > 0 {
@@ -3651,12 +3782,12 @@ impl McpCache {
                 let files_to_extract: Vec<String> = match &file_stale_reason {
                     Some(StaleReason::FileAdded(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs"))
+                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
                         .cloned()
                         .collect(),
                     Some(StaleReason::FileModified(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs"))
+                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
                         .cloned()
                         .collect(),
                     _ => Vec::new(),
@@ -3689,6 +3820,7 @@ impl McpCache {
                                 let sym_node = json!({
                                     "id": sym_node_id,
                                     "label": "symbol",
+                                    "evidenceSource": "fresh_delta",
                                     "properties": {
                                         "name": sym.name,
                                         "symbolKind": sym.symbol_kind,
@@ -4011,12 +4143,151 @@ impl McpCache {
                             }
                         }
                     }
+
+                    // TypeScript / JavaScript 最小 call-evidence（持久层）。
+                    if !delta_symbols.is_empty() {
+                        for rel_path in &files_to_extract {
+                            if !is_tsjs_path(rel_path) {
+                                continue;
+                            }
+                            let abs_path = canonical.join(rel_path);
+                            let content = match std::fs::read_to_string(&abs_path) {
+                                Ok(c) => c,
+                                Err(_) => continue,
+                            };
+                            let tsjs_callers: Vec<(String, u32, u32, String)> = delta_symbols
+                                .iter()
+                                .filter(|s| s.source_path == *rel_path)
+                                .filter(|s| {
+                                    s.symbol_kind == "function" || s.symbol_kind == "method"
+                                })
+                                .map(|s| (s.name.clone(), s.line_start, s.line_end, s.id.clone()))
+                                .collect();
+                            if tsjs_callers.is_empty() {
+                                continue;
+                            }
+                            for (line_idx, line) in content.lines().enumerate() {
+                                let line_num = (line_idx + 1) as u32;
+                                let trimmed = line.trim();
+                                if trimmed.is_empty()
+                                    || trimmed.starts_with("//")
+                                    || trimmed.starts_with("/*")
+                                    || trimmed.starts_with("*")
+                                {
+                                    continue;
+                                }
+                                let caller = tsjs_callers
+                                    .iter()
+                                    .find(|(_, ls, le, _)| line_num >= *ls && line_num <= *le);
+                                let (caller_name, caller_id) = match caller {
+                                    Some((name, _, _, id)) => (name.clone(), id.clone()),
+                                    None => continue,
+                                };
+                                let bytes = trimmed.as_bytes();
+                                let mut pos = 0;
+                                while pos < bytes.len() {
+                                    if bytes[pos] != b'(' || pos == 0 {
+                                        pos += 1;
+                                        continue;
+                                    }
+                                    let mut start = pos;
+                                    while start > 0
+                                        && (bytes[start - 1] == b'.' || bytes[start - 1] == b'?')
+                                    {
+                                        start -= 1;
+                                    }
+                                    let id_end = start;
+                                    while start > 0
+                                        && (bytes[start - 1].is_ascii_alphanumeric()
+                                            || bytes[start - 1] == b'_'
+                                            || bytes[start - 1] == b'$')
+                                    {
+                                        start -= 1;
+                                    }
+                                    if start < id_end {
+                                        let callee_name = &trimmed[start..id_end];
+                                        if [
+                                            "if", "for", "while", "switch", "catch", "return",
+                                            "typeof", "void", "delete", "new", "throw", "console",
+                                            "Math", "JSON", "Object", "Array", "Promise", "String",
+                                            "Number", "Boolean",
+                                        ]
+                                        .contains(&callee_name)
+                                            || callee_name == caller_name
+                                        {
+                                            pos += 1;
+                                            continue;
+                                        }
+                                        let callee_lower = callee_name.to_lowercase();
+                                        let target_node_id =
+                                            if let Some(entry) = self.entries.get(&key) {
+                                                entry
+                                                    .graph_view
+                                                    .symbols_by_name
+                                                    .get(&callee_lower)
+                                                    .and_then(|syms| syms.first())
+                                                    .and_then(|n| {
+                                                        n["id"].as_str().map(|s| s.to_string())
+                                                    })
+                                            } else {
+                                                None
+                                            };
+                                        if let Some(ref target_nid) = target_node_id {
+                                            let target_sym_id = target_nid
+                                                .strip_prefix("symbol:")
+                                                .unwrap_or(target_nid)
+                                                .to_string();
+                                            let source_sym_id = caller_id.clone();
+                                            let edge = json!({
+                                                "id": format!(
+                                                    "{}::tsjs_delta_call::{}::{}",
+                                                    rel_path, line_num, callee_name
+                                                ),
+                                                "type": "CALLS",
+                                                "source": format!("symbol:{}", source_sym_id),
+                                                "target": format!("symbol:{}", target_sym_id),
+                                                "properties": {
+                                                    "calleeName": callee_name,
+                                                    "callKind": "tsjs-member-or-call",
+                                                    "confidence": 0.55,
+                                                    "reason": "tsjs_delta_call_extracted_from_modified_file",
+                                                    "sourcePath": rel_path,
+                                                    "lineStart": line_num,
+                                                    "evidenceSource": "fresh_delta",
+                                                }
+                                            });
+                                            if let Some(entry) = self.entries.get_mut(&key) {
+                                                let source_key =
+                                                    format!("symbol:{}", source_sym_id);
+                                                entry
+                                                    .graph_view
+                                                    .outgoing
+                                                    .entry(source_key)
+                                                    .or_default()
+                                                    .push(edge.clone());
+                                                let target_key =
+                                                    format!("symbol:{}", target_sym_id);
+                                                entry
+                                                    .graph_view
+                                                    .incoming
+                                                    .entry(target_key)
+                                                    .or_default()
+                                                    .push(edge);
+                                            }
+                                            delta_call_count += 1;
+                                        }
+                                    }
+                                    pos += 1;
+                                }
+                            }
+                        }
+                    }
                 }
 
                 self.persistent_hits += 1;
                 self.total_hits += 1;
 
-                let freshness = if delta_symbol_count > 0 {
+                let freshness = if delta_symbol_count > 0 || delta_call_count > 0 {
                     "fresh_delta_plus_stale_baseline"
                 } else {
                     "stale_baseline"
@@ -5214,7 +5485,7 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
     let (gv, result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
 
     // 使用 GraphView::find_symbols（已建索引），避免重复扫描原始 JSON
-    let raw_matches = gv.find_symbols(query, kind_filter, limit);
+    let raw_matches = gv.find_symbols_multi_token_enabled(query, kind_filter, limit);
 
     let mut matches = Vec::new();
     for node in &raw_matches {
@@ -5300,12 +5571,24 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
             }));
         }
     }
+    let query_tokens = tokenize_for_match(query);
     let suggestions = if matches.is_empty() {
         fuzzy_symbol_suggestions(&gv, query, kind_filter, limit.min(5))
     } else {
         Vec::new()
     };
     let has_suggestions = !suggestions.is_empty();
+    let match_reason = if !matches.is_empty() {
+        if query_tokens.len() >= 2 {
+            "multi_token_all_covered"
+        } else {
+            "exact_or_substring"
+        }
+    } else if has_suggestions {
+        "no_match"
+    } else {
+        "no_match"
+    };
 
     Ok(merge_cache_and_result(
         &json!({
@@ -5313,11 +5596,13 @@ fn handle_symbol_search(cache: &mut McpCache, params: &Value) -> Result<Value, V
             "query": query,
             "matchCount": matches.len(),
             "matches": matches,
+            "queryTokens": query_tokens,
+            "matchReason": match_reason,
             "suggestions": suggestions,
             "missingEvidence": if has_suggestions {
                 json!([{
                     "kind": "no_exact_symbol_match",
-                    "reason": "No exact/substring symbol matched the query; suggestions are fuzzy name matches from the same graph."
+                    "reason": "No exact/substring symbol matched the query; suggestions are fuzzy / partial-token matches from the same graph."
                 }])
             } else {
                 json!([])
@@ -5482,6 +5767,51 @@ fn handle_export_bridge(_cache: &mut McpCache, params: &Value) -> Result<Value, 
 // ============================================================
 // v0.2 Shared Graph Query Layer
 // ============================================================
+
+/// 将输入字符串按空格/下划线/短横线/camelCase 边界拆分为 token 并转小写。
+/// 用于多词搜索的 token 覆盖匹配。
+fn tokenize_for_match(input: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut buf = String::new();
+    let chars: Vec<char> = input.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        let prev = if i == 0 {
+            None
+        } else {
+            chars.get(i - 1).copied()
+        };
+        let next = chars.get(i + 1).copied();
+        let is_sep = matches!(
+            c,
+            ' ' | '\t' | '\n' | '\r' | '_' | '-' | ':' | '.' | '/' | '\\'
+        );
+        let camel_split =
+            c.is_ascii_uppercase() && prev.map(|p| p.is_ascii_lowercase()).unwrap_or(false);
+        let acronym_split = c.is_ascii_uppercase()
+            && prev.map(|p| p.is_ascii_uppercase()).unwrap_or(false)
+            && next.map(|n| n.is_ascii_lowercase()).unwrap_or(false);
+        if is_sep || camel_split || acronym_split {
+            if !buf.is_empty() {
+                out.push(std::mem::take(&mut buf).to_lowercase());
+            }
+            continue;
+        }
+        buf.push(c);
+    }
+    if !buf.is_empty() {
+        out.push(buf.to_lowercase());
+    }
+    out.retain(|t| t.len() >= 2);
+    out
+}
+
+/// 判断文件路径是否为 TypeScript / JavaScript 源文件
+fn is_tsjs_path(path: &str) -> bool {
+    path.ends_with(".ts")
+        || path.ends_with(".tsx")
+        || path.ends_with(".js")
+        || path.ends_with(".jsx")
+}
 
 /// Serializable query index persisted alongside full analyze JSON.
 /// This lets a new MCP session skip rebuilding GraphView from large JSON when
@@ -5670,7 +6000,29 @@ impl GraphView {
 
     /// Find symbols by name (case-insensitive substring match).
     /// Returns matching nodes, optionally filtered by kind.
+    ///
+    /// 多词查询支持：空格/下划线/短横线/camelCase 边界拆分为 token，
+    /// 全部 token 命中时返回高置信 matches，部分命中降级为 suggestions。
     fn find_symbols(&self, query: &str, kind: Option<&str>, limit: usize) -> Vec<Value> {
+        self.find_symbols_inner(query, kind, limit, false)
+    }
+
+    fn find_symbols_multi_token_enabled(
+        &self,
+        query: &str,
+        kind: Option<&str>,
+        limit: usize,
+    ) -> Vec<Value> {
+        self.find_symbols_inner(query, kind, limit, true)
+    }
+
+    fn find_symbols_inner(
+        &self,
+        query: &str,
+        kind: Option<&str>,
+        limit: usize,
+        multi_token: bool,
+    ) -> Vec<Value> {
         let query = query.trim();
         if query.is_empty() || limit == 0 {
             return Vec::new();
@@ -5734,6 +6086,23 @@ impl GraphView {
             .trim_end_matches("()")
             .trim_end_matches('(')
             .to_lowercase();
+
+        // 多词 all-token 覆盖路径：拆分 query 为 token，
+        // 要求每个 token 都命中 name/id/file/modulePath 才算 match。
+        // 跳过含 :: 或 . 的 qualified path 查询，交给专用路径处理。
+        let query_tokens = tokenize_for_match(query);
+        if multi_token
+            && query_tokens.len() >= 2
+            && !query_lower.contains("::")
+            && !query_lower.contains('.')
+        {
+            let multi =
+                self.find_symbols_multi_token(&query_tokens, &kind_matches, &is_symbol_like, limit);
+            if !multi.is_empty() {
+                return multi;
+            }
+        }
+
         let mut results = Vec::new();
 
         // Natural AI/user queries often use Rust/C++ style `Type::method`,
@@ -5828,6 +6197,97 @@ impl GraphView {
         }
 
         results
+    }
+
+    /// 多词 all-token 覆盖搜索。
+    /// 将 query_tokens 逐个与每个 symbol 的 (name, file, id, modulePath) 比较，
+    /// 全部命中时返回 match，按命中 token 数 + 名称长度排序。
+    fn find_symbols_multi_token(
+        &self,
+        query_tokens: &[String],
+        kind_matches: &dyn Fn(&Value) -> bool,
+        is_symbol_like: &dyn Fn(&Value) -> bool,
+        limit: usize,
+    ) -> Vec<Value> {
+        if query_tokens.is_empty() || limit == 0 {
+            return Vec::new();
+        }
+        let token_count = query_tokens.len();
+        let mut scored: Vec<(usize, usize, Value)> = Vec::new();
+        for (name_lower, nodes) in &self.symbols_by_name {
+            for node in nodes {
+                if !kind_matches(node) || !is_symbol_like(node) {
+                    continue;
+                }
+                if scored.len() >= limit * 3 {
+                    break;
+                }
+                let id = node["id"].as_str().unwrap_or("").to_lowercase();
+                let file = node["properties"]["sourcePath"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_lowercase();
+                let module_path = node["properties"]["modulePath"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_lowercase();
+                let haystack = format!("{name_lower} {id} {file} {module_path}");
+                let mut hits = 0;
+                for qt in query_tokens {
+                    if haystack.contains(qt) {
+                        hits += 1;
+                    }
+                }
+                if hits == token_count {
+                    scored.push((hits, name_lower.len(), node.clone()));
+                }
+            }
+        }
+        // 全覆盖不够时加入部分覆盖（>= ceil(token_count/2)）
+        if scored.len() < limit {
+            for (name_lower, nodes) in &self.symbols_by_name {
+                for node in nodes {
+                    if !kind_matches(node) || !is_symbol_like(node) {
+                        continue;
+                    }
+                    if scored.len() >= limit * 3 {
+                        break;
+                    }
+                    let already = scored.iter().any(|(_, _, n)| n["id"] == node["id"]);
+                    if already {
+                        continue;
+                    }
+                    let id = node["id"].as_str().unwrap_or("").to_lowercase();
+                    let file = node["properties"]["sourcePath"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let module_path = node["properties"]["modulePath"]
+                        .as_str()
+                        .unwrap_or("")
+                        .to_lowercase();
+                    let haystack = format!("{name_lower} {id} {file} {module_path}");
+                    let mut hits = 0;
+                    for qt in query_tokens {
+                        if haystack.contains(qt) {
+                            hits += 1;
+                        }
+                    }
+                    if hits > 0 && hits >= (token_count + 1) / 2 && hits < token_count {
+                        scored.push((hits, name_lower.len(), node.clone()));
+                    }
+                }
+            }
+        }
+        scored.sort_by(|a, b| {
+            b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)).then_with(|| {
+                a.2["id"]
+                    .as_str()
+                    .unwrap_or("")
+                    .cmp(b.2["id"].as_str().unwrap_or(""))
+            })
+        });
+        scored.into_iter().take(limit).map(|(_, _, n)| n).collect()
     }
 
     /// Get edges from a node, optionally filtered by edge type
@@ -23357,19 +23817,35 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
 
         let mut score: f64 = 0.0;
         let mut reasons: Vec<String> = Vec::new();
+        let mut token_hits: usize = 0;
 
+        // query token 覆盖率评分：每个 term 命中 name/file/id 都加分
         for term in &terms {
+            let mut term_hit = false;
             if name_lower.contains(term) {
-                score += 6.0;
+                score += 8.0;
+                term_hit = true;
                 reasons.push(format!("symbol name matches '{term}'"));
             }
             if file_lower.contains(term) {
-                score += 3.0;
+                score += 4.0;
+                term_hit = true;
                 reasons.push(format!("file path matches '{term}'"));
             }
             if id_lower.contains(term) {
-                score += 1.5;
+                score += 2.0;
+                term_hit = true;
             }
+            if term_hit {
+                token_hits += 1;
+            }
+        }
+
+        // 全 token 覆盖奖励
+        let query_token_count = terms.len();
+        if query_token_count > 0 && token_hits == query_token_count {
+            score += 5.0;
+            reasons.push("all query tokens covered".to_string());
         }
 
         if !changed_path.is_empty() {
@@ -23393,10 +23869,32 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
         if fan_out > 0 {
             score += (fan_out as f64).min(8.0) * 0.25;
         }
+        // diagnostics nearby 封顶为辅助信号，不能超过 4.0
         let diag_count = gv.diagnostics_for(id).len();
         if diag_count > 0 {
-            score += diag_count as f64;
-            reasons.push(format!("{diag_count} diagnostic(s) nearby"));
+            let diag_contrib = (diag_count as f64).min(4.0);
+            score += diag_contrib;
+            if diag_count as f64 > 4.0 {
+                reasons.push(format!(
+                    "{diag_count} diagnostic(s) nearby (capped contribution)"
+                ));
+            } else {
+                reasons.push(format!("{diag_count} diagnostic(s) nearby"));
+            }
+        }
+
+        // generic diagnostic/helper/test 文件降权
+        let is_diagnostic_file = file_lower.contains("diagnostic")
+            || file_lower.contains("diagnostics_helper")
+            || file_lower.contains("diagnostic_util");
+        let query_mentions_diagnostics = terms
+            .iter()
+            .any(|t| t.contains("diagnostic") || t.contains("helper") || t.contains("test"));
+        if is_diagnostic_file && !query_mentions_diagnostics {
+            score *= 0.3;
+            reasons.push(
+                "diagnostic/helper file demoted (query does not mention diagnostics)".to_string(),
+            );
         }
 
         if score <= 0.0 {

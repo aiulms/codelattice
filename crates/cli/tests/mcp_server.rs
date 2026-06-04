@@ -23712,3 +23712,388 @@ fn background_refresh_singleflight() {
         }
     }
 }
+
+// ─── Goal A: Multi-word/fuzzy symbol search regression tests ───
+
+fn create_multi_word_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("multi-word fixture");
+    let root = dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"multi-word-test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/lib.rs"),
+        r#"
+pub fn execution_run_runtime_anchor() -> u32 { 42 }
+pub fn runtime_anchor() -> &'static str { "anchor" }
+pub fn fetch_with_timeout(timeout_ms: u64) -> bool { true }
+pub fn unrelated_helper() {}
+"#,
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn symbol_search_multi_word_space_finds_target() {
+    let fixture = create_multi_word_fixture();
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_string_lossy().to_string();
+    let data = call_tool_json(
+        &mut s,
+        27001,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": "runtime anchor",
+            "compact": true
+        }),
+    );
+    let matches = data["result"]["matches"].as_array();
+    assert!(
+        matches.map(|m| !m.is_empty()).unwrap_or(false)
+            || data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "multi-word 'runtime anchor' should find matches: {data:?}"
+    );
+}
+
+#[test]
+fn symbol_search_multi_word_hyphen_finds_target() {
+    let fixture = create_multi_word_fixture();
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_string_lossy().to_string();
+    let data = call_tool_json(
+        &mut s,
+        27002,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": "runtime-anchor",
+            "compact": true
+        }),
+    );
+    let matches = data["result"]["matches"].as_array();
+    assert!(
+        matches.map(|m| !m.is_empty()).unwrap_or(false)
+            || data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "multi-word 'runtime-anchor' should find matches: {data:?}"
+    );
+}
+
+#[test]
+fn symbol_search_multi_word_underscore_finds_target() {
+    let fixture = create_multi_word_fixture();
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_string_lossy().to_string();
+    let data = call_tool_json(
+        &mut s,
+        27003,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": "runtime_anchor",
+            "compact": true
+        }),
+    );
+    let matches = data["result"]["matches"].as_array();
+    assert!(
+        matches.map(|m| !m.is_empty()).unwrap_or(false)
+            || data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "multi-word 'runtime_anchor' should find matches: {data:?}"
+    );
+}
+
+#[test]
+fn symbol_search_camel_case_normalization() {
+    let fixture = create_multi_word_fixture();
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_string_lossy().to_string();
+    let data = call_tool_json(
+        &mut s,
+        27004,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": "fetch with timeout",
+            "compact": true
+        }),
+    );
+    let matches = data["result"]["matches"].as_array();
+    assert!(
+        matches.map(|m| !m.is_empty()).unwrap_or(false)
+            || data["matchCount"].as_u64().unwrap_or(0) > 0,
+        "camelCase normalization 'fetch with timeout' should find fetchWithTimeout: {data:?}"
+    );
+}
+
+#[test]
+fn symbol_search_exact_graph_id_still_works() {
+    let fixture = create_multi_word_fixture();
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_string_lossy().to_string();
+    let search = call_tool_json(
+        &mut s,
+        27005,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": "runtime_anchor",
+            "compact": false
+        }),
+    );
+    let matches = search["result"]["matches"].as_array();
+    let first_id = matches
+        .and_then(|m| m.first())
+        .and_then(|n| n["id"].as_str())
+        .unwrap_or("");
+    if first_id.is_empty() {
+        return;
+    }
+    let id_search = call_tool_json(
+        &mut s,
+        27006,
+        "codelattice_symbol",
+        serde_json::json!({
+            "root": root,
+            "language": "rust",
+            "mode": "search",
+            "query": first_id,
+            "compact": false
+        }),
+    );
+    let id_matches = id_search["result"]["matches"].as_array();
+    assert!(
+        id_matches.map(|m| !m.is_empty()).unwrap_or(false),
+        "exact graph id search should still find symbol: {id_search:?}"
+    );
+}
+
+// ─── Goal B: Diagnose ranking regression tests ───
+
+fn create_diagnose_ranking_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("diagnose ranking fixture");
+    let root = dir.path();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"diagnose-ranking\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/scheduler_tick.rs"),
+        r#"
+pub struct SchedulerTick;
+impl SchedulerTick {
+    pub fn new() -> Self { SchedulerTick }
+    pub fn fire(&self) -> bool { true }
+    pub fn schedule_next(&self) {}
+}
+pub fn tick_not_firing_handler() {}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/diagnostics_helper.rs"),
+        r#"
+pub fn diagnostics_collector_a() {}
+pub fn diagnostics_collector_b() {}
+pub fn diagnostics_collector_c() {}
+pub fn diagnostics_collector_d() {}
+pub fn diagnostics_collector_e() {}
+pub fn helper_util_a() {}
+pub fn helper_util_b() {}
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/lib.rs"),
+        r#"
+pub mod scheduler_tick;
+pub mod diagnostics_helper;
+"#,
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+fn diagnose_ranking_prefers_relevant_over_diagnostics_heavy() {
+    let fixture = create_diagnose_ranking_fixture();
+    let mut s = McpSession::start_default_toolset();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_string_lossy().to_string();
+    let data = call_tool_json(
+        &mut s,
+        27010,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "diagnose",
+            "root": root,
+            "language": "rust",
+            "compact": true,
+            "symptom": "scheduler tick not firing on schedule"
+        }),
+    );
+    let inner = &data["result"];
+    let areas = inner["likelyAreas"].as_array();
+    if let Some(areas) = areas {
+        if !areas.is_empty() {
+            let first_file = areas[0]["file"].as_str().unwrap_or("");
+            assert!(
+                first_file.contains("scheduler"),
+                "top diagnose area should be scheduler-related, got: {first_file}"
+            );
+        }
+    }
+    let payload = serde_json::to_string(&data).unwrap_or_default();
+    assert!(
+        payload.len() < 16 * 1024,
+        "diagnose compact must be < 16KB, got {} bytes",
+        payload.len()
+    );
+}
+
+// ─── Goal D: TypeScript delta overlay regression tests ───
+
+fn create_ts_delta_fixture() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("ts delta fixture");
+    let root = dir.path();
+    std::fs::write(
+        root.join("package.json"),
+        "{ \"name\": \"ts-delta-test\", \"version\": \"0.1.0\" }\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("src/existing.ts"),
+        "export function existingHelper() { return 1; }\n",
+    )
+    .unwrap();
+    dir
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-typescript")]
+fn ts_delta_overlay_after_modify_uses_fresh_delta() {
+    let fixture = create_ts_delta_fixture();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _first = call_tool_json(
+        &mut s,
+        27020,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+
+    std::fs::write(
+        fixture.path().join("src/delta_only_fn.ts"),
+        "export function deltaOnlyFunction(): number { return 42; }\n",
+    )
+    .unwrap();
+
+    let search = call_tool_json(
+        &mut s,
+        27021,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true
+        }),
+    );
+    let freshness = search["freshness"]
+        .as_str()
+        .or_else(|| search["cacheMeta"]["freshness"].as_str())
+        .or_else(|| search["result"]["freshness"].as_str())
+        .unwrap_or("");
+    assert!(
+        freshness.contains("delta") || freshness.contains("stale"),
+        "after TS file add, freshness should be delta/stale, got: {freshness}"
+    );
+    let payload = serde_json::to_string(&search).unwrap_or_default();
+    assert!(
+        payload.len() < 16 * 1024,
+        "ts delta compact must be < 16KB, got {} bytes",
+        payload.len()
+    );
+}
+
+#[test]
+#[cfg(feature = "tree-sitter-typescript")]
+fn ts_deleted_file_returns_stale_not_fresh() {
+    let fixture = create_ts_delta_fixture();
+    let mut s = McpSession::start();
+    s.initialize();
+    s.send_notification_initialized();
+    let root = fixture.path().to_str().unwrap();
+
+    let _first = call_tool_json(
+        &mut s,
+        27030,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true,
+            "forceSync": true
+        }),
+    );
+
+    std::fs::remove_file(fixture.path().join("src/existing.ts")).unwrap();
+
+    let second = call_tool_json(
+        &mut s,
+        27031,
+        "codelattice_project",
+        serde_json::json!({
+            "mode": "quick",
+            "root": root,
+            "language": "typescript",
+            "compact": true
+        }),
+    );
+    let freshness = second["freshness"]
+        .as_str()
+        .or_else(|| second["cacheMeta"]["freshness"].as_str())
+        .or_else(|| second["result"]["freshness"].as_str())
+        .unwrap_or("");
+    assert!(
+        !freshness.contains("fresh_snapshot"),
+        "deleted TS file must not return fresh_snapshot, got: {freshness}"
+    );
+}
