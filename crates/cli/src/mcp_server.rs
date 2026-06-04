@@ -5790,11 +5790,17 @@ fn tokenize_for_match(input: &str) -> Vec<String> {
         let acronym_split = c.is_ascii_uppercase()
             && prev.map(|p| p.is_ascii_uppercase()).unwrap_or(false)
             && next.map(|n| n.is_ascii_lowercase()).unwrap_or(false);
-        if is_sep || camel_split || acronym_split {
+        if is_sep {
             if !buf.is_empty() {
                 out.push(std::mem::take(&mut buf).to_lowercase());
             }
             continue;
+        }
+        if camel_split || acronym_split {
+            if !buf.is_empty() {
+                out.push(std::mem::take(&mut buf).to_lowercase());
+            }
+            // camelCase / acronym 边界：大写字母属于下一个 token，不跳过
         }
         buf.push(c);
     }
