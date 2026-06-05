@@ -1,8 +1,8 @@
 # CodeLattice Smoke Matrix
 
 > **Platform**: macOS (`darwin-arm64`), Apple Silicon
-> **Date**: 2026-05-22
-> **Version**: 0.16.0-beta.1 release candidate on master
+> **Date**: 2026-06-05
+> **Version**: 0.17.0-beta.1 release candidate on master
 > **Rust**: stable (via `rustc`)
 
 ## Feature Combinations
@@ -131,4 +131,4 @@ Recorded on 2026-05-16 before release docs/package edits:
 | `scripts/codelattice-mcp.sh --self-test` | ✅ 49 full tools, all language flags true |
 | `scripts/mcp-dogfood.sh` | ✅ 49-tool full profile smoke |
 
-`v0.16.0-beta.1` is the current release target and includes JavaScript, Shell, default six-tool AI MCP surface, workspace intelligence, and native change review.
+`v0.17.0-beta.1` is the current release target and includes JavaScript, Shell, default six-tool AI MCP surface, workspace intelligence, and native change review.

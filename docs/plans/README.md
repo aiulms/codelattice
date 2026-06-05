@@ -1,6 +1,6 @@
 # CodeLattice Plans Index
 
-最后更新：2026-05-24（AI Progressive Exploration Pack）
+最后更新：2026-06-05（CodeLattice 0.17.0-beta.1 Release Refresh）
 
 ## 用途
 
@@ -18,6 +18,14 @@
 - [GitNexus-RC GOVERNANCE](https://gitcode.com/aiulms/gitnexus-rc) (`docs/language-support/GOVERNANCE.md`)
 
 ## 当前状态总结
+
+**CodeLattice 0.17.0-beta.1 Release Refresh（2026-06-05，已完成）：**
+- 📝 [2026-06-05-release-0.17.0-beta.1-preflight.md](2026-06-05-release-0.17.0-beta.1-preflight.md) — 刷新 beta 发行版到 `0.17.0-beta.1`，覆盖 MCP AI usability、workflow ask、compact payload、job wait 和 TS delta 相关发布元数据。
+- ✅ [2026-06-05-release-0.17.0-beta.1-closure.md](2026-06-05-release-0.17.0-beta.1-closure.md) — closure：版本、CHANGELOG、release notes、安装/包装/平台文档和 installer 默认值已更新；未同步 CodeLattice-Tool，未创建 tag。
+
+**CodeLattice 0.17.0-beta.1 Release Refresh（2026-06-05，已完成）：**
+- 📝 [2026-06-05-release-0.17.0-beta.1-preflight.md](2026-06-05-release-0.17.0-beta.1-preflight.md) — 刷新 beta 发行版到 `0.17.0-beta.1`，覆盖 MCP AI usability、workflow orchestration、compact payload、job wait 和 delta-analysis hardening。
+- ✅ [2026-06-05-release-0.17.0-beta.1-closure.md](2026-06-05-release-0.17.0-beta.1-closure.md) — closure：发布元数据、安装文档、release notes、installer 默认版本和 release smoke matrix 已更新；未同步 CodeLattice-Tool，未创建 tag。
 
 **AI Progressive Exploration Pack（2026-05-24，已完成）：**
 - 📝 [2026-05-24-ai-progressive-exploration-pack-preflight.md](2026-05-24-ai-progressive-exploration-pack-preflight.md) — 让 AI 默认从 quick/standard/deep 渐进式理解项目，避免首次调用就收到大块静态分析 dump。

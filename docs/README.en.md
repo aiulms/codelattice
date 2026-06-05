@@ -4,7 +4,7 @@
 
 CodeLattice is a Rust-native local code graph analysis core for AI coding tools, code review, and engineering quality workflows. It analyzes source code locally, extracts symbols, resolves call relationships, produces structured graph output, runs quality gates, and exposes the result through CLI and MCP sidecar tools.
 
-Current release status: **External Beta (`v0.16.0-beta.1`)**. Rust and Cangjie are stable language lines; ArkTS / HarmonyOS is in production trial; TypeScript, JavaScript, C, C++, Python, and Shell are included in the hardened beta artifact.
+Current release status: **External Beta (`v0.17.0-beta.1`)**. Rust and Cangjie are stable language lines; ArkTS / HarmonyOS is in production trial; TypeScript, JavaScript, C, C++, Python, and Shell are included in the hardened beta artifact.
 
 ## What It Does
 
@@ -67,7 +67,7 @@ export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
 tmp_dir="$(mktemp -d /tmp/codelattice-install-XXXXXX)"
 git clone --depth 1 https://gitcode.com/aiulms/codelattice.git "$tmp_dir"
 bash "$tmp_dir/scripts/install-release.sh" \
-  --version v0.16.0-beta.1 \
+  --version v0.17.0-beta.1 \
   --install-dir "$CODELATTICE_TOOL_DIR"
 "$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
 ```

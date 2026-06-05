@@ -1523,7 +1523,7 @@ struct CacheEntry {
 const CACHE_MAX_ENTRIES: usize = 16;
 
 /// CodeLattice binary version, embedded in fingerprint for cross-version safety.
-const CODELATTICE_CACHE_VERSION: &str = "0.16.0-beta.1";
+const CODELATTICE_CACHE_VERSION: &str = "0.17.0-beta.1";
 
 /// 构建可写入 McpCache 的完整图谱缓存条目。
 ///
@@ -18775,7 +18775,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "codelattice",
-                        "version": "0.16.0-beta.1",
+                        "version": "0.17.0-beta.1",
                         "cangjieSupport": cangjie_support,
                         "arktsSupport": arkts_support,
                         "typescriptSupport": typescript_support,

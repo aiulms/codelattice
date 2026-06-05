@@ -51,7 +51,7 @@ bash scripts/webui-snapshot.sh --root . --language rust --output -
 {
   "schemaVersion": "webui.snapshot.v1",
   "generatedAt": "2026-05-16T23:00:00+08:00",
-  "generatorVersion": "0.16.0-beta.1",
+  "generatorVersion": "0.17.0-beta.1",
   "root": "<project-root>",
   "language": "rust",
   "generatedFrom": {
@@ -686,7 +686,7 @@ Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
 {
   "schemaVersion": "webui.snapshot.v1",
   "generatedAt": "2026-05-16T23:00:00+08:00",
-  "generatorVersion": "0.16.0-beta.1",
+  "generatorVersion": "0.17.0-beta.1",
   "root": "<fixture-root>",
   "language": "rust",
   "generatedFrom": {
@@ -757,7 +757,7 @@ Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
 {
   "schemaVersion": "webui.snapshot.v1",
   "generatedAt": "2026-05-16T23:00:00+08:00",
-  "generatorVersion": "0.16.0-beta.1",
+  "generatorVersion": "0.17.0-beta.1",
   "root": "<project-root>",
   "language": "rust",
   "generatedFrom": {

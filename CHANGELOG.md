@@ -6,6 +6,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+## [0.17.0-beta.1] - 2026-06-05
+
 ### Fixed
 
 - **MCP facade auto-language/cache ergonomics**: `codelattice_project`, `codelattice_symbol`, and `codelattice_change_review` now resolve `language=auto` to the detected concrete language for single-project roots before probing cache, submitting jobs, or wrapping facade output. `codelattice_symbol(mode=search)` now uses the shared `McpCache` instead of running a separate analyze subprocess, so a prior `project quick` analysis can be reused by symbol search. Compact project quick digests now keep concise `priorityBand` / `riskNote` fields instead of repeating verbose `riskCalibration` and `riskScoreInterpretation` on every top risk.
