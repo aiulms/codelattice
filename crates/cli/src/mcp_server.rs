@@ -30009,7 +30009,7 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                     }).collect();
                 }
             }
-            // 6. Trim investigationPlan to a brief string if large
+            // 6. Compact investigationPlan: keep structured skeleton with refs, drop heavy inline arrays
             if let Some(ip) = obj.get_mut("investigationPlan") {
                 if let Some(s) = ip.as_str() {
                     if s.len() > 200 {
@@ -30020,23 +30020,57 @@ fn handle_workflow(cache: &mut McpCache, params: &Value) -> Result<Value, Value>
                         ));
                     }
                 } else if let Some(obj_ip) = ip.as_object_mut() {
-                    // If it's a JSON object, replace with a compact string hint
-                    *ip = json!("[investigationPlan object omitted in compact mode; use compact=false for full plan]");
+                    // Keep mode, status, schemaVersion, readFirst (trimmed), nextToolCalls (trimmed)
+                    // Replace heavy arrays with $ref pointers to top-level fields
+                    obj_ip.remove("evidenceFound");
+                    obj_ip.insert("evidenceFoundRef".to_string(), json!("#/evidenceFound"));
+                    obj_ip.remove("evidenceMissing");
+                    obj_ip.insert("evidenceMissingRef".to_string(), json!("#/evidenceMissing"));
+                    obj_ip.remove("humanVerificationNeeded");
+                    obj_ip.insert(
+                        "humanVerificationNeededRef".to_string(),
+                        json!("#/humanVerificationNeeded"),
+                    );
+                    // Trim hypotheses to max 3 items (keep for AI decision-making)
+                    if let Some(hyps) = obj_ip.get_mut("hypotheses") {
+                        if let Some(arr) = hyps.as_array_mut() {
+                            arr.truncate(3);
+                        }
+                    }
+                    // Trim readFirst to max 3 items
+                    if let Some(rf) = obj_ip.get_mut("readFirst") {
+                        if let Some(arr) = rf.as_array_mut() {
+                            arr.truncate(3);
+                        }
+                    }
+                    // Trim nextToolCalls to max 2 items
+                    if let Some(ntc) = obj_ip.get_mut("nextToolCalls") {
+                        if let Some(arr) = ntc.as_array_mut() {
+                            arr.truncate(2);
+                        }
+                    }
+                    obj_ip.insert("dedupePolicy".to_string(), json!("compact workflow responses keep evidence arrays at top level and use refs inside investigationPlan"));
                 }
             }
-            // 7. Trim aiDecisionTrace to a brief string if large
+            // 7. Compact aiDecisionTrace: keep as array but truncate if large
             if let Some(adt) = obj.get_mut("aiDecisionTrace") {
-                if let Some(s) = adt.as_str() {
-                    if s.len() > 200 {
-                        *adt = json!(format!(
-                            "{}… [truncated, {} chars total]",
-                            &s[..200],
-                            s.len()
-                        ));
-                    }
-                } else if let Some(obj_adt) = adt.as_object_mut() {
-                    *adt = json!("[aiDecisionTrace object omitted in compact mode; use compact=false for full trace]");
+                if let Some(arr) = adt.as_array_mut() {
+                    arr.truncate(6);
                 }
+            }
+            // 8. Remove rootRouter when no routing happened (saves ~300 bytes)
+            if let Some(rr) = obj.get("rootRouter") {
+                if rr.get("routed").and_then(|v| v.as_bool()).unwrap_or(false) == false {
+                    obj.remove("rootRouter");
+                }
+            }
+            // 9. Remove explorationPlan if null (saves key+null overhead)
+            if obj
+                .get("explorationPlan")
+                .map(|v| v.is_null())
+                .unwrap_or(false)
+            {
+                obj.remove("explorationPlan");
             }
             obj.insert("compactSemantics".to_string(), compact_semantics(true));
             obj.insert(
