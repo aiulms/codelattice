@@ -1,10 +1,16 @@
 # CodeLattice English Reference
 
+[![zread](https://img.shields.io/badge/Ask_Zread-_.svg?style=flat&color=00b0aa&labelColor=000000&logo=data%3Aimage%2Fsvg%2Bxml%3Bbase64%2CPHN2ZyB3aWR0aD0iMTYiIGhlaWdodD0iMTYiIHZpZXdCb3g9IjAgMCAxNiAxNiIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHBhdGggZD0iTTQuOTYxNTYgMS42MDAxSDIuMjQxNTZDMS44ODgxIDEuNjAwMSAxLjYwMTU2IDEuODg2NjQgMS42MDE1NiAyLjI0MDFWNC45NjAxQzEuNjAxNTYgNS4zMTM1NiAxLjg4ODEgNS42MDAxIDIuMjQxNTYgNS42MDAxSDQuOTYxNTZDNS4zMTUwMiA1LjYwMDEgNS42MDE1NiA1LjMxMzU2IDUuNjAxNTYgNC45NjAxVjIuMjQwMUM1LjYwMTU2IDEuODg2NjQgNS4zMTUwMiAxLjYwMDEgNC45NjE1NiAxLjYwMDFaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00Ljk2MTU2IDEwLjM5OTlIMi4yNDE1NkMxLjg4ODEgMTAuMzk5OSAxLjYwMTU2IDEwLjY4NjQgMS42MDE1NiAxMS4wMzk5VjEzLjc1OTlDMS42MDE1NiAxNC4xMTM0IDEuODg4MSAxNC4zOTk5IDIuMjQxNTYgMTQuMzk5OUg0Ljk2MTU2QzUuMzE1MDIgMTQuMzk5OSA1LjYwMTU2IDE0LjExMzQgNS42MDE1NiAxMy43NTk5VjExLjAzOTlDNS42MDE1NiAxMC42ODY0IDUuMzE1MDIgMTAuMzk5OSA0Ljk2MTU2IDEwLjM5OTlaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik0xMy43NTg0IDEuNjAwMUgxMS4wMzg0QzEwLjY4NSAxLjYwMDEgMTAuMzk4NCAxLjg4NjY0IDEwLjM5ODQgMi4yNDAxVjQuOTYwMUMxMC4zOTg0IDUuMzEzNTYgMTAuNjg1IDUuNjAwMSAxMS4wMzg0IDUuNjAwMUgxMy43NTg0QzE0LjExMTkgNS42MDAxIDE0LjM5ODQgNS4zMTM1NiAxNC4zOTg0IDQuOTYwMVYyLjI0MDFDMTQuMzk4NCAxLjg4NjY0IDE0LjExMTkgMS42MDAxIDEzLjc1ODQgMS42MDAxWiIgZmlsbD0iI2ZmZiIvPgo8cGF0aCBkPSJNNCAxMkwxMiA0TDQgMTJaIiBmaWxsPSIjZmZmIi8%2BCjxwYXRoIGQ9Ik00IDEyTDEyIDQiIHN0cm9rZT0iI2ZmZiIgc3Ryb2tlLXdpZHRoPSIxLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K&logoColor=ffffff)](https://zread.ai/aiulms/codelattice)
+
 > The Chinese [README](../README.md) is the authoritative project introduction. This English page is a reference for external beta users and downstream integrators.
 
-CodeLattice is a Rust-native local code graph analysis core for AI coding tools, code review, and engineering quality workflows. It analyzes source code locally, extracts symbols, resolves call relationships, produces structured graph output, runs quality gates, and exposes the result through CLI and MCP sidecar tools.
+CodeLattice is a local code graph engine for **AI coding workflows**. It uses static analysis to turn large repositories into queryable, repeatable, auditable context: project structure, symbols, call relationships, dependency boundaries, quality signals, and change impact areas that AI assistants and developers can inspect before editing code.
 
-Current release status: **External Beta (`v0.17.0-beta.1`)**. Rust and Cangjie are stable language lines; ArkTS / HarmonyOS is in production trial; TypeScript, JavaScript, C, C++, Python, and Shell are included in the hardened beta artifact.
+It is designed for onboarding into unfamiliar repositories, maintaining legacy codebases, reviewing risky changes, and giving local AI tools such as Codex, Claude Desktop, and opencode an MCP sidecar. CodeLattice scans source code read-only by default, does not upload project code, and does not execute target project build scripts. Results are available through the CLI, JSON output, and MCP tools.
+
+Short version: **let AI read the code map before it edits the code.**
+
+Current release status: **External Beta / daily-use candidate (`v0.17.0-beta.1`)**. The default MCP `ai` toolset exposes 6 facade-first tools for AI agents; `full` mode keeps the 49-tool debug and regression surface. Rust and Cangjie are stable language lines; ArkTS / HarmonyOS is in production trial; TypeScript, JavaScript, C, C++, Python, and Shell are included in the hardened beta artifact.
 
 ## What It Does
 
@@ -13,7 +19,8 @@ Current release status: **External Beta (`v0.17.0-beta.1`)**. Rust and Cangjie a
 - Resolves same-module, cross-file, import-binding, conservative associated-function, and limited receiver-method calls.
 - Emits repository / package / source file / symbol / diagnostic graph nodes and relationship edges.
 - Runs graph quality gates such as dangling-edge, duplicate, statistics consistency, stdout JSON purity, and deterministic-output checks.
-- Provides 24 MCP tools for project overview, symbol context, call queries, impact preview, changed-symbol detection, production assist, review planning, and cache management.
+- Provides an AI-friendly 6-tool MCP default surface for workflow routing, project insight, symbol search/context, change review, workspace analysis, and cache control.
+- Keeps a 49-tool `full` MCP surface for debugging, regression coverage, and lower-level graph queries.
 
 ## Why Rust
 
@@ -82,9 +89,11 @@ Linux and openEuler users should currently follow the source-build path document
 | Cangjie / 仓颉 | Stable |
 | ArkTS / HarmonyOS | Production Trial |
 | TypeScript | Beta Hardened |
+| JavaScript | Phase A Hardened |
 | C | Phase A Hardened |
 | C++ | Phase A Hardened |
 | Python | Phase A Hardened |
+| Shell | Phase A Hardened |
 
 ## Safety Model
 
