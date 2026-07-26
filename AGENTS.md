@@ -1,7 +1,7 @@
-<!-- version: 1.3.0 -->
-<!-- Last updated: 2026-05-20 -->
+<!-- version: 1.3.1 -->
+<!-- Last updated: 2026-07-26 -->
 
-Last reviewed: 2026-05-20
+Last reviewed: 2026-07-26
 
 **Project:** CodeLattice · **Environment:** dev · **Daily governance:** CodeLattice-native
 
@@ -91,11 +91,12 @@ For multi-step work：
 
 状态：**ACTIVE quality watch；不是 stop-line，但继续扩大 CALLS 方向前必须显式处理。**
 
-当前观察（2026-05-04）：
+当前观察（2026-07-26）：
 
-- `crates/project-model/src/calls.rs` 已从 2161 行拆分至 1858 行（2026-05-04 stdlib_tables 提取，-14.0%）。
-- 已提取 `stdlib_tables.rs`（311 行）：prelude type / trait method / type method 映射表 + 辅助函数。
-- Text fallback（~337 行）和 CalleeIndex/ImportBindingTable/CallerIndex（~233 行）暂留 calls.rs，待下一刀。
+- `crates/project-model/src/calls.rs` 已从 2364 行拆分至 1984 行（2026-07-26 第二刀 calls_index 提取，-16.1%）。
+- 已提取 `calls_index.rs`（466 行）：CalleeIndex / ImportBindingTable / CallerIndex 三个查询索引 + builder + impl（含新增 `set_wildcard_modules` / `wildcard_modules_for` / `ImportBindingTable::empty` 封装入口）。
+- 第一刀 `stdlib_tables.rs`（311 行）：prelude type / trait method / type method 映射表 + 辅助函数（2026-05-04）。
+- Text fallback（~376 行）暂留 calls.rs，待第三刀；它与 resolve 逻辑共享 `resolve_free_function` / `resolve_associated_function`，需单独评估共享函数的可见性提升。
 - CALLS resolution rate: 65.7%（2338/3557 on CodeLattice self-analysis，2026-05-08 Phase 2f wildcard import disambiguation 落地）。
 - 继续新增 CALLS 策略前，需再次评估是否进一步拆分。
 
@@ -132,6 +133,7 @@ scripts/codelattice-precommit-check.sh
 
 | Date | Version | Change |
 |------|---------|--------|
+| 2026-07-26 | 1.3.1 | Recorded calls.rs second extraction (calls_index.rs, 2364→1984 lines); updated CALLS quality-watch to reflect deferred text-fallback slice. |
 | 2026-05-20 | 1.3.0 | Switched daily CodeLattice governance to native `codelattice detect-changes` / `scripts/codelattice-precommit-check.sh`; legacy GitNexus Tool is fallback/comparison only. |
 | 2026-05-09 | 1.2.0 | Renamed public project identity from GitNexus Rust-core to CodeLattice; indexed repo as codelattice. |
 | 2026-05-04 | 1.1.0 | Added active bug gate for graph schema v0.2 dangling CALLS edges; refreshed CALLS/method/external stop-lines to match landed reality. |
