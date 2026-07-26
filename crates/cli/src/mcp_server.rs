@@ -135,11 +135,13 @@ use std::sync::{
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::mcp_diagnose_terms::*;
 use crate::mcp_facade::{
     attach_facade_contract, attach_facade_request_context, facade_language_runtime_capabilities,
     FacadeRequestContext,
 };
 use crate::mcp_json_helpers::*;
+use crate::mcp_node_helpers::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -916,122 +918,6 @@ fn enrich_risk_item(item: &Value, rank: usize, top_score: f64, total_items: usiz
         );
     }
     enriched
-}
-
-fn diagnose_stop_word(term: &str) -> bool {
-    matches!(
-        term,
-        "the"
-            | "and"
-            | "for"
-            | "with"
-            | "from"
-            | "that"
-            | "this"
-            | "when"
-            | "where"
-            | "before"
-            | "after"
-            | "into"
-            | "returns"
-            | "wrong"
-            | "result"
-            | "error"
-            | "failed"
-            | "fails"
-            | "failure"
-            | "issue"
-            | "problem"
-            | "bug"
-            | "panic"
-            | "null"
-            | "none"
-            | "undefined"
-    )
-}
-
-fn diagnose_terms_from_text(text: &str) -> Vec<String> {
-    let mut terms: Vec<String> = Vec::new();
-    let mut current = String::new();
-
-    for ch in text.chars() {
-        if ch.is_alphanumeric() || ch == '_' {
-            current.push(ch.to_ascii_lowercase());
-        } else if !current.is_empty() {
-            if current.len() >= 3 && !diagnose_stop_word(&current) && !terms.contains(&current) {
-                terms.push(current.clone());
-            }
-            current.clear();
-        }
-    }
-    if !current.is_empty()
-        && current.len() >= 3
-        && !diagnose_stop_word(&current)
-        && !terms.contains(&current)
-    {
-        terms.push(current);
-    }
-
-    terms
-}
-
-fn diagnose_input_text(params: &Value) -> String {
-    [
-        "symptom",
-        "errorText",
-        "query",
-        "changedPath",
-        "symbol",
-        "name",
-        "issue",
-        "observedError",
-    ]
-    .iter()
-    .filter_map(|key| params[*key].as_str())
-    .filter(|s| !s.trim().is_empty())
-    .collect::<Vec<_>>()
-    .join(" ")
-}
-
-fn node_display_name(node: &Value) -> String {
-    node["properties"]["name"]
-        .as_str()
-        .or_else(|| node["label"].as_str())
-        .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
-        .unwrap_or("unknown")
-        .to_string()
-}
-
-fn node_symbol_kind(node: &Value) -> String {
-    node["properties"]["symbolKind"]
-        .as_str()
-        .or_else(|| node["properties"]["kind"].as_str())
-        .or_else(|| node["kind"].as_str())
-        .or_else(|| node["label"].as_str())
-        .unwrap_or("symbol")
-        .to_string()
-}
-
-fn node_source_path(node: &Value) -> String {
-    node["properties"]["sourcePath"]
-        .as_str()
-        .or_else(|| node["properties"]["file"].as_str())
-        .unwrap_or("")
-        .to_string()
-}
-
-fn node_line_start(node: &Value) -> u64 {
-    node["properties"]["lineStart"]
-        .as_u64()
-        .or_else(|| node["properties"]["startLine"].as_u64())
-        .or_else(|| node["properties"]["line"].as_u64())
-        .or_else(|| {
-            node["id"]
-                .as_str()
-                .and_then(|id| id.rsplit(':').next())
-                .and_then(|part| part.parse::<u64>().ok())
-        })
-        .unwrap_or(0)
 }
 
 fn facade_compact_default(params: &Value) -> bool {
