@@ -20,6 +20,7 @@ mod engine_bridge;
 mod language_detect;
 mod mcp_facade;
 mod mcp_job;
+mod mcp_json_helpers;
 mod mcp_server;
 mod python_bridge;
 mod rust_bridge;
