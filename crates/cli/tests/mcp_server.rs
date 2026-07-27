@@ -14278,6 +14278,65 @@ fn mcp_complexity_hotspots_reports_long_functions_not_tiny() {
     );
 }
 
+/// Cangjie 归一化验证：complexity_hotspots 对 Cangjie 应能算出非零 fan
+/// （证明 edge kind + 字段名归一化生效，uses/accesses/modifies → REFERENCES）。
+///
+/// 这是多语言诊断推广的关键证伪测试：归一化前 Cangjie fan=0（edge 字段名不匹配），
+/// 归一化后 fan!=0。
+#[cfg(feature = "tree-sitter-cangjie")]
+#[test]
+fn mcp_complexity_hotspots_cangjie_fan_normalized() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = cangjie_portable_smoke_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22012,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_complexity_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "cangjie",
+                "minLevel": "low"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // 归一化层应让 Cangjie graph 进入 GraphView（不报错、有 summary）
+    assert!(
+        data["summary"].is_object(),
+        "Cangjie complexity should return summary: {:?}",
+        data
+    );
+    assert!(
+        data["complexityHotspots"].is_array(),
+        "complexityHotspots should be array for Cangjie: {:?}",
+        data
+    );
+
+    // 关键断言：至少有一个 symbol 的 fanIn 或 fanOut > 0。
+    // 归一化前 Cangjie edge 字段名（sourceId/targetId）不匹配 GraphView，
+    // 所有 fan=0；归一化后 uses/imports 边进入 incoming/outgoing，fan!=0。
+    let hotspots = data["complexityHotspots"]
+        .as_array()
+        .expect("complexityHotspots array");
+    let has_non_zero_fan = hotspots.iter().any(|h| {
+        let fi = h["metrics"]["fanIn"].as_u64().unwrap_or(0);
+        let fo = h["metrics"]["fanOut"].as_u64().unwrap_or(0);
+        fi > 0 || fo > 0
+    });
+    assert!(
+        has_non_zero_fan,
+        "Cangjie normalization broken: all fan=0. At least one symbol should have fan!=0 after edge normalization: {:?}",
+        data
+    );
+}
+
 #[cfg(feature = "tree-sitter-typescript")]
 #[test]
 fn mcp_architecture_drift_cycle_candidate() {

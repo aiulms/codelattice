@@ -5516,6 +5516,150 @@ struct PersistentGraphViewSnapshot {
     root: String,
 }
 
+// ============================================================
+// Graph 归一化层 — Cangjie 适配（多语言诊断推广前置）
+// ============================================================
+//
+// 背景：7/8 语言的 EdgeKind 用 SCREAMING_SNAKE_CASE，node properties 字段名
+// 与 Rust 一致，GraphView 直接可用。唯一例外是 Cangjie：
+// - EdgeKind 用 camelCase（uses/accesses/modifies 而非 USES/ACCESSES/MODIFIES）
+// - GraphEdge 字段名不同（kind/sourceId/targetId 而非 type/source/target）
+// - symbol node properties 用 startLine/endLine/kind 而非 lineStart/lineEnd/symbolKind
+//
+// 归一化在 GraphView::build 摄入层做（单点收口），不动各语言 emitter、
+// 不改持久化契约、不改诊断逻辑。对 SCREAMING_SNAKE_CASE 语言是 no-op。
+
+/// 把任意语言的 edge kind 归一化到 GraphView 内部使用的大写形式。
+///
+/// - Cangjie camelCase → 大写 + 语义映射（uses/accesses/modifies → REFERENCES，
+///   不映射 CALLS 以避免类型注解引用污染调用语义）
+/// - 其他语言已是 SCREAMING_SNAKE_CASE，原样返回
+fn normalize_edge_kind(raw: &str) -> String {
+    match raw {
+        // Cangjie 参考边（含类型注解引用、字段读写、赋值）统一归 REFERENCES。
+        // 语义注意：Cangjie 的 fan 因此是 "referenced-by"（含类型引用），
+        // 不是严格 "callers"。诊断输出需注明此差异。
+        "uses" | "accesses" | "modifies" => "REFERENCES".to_string(),
+        "imports" => "IMPORTS".to_string(),
+        "containsPackage" => "CONTAINS_PACKAGE".to_string(),
+        "ownsSource" => "OWNS_SOURCE".to_string(),
+        "defines" => "DEFINES".to_string(),
+        "annotates" => "ANNOTATES".to_string(),
+        // 其他语言（Rust/TS/JS/Python/C/CPP/Shell）已是 SCREAMING_SNAKE_CASE
+        other => other.to_string(),
+    }
+}
+
+/// 归一化一条 edge 到 GraphView 内部格式（统一字段名 + kind）。
+///
+/// 输入可能是：
+/// - TS/Rust 格式：`{"type": "CALLS", "source": "...", "target": "..."}`
+/// - Cangjie 格式：`{"kind": "uses", "sourceId": "...", "targetId": "..."}`
+///
+/// 输出统一为 GraphView 下游期望的 `{"type": <KIND>, "source": ..., "target": ...}`，
+/// 保留原始字段不删除（避免破坏其他读取路径）。
+fn normalize_edge_for_graphview(edge: &Value) -> Value {
+    // 探测格式：Cangjie 用 sourceId/targetId，其他用 source/target
+    let is_cangjie = edge.get("sourceId").is_some() || edge.get("targetId").is_some();
+
+    if !is_cangjie {
+        // 非 Cangjie：edge kind 可能已在 type 字段（TS）或 kind 字段。
+        // 统一确保有归一化后的 "type" 字段。
+        let raw_kind = edge
+            .get("type")
+            .and_then(|v| v.as_str())
+            .or_else(|| edge.get("kind").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        let normalized = normalize_edge_kind(raw_kind);
+        if normalized == raw_kind {
+            // 已是 SCREAMING_SNAKE_CASE，无需改动
+            return edge.clone();
+        }
+        let mut out = edge.clone();
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert("type".to_string(), Value::String(normalized));
+        }
+        return out;
+    }
+
+    // Cangjie：字段名 + kind 全部归一化
+    let raw_kind = edge.get("kind").and_then(|v| v.as_str()).unwrap_or("");
+    let normalized_kind = normalize_edge_kind(raw_kind);
+    let source = edge
+        .get("sourceId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let target = edge
+        .get("targetId")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    let mut out = edge.as_object().cloned().unwrap_or_default();
+    out.insert("type".to_string(), Value::String(normalized_kind));
+    out.insert("source".to_string(), Value::String(source));
+    out.insert("target".to_string(), Value::String(target));
+    Value::Object(out)
+}
+
+/// 归一化 symbol node 的 properties：补全 GraphView/诊断期望的字段名别名。
+///
+/// Cangjie 用 startLine/endLine/kind，诊断期望 lineStart/lineEnd/symbolKind。
+/// 检测到 Cangjie 特征（startLine 存在但 lineStart 不存在）时补全别名，
+/// 不删除原字段。对 Rust/TS 是 no-op（字段名已一致）。
+fn normalize_node_properties(node: &Value) -> Value {
+    let props = match node.get("properties") {
+        Some(p) if p.is_object() => p,
+        _ => return node.clone(), // 无 properties，原样返回
+    };
+
+    // 检测是否需要归一化：Cangjie 用 startLine，其他用 lineStart
+    let has_cangjie_line = props.get("startLine").is_some() && props.get("lineStart").is_none();
+    let has_cangjie_kind = props.get("kind").is_some()
+        && props.get("symbolKind").is_none()
+        && node.get("kind").and_then(|v| v.as_str()) == Some("symbol");
+    let has_cangjie_name =
+        node.get("label").and_then(|v| v.as_str()).is_some() && props.get("name").is_none();
+
+    if !has_cangjie_line && !has_cangjie_kind && !has_cangjie_name {
+        return node.clone(); // 非 Cangjie 或已归一化
+    }
+
+    let mut out = node.clone();
+    if let Some(obj) = out.get_mut("properties").and_then(|p| p.as_object_mut()) {
+        if has_cangjie_line {
+            if let Some(ls) = props.get("startLine").cloned() {
+                obj.insert("lineStart".to_string(), ls);
+            }
+            if let Some(le) = props.get("endLine").cloned() {
+                obj.insert("lineEnd".to_string(), le);
+            }
+        }
+        if has_cangjie_kind {
+            if let Some(k) = props.get("kind").and_then(|v| v.as_str()) {
+                // Cangjie symbolKind 是 PascalCase（Function/Class/Init），
+                // 归一化到 Rust 风格的 lowercase（function/method/...），
+                // 让诊断的 symbol_kind 过滤匹配。
+                // Cangjie Init 对应 Rust 的 associated-function（构造器语义）。
+                let normalized_kind = match k {
+                    "Function" => "function".to_string(),
+                    "Method" => "method".to_string(),
+                    "Init" => "associated-function".to_string(),
+                    other => other.to_lowercase(),
+                };
+                obj.insert("symbolKind".to_string(), Value::String(normalized_kind));
+            }
+        }
+        if has_cangjie_name {
+            if let Some(label) = node.get("label").and_then(|v| v.as_str()) {
+                obj.insert("name".to_string(), Value::String(label.to_string()));
+            }
+        }
+    }
+    out
+}
+
 /// In-memory graph view built from a single analyze output.
 /// Provides efficient lookup without repeated parsing.
 struct GraphView {
@@ -5561,6 +5705,10 @@ impl GraphView {
         let mut incoming: HashMap<String, Vec<Value>> = HashMap::new();
 
         for node in &nodes {
+            // 归一化 node properties（Cangjie 字段名 → GraphView 标准字段名）。
+            // 对 Rust/TS 是 no-op；存入 nodes_by_id 的是归一化后的版本，
+            // 下游所有诊断读取的都是统一字段名。
+            let node = normalize_node_properties(node);
             if let Some(id) = node["id"].as_str() {
                 nodes_by_id.insert(id.to_string(), node.clone());
 
@@ -5618,6 +5766,9 @@ impl GraphView {
         }
 
         for edge in &edges {
+            // 归一化 edge（Cangjie 字段名 sourceId/targetId → source/target，
+            // kind camelCase → 大写 + 语义映射）。对 Rust/TS 是 no-op。
+            let edge = normalize_edge_for_graphview(edge);
             if let Some(src) = edge["source"].as_str() {
                 outgoing
                     .entry(src.to_string())
