@@ -43,6 +43,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c14-wildcard-disambiguation",
     // 关联函数消歧：同模块两类型各有同名 build() 方法，按 impl_target 过滤消歧
     "c15-associated-function-disambiguation",
+    // stdlib 唯一 trait method 解析（C1 扩展：count/any/find/cloned/is_some/is_ok 等）
+    "c17-stdlib-trait-method",
 ];
 
 fn workspace_root() -> PathBuf {

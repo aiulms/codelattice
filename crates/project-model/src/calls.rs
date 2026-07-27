@@ -801,19 +801,11 @@ fn resolve_call_site(
                         .to_string();
                 }
                 [] => {
-                    // Phase 1 extended: check if method name is a known-unique stdlib trait method
-                    // e.g., to_string() → std::string::ToString::to_string
-                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
-                        call.resolved_symbol_id = Some(trait_path.to_string());
-                        call.confidence = 0.55;
-                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
-                            .as_str()
-                            .to_string();
-                        return;
-                    }
-                    // Phase 2: receiver-type-aware resolution
+                    // Phase 2: receiver-type-aware resolution（优先于 stdlib trait fallback）
+                    // 当 receiver type 可静态确定时，用更高 confidence (0.65)，
+                    // 优于仅按 method name 匹配 trait 的 fallback (0.55)。
                     // 从 raw_text 提取 receiver variable name（e.g., "x.push(1)" → "x"）
-                    // 扫描 same-function let 绑定类型注解，查 STDLIB_TYPE_METHODS 表
+                    // 扫描 same-function let 绑定/参数类型注解，查 STDLIB_TYPE_METHODS 表
                     if is_known_receiver_type_method(&call.callee_name) {
                         if let Some(dot_pos) = call.raw_text.find('.') {
                             let receiver = &call.raw_text[..dot_pos];
@@ -838,6 +830,18 @@ fn resolve_call_site(
                                 }
                             }
                         }
+                    }
+                    // Phase 1 extended: stdlib trait method fallback
+                    // receiver type 无法静态确定时，按 method name 匹配唯一定义的 stdlib trait
+                    // e.g., to_string() → std::string::ToString::to_string
+                    // confidence 0.55：低于 receiver-type (0.65)，因为 receiver type 未验证
+                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
+                        call.resolved_symbol_id = Some(trait_path.to_string());
+                        call.confidence = 0.55;
+                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
+                            .as_str()
+                            .to_string();
+                        return;
                     }
                     call.reason = CallResolutionReason::CallTargetUnresolved
                         .as_str()
@@ -1865,19 +1869,11 @@ fn resolve_call_site_text(
                         .to_string();
                 }
                 [] => {
-                    // Phase 1 extended: check if method name is a known-unique stdlib trait method
-                    // e.g., to_string() → std::string::ToString::to_string
-                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
-                        call.resolved_symbol_id = Some(trait_path.to_string());
-                        call.confidence = 0.55;
-                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
-                            .as_str()
-                            .to_string();
-                        return;
-                    }
-                    // Phase 2: receiver-type-aware resolution
+                    // Phase 2: receiver-type-aware resolution（优先于 stdlib trait fallback）
+                    // 当 receiver type 可静态确定时，用更高 confidence (0.65)，
+                    // 优于仅按 method name 匹配 trait 的 fallback (0.55)。
                     // 从 raw_text 提取 receiver variable name（e.g., "x.push(1)" → "x"）
-                    // 扫描 same-function let 绑定类型注解，查 STDLIB_TYPE_METHODS 表
+                    // 扫描 same-function let 绑定/参数类型注解，查 STDLIB_TYPE_METHODS 表
                     if is_known_receiver_type_method(&call.callee_name) {
                         if let Some(dot_pos) = call.raw_text.find('.') {
                             let receiver = &call.raw_text[..dot_pos];
@@ -1902,6 +1898,18 @@ fn resolve_call_site_text(
                                 }
                             }
                         }
+                    }
+                    // Phase 1 extended: stdlib trait method fallback
+                    // receiver type 无法静态确定时，按 method name 匹配唯一定义的 stdlib trait
+                    // e.g., to_string() → std::string::ToString::to_string
+                    // confidence 0.55：低于 receiver-type (0.65)，因为 receiver type 未验证
+                    if let Some(trait_path) = lookup_stdlib_trait_method(&call.callee_name) {
+                        call.resolved_symbol_id = Some(trait_path.to_string());
+                        call.confidence = 0.55;
+                        call.reason = CallResolutionReason::CallStdlibTraitMethodResolved
+                            .as_str()
+                            .to_string();
+                        return;
                     }
                     call.reason = CallResolutionReason::CallTargetUnresolved
                         .as_str()

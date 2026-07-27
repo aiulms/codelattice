@@ -40,6 +40,48 @@ pub(crate) fn lookup_stdlib_trait_method(method_name: &str) -> Option<&'static s
         "clone" => Some("std::clone::Clone::clone"),
         // collect() 在 std 中唯一定义在 Iterator trait 上
         "collect" => Some("std::iter::Iterator::collect"),
+        // —— C1 扩展（2026-07-27）：唯一定义的 stdlib trait method ——
+        // 只收录在 std 中「单一 trait / 类型」上定义、receiver 类型不会二义的方法。
+        // Option/Result 同名的方法（unwrap / map / and_then / unwrap_or 等）不收录，
+        // 因为无法在不做 type inference 的前提下区分 receiver 是 Option 还是 Result。
+        //
+        // Iterator trait 独有 method（receiver 必为 impl Iterator）
+        "count" => Some("std::iter::Iterator::count"),
+        "find" => Some("std::iter::Iterator::find"),
+        "cloned" => Some("std::iter::Iterator::cloned"),
+        "copied" => Some("std::iter::Iterator::copied"),
+        "fold" => Some("std::iter::Iterator::fold"),
+        "filter" => Some("std::iter::Iterator::filter"),
+        "for_each" => Some("std::iter::Iterator::for_each"),
+        "enumerate" => Some("std::iter::Iterator::enumerate"),
+        "zip" => Some("std::iter::Iterator::zip"),
+        "chain" => Some("std::iter::Iterator::chain"),
+        "any" => Some("std::iter::Iterator::any"),
+        "all" => Some("std::iter::Iterator::all"),
+        "position" => Some("std::iter::Iterator::position"),
+        "nth" => Some("std::iter::Iterator::nth"),
+        "skip" => Some("std::iter::Iterator::skip"),
+        "take" => Some("std::iter::Iterator::take"),
+        "rev" => Some("std::iter::Iterator::rev"),
+        "step_by" => Some("std::iter::Iterator::step_by"),
+        "flat_map" => Some("std::iter::Iterator::flat_map"),
+        "inspect" => Some("std::iter::Iterator::inspect"),
+        "by_ref" => Some("std::iter::Iterator::by_ref"),
+        "sum" => Some("std::iter::Iterator::sum"),
+        "product" => Some("std::iter::Iterator::product"),
+        "min" => Some("std::iter::Iterator::min"),
+        "max" => Some("std::iter::Iterator::max"),
+        "partition" => Some("std::iter::Iterator::partition"),
+        "try_fold" => Some("std::iter::Iterator::try_fold"),
+        "try_for_each" => Some("std::iter::Iterator::try_for_each"),
+        // Option 独有 method（Result 上无同名）
+        "is_some" => Some("std::option::Option::is_some"),
+        "is_none" => Some("std::option::Option::is_none"),
+        // Result 独有 method（Option 上无同名）
+        "is_ok" => Some("std::result::Result::is_ok"),
+        "is_err" => Some("std::result::Result::is_err"),
+        "ok" => Some("std::result::Result::ok"),
+        "err" => Some("std::result::Result::err"),
         _ => None,
     }
 }

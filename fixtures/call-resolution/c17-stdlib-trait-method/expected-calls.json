@@ -1,0 +1,140 @@
+[
+  {
+    "id": "src/lib.rs::call::9::count",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 9,
+      "lineEnd": 9,
+      "byteStart": 489,
+      "byteEnd": 505
+    },
+    "rawText": "v.iter().count()",
+    "knownCrate": null,
+    "calleePath": "v.iter().count",
+    "calleeName": "count",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::iter::Iterator::count",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::11::any",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 11,
+      "lineEnd": 11,
+      "byteStart": 566,
+      "byteEnd": 590
+    },
+    "rawText": "v.iter().any(|x| *x > 3)",
+    "knownCrate": null,
+    "calleePath": "v.iter().any",
+    "calleeName": "any",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::iter::Iterator::any",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::13::find",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 13,
+      "lineEnd": 13,
+      "byteStart": 654,
+      "byteEnd": 681
+    },
+    "rawText": "v.iter().find(|x| **x == 3)",
+    "knownCrate": null,
+    "calleePath": "v.iter().find",
+    "calleeName": "find",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::iter::Iterator::find",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::15::collect",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 15,
+      "lineEnd": 15,
+      "byteStart": 758,
+      "byteEnd": 785
+    },
+    "rawText": "v.iter().cloned().collect()",
+    "knownCrate": null,
+    "calleePath": "v.iter().cloned().collect",
+    "calleeName": "collect",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::iter::Iterator::collect",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::21::is_some",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::option_unique_methods",
+    "callerName": "option_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 21,
+      "lineEnd": 21,
+      "byteStart": 932,
+      "byteEnd": 943
+    },
+    "rawText": "o.is_some()",
+    "knownCrate": null,
+    "calleePath": "o.is_some",
+    "calleeName": "is_some",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::option::Option::is_some",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::26::is_ok",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::result_unique_methods",
+    "callerName": "result_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 26,
+      "lineEnd": 26,
+      "byteStart": 1091,
+      "byteEnd": 1100
+    },
+    "rawText": "r.is_ok()",
+    "knownCrate": null,
+    "calleePath": "r.is_ok",
+    "calleeName": "is_ok",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::result::Result::is_ok",
+    "resolvedSymbolKind": null,
+    "confidence": 0.65,
+    "reason": "call-receiver-type-method-resolved",
+    "diagnostics": []
+  }
+]
