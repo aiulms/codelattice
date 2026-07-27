@@ -12851,6 +12851,22 @@ fn tools_list() -> Value {
                }
             },
             {
+                "name": "codelattice_complexity_hotspots",
+                "description": "Complexity hotspot detection — identify functions with the highest internal complexity based on length (raw line span), fan-in/out coupling, and async/unsafe modifiers. Complements risk_hotspots (which measures outward coupling risk) by measuring in-function maintainability burden. Static analysis heuristic, not compiler-verified; paramCount/cyclomaticComplexity deferred to v2.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
+                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto", "description": "Language to analyze" },
+                        "maxResults": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max hotspots to return" },
+                        "includeTests": { "type": "boolean", "default": false, "description": "Include test functions (tests are naturally long, excluded by default to reduce noise)" },
+                        "minLevel": { "type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Minimum complexity level to report" },
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" }
+                    },
+                    "required": ["root"]
+                }
+            },
+            {
                 "name": "codelattice_ai_context_pack",
                 "description": "AI editing context — what should I read before changing code? Returns context files, key symbols, call chains, dependency notes, risk notes, suggested read order, and useful commands for a given task. Static analysis heuristic, not semantic understanding.",
                 "inputSchema": {
@@ -15773,6 +15789,296 @@ fn handle_architecture_drift(cache: &mut McpCache, params: &Value) -> Result<Val
     Ok(merge_cache_and_result(&result_data, &cache_meta))
 }
 
+// ============================================================
+// v0.30: Complexity Hotspots — 函数内部复杂度诊断
+// ============================================================
+//
+// 与 risk_hotspots 互补：risk_hotspots 看"耦合扩散风险"（fan-in/out 向外），
+// complexity_hotspots 看"函数本身多难维护"（内部复杂度）。
+// v1 维度：函数长度（raw span）+ fan-in/fan-out + async/unsafe 加权。
+// paramCount 与 cyclomaticComplexity 留待 v2（需提取器 + graph emitter 改造）。
+
+/// 长度维度权重上限：长函数是最直接的维护负担信号，权重最高。
+const COMPLEXITY_W_LENGTH: f64 = 4.0;
+/// 耦合维度权重上限：复用 risk_hotspots 的 fan 判定，权重低于长度。
+const COMPLEXITY_W_FAN: f64 = 1.5;
+/// async 修饰符风险加权：异步增加认知与控制流负担。
+const COMPLEXITY_W_ASYNC: f64 = 0.5;
+/// unsafe 修饰符风险加权：unsafe 增加内存安全审计负担。
+const COMPLEXITY_W_UNSAFE: f64 = 0.5;
+
+/// 从 graph node 提取复杂度评分（纯函数）。
+///
+/// 输入：symbol graph node（含 lineStart/lineEnd/isAsync/isUnsafe）、
+///       该 node 的 fan_in/fan_out 计数。
+/// 输出：(complexity_score, drivers, metrics_json)。
+///
+/// 评分维度（v1）：
+/// - length：raw 行跨度（含注释/空行）。>50 行开始计分，>200 行满分。
+/// - fan：复用 risk_hotspots 的 high_fan_in(>5)/high_fan_out(>5) 阈值。
+/// - modifier：async/unsafe 各加权。
+///
+/// paramCount 维度 v1 不可用（GraphView node properties 无 typeAnnotations），
+/// 由 caller 在 summary.complexityCoverage 标注 paramCount=false。
+fn compute_complexity_score(
+    node: &Value,
+    fan_in: usize,
+    fan_out: usize,
+) -> (f64, Vec<String>, Value) {
+    let props = &node["properties"];
+    let line_start = props["lineStart"].as_u64().unwrap_or(0);
+    let line_end = props["lineEnd"].as_u64().unwrap_or(0);
+    let length_lines_raw = if line_end >= line_start {
+        (line_end - line_start + 1) as u32
+    } else {
+        0
+    };
+    let is_async = props["isAsync"].as_bool().unwrap_or(false);
+    let is_unsafe = props["isUnsafe"].as_bool().unwrap_or(false);
+
+    let mut score: f64 = 0.0;
+    let mut drivers: Vec<String> = Vec::new();
+
+    // —— length 维度（raw span，含注释/空行）——
+    let length_score = if length_lines_raw <= 20 {
+        0.0
+    } else if length_lines_raw <= 50 {
+        0.5
+    } else if length_lines_raw <= 100 {
+        1.5
+    } else if length_lines_raw <= 200 {
+        2.5
+    } else {
+        COMPLEXITY_W_LENGTH
+    };
+    score += length_score;
+    if length_lines_raw > 100 {
+        drivers.push("excessive-length".to_string());
+    } else if length_lines_raw > 50 {
+        drivers.push("long-function".to_string());
+    }
+
+    // —— fan 维度（复用 risk_hotspots 的 high_fan 判定）——
+    let high_fan_in = fan_in > 5;
+    let high_fan_out = fan_out > 5;
+    let mut fan_score = 0.0;
+    if high_fan_in {
+        fan_score += COMPLEXITY_W_FAN / 3.0;
+        drivers.push("high-fan-in".to_string());
+    }
+    if high_fan_out {
+        fan_score += COMPLEXITY_W_FAN / 3.0;
+        drivers.push("high-fan-out".to_string());
+    }
+    if high_fan_in && high_fan_out {
+        fan_score += 0.5;
+        drivers.push("bidirectional-coupling".to_string());
+    }
+    score += fan_score;
+
+    // —— modifier 维度 ——
+    if is_async {
+        score += COMPLEXITY_W_ASYNC;
+        drivers.push("async".to_string());
+    }
+    if is_unsafe {
+        score += COMPLEXITY_W_UNSAFE;
+        drivers.push("unsafe".to_string());
+    }
+
+    let metrics = json!({
+        "lengthLinesRaw": length_lines_raw,
+        "paramCount": null,                     // v1 不可用，v2 连同圈复杂度补
+        "fanIn": fan_in,
+        "fanOut": fan_out,
+        "isAsync": is_async,
+        "isUnsafe": is_unsafe
+    });
+
+    (score, drivers, metrics)
+}
+
+/// complexity_score → level 映射。
+fn complexity_level(score: f64) -> &'static str {
+    if score >= 5.0 {
+        "critical"
+    } else if score >= 3.5 {
+        "high"
+    } else if score >= 2.0 {
+        "medium"
+    } else {
+        "low"
+    }
+}
+
+/// 计算 symbol node 的直接 fan-in/fan-out（CALLS/REFERENCES/IMPORTS 边数）。
+///
+/// 注：这是简化版 fan 计算，只数直接边，不处理 ref:Call:NAME 中间节点
+/// 和 cross-directory（那些是 risk_hotspots 的增强逻辑）。对复杂度评估够用，
+/// 且避免触碰 compute_symbol_hotspot_score 的内部逻辑（forbidden set）。
+fn complexity_fan_in_out(gv: &GraphView, id: &str) -> (usize, usize) {
+    let fan_in = gv
+        .incoming
+        .get(id)
+        .map(|edges| {
+            edges
+                .iter()
+                .filter(|e| {
+                    let t = e["type"].as_str().unwrap_or("");
+                    t == "CALLS" || t == "REFERENCES" || t == "IMPORTS"
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    let fan_out = gv
+        .outgoing
+        .get(id)
+        .map(|edges| {
+            edges
+                .iter()
+                .filter(|e| {
+                    let t = e["type"].as_str().unwrap_or("");
+                    t == "CALLS" || t == "REFERENCES" || t == "IMPORTS"
+                })
+                .count()
+        })
+        .unwrap_or(0);
+    (fan_in, fan_out)
+}
+
+/// Handle `codelattice_complexity_hotspots` tool.
+///
+/// 输出高复杂度函数排行。与 risk_hotspots 互补：
+/// risk_hotspots 答"改这个符号影响多大"，complexity_hotspots 答"这个函数本身多难维护"。
+fn handle_complexity_hotspots(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
+    let root = params["root"]
+        .as_str()
+        .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+
+    let validated = validate_root_path(root)?;
+    let language = params["language"].as_str().unwrap_or("auto");
+    check_language_feature(language)?;
+
+    let max_results = params["maxResults"].as_u64().unwrap_or(50).min(200) as usize;
+    let include_tests = params["includeTests"].as_bool().unwrap_or(false);
+    let min_level = params["minLevel"].as_str().unwrap_or("medium");
+    let _compact = params["compact"].as_bool().unwrap_or(true);
+
+    let min_score = match min_level {
+        "low" => 0.0,
+        "medium" => 2.0,
+        "high" => 3.5,
+        "critical" => 5.0,
+        _ => 2.0,
+    };
+
+    let (gv, _result, cache_meta) = cache.get_or_analyze(&validated, language, false)?;
+
+    let mut hotspots: Vec<(f64, Value, Vec<String>, Value)> = Vec::new();
+    let mut analyzed_symbols = 0u32;
+
+    for node in gv.nodes_by_id.values() {
+        let kind = node["kind"].as_str().unwrap_or("");
+        let label = node["label"].as_str().unwrap_or("");
+        if kind != "symbol" && label != "symbol" {
+            continue;
+        }
+
+        let symbol_kind = node["properties"]["symbolKind"].as_str().unwrap_or("");
+        // 只评估 function / method / associated-function（有函数体的）
+        if !matches!(symbol_kind, "function" | "method" | "associated-function") {
+            continue;
+        }
+
+        let name = node["properties"]["name"]
+            .as_str()
+            .or_else(|| node["id"].as_str().and_then(|id| id.split("::").last()))
+            .unwrap_or("");
+        let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
+
+        if !include_tests && is_test_symbol(name, file) {
+            continue;
+        }
+
+        analyzed_symbols += 1;
+
+        let id = node["id"].as_str().unwrap_or("");
+        let (fan_in, fan_out) = complexity_fan_in_out(&gv, id);
+        let (score, drivers, metrics) = compute_complexity_score(node, fan_in, fan_out);
+
+        if score < min_score || drivers.is_empty() {
+            continue;
+        }
+
+        hotspots.push((score, node.clone(), drivers, metrics));
+    }
+
+    // 按分数降序，取 top max_results
+    hotspots.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    hotspots.truncate(max_results);
+
+    let critical_count = hotspots
+        .iter()
+        .filter(|(s, _, _, _)| complexity_level(*s) == "critical")
+        .count();
+    let high_count = hotspots
+        .iter()
+        .filter(|(s, _, _, _)| complexity_level(*s) == "high")
+        .count();
+    let medium_count = hotspots
+        .iter()
+        .filter(|(s, _, _, _)| complexity_level(*s) == "medium")
+        .count();
+
+    let hotspot_items: Vec<Value> = hotspots
+        .iter()
+        .map(|(score, node, drivers, metrics)| {
+            let props = &node["properties"];
+            let level = complexity_level(*score);
+            let recommendation = if *score >= 5.0 {
+                "强烈建议拆分为更小的函数；高耦合与长函数叠加，维护风险显著"
+            } else if *score >= 3.5 {
+                "建议评估是否可拆分或降低耦合"
+            } else {
+                "关注：函数存在一定复杂度信号，按优先级排查"
+            };
+            json!({
+                "symbol": node["id"].as_str().unwrap_or(""),
+                "name": props["name"].as_str().unwrap_or(""),
+                "kind": props["symbolKind"].as_str().unwrap_or(""),
+                "sourcePath": props["sourcePath"].as_str().unwrap_or(""),
+                "lineStart": props["lineStart"].as_u64().unwrap_or(0),
+                "lineEnd": props["lineEnd"].as_u64().unwrap_or(0),
+                "complexityScore": (*score * 100.0).round() / 100.0,
+                "complexityLevel": level,
+                "metrics": metrics,
+                "drivers": drivers,
+                "recommendation": recommendation
+            })
+        })
+        .collect();
+
+    let result_data = json!({
+        "complexityHotspots": hotspot_items,
+        "summary": {
+            "totalSymbolsAnalyzed": analyzed_symbols,
+            "reportedCount": hotspot_items.len(),
+            "criticalCount": critical_count,
+            "highCount": high_count,
+            "mediumCount": medium_count,
+            "complexityCoverage": {
+                "length": true,
+                "paramCount": false,          // v1 不可用：GraphView node 无 typeAnnotations
+                "fanIn": true,
+                "fanOut": true
+            },
+            "notes": "v1 dimensions: length (raw span) + fan-in/out + async/unsafe. paramCount and cyclomaticComplexity deferred to v2."
+        }
+    });
+
+    Ok(merge_cache_and_result(&result_data, &cache_meta))
+}
+
 /// Handle `codelattice_dead_code_candidates` tool.
 fn handle_dead_code_candidates(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let root = params["root"]
@@ -18240,6 +18546,7 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                 "codelattice_impact_analysis" => handle_impact_analysis(cache, &arguments),
                 "codelattice_risk_hotspots" => handle_risk_hotspots(cache, &arguments),
                 "codelattice_architecture_drift" => handle_architecture_drift(cache, &arguments),
+                "codelattice_complexity_hotspots" => handle_complexity_hotspots(cache, &arguments),
                 "codelattice_ai_context_pack" => handle_ai_context_pack(cache, &arguments),
                 "codelattice_review_gate" => handle_review_gate(cache, &arguments),
                 "codelattice_root_cause_assistant" => {

@@ -172,8 +172,8 @@ try:
 
     full_info, full_count = tool_count("full")
     assert full_info["toolset"] == "full", full_info
-    assert full_count == 49, full_count
-    print("PASS: full toolset exposes 49 tools")
+    assert full_count == 50, full_count
+    print("PASS: full toolset exposes 50 tools")
 
     client, init = initialized_client(None)
     assert init["result"]["serverInfo"]["toolset"] == "ai", init

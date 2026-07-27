@@ -48,27 +48,21 @@
 | fan-out | GraphView.outgoing | 复用 fan_out 计算 | 全语言 ✅ |
 | async/unsafe | Symbol.is_async / is_unsafe | 风险加权 | Rust/TS（语法相关）|
 
-### 3.6 paramCount 语言覆盖裁决（P1 修正）
+### 3.6 paramCount 维度裁决（P1 修正 + 实施期发现，v1 不做）
 
-**事实**：`param-type` 注解只有 Rust 提取器（`item.rs:1559`）发，cangjie / typescript 提取器不发。直接用 `count()` 会导致 TS/Cangjie 项目的 `paramCount` 恒为 0，多参数函数被**静默漏报**（假阴性伪装成健康）。
+**实施期关键发现（2026-07-27）**：核查 MCP handler 数据路径发现，`analyze` → `GraphView` 的 graph node properties **不含 typeAnnotations/paramCount**（确认：`analyze` 顶层只有 graph，无 symbols；graph node properties 只有 lineStart/lineEnd/isAsync/isUnsafe/symbolKind 等）。
 
-**裁决（采用评审选项 1）**：
-- `metrics.paramCount` 字段类型改 `Option<u32>`：Rust 输出实际数，无注解语言输出 `null`
-- 输出 schema 的 `summary` 增加 `coverage` 字段说明各维度可用性：
-  ```json
-  "summary": {
-    "complexityCoverage": {
-      "length": true,
-      "paramCount": true,   // false 时表示该语言无参数注解，paramCount 维度未参与评分
-      "fanIn": true,
-      "fanOut": true
-    }
-  }
-  ```
-- 评分时：`paramCount == null` 则 `param_score` 维度跳过（不贡献 0 也不贡献满分），并在 `recommendation` 注明"参数维度对该语言不可用"
-- `drivers` 数组里 paramCount 相关 driver 仅在 `paramCount.is_some()` 时出现
+这意味着：
+- 评审 P1-② 担心的"TS/Cangjie paramCount 假阴性"在真实架构下更彻底——**连 Rust 在 MCP 层都取不到 paramCount**
+- 要取 paramCount 必须改 graph emitter（forbidden set 禁止改 graph.rs）或让 handler 走 `project-model inspect`（破坏与其他诊断的架构一致性）
 
-**不采用选项 3**（给 TS 提取器补 param-type）：扩 write set 违反路径 1 初衷，留作 v2。
+**裁决（v1 最终）：paramCount 维度整体推迟到 v2**。
+- v1 评分维度：length + fan-in/fan-out + async/unsafe（三维度，全部从 GraphView 可取）
+- `metrics.paramCount` 字段 v1 不输出（或输出 null 占位）
+- `summary.complexityCoverage.paramCount` = false（明示该维度未参与）
+- v2 连同圈复杂度（McCabe）一起做：届时统一改 item.rs 提取器 + graph.rs emitter，把 paramCount 和 cyclomaticComplexity 写进 node properties，一次性 schema 升级
+
+**这个发现强化了 stop-line 的价值**：preflight §4.4 写的"发现需要改 schema 才能实现，说明路径 1 选错"——paramCount 正是触发这条 stop-line的点，v1 诚实地砍掉它，而非为它扩 schema。
 
 ### 3.7 函数长度的 raw span 语义（P3 文档修正）
 
@@ -87,28 +81,24 @@
 // —— 评分权重常量（命名 + rationale）——
 // 长度维度：长函数是最直接的维护负担信号，权重最高
 const W_LENGTH: f64 = 4.0;        // length_score 上限
-// 参数维度：过多参数是经典代码坏味道（Effective Rust / Refactoring）
-const W_PARAMS: f64 = 2.5;        // param_score 上限（paramCount 为 None 时跳过此维度）
 // 耦合维度：复用 risk_hotspots 的 fan 判定，但权重低于长度
 const W_FAN: f64 = 1.5;           // fan_score 上限
 // 修饰符风险加权：async/unsafe 增加认知负担
 const W_ASYNC: f64 = 0.5;
 const W_UNSAFE: f64 = 0.5;
+// 注：paramCount 维度 v1 不做（GraphView 无该数据），v2 连同圈复杂度一起加
 ```
 
 阈值（基于常见代码规范，可参数化）：
 - **length**：≤20 行=0，21-50=0.5，51-100=1.5，101-200=2.5，>200=W_LENGTH(4.0)
-- **params**（仅 Rust，`paramCount.is_some()`）：≤3=0，4-5=0.5，6-8=1.5，>8=W_PARAMS(2.5)
 - **fan**：复用现有 high_fan_in(>5)/high_fan_out(>5) 阈值，命中各贡献 W_FAN/3(0.5)，双高额外 +0.5
 - **modifier**：async +W_ASYNC(0.5)，unsafe +W_UNSAFE(0.5)
 
-总分范围 0-8.0+（params 维度不可用时上限降至 5.5），映射等级：
-- ≥6.0 → `critical`（强烈建议拆分）
-- ≥4.0 → `high`
+总分范围 0-6.5+，映射等级：
+- ≥5.0 → `critical`（强烈建议拆分）
+- ≥3.5 → `high`
 - ≥2.0 → `medium`
 - <2.0 → 不报告（控制噪音）
-
-**调权影响**：权重常量改动会触发 fixture golden 重新生成——命名常量让那次 diff 可读（这是本仓库 golden 测试风格的诉求）。
 
 ### 3.3 输出 schema（对齐现有诊断格式）
 

@@ -192,7 +192,7 @@ required = [
 ]
 missing = [key for key in required if info.get(key) is not True]
 tool_count = int(info.get("toolCount", 0) or 0)
-if missing or tool_count < 49:
+if missing or tool_count < 50:
     details = ", ".join(f"{key}={info.get(key)!r}" for key in required)
     raise SystemExit(
         f"ERROR: {label} is not a full-language CodeLattice MCP runtime "
@@ -333,7 +333,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
 d=json.load(sys.stdin)
 s=d["result"]["serverInfo"]
 assert s["name"] == "codelattice"
-assert int(s.get("toolCount", 0)) >= 49
+assert int(s.get("toolCount", 0)) >= 50
 assert s.get("cangjieSupport") is True
 assert s.get("arktsSupport") is True
 assert s.get("typescriptSupport") is True
@@ -363,7 +363,7 @@ for line in sys.stdin:
         print(len(d["result"]["tools"]))
         break' <<<"$MULTI_RESP")"
     TOOL_COUNT="${TOOL_COUNT:-0}"
-    if [[ "$TOOL_COUNT" -lt 49 ]]; then
+    if [[ "$TOOL_COUNT" -lt 50 ]]; then
         echo "FAIL: tools/list returned $TOOL_COUNT tools" >&2
         exit 1
     fi

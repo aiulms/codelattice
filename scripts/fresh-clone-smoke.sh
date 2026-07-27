@@ -124,8 +124,8 @@ for line in sys.stdin:
         print(len(d["result"]["tools"]))
         break
 ')
-    if [[ "${count:-0}" -lt 49 ]]; then
-        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 49" >&2
+    if [[ "${count:-0}" -lt 50 ]]; then
+        echo "FAIL: tools/list returned ${count:-0} tools, expected >= 50" >&2
         exit 1
     fi
     echo "PASS: tools/list returned $count tools"

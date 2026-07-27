@@ -6,6 +6,10 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Added
+
+- **New diagnostic `codelattice_complexity_hotspots`**: identify functions with the highest internal complexity based on length (raw line span), fan-in/out coupling, and async/unsafe modifiers. Complements `codelattice_risk_hotspots` (which measures outward coupling risk) by measuring in-function maintainability burden. v1 dimensions: length + fan + modifiers; `paramCount` and `cyclomaticComplexity` deferred to v2 (GraphView node properties lack type annotations). Full toolset grows from 49 to 50 tools; the new tool is Full-only (not in the 6-tool AI toolset or Core toolset). Smoke scripts and test assertions updated to the new count.
+
 ## [0.17.0-beta.1] - 2026-06-05
 
 ### Fixed

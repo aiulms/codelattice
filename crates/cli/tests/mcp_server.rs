@@ -763,7 +763,7 @@ fn mcp_initialize_returns_capabilities() {
 }
 
 #[test]
-fn mcp_tools_list_returns_forty_nine_tools() {
+fn mcp_tools_list_returns_fifty_tools() {
     let mut session = McpSession::start_with_toolset("full");
     session.initialize();
     session.send_notification_initialized();
@@ -780,7 +780,7 @@ fn mcp_tools_list_returns_forty_nine_tools() {
     let tools = resp["result"]["tools"]
         .as_array()
         .expect("tools should be array");
-    assert_eq!(tools.len(), 49, "expected 49 tools, got {}", tools.len());
+    assert_eq!(tools.len(), 50, "expected 50 tools, got {}", tools.len());
 
     let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
     let unique_names: std::collections::HashSet<&str> = names.iter().copied().collect();
@@ -14131,6 +14131,153 @@ fn mcp_risk_hotspots_high_fan_nodes() {
     );
 }
 
+/// complexity-hotspots fixture 路径：含超长 async/unsafe 函数 + 短函数对照。
+fn complexity_hotspots_dir() -> std::path::PathBuf {
+    workspace_root()
+        .join("fixtures")
+        .join("graph-diagnostics")
+        .join("complexity-hotspots")
+}
+
+#[test]
+fn mcp_complexity_hotspots_returns_summary_and_coverage() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = complexity_hotspots_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22010,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_complexity_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "minLevel": "medium"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    // 输出 schema 验证
+    assert!(
+        data["complexityHotspots"].is_array(),
+        "complexityHotspots should be an array: {:?}",
+        data
+    );
+    assert!(
+        data["summary"].is_object(),
+        "summary should be an object: {:?}",
+        data
+    );
+    // coverage 必须声明 paramCount=false（v1 不可用）
+    assert_eq!(
+        data["summary"]["complexityCoverage"]["paramCount"],
+        serde_json::Value::Bool(false),
+        "paramCount coverage must be false in v1: {:?}",
+        data
+    );
+    assert_eq!(
+        data["summary"]["complexityCoverage"]["length"],
+        serde_json::Value::Bool(true),
+        "length coverage must be true: {:?}",
+        data
+    );
+}
+
+#[test]
+fn mcp_complexity_hotspots_reports_long_functions_not_tiny() {
+    let mut session = McpSession::start();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let root = complexity_hotspots_dir();
+    session.send(&serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 22011,
+        "method": "tools/call",
+        "params": {
+            "name": "codelattice_complexity_hotspots",
+            "arguments": {
+                "root": root.to_string_lossy(),
+                "language": "rust",
+                "minLevel": "medium"
+            }
+        }
+    }));
+
+    let resp = session.recv();
+    let data = extract_tool_data(&resp);
+    let hotspots = data["complexityHotspots"]
+        .as_array()
+        .expect("complexityHotspots should be array");
+
+    // 超长 async/unsafe 函数应被报告（>50 行 + modifier >= 2.0）
+    let reported_names: Vec<&str> = hotspots.iter().filter_map(|h| h["name"].as_str()).collect();
+    assert!(
+        reported_names
+            .iter()
+            .any(|n| n.contains("oversized_async_function")),
+        "oversized_async_function should be reported: {:?}",
+        reported_names
+    );
+    assert!(
+        reported_names
+            .iter()
+            .any(|n| n.contains("oversized_unsafe_function")),
+        "oversized_unsafe_function should be reported: {:?}",
+        reported_names
+    );
+    // 短函数不应被报告
+    assert!(
+        !reported_names.iter().any(|n| *n == "tiny_helper"),
+        "tiny_helper should NOT be reported (below threshold): {:?}",
+        reported_names
+    );
+
+    // 验证 driver 与 metrics 字段
+    let async_item = hotspots
+        .iter()
+        .find(|h| h["name"].as_str().unwrap_or("").contains("oversized_async"))
+        .expect("async oversized function should be in results");
+    let drivers: Vec<&str> = async_item["drivers"]
+        .as_array()
+        .expect("drivers should be array")
+        .iter()
+        .filter_map(|d| d.as_str())
+        .collect();
+    assert!(
+        drivers
+            .iter()
+            .any(|d| *d == "long-function" || *d == "excessive-length"),
+        "should have length driver: {:?}",
+        drivers
+    );
+    assert!(
+        drivers.iter().any(|d| *d == "async"),
+        "async function should have async driver: {:?}",
+        drivers
+    );
+    // paramCount 必须是 null（v1 不可用）
+    assert!(
+        async_item["metrics"]["paramCount"].is_null(),
+        "paramCount must be null in v1: {:?}",
+        async_item["metrics"]
+    );
+    // lengthLinesRaw 必须是正数
+    assert!(
+        async_item["metrics"]["lengthLinesRaw"]
+            .as_u64()
+            .unwrap_or(0)
+            > 50,
+        "lengthLinesRaw should be > 50: {:?}",
+        async_item["metrics"]
+    );
+}
+
 #[cfg(feature = "tree-sitter-typescript")]
 #[test]
 fn mcp_architecture_drift_cycle_candidate() {
@@ -17654,8 +17801,8 @@ fn mcp_full_toolset_portable() {
                         let tools_arr = d["result"]["tools"].as_array().expect("tools array");
                         assert_eq!(
                             tools_arr.len(),
-                            49,
-                            "full toolset must be 49, got {}",
+                            50,
+                            "full toolset must be 50, got {}",
                             tools_arr.len()
                         );
                         return;
@@ -18776,8 +18923,8 @@ fn mcp_toolset_unchanged() {
         .expect("tools should be array");
     assert_eq!(
         tools.len(),
-        49,
-        "full toolset must still be 49 tools, got {}",
+        50,
+        "full toolset must still be 50 tools, got {}",
         tools.len()
     );
 }
@@ -22205,7 +22352,7 @@ fn mcp_toolset_count_unchanged_after_delta_pack() {
         .as_u64()
         .unwrap_or(0);
     assert_eq!(tool_count, 6, "default AI toolset must be 6");
-    assert_eq!(full_tool_count, 49, "full toolset must be 49");
+    assert_eq!(full_tool_count, 50, "full toolset must be 50");
 }
 
 // ============================================================

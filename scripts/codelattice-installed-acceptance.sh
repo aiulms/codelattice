@@ -176,13 +176,13 @@ if [ "$DEV_ONLY" = false ] && [ "$INSTALLED_ONLY" = false ] || [ "$DEV_ONLY" = t
             assert_eq "Excludes codelattice_cleanup" "no" "$HAS_CLEANUP"
         fi
 
-        section "Dev: Full Tools (expect 49)"
+        section "Dev: Full Tools (expect 50)"
         FULL_JSON=$(mcp_call_full_toolset "$DEV_BINARY" "tools/list" '{}')
         if [ -z "$FULL_JSON" ]; then
             fail "full tools/list returned empty"
         else
             FULL_COUNT=$(echo "$FULL_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('tools',[])))" 2>/dev/null || echo "0")
-            assert_eq "Full toolset count" "49" "$FULL_COUNT"
+            assert_eq "Full toolset count" "50" "$FULL_COUNT"
         fi
 
         section "Dev: call_chains smoke"
