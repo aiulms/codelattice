@@ -143,6 +143,10 @@
 
 **预估收益（C1）**：~250 个新增解析。resolution rate 60.5% → ~63.2%。
 
+> **实际收益（2026-07-27 落地，commit `22ad837`）**：+342 resolved，rate 60.5% → **64.0%**（+3.5pp）。超预估，因为解析顺序调整（receiver-type 优先于 trait fallback）带来额外收益。详见 [closure 笔记]。
+>
+> 实施中还修复了一个潜在 bug：`is_ok`/`is_err` 同时在 trait 表和 receiver-type 表里，原解析顺序（trait fallback 在前）导致 c11-receiver-type fixture 的 receiver-type 解析（0.65）退化为 trait fallback（0.55）。修复后 receiver-type 优先。
+
 ---
 
 ## 四、推荐执行顺序
