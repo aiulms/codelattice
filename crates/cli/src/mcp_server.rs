@@ -580,6 +580,11 @@ fn facade_compact_default(params: &Value) -> bool {
     params["compact"].as_bool().unwrap_or(true)
 }
 
+/// responseProfile=minimal 的 opt-in 判定。
+fn facade_minimal_default(params: &Value) -> bool {
+    params["responseProfile"].as_str() == Some("minimal")
+}
+
 fn symbol_candidate_card(node: &Value) -> Value {
     json!({
         "id": node["id"],
@@ -23408,7 +23413,24 @@ fn wrap_facade_output(
     next_actions: Vec<&str>,
     underlying: Vec<&str>,
     compact: bool,
+    minimal: bool,
 ) -> Value {
+    // minimal profile：只保留 result + 必要路由字段，砍掉所有脚手架。
+    // 用于 AI 高频查询降低上下文消耗。与 compact 正交。
+    if minimal {
+        return json!({
+            "schemaVersion": "facade.v1",
+            "tool": tool,
+            "mode": mode,
+            "language": language,
+            "root": root,
+            "responseProfile": "minimal",
+            "summary": summary,
+            "result": inner,
+            "nextActions": next_actions,
+            "underlyingTools": underlying
+        });
+    }
     // 自动计算 root diagnosis（如果 root 有效）
     let root_diagnosis = if root.is_empty() || root == "n/a" {
         json!({"kind": "not_applicable", "explanation": "No root path provided."})
@@ -25214,6 +25236,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                     "codelattice_ai_context_pack",
                 ],
                 compact,
+                facade_minimal_default(params),
             )));
         }
         _ => unreachable!(),
@@ -25558,6 +25581,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                 next_actions,
                 underlying,
                 compact,
+                facade_minimal_default(params),
             )
         },
     ))
@@ -26126,7 +26150,18 @@ fn workspace_auto_route_decision(
     let query_tokens = workspace_query_tokens(&query);
     let mut candidates = Vec::new();
 
-    for project in recommended.iter().take(5) {
+    // 有明确 query/symbol 时扩大探测范围（不再只看 top-5），
+    // 让不在 top-5 的 project 也有机会被轻量源码查找命中。
+    // 无 query 时保持 top-5（纯推荐排序，避免全量探测开销）。
+    // 全量探测有上限（30 个 project × 每 project 600 文件）防止大 workspace 过载。
+    let has_explicit_query = !query_lower.is_empty();
+    let projects_to_probe: Vec<&Value> = if has_explicit_query {
+        recommended.iter().take(30).collect()
+    } else {
+        recommended.iter().take(5).collect()
+    };
+
+    for project in projects_to_probe {
         let selected_root = workspace_project_absolute_root(root, project);
         let selected_language = project["language"]
             .as_str()
@@ -26604,6 +26639,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
             next_actions,
             underlying,
             compact,
+            facade_minimal_default(params),
         );
         attach_facade_request_context(&mut output, &request_context);
         return Ok(tool_result(&output));
@@ -26634,6 +26670,7 @@ fn handle_symbol(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         next_actions,
         underlying,
         compact,
+        facade_minimal_default(params),
     );
     attach_facade_request_context(&mut output, &request_context);
     Ok(tool_result(&output))
@@ -26902,6 +26939,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                     "codelattice_consistency_review",
                 ],
                 compact,
+                facade_minimal_default(params),
             )));
         }
         "native_review" => {
@@ -26954,6 +26992,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
                     "codelattice_production_assist",
                 ],
                 compact,
+                facade_minimal_default(params),
             )));
         }
         "whatif" => {
@@ -27072,6 +27111,7 @@ fn handle_change_review(cache: &mut McpCache, params: &Value) -> Result<Value, V
         vec!["Use full_review mode for comprehensive analysis"],
         underlying,
         compact,
+        facade_minimal_default(params),
     )))
 }
 
@@ -27189,6 +27229,7 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
                     "codelattice_framework_entry_hints",
                 ],
                 compact,
+                facade_minimal_default(params),
             )));
         }
         _ => unreachable!(),
@@ -27203,6 +27244,7 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
         vec!["Use safe_cleanup_review for comprehensive review"],
         underlying,
         compact,
+        facade_minimal_default(params),
     )))
 }
 
@@ -27288,6 +27330,7 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
                     "codelattice_cross_project_impact",
                 ],
                 compact,
+                facade_minimal_default(params),
             )));
         }
         _ => unreachable!(),
@@ -27302,6 +27345,7 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
         vec!["Use impact mode to analyze specific targets"],
         underlying,
         compact,
+        facade_minimal_default(params),
     );
     if mode == "impact" {
         if let Some(obj) = output.as_object_mut() {
@@ -27418,6 +27462,7 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
                     "codelattice_consistency_review",
                 ],
                 compact,
+                facade_minimal_default(params),
             )));
         }
         _ => unreachable!(),
@@ -27432,6 +27477,7 @@ fn handle_release_check(cache: &mut McpCache, params: &Value) -> Result<Value, V
         vec!["Use full mode for comprehensive review"],
         underlying,
         compact,
+        facade_minimal_default(params),
     )))
 }
 
@@ -27537,6 +27583,7 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
         vec!["Use clear to reset cache"],
         underlying,
         compact,
+        facade_minimal_default(params),
     );
     // 添加 cacheSemantics
     if let Some(obj) = output.as_object_mut() {
