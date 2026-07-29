@@ -24639,6 +24639,76 @@ fn handle_facade_job(
 /// cache hit → 调用者同步返回；cache miss/stale + asyncOnMiss → 自动提交异步 job。
 /// 返回 None 表示 cache hit，调用者应继续同步执行。
 /// 返回 Some(Value) 表示已提交异步 job 或应返回 backpressure。
+/// 从当前 facade 请求参数构造 resumeCall —— 一个可直接执行的 MCP 调用结构，
+/// 供使用者在 job_status 返回 succeeded + facadeCacheReady=true 后恢复原始查询。
+///
+/// resumeCall 按当前请求构造（不存进共享 job），避免 singleflight 复用时
+/// 不同查询的参数互相污染。同一个 root/language job 可被多个不同查询复用，
+/// 因此每个 facade 调用都要带上自己的 resumeCall。
+///
+/// 只保留有意义的查询参数（name/query/symbol/target/depth/page/includeSnippet
+/// 等业务参数 + root/language/compact），剔除内部控制参数（asyncOnMiss/forceSync）。
+fn build_resume_call(
+    tool_name: &str,
+    mode: &str,
+    params: &Value,
+    root: &str,
+    language: &str,
+) -> Value {
+    // 允许透传的业务参数白名单
+    const PASS_THROUGH_KEYS: &[&str] = &[
+        "name",
+        "query",
+        "symbol",
+        "target",
+        "depth",
+        "page",
+        "pageSize",
+        "includeSnippet",
+        "includeTests",
+        "minLevel",
+        "maxResults",
+        "scope",
+        "limit",
+        "task",
+        "changedPath",
+        "changedSymbols",
+        "language",
+        "root",
+    ];
+    let mut arguments = serde_json::Map::new();
+    arguments.insert("mode".to_string(), Value::String(mode.to_string()));
+    arguments.insert("root".to_string(), Value::String(root.to_string()));
+    arguments.insert("language".to_string(), Value::String(language.to_string()));
+    // compact 保持原请求值（默认 false 时也显式带上，确保恢复后行为一致）
+    arguments.insert(
+        "compact".to_string(),
+        Value::Bool(params["compact"].as_bool().unwrap_or(false)),
+    );
+    // 透传业务参数
+    if let Some(obj) = params.as_object() {
+        for &key in PASS_THROUGH_KEYS {
+            if key == "language" || key == "root" {
+                continue; // 已显式设置路由后的值
+            }
+            if let Some(val) = obj.get(key) {
+                if !val.is_null() {
+                    arguments.insert(key.to_string(), val.clone());
+                }
+            }
+        }
+    }
+    json!({
+        "schemaVersion": "codelattice.resumeCall.v1",
+        "when": {
+            "jobStatus": "succeeded",
+            "facadeCacheReady": true
+        },
+        "tool": tool_name,
+        "arguments": arguments
+    })
+}
+
 fn facade_auto_job_check(
     cache: &McpCache,
     root: &str,
@@ -24689,15 +24759,17 @@ fn facade_auto_job_check(
         .find(|j| j.root == root && (j.language == language || j.language == "auto"));
     if let Some(running) = matching_running {
         let estimate = crate::mcp_job::estimate_analysis_duration(0, language, probe_status);
+        let resume_call = build_resume_call(tool_name, mode, params, root, language);
         return Some(with_contract(json!({
             "status": "analyzing",
             "jobId": running.job_id,
             "cacheProbe": probe,
             "retryAfterSeconds": estimate["retryAfterSeconds"],
-            "message": "A matching analysis job is already running. Poll job_status until succeeded, then retry.",
+            "message": "A matching analysis job is already running. Poll job_status; when succeeded + facadeCacheReady, use resumeCall to get your original result in one step.",
+            "resumeCall": resume_call,
             "recommendedNextCalls": [
                 {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": running.job_id, "root": root, "language": language, "compact": true}},
-                {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": running.job_id, "root": root, "language": language, "page": 0, "pageSize": 50, "compact": true}}
+                {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": running.job_id, "root": root, "language": language, "page": 0, "pageSize": 50, "compact": true}, "optional": true, "why": "Diagnostic only — returns analysis metadata, not your query result."}
             ],
             "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
         })));
@@ -24765,10 +24837,11 @@ fn facade_auto_job_check(
                 "estimatedSeconds": estimate["estimatedSeconds"],
                 "retryAfterSeconds": estimate["retryAfterSeconds"],
                 "estimatedClass": estimate["estimatedClass"],
-                "message": "Analysis is running in background. Use job_status/job_detail; retry this facade after job succeeds.",
+                "message": "Analysis is running in background. Poll job_status; when succeeded + facadeCacheReady, use resumeCall to get your original result in one step.",
+                "resumeCall": build_resume_call(tool_name, mode, params, root, language),
                 "recommendedNextCalls": [
                     {"tool": tool_name, "mode": "job_status", "arguments": {"jobId": job_id, "root": root, "language": language, "compact": true}},
-                    {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job_id, "page": 0, "pageSize": 50, "root": root, "language": language, "compact": true}}
+                    {"tool": tool_name, "mode": "job_detail", "arguments": {"jobId": job_id, "page": 0, "pageSize": 50, "root": root, "language": language, "compact": true}, "optional": true, "why": "Diagnostic only — returns analysis metadata, not your query result."}
                 ],
                 "analysisSemantics": {"staticAnalysis": true, "targetCodeExecuted": false}
             })))
@@ -27434,7 +27507,7 @@ fn handle_cache(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
                         "message": "Prewarm submitted a non-blocking project job. Poll job_status until succeeded; facade cache will be ready afterward.",
                         "recommendedNextCalls": [
                             {"tool": "codelattice_project", "mode": "job_status", "arguments": {"jobId": job_id, "root": root, "language": language_owned, "compact": true}},
-                            {"tool": "codelattice_project", "mode": "job_detail", "arguments": {"jobId": job_id, "root": root, "language": language_owned, "page": 0, "pageSize": 50, "compact": true}}
+                            {"tool": "codelattice_project", "mode": "job_detail", "arguments": {"jobId": job_id, "root": root, "language": language_owned, "page": 0, "pageSize": 50, "compact": true}, "optional": true, "why": "Diagnostic only — returns analysis metadata."}
                         ]
                     }),
                     vec!["codelattice_project_job"],
