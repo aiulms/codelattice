@@ -210,6 +210,15 @@ impl LineIndex {
     fn line_for_byte(&self, byte_offset: usize) -> u32 {
         self.starts.partition_point(|start| *start <= byte_offset) as u32
     }
+
+    /// 返回某行（1-indexed）的起始字节偏移。用于把 CallerIndex 的 fn line_start
+    /// 转成 byte offset，供 scan_variable_type_annotation 精确定位 func_scope。
+    fn byte_for_line(&self, line_1indexed: u32) -> Option<usize> {
+        if line_1indexed == 0 {
+            return Some(0);
+        }
+        self.starts.get((line_1indexed - 1) as usize).copied()
+    }
 }
 
 fn extract_calls_from_file(
@@ -572,6 +581,20 @@ fn process_call_expression(
 
     let source_text = std::str::from_utf8(source_bytes).unwrap_or("");
 
+    // 算 enclosing fn 的字节起点：用 CallerIndex 精确定位 func_scope，
+    // 替代 scan_variable_type_annotation 内部的 rfind("fn ") 启发式
+    // （后者会被注释/字符串里的 "fn " 干扰，导致漏解）。
+    let enclosing = caller_index.find_enclosing(source_path, line_start);
+    let func_start_hint = enclosing.and_then(|ci| line_index.byte_for_line(ci.line_start));
+    // 算 enclosing fn 的 impl_target（用于 self 方法解析，B）：
+    // 从 enclosing fn 的 symbol id 查 CalleeIndex 拿 impl_details。
+    let enclosing_impl_target = enclosing.and_then(|ci| {
+        symbol_index
+            .lookup_by_id(&ci.id)
+            .and_then(|m| m.impl_details.as_ref())
+            .map(|d| d.impl_target.as_str())
+    });
+
     resolve_call_site(
         &mut call_site,
         crate_root_abs,
@@ -579,6 +602,8 @@ fn process_call_expression(
         symbol_index,
         import_bindings,
         source_text,
+        func_start_hint,
+        enclosing_impl_target,
     );
 
     Some(call_site)
@@ -638,6 +663,16 @@ fn process_method_call_expression(
         diagnostics: vec![],
     };
 
+    // 算 enclosing fn 的字节起点 + impl_target（同 process_call_expression）。
+    let enclosing = caller_index.find_enclosing(source_path, line_start);
+    let func_start_hint = enclosing.and_then(|ci| line_index.byte_for_line(ci.line_start));
+    let enclosing_impl_target = enclosing.and_then(|ci| {
+        symbol_index
+            .lookup_by_id(&ci.id)
+            .and_then(|m| m.impl_details.as_ref())
+            .map(|d| d.impl_target.as_str())
+    });
+
     resolve_call_site(
         &mut call_site,
         crate_root_abs,
@@ -645,6 +680,8 @@ fn process_method_call_expression(
         symbol_index,
         import_bindings,
         source_text,
+        func_start_hint,
+        enclosing_impl_target,
     );
 
     Some(call_site)
@@ -779,6 +816,8 @@ fn resolve_call_site(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     source_text: &str,
+    func_start_hint: Option<usize>,
+    enclosing_impl_target: Option<&str>,
 ) {
     match call.call_kind.as_str() {
         "free-function" => resolve_free_function(call, symbol_index, import_bindings),
@@ -815,6 +854,7 @@ fn resolve_call_site(
                                     source_text,
                                     call.span.byte_start,
                                     receiver,
+                                    func_start_hint,
                                 ) {
                                     if let Some(resolved_path) =
                                         lookup_receiver_type_method(&base_type, &call.callee_name)
@@ -848,6 +888,40 @@ fn resolve_call_site(
                         .to_string();
                 }
                 _multiple => {
+                    // Phase 2d (B): self 方法解析。
+                    // 当 receiver 是 self（self.foo() / &self.foo() / &mut self.foo()）
+                    // 且已知 enclosing fn 的 impl_target 时，在多个同名 method 里
+                    // 按 impl_target 过滤，若唯一匹配则解析。
+                    // 这是静态可解的（impl 块上下文），不需 type inference。
+                    if let Some(dot_pos) = call.raw_text.find('.') {
+                        let receiver = call.raw_text[..dot_pos]
+                            .trim_start_matches('&')
+                            .trim_start_matches("mut ")
+                            .trim();
+                        if receiver == "self" {
+                            if let Some(impl_target) = enclosing_impl_target {
+                                let candidates: Vec<_> = methods
+                                    .iter()
+                                    .filter(|m| {
+                                        m.impl_details
+                                            .as_ref()
+                                            .map(|d| d.impl_target == impl_target)
+                                            .unwrap_or(false)
+                                    })
+                                    .collect();
+                                if candidates.len() == 1 {
+                                    let single = candidates[0];
+                                    call.resolved_symbol_id = Some(single.id.clone());
+                                    call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                                    call.confidence = 0.70;
+                                    call.reason = CallResolutionReason::CallSelfMethodResolved
+                                        .as_str()
+                                        .to_string();
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     // Phase 2c: 多个 crate 内同名 method 时也尝试 stdlib trait fallback。
                     // 常见 method（clone/len/push/to_string 等）在 crate 内有多个 impl，
                     // 但 method name 对应 known-unique stdlib trait 时仍可安全解析。
@@ -870,6 +944,7 @@ fn resolve_call_site(
                                     source_text,
                                     call.span.byte_start,
                                     receiver,
+                                    func_start_hint,
                                 ) {
                                     if let Some(resolved_path) =
                                         lookup_receiver_type_method(&base_type, &call.callee_name)
@@ -1711,7 +1786,14 @@ fn parse_text_call(
         diagnostics: vec![],
     };
 
-    resolve_call_site_text(&mut call_site, symbol_index, import_bindings, source_text);
+    resolve_call_site_text(
+        &mut call_site,
+        symbol_index,
+        import_bindings,
+        source_text,
+        None,
+        None,
+    );
 
     Some(call_site)
 }
@@ -1850,6 +1932,8 @@ fn resolve_call_site_text(
     symbol_index: &CalleeIndex,
     import_bindings: &ImportBindingTable,
     source_text: &str,
+    func_start_hint: Option<usize>,
+    enclosing_impl_target: Option<&str>,
 ) {
     match call.call_kind.as_str() {
         "free-function" => resolve_free_function(call, symbol_index, import_bindings),
@@ -1883,6 +1967,7 @@ fn resolve_call_site_text(
                                     source_text,
                                     call.span.byte_start,
                                     receiver,
+                                    func_start_hint,
                                 ) {
                                     if let Some(resolved_path) =
                                         lookup_receiver_type_method(&base_type, &call.callee_name)
@@ -1916,6 +2001,40 @@ fn resolve_call_site_text(
                         .to_string();
                 }
                 _multiple => {
+                    // Phase 2d (B): self 方法解析。
+                    // 当 receiver 是 self（self.foo() / &self.foo() / &mut self.foo()）
+                    // 且已知 enclosing fn 的 impl_target 时，在多个同名 method 里
+                    // 按 impl_target 过滤，若唯一匹配则解析。
+                    // 这是静态可解的（impl 块上下文），不需 type inference。
+                    if let Some(dot_pos) = call.raw_text.find('.') {
+                        let receiver = call.raw_text[..dot_pos]
+                            .trim_start_matches('&')
+                            .trim_start_matches("mut ")
+                            .trim();
+                        if receiver == "self" {
+                            if let Some(impl_target) = enclosing_impl_target {
+                                let candidates: Vec<_> = methods
+                                    .iter()
+                                    .filter(|m| {
+                                        m.impl_details
+                                            .as_ref()
+                                            .map(|d| d.impl_target == impl_target)
+                                            .unwrap_or(false)
+                                    })
+                                    .collect();
+                                if candidates.len() == 1 {
+                                    let single = candidates[0];
+                                    call.resolved_symbol_id = Some(single.id.clone());
+                                    call.resolved_symbol_kind = Some(single.symbol_kind.clone());
+                                    call.confidence = 0.70;
+                                    call.reason = CallResolutionReason::CallSelfMethodResolved
+                                        .as_str()
+                                        .to_string();
+                                    return;
+                                }
+                            }
+                        }
+                    }
                     // Phase 2c: 多个 crate 内同名 method 时也尝试 stdlib trait fallback。
                     // 常见 method（clone/len/push/to_string 等）在 crate 内有多个 impl，
                     // 但 method name 对应 known-unique stdlib trait 时仍可安全解析。
@@ -1938,6 +2057,7 @@ fn resolve_call_site_text(
                                     source_text,
                                     call.span.byte_start,
                                     receiver,
+                                    func_start_hint,
                                 ) {
                                     if let Some(resolved_path) =
                                         lookup_receiver_type_method(&base_type, &call.callee_name)

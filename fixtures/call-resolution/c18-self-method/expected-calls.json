@@ -1,0 +1,48 @@
+[
+  {
+    "id": "src/lib.rs::call::20::helper",
+    "callerSymbolId": "c18-self-method::crate::do_work",
+    "callerName": "do_work",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 20,
+      "lineEnd": 20,
+      "byteStart": 557,
+      "byteEnd": 570
+    },
+    "rawText": "self.helper()",
+    "knownCrate": null,
+    "calleePath": "self.helper",
+    "calleeName": "helper",
+    "callKind": "method-call",
+    "resolvedSymbolId": "c18-self-method::crate::helper",
+    "resolvedSymbolKind": "method",
+    "confidence": 0.7,
+    "reason": "call-self-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::40::helper",
+    "callerSymbolId": "c18-self-method::crate::do_work::_L39",
+    "callerName": "do_work",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 40,
+      "lineEnd": 40,
+      "byteStart": 858,
+      "byteEnd": 871
+    },
+    "rawText": "self.helper()",
+    "knownCrate": null,
+    "calleePath": "self.helper",
+    "calleeName": "helper",
+    "callKind": "method-call",
+    "resolvedSymbolId": "c18-self-method::crate::helper::_L35",
+    "resolvedSymbolKind": "method",
+    "confidence": 0.7,
+    "reason": "call-self-method-resolved",
+    "diagnostics": []
+  }
+]

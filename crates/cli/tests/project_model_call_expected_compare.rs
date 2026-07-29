@@ -45,6 +45,8 @@ const CALL_FIXTURES: &[&str] = &[
     "c15-associated-function-disambiguation",
     // stdlib 唯一 trait method 解析（C1 扩展：count/any/find/cloned/is_some/is_ok 等）
     "c17-stdlib-trait-method",
+    // self 方法解析（B：self.helper() 按 enclosing impl_target 过滤）
+    "c18-self-method",
 ];
 
 fn workspace_root() -> PathBuf {

@@ -250,16 +250,31 @@ pub(crate) static STDLIB_TYPE_METHODS: &[StdlibTypeMethodEntry] = &[
 /// 从 let 绑定中扫描变量类型注解。
 /// 在 call site 之前查找 `let var_name: Type = ...` 或 `let mut var_name: Type = ...`
 /// 提取 Type 的 base name（去掉 &/mut/泛型参数）。
+///
+/// `func_start_hint`：若调用方已知 enclosing function 的字节起点（来自 CallerIndex），
+/// 优先用它定位 func_scope，避免 `rfind("fn ")` 启发式被注释/字符串里的 "fn " 干扰。
+/// 传 None 时 fallback 到启发式。
 pub(crate) fn scan_variable_type_annotation(
     source_text: &str,
     call_byte_start: usize,
     var_name: &str,
+    func_start_hint: Option<usize>,
 ) -> Option<String> {
     let prefix = &source_text[..call_byte_start];
 
-    // 寻找最近的 `fn` 关键字（确保不跨越函数边界）
-    // 简单启发式：从 call site 往回找最近的 "fn "，作为函数体起点
-    let fn_pos = prefix.rfind("fn ")?;
+    // 定位函数 scope 起点：优先用 CallerIndex 提供的精确边界，
+    // fallback 到 rfind("fn ") 启发式（向后兼容，无 caller_index 信息的路径）。
+    let fn_pos = if let Some(hint) = func_start_hint {
+        // hint 是 enclosing fn 的字节起点；确保不越界且在 call 之前
+        if hint < call_byte_start {
+            hint
+        } else {
+            prefix.rfind("fn ")?
+        }
+    } else {
+        // 启发式：从 call site 往回找最近的 "fn "，作为函数体起点
+        prefix.rfind("fn ")?
+    };
     let func_scope = &prefix[fn_pos..];
 
     // 在函数 scope 内寻找 `let var_name: Type =` 或 `let mut var_name: Type =`

@@ -637,6 +637,9 @@ pub enum CallResolutionReason {
     /// 然后查 STDLIB_TYPE_METHODS 表解析 method
     /// confidence 0.65：receiver type 从显式类型注解确定，高于 trait-only 0.55
     CallReceiverTypeMethodResolved,
+    /// self 方法解析：receiver 是 self，通过 enclosing fn 的 impl_target 在同名 method 中过滤
+    /// confidence 0.70：impl 块上下文静态可解，高于 blind method-name(0.65)，低于 same-module(0.90)
+    CallSelfMethodResolved,
     /// 跨文件 same-crate free function 解析：caller 与 callee 在不同 module 但在同一 crate
     /// 通过 crate-wide unique function name 搜索解析
     /// confidence 0.80：低于 same-module(0.90) / import(0.85)，高于 same-file heuristic(0.70)
@@ -689,6 +692,8 @@ impl CallResolutionReason {
             CallResolutionReason::CallReceiverTypeMethodResolved => {
                 "call-receiver-type-method-resolved"
             }
+            // self 方法解析：impl 块上下文静态可解
+            CallResolutionReason::CallSelfMethodResolved => "call-self-method-resolved",
             // 跨文件 same-crate free function 解析
             // confidence 0.80：低于 same-module(0.90) / import(0.85)，高于 same-file heuristic(0.70)
             CallResolutionReason::CallSameCrateResolved => "call-same-crate-resolved",
