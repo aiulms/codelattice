@@ -12674,7 +12674,8 @@ fn tools_list() -> Value {
                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto", "description": "Language to analyze" },
                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max unresolved items to return" },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit item detail arrays, return counts and reason breakdown only" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit item detail arrays, return counts and reason breakdown only" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root"]
                }
@@ -12690,7 +12691,8 @@ fn tools_list() -> Value {
                        "query": { "type": "string", "description": "Search query (case-insensitive substring match)" },
                        "kind": { "type": "string", "description": "Filter by symbol kind (function, struct, class, enum, interface, etc)" },
                        "limit": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max results to return" },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit label, keep id/name/kind/file/line per match" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit label, keep id/name/kind/file/line per match" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root", "query"]
                }
@@ -12738,7 +12740,8 @@ fn tools_list() -> Value {
                        "limit": { "type": "integer", "default": 20, "maximum": 100 },
                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root", "symbol"]
                }
@@ -12756,7 +12759,8 @@ fn tools_list() -> Value {
                        "limit": { "type": "integer", "default": 20, "maximum": 100 },
                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source code snippets in results" },
                        "snippetContext": { "type": "integer", "default": 3, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets and depth, keep id/name/kind/file/line per edge" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root", "symbol"]
                }
@@ -12773,7 +12777,8 @@ fn tools_list() -> Value {
                        "direction": { "type": "string", "enum": ["upstream", "downstream", "both"], "default": "both" },
                        "depth": { "type": "integer", "default": 2, "minimum": 1, "maximum": 3 },
                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: keep risk/riskReasons/impactMetrics/confidenceSummary/reviewFocus, impactedSymbols only id/name/kind/file/line, no snippets" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: keep risk/riskReasons/impactMetrics/confidenceSummary/reviewFocus, impactedSymbols only id/name/kind/file/line, no snippets" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root", "symbol"]
                }
@@ -12793,7 +12798,8 @@ fn tools_list() -> Value {
                        "limit": { "type": "integer", "default": 50, "maximum": 200 },
                        "includeSnippet": { "type": "boolean", "default": false, "description": "Include source code snippets in results" },
                        "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippet" },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets, keep id/name/kind/file/line per node and confidence/reason per edge" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit snippets, keep id/name/kind/file/line per node and confidence/reason per edge" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root"]
                }
@@ -12806,7 +12812,8 @@ fn tools_list() -> Value {
                    "properties": {
                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
-                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit hotspots, dense files, top kinds; return counts only" }
+                       "compact": { "type": "boolean", "default": false, "description": "Compact mode: omit hotspots, dense files, top kinds; return counts only" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root"]
                }
@@ -12913,6 +12920,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto", "description": "Language to analyze" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact output — each item retains id/name/kind/file/line/riskScore/reasons only" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
                         "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signals (symbol ↔ doc associations)" },
                         "includeDiagnostics": { "type": "boolean", "default": true, "description": "Include diagnostic counts in risk scoring" }
@@ -12932,6 +12940,7 @@ fn tools_list() -> Value {
                        "symbol": { "type": "string", "description": "Target symbol name (used in before_edit mode)" },
                        "changedSymbols": { "type": "array", "items": { "type": "string" }, "description": "Explicit changed symbol names (after_edit mode; auto-detected if omitted)" },
                        "compact": { "type": "boolean", "default": true, "description": "Compact output" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                        "limit": { "type": "integer", "default": 10, "maximum": 100, "description": "Max items per category" },
                        "includeDocs": { "type": "boolean", "default": true, "description": "Include doc update hints" },
                        "includeTests": { "type": "boolean", "default": true, "description": "Include test hints" }
@@ -12951,6 +12960,7 @@ fn tools_list() -> Value {
                        "diffMode": { "type": "string", "enum": ["working-tree", "staged", "unstaged", "head"], "default": "working-tree", "description": "What to diff: working-tree (default, staged+unstaged), staged only, unstaged only, or HEAD" },
                        "baseRef": { "type": "string", "description": "Optional git ref to compare against (e.g., 'main', 'HEAD~3')" },
                        "compact": { "type": "boolean", "default": true, "description": "Compact output — only id/name/kind/file/line/risk per symbol" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                        "includeSnippet": { "type": "boolean", "default": true, "description": "Include source snippets for changed symbols" },
                        "snippetContext": { "type": "integer", "default": 2, "minimum": 0, "maximum": 10, "description": "Lines of context around snippets" },
                        "limit": { "type": "integer", "default": 100, "maximum": 500, "description": "Max changed symbols to return" }
@@ -12968,6 +12978,7 @@ fn tools_list() -> Value {
                        "root": { "type": "string", "description": "Project root directory (absolute path)" },
                        "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto", "description": "Language to analyze" },
                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only id/name/kind/file/line/score/confidence/reasons/cautions per item" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                        "limit": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max candidates to return" },
                        "includeFiles": { "type": "boolean", "default": true, "description": "Include file-level candidates" },
                        "includeSymbols": { "type": "boolean", "default": true, "description": "Include symbol-level candidates" },
@@ -12993,7 +13004,8 @@ fn tools_list() -> Value {
                        "maxDepth": { "type": "integer", "default": 3, "minimum": 1, "maximum": 6, "description": "Max BFS depth for indirect paths" },
                        "maxResults": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max results per category" },
                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
-                       "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit full snippets" }
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit full snippets" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root", "target"]
                }
@@ -13011,7 +13023,8 @@ fn tools_list() -> Value {
                        "maxResults": { "type": "integer", "default": 20, "minimum": 1, "maximum": 100, "description": "Max hotspots per category" },
                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files and test symbols" },
                        "minRiskLevel": { "type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Minimum risk level to include" },
-                       "compact": { "type": "boolean", "default": true, "description": "Compact mode" }
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root"]
                }
@@ -13030,7 +13043,8 @@ fn tools_list() -> Value {
                        "maxCycles": { "type": "integer", "default": 10, "minimum": 1, "maximum": 50, "description": "Max cycle candidates to report" },
                        "maxFindings": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max total findings" },
                        "includeTests": { "type": "boolean", "default": false, "description": "Include test files" },
-                       "compact": { "type": "boolean", "default": true, "description": "Compact mode" }
+                       "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                       "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                    },
                    "required": ["root"]
                }
@@ -13046,7 +13060,8 @@ fn tools_list() -> Value {
                         "maxResults": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max hotspots to return" },
                         "includeTests": { "type": "boolean", "default": false, "description": "Include test functions (tests are naturally long, excluded by default to reduce noise)" },
                         "minLevel": { "type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Minimum complexity level to report" },
-                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" }
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                     },
                     "required": ["root"]
                 }
@@ -13064,7 +13079,8 @@ fn tools_list() -> Value {
                         "maxFiles": { "type": "integer", "default": 15, "minimum": 1, "maximum": 100, "description": "Max context files to return" },
                         "maxSymbols": { "type": "integer", "default": 30, "minimum": 1, "maximum": 200, "description": "Max key symbols to return" },
                         "includeTests": { "type": "boolean", "default": false, "description": "Include test files in context" },
-                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit callChains details" }
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit callChains details" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                     },
                     "required": ["root"]
                 }
@@ -13081,7 +13097,8 @@ fn tools_list() -> Value {
                         "useGitDiff": { "type": "boolean", "default": false, "description": "Run git diff --name-only to detect changed files" },
                         "includeUntracked": { "type": "boolean", "default": false, "description": "Include untracked files when using git diff" },
                         "maxFindings": { "type": "integer", "default": 50, "minimum": 1, "maximum": 200, "description": "Max findings to return" },
-                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only essential fields per item" }
+                        "compact": { "type": "boolean", "default": true, "description": "Compact mode: keep only essential fields per item" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" }
                     },
                     "required": ["root"]
                 }
@@ -13106,6 +13123,7 @@ fn tools_list() -> Value {
                         },
                         "runtimeEvidence": { "type": "object", "description": "Optional pasted or collected runtime evidence such as logs, snapshots, traces, console output, or stack traces" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 8, "minimum": 1, "maximum": 50, "description": "Max static matches/hypotheses to return" }
                     },
                     "required": ["root", "issue"]
@@ -13140,6 +13158,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 50, "maximum": 200 },
                         "includeDocs": { "type": "boolean", "default": true, "description": "Include docs signal" },
                         "includeTests": { "type": "boolean", "default": false, "description": "Include test files" },
@@ -13158,6 +13177,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 50, "maximum": 200 },
                         "includeTests": { "type": "boolean", "default": false, "description": "Include test files" },
                         "includeCallbacks": { "type": "boolean", "default": true, "description": "Include callback hints" },
@@ -13176,6 +13196,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 50, "maximum": 200 },
                         "changedSymbols": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Changed symbol names/IDs/files to review" },
                         "diffMode": { "type": "string", "enum": ["working", "staged", "head"], "default": "working" },
@@ -13196,6 +13217,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 50, "maximum": 200 },
                         "changedSymbols": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Changed symbol names/IDs/files to review" },
                         "diffMode": { "type": "string", "enum": ["working", "staged", "head"], "default": "working" },
@@ -13216,6 +13238,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 50, "maximum": 200 },
                         "includeExamples": { "type": "boolean", "default": true, "description": "Scan examples/" },
                         "includePackageConfig": { "type": "boolean", "default": true, "description": "Scan package.json/pyproject.toml/Cargo.toml" },
@@ -13235,6 +13258,7 @@ fn tools_list() -> Value {
                         "root": { "type": "string", "description": "Project root directory (absolute path)" },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode: omit full steps/edges and keep summary/workflows/risks" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "limit": { "type": "integer", "default": 80, "minimum": 1, "maximum": 300 },
                         "includeShellScripts": { "type": "boolean", "default": true, "description": "Scan .sh/.bash/.zsh scripts" },
                         "includeCi": { "type": "boolean", "default": true, "description": "Scan CI workflow files" },
@@ -13253,6 +13277,7 @@ fn tools_list() -> Value {
                         "scenario": { "type": "string", "enum": ["onboarding", "before_edit", "after_edit", "delete_code", "release_check", "legacy_cleanup", "public_api_change", "framework_route_change", "docs_tests_sync", "config_examples_sync"] },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": true, "description": "Compact mode (omit workflow detail)" },
+                        "responseProfile": { "type": "string", "enum": ["default", "minimal"], "default": "default", "description": "minimal omits scaffolding fields (decisionGuidance/rootDiagnosis/cautions), keeps only result + routing" },
                         "includeExamples": { "type": "boolean", "default": true, "description": "Include example args" }
                     },
                     "required": ["scenario"]
