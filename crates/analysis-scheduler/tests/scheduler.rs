@@ -63,7 +63,7 @@ fn fingerprint_changes_when_source_metadata_changes() {
 }
 
 #[test]
-fn fingerprint_ignores_hidden_and_target_directories() {
+fn fingerprint_ignores_hidden_and_generated_directories() {
     let temp = tempfile::tempdir().expect("tempdir");
     fs::create_dir(temp.path().join("src")).expect("src");
     fs::write(temp.path().join("src/lib.rs"), "pub fn live() {}\n").expect("write source");
@@ -72,6 +72,14 @@ fn fingerprint_ignores_hidden_and_target_directories() {
     fs::write(temp.path().join(".git/index"), "private").expect("write hidden");
     fs::create_dir(temp.path().join("target")).expect("target");
     fs::write(temp.path().join("target/build.log"), "generated").expect("write target");
+    for generated_dir in ["build", "dist", "out", "coverage", ".output", ".cache"] {
+        fs::create_dir(temp.path().join(generated_dir)).expect("generated dir");
+        fs::write(
+            temp.path().join(generated_dir).join("generated.js"),
+            "generated",
+        )
+        .expect("write generated output");
+    }
 
     let fingerprint = fingerprint_root(temp.path()).expect("fingerprint");
 

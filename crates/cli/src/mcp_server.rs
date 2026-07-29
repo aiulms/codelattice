@@ -1541,7 +1541,7 @@ fn scan_file_mtimes(root: &Path) -> HashMap<String, u64> {
                 if path.is_dir() {
                     // Skip hidden dirs and common non-source dirs
                     if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                        if name.starts_with('.') || name == "target" || name == "node_modules" {
+                        if name.starts_with('.') || IGNORED_DIR_NAMES.contains(&name) {
                             continue;
                         }
                     }
@@ -1584,6 +1584,12 @@ const IGNORED_DIR_NAMES: &[&str] = &[
     ".git",
     "target",
     "node_modules",
+    "dist",
+    "build",
+    "out",
+    ".output",
+    "coverage",
+    ".cache",
     ".codelattice",
     ".codelattice-cache",
     ".DS_Store",
@@ -2533,12 +2539,12 @@ impl McpCache {
                 let files_to_extract: Vec<String> = match &file_stale_reason {
                     Some(StaleReason::FileAdded(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
+                        .filter(|f| is_delta_source_path(f, language))
                         .cloned()
                         .collect(),
                     Some(StaleReason::FileModified(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
+                        .filter(|f| is_delta_source_path(f, language))
                         .cloned()
                         .collect(),
                     _ => Vec::new(),
@@ -2549,7 +2555,11 @@ impl McpCache {
                         (|| {
                             let extractor = gitnexus_project_model::item::create_best_extractor();
                             let mut inputs = Vec::new();
-                            for rel_path in &files_to_extract {
+                            // Rust extractor 只允许处理 Rust 源码。把 TS/JS bundle 交给
+                            // Rust grammar 会触发 tree-sitter 大量错误恢复并造成内存爆炸。
+                            for rel_path in
+                                files_to_extract.iter().filter(|path| path.ends_with(".rs"))
+                            {
                                 let abs_path = root_path.join(rel_path);
                                 let content = std::fs::read_to_string(&abs_path)
                                     .map_err(|e| format!("read {}: {}", rel_path, e))?;
@@ -3199,12 +3209,12 @@ impl McpCache {
                 let files_to_extract: Vec<String> = match &file_stale_reason {
                     Some(StaleReason::FileAdded(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
+                        .filter(|f| is_delta_source_path(f, language))
                         .cloned()
                         .collect(),
                     Some(StaleReason::FileModified(files)) => files
                         .iter()
-                        .filter(|f| f.ends_with(".rs") || is_tsjs_path(f))
+                        .filter(|f| is_delta_source_path(f, language))
                         .cloned()
                         .collect(),
                     _ => Vec::new(),
@@ -3214,7 +3224,11 @@ impl McpCache {
                         (|| {
                             let extractor = gitnexus_project_model::item::create_best_extractor();
                             let mut inputs = Vec::new();
-                            for rel_path in &files_to_extract {
+                            // 持久缓存路径与内存缓存路径必须保持相同的语言隔离；
+                            // 禁止用 Rust grammar 解析 TS/JS stale delta。
+                            for rel_path in
+                                files_to_extract.iter().filter(|path| path.ends_with(".rs"))
+                            {
                                 let abs_path = canonical.join(rel_path);
                                 let content = std::fs::read_to_string(&abs_path)
                                     .map_err(|e| format!("read {}: {}", rel_path, e))?;
@@ -5263,6 +5277,21 @@ fn is_tsjs_path(path: &str) -> bool {
         || path.ends_with(".tsx")
         || path.ends_with(".js")
         || path.ends_with(".jsx")
+}
+
+/// stale delta 只能摄入当前分析语言的源码扩展名。
+///
+/// 这既避免跨语言伪符号，也防止把前端 bundle 送入 Rust grammar 的错误恢复路径。
+fn is_delta_source_path(path: &str, language: &str) -> bool {
+    match language {
+        "rust" => path.ends_with(".rs"),
+        "typescript" | "ts" => path.ends_with(".ts") || path.ends_with(".tsx"),
+        "javascript" | "js" => path.ends_with(".js") || path.ends_with(".jsx"),
+        "arkts" => path.ends_with(".ets"),
+        // auto 保留跨语言兼容，但后续 extractor 仍严格按扩展名分流。
+        "auto" => path.ends_with(".rs") || is_tsjs_path(path) || path.ends_with(".ets"),
+        _ => false,
+    }
 }
 
 /// Delta 提取：对 .ts/.tsx/.js/.jsx 文件使用 tree-sitter 提取符号。
@@ -21793,6 +21822,43 @@ mod tests {
         let (status, timed_out) = registry.wait_for_job(&job_id, 100);
         assert!(timed_out, "should time out");
         assert!(status.is_some(), "should return status even on timeout");
+    }
+
+    #[test]
+    fn cache_stale_scan_ignores_generated_output_directories() {
+        let fixture = tempfile::tempdir().expect("stale scan fixture");
+        let root = fixture.path();
+        for dir in ["src", "build", "dist", "out", "coverage"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        std::fs::write(
+            root.join("src/use_chat.ts"),
+            "export const useChat = () => 1;\n",
+        )
+        .unwrap();
+        for path in [
+            "build/main.js",
+            "dist/chunk.js",
+            "out/generated.ts",
+            "coverage/report.json",
+        ] {
+            std::fs::write(root.join(path), "generated\n").unwrap();
+        }
+
+        let mtimes = scan_file_mtimes(root);
+
+        assert!(mtimes.contains_key("src/use_chat.ts"));
+        for generated in [
+            "build/main.js",
+            "dist/chunk.js",
+            "out/generated.ts",
+            "coverage/report.json",
+        ] {
+            assert!(
+                !mtimes.contains_key(generated),
+                "generated output must not invalidate the source cache: {generated}"
+            );
+        }
     }
 
     // ═══ 综合测试：ask 对 no cache 也返回 evidence + confidence ═══

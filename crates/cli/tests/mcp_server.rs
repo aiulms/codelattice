@@ -23594,6 +23594,82 @@ fn stale_file_added_uses_delta_and_background_refresh() {
     }
 }
 
+#[cfg(feature = "tree-sitter-typescript")]
+#[test]
+fn typescript_stale_delta_does_not_parse_javascript_with_rust_grammar() {
+    let fixture = tempfile::tempdir().expect("typescript stale delta fixture");
+    let root = fixture.path();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("package.json"),
+        r#"{"name":"typescript-stale-delta","version":"0.1.0"}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("tsconfig.json"),
+        r#"{"compilerOptions":{},"include":["src"]}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/useChat.ts"),
+        "export function useChat(): number { return 1; }\n",
+    )
+    .unwrap();
+    let cache_dir = make_isolated_cache_dir("typescript-stale-language-isolation");
+
+    {
+        let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+        session.initialize();
+        session.send_notification_initialized();
+        let _ = call_tool_json(
+            &mut session,
+            99213,
+            "codelattice_project",
+            serde_json::json!({
+                "mode": "quick",
+                "root": root.to_str().unwrap(),
+                "language": "typescript",
+                "compact": true,
+                "forceSync": true,
+                "asyncOnMiss": false
+            }),
+        );
+    }
+
+    std::fs::create_dir_all(root.join("public")).unwrap();
+    std::fs::write(
+        root.join("public/generated.js"),
+        "fn fake_rust_delta_symbol() {}\n",
+    )
+    .unwrap();
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+    let search = call_tool_json(
+        &mut session,
+        99214,
+        "codelattice_symbol",
+        serde_json::json!({
+            "mode": "search",
+            "root": root.to_str().unwrap(),
+            "language": "typescript",
+            "query": "fake_rust_delta_symbol",
+            "compact": true,
+            "forceSync": true,
+            "asyncOnMiss": false
+        }),
+    );
+    let match_count = search["result"]["matchCount"]
+        .as_u64()
+        .or_else(|| search["matchCount"].as_u64())
+        .unwrap_or(0);
+    assert_eq!(
+        match_count, 0,
+        "TypeScript stale delta must not expose symbols produced by the Rust parser: {search:?}"
+    );
+}
+
 #[test]
 fn ignored_cache_dir_does_not_stale_project() {
     let fixture_root = portable_smoke_dir();

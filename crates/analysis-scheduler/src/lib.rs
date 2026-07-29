@@ -605,6 +605,11 @@ fn should_skip_name(name: &str) -> bool {
             name,
             "target"
                 | "dist"
+                | "build"
+                | "out"
+                | ".output"
+                | "coverage"
+                | ".cache"
                 | "node_modules"
                 | "__pycache__"
                 | ".pytest_cache"
