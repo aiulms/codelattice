@@ -40,6 +40,8 @@ struct LanguageAnalysisResult {
     quality_gates: Vec<QualityGateResult>,
     /// 完整图输出（与语言相关的具体结构）
     graph: serde_json::Value,
+    /// Rust 分析管线子阶段计时；其他语言不序列化此字段
+    analysis_trace: Option<AnalysisTrace>,
 }
 ```
 
@@ -64,9 +66,18 @@ JSON 示例骨架：
       "detail": "0 duplicate node IDs found"
     }
   ],
+  "analysisTrace": {
+    "importResolutionMs": 12,
+    "callResolutionMs": 18,
+    "totalMs": 74,
+    "sourceFileCount": 50,
+    "symbolCount": 838
+  },
   "graph": { /* 语言特定 graph JSON */ }
 }
 ```
+
+`analysisTrace` 是 additive optional 字段：Rust 的 `full` / `compact` profile 输出对象；非 Rust 路径省略 key，而不是输出 `null` 或空对象。消费侧必须按可选字段读取，计时值只用于诊断与相对性能比较，不属于确定性内容。
 
 ### 1.2 GraphSummary
 
@@ -268,6 +279,7 @@ struct QualityGateResult {
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-08-02 | 1.3.0 | `LanguageAnalysisResult` 新增可选 `analysisTrace`：Rust full/compact 输出对象，非 Rust 省略字段 |
 | 2026-05-15 | 1.2.0 | 新增 C++ Phase A 支持：language 枚举、GraphSummary 来源、质量门适用性、Node/Edge 差异表、auto 检测策略、测试要求 |
 | 2026-05-15 | 1.1.0 | 新增 MCP 缓存元数据说明（第六节） |
 | 2026-05-09 | 1.0.0 | 初始版本：定义 LanguageAnalysisResult / GraphSummary / QualityGateResult / Node/Edge 兼容性期望 / CLI 输出协议 |

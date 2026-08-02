@@ -623,7 +623,7 @@ fn filter_analyze_profile(
                 .take(10)
                 .collect();
 
-            serde_json::json!({
+            let mut compact = serde_json::json!({
                 "schemaVersion": "codelattice.analyzeCompact.v1",
                 "root": result["root"],
                 "language": result["language"],
@@ -644,7 +644,16 @@ fn filter_analyze_profile(
                     "nonPublicSymbols": true,
                     "detailHint": "Use --profile full for complete graph, --profile symbols for all symbols."
                 }
-            })
+            });
+
+            if let Some(trace) = result.get("analysisTrace").filter(|trace| !trace.is_null()) {
+                compact
+                    .as_object_mut()
+                    .expect("compact analyze profile must be a JSON object")
+                    .insert("analysisTrace".to_string(), trace.clone());
+            }
+
+            compact
         }
         _ => result.clone(),
     }
@@ -4513,7 +4522,7 @@ pub fn run() {
 
             match lang.as_str() {
                 "rust" => {
-                    let (json_val, nodes, edges, _trace) = match run_rust_analysis(root_path) {
+                    let (json_val, nodes, edges, trace) = match run_rust_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -4557,6 +4566,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: trace,
                         };
 
                         print_analyze_result(&result, &profile, profile_options);
@@ -4620,6 +4630,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
 
                         print_analyze_result(&result, &profile, profile_options);
@@ -4681,6 +4692,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }
@@ -4740,6 +4752,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }
@@ -4799,6 +4812,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }
@@ -4858,6 +4872,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }
@@ -4917,6 +4932,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }
@@ -4976,6 +4992,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }
@@ -5035,6 +5052,7 @@ pub fn run() {
                             summary,
                             quality_gates: quality_gates.clone(),
                             graph: json_val,
+                            analysis_trace: None,
                         };
                         print_analyze_result(&result, &profile, profile_options);
                     }

@@ -20,6 +20,12 @@ fn rust_portable_smoke_path() -> String {
     format!("{manifest_dir}/../../fixtures/rust/portable-smoke")
 }
 
+/// fixtures 的 portable-smoke Shell 项目路径
+fn shell_portable_smoke_path() -> String {
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| ".".to_string());
+    format!("{manifest_dir}/../../fixtures/shell/portable-smoke")
+}
+
 /// fixtures 的 portable-smoke Cangjie 项目路径（仅在 feature-gated 测试中使用）
 #[allow(dead_code)]
 fn cangjie_portable_smoke_path() -> String {
@@ -276,6 +282,66 @@ fn detect_changes_non_git_repo_exits_nonzero() {
 // ============================================================
 // analyze 命令 — Rust
 // ============================================================
+
+#[test]
+fn analyze_rust_full_and_compact_expose_analysis_trace() {
+    let root = rust_portable_smoke_path();
+
+    for profile in ["full", "compact"] {
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("rust")
+            .arg("--format")
+            .arg("json")
+            .arg("--profile")
+            .arg(profile)
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+        let trace = v
+            .get("analysisTrace")
+            .and_then(Value::as_object)
+            .unwrap_or_else(|| panic!("{profile} profile 应输出 Rust analysisTrace 对象"));
+
+        assert!(trace.contains_key("totalMs"));
+        assert!(trace.contains_key("importResolutionMs"));
+        assert!(trace.contains_key("callResolutionMs"));
+    }
+}
+
+#[test]
+fn analyze_shell_full_and_compact_omit_analysis_trace() {
+    let root = shell_portable_smoke_path();
+
+    for profile in ["full", "compact"] {
+        let mut cmd = Command::cargo_bin("gitnexus-rust-core-cli").unwrap();
+        let assert = cmd
+            .arg("analyze")
+            .arg("--root")
+            .arg(&root)
+            .arg("--language")
+            .arg("shell")
+            .arg("--format")
+            .arg("json")
+            .arg("--profile")
+            .arg(profile)
+            .assert()
+            .success();
+
+        let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+        let v: Value = serde_json::from_str(&stdout).expect("stdout 必须是合法 JSON");
+        assert!(
+            v.get("analysisTrace").is_none(),
+            "{profile} profile 的非 Rust 输出应省略 analysisTrace"
+        );
+    }
+}
 
 #[test]
 fn analyze_rust_auto_detects_language() {

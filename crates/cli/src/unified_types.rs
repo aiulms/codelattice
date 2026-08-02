@@ -61,6 +61,9 @@ pub struct LanguageAnalysisResult {
     pub quality_gates: Vec<QualityGateResult>,
     /// 完整图输出（语言相关具体结构）
     pub graph: serde_json::Value,
+    /// 分析管线子阶段计时（Rust 路径；其他语言为 None）
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub analysis_trace: Option<gitnexus_project_model::model::AnalysisTrace>,
 }
 
 // ============================================================

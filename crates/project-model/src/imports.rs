@@ -20,6 +20,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use rayon::prelude::*;
+
 use crate::model::*;
 use crate::root_resolution::{self, ModuleResolveResult};
 
@@ -45,53 +47,55 @@ pub fn extract_and_resolve_imports(
     let mut all_imports = Vec::new();
     let all_diagnostics = Vec::new();
 
-    for so in source_ownership {
-        let pkg_name = match &so.package {
-            Some(p) => p.clone(),
-            None => continue,
-        };
+    // 并行 per-file 提取：targets / module_path_map 均为只读，逐文件 use 提取相互独立，
+    // 最后统一做 symbol-level resolution 与排序保证输出稳定。
+    all_imports.extend(
+        source_ownership
+            .par_iter()
+            .filter(|so| so.package.is_some() && so.target.is_some())
+            .flat_map(|so| {
+                let abs_path = repo_root.join(&so.source_path);
+                let source_text = match std::fs::read_to_string(&abs_path) {
+                    Ok(content) => content,
+                    Err(_) => return Vec::new(),
+                };
 
-        let abs_path = repo_root.join(&so.source_path);
-        let source_text = match std::fs::read_to_string(&abs_path) {
-            Ok(content) => content,
-            Err(_) => continue,
-        };
+                let target_name = match &so.target {
+                    Some(t) => t.clone(),
+                    None => return Vec::new(),
+                };
+                let target = match targets.iter().find(|t| t.name == target_name) {
+                    Some(t) => t,
+                    None => return Vec::new(),
+                };
 
-        // 查找 crate root
-        let target_name = match &so.target {
-            Some(t) => t.clone(),
-            None => continue,
-        };
-        let target = match targets.iter().find(|t| t.name == target_name) {
-            Some(t) => t,
-            None => continue,
-        };
-        let crate_root_rel = &target.crate_root_file;
-        let crate_root_abs = repo_root.join(crate_root_rel);
+                let crate_root_rel = &target.crate_root_file;
+                let crate_root_abs = repo_root.join(crate_root_rel);
 
-        // 使用 ModulePathMap 查找文件级 modulePath，fallback 到 "crate"
-        let module_path = Some(module_path_map.get(&so.source_path).to_string());
+                // 使用 ModulePathMap 查找文件级 modulePath，fallback 到 "crate"
+                let module_path = Some(module_path_map.get(&so.source_path).to_string());
 
-        let _ = pkg_name;
+                // 提取 use 声明
+                let mut imports =
+                    extract_use_declarations(&source_text, &so.source_path, &module_path);
 
-        // 提取 use 声明
-        let mut imports = extract_use_declarations(&source_text, &so.source_path, &module_path);
+                // 填充文件级 modulePath：extractor 产出的 ImportUse.modulePath 可能是 None，
+                // 这里统一用 ModulePathMap 查找结果覆盖
+                for import_use in &mut imports {
+                    if import_use.module_path.is_none() {
+                        import_use.module_path = module_path.clone();
+                    }
+                }
 
-        // 填充文件级 modulePath：extractor 产出的 ImportUse.modulePath 可能是 None，
-        // 这里统一用 ModulePathMap 查找结果覆盖
-        for import_use in &mut imports {
-            if import_use.module_path.is_none() {
-                import_use.module_path = module_path.clone();
-            }
-        }
+                // 解析每条 use 声明
+                for import_use in &mut imports {
+                    resolve_import(import_use, repo_root, &crate_root_abs, &module_path);
+                }
 
-        // 解析每条 use 声明
-        for import_use in &mut imports {
-            resolve_import(import_use, repo_root, &crate_root_abs, &module_path);
-        }
-
-        all_imports.extend(imports);
-    }
+                imports
+            })
+            .collect::<Vec<_>>(),
+    );
 
     // symbol-level resolution：构建 SymbolIndex 并叠加到每条 ImportUse
     let symbol_index = build_symbol_index(symbols);

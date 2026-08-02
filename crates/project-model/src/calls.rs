@@ -21,6 +21,8 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+use rayon::prelude::*;
+
 use crate::calls_index::*;
 use crate::model::*;
 use crate::root_resolution::{self, ModuleResolveResult};
@@ -61,60 +63,65 @@ pub fn extract_and_resolve_calls(
     let mut all_calls = Vec::new();
     let all_diagnostics = Vec::new();
 
-    for so in source_ownership {
-        let file_start = if trace_timings {
-            Some(std::time::Instant::now())
-        } else {
-            None
-        };
-        if so.package.is_none() {
-            continue;
-        }
+    // 并行 per-file 提取：CalleeIndex / ImportBindingTable / CallerIndex 均为只读索引
+    // （Send+Sync 的纯 HashMap），逐文件提取相互独立，最后统一排序保证输出稳定。
+    all_calls.extend(
+        source_ownership
+            .par_iter()
+            .filter(|so| so.package.is_some())
+            .flat_map(|so| {
+                let file_start = if trace_timings {
+                    Some(std::time::Instant::now())
+                } else {
+                    None
+                };
 
-        let abs_path = repo_root.join(&so.source_path);
-        let source_text = match std::fs::read_to_string(&abs_path) {
-            Ok(content) => content,
-            Err(_) => continue,
-        };
+                let abs_path = repo_root.join(&so.source_path);
+                let source_text = match std::fs::read_to_string(&abs_path) {
+                    Ok(content) => content,
+                    Err(_) => return Vec::new(),
+                };
 
-        let target_name = match &so.target {
-            Some(t) => t.clone(),
-            None => continue,
-        };
-        let target = match targets.iter().find(|t| t.name == target_name) {
-            Some(t) => t,
-            None => continue,
-        };
-        let crate_root_rel = &target.crate_root_file;
-        let crate_root_abs = repo_root.join(crate_root_rel);
+                let target_name = match &so.target {
+                    Some(t) => t.clone(),
+                    None => return Vec::new(),
+                };
+                let target = match targets.iter().find(|t| t.name == target_name) {
+                    Some(t) => t,
+                    None => return Vec::new(),
+                };
+                let crate_root_rel = &target.crate_root_file;
+                let crate_root_abs = repo_root.join(crate_root_rel);
 
-        let module_path = module_path_map.get(&so.source_path).to_string();
+                let module_path = module_path_map.get(&so.source_path).to_string();
 
-        let calls = extract_calls_from_file(
-            &source_text,
-            &so.source_path,
-            &module_path,
-            &crate_root_abs,
-            repo_root,
-            &symbol_index,
-            &import_bindings,
-            &caller_index,
-            &dependency_names,
-        );
-
-        all_calls.extend(calls);
-        if let Some(file_start) = file_start {
-            let elapsed_ms = file_start.elapsed().as_millis();
-            if elapsed_ms >= 100 {
-                eprintln!(
-                    "[calls-trace] file={} calls_so_far={} elapsed_ms={}",
-                    so.source_path,
-                    all_calls.len(),
-                    elapsed_ms
+                let calls = extract_calls_from_file(
+                    &source_text,
+                    &so.source_path,
+                    &module_path,
+                    &crate_root_abs,
+                    repo_root,
+                    &symbol_index,
+                    &import_bindings,
+                    &caller_index,
+                    &dependency_names,
                 );
-            }
-        }
-    }
+
+                if let Some(file_start) = file_start {
+                    let elapsed_ms = file_start.elapsed().as_millis();
+                    if elapsed_ms >= 100 {
+                        eprintln!(
+                            "[calls-trace] file={} calls={} elapsed_ms={}",
+                            so.source_path,
+                            calls.len(),
+                            elapsed_ms
+                        );
+                    }
+                }
+                calls
+            })
+            .collect::<Vec<_>>(),
+    );
 
     if trace_timings {
         eprintln!(

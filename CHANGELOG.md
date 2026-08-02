@@ -17,6 +17,11 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 - **Tool-count documentation drift (49 → 50)**: `mcp_server.rs` module header and current-state docs (README, ai-mcp-tool-guide, ai-usage-guide, mcp-local-client-setup, mcp-v0-contract) now state 50 registered tools; `codelattice_complexity_hotspots` added to the header version log. Historical CHANGELOG/release snapshots are untouched.
 - **AI guide consistency**: workflow `mode` vocabulary in `ai-mcp-tool-guide.md` / `ai-usage-guide.md` unified to the authoritative 17-mode enum from the tool schema; `workflow-presets.md` gains a facade-equivalence table mapping its low-level tool steps to the default 6-tool surface; `docs/guides/README.md` links `ai-usage-guide.md` and `mcp-v0-contract.md`; `docs/decisions/known-limitations.md` filled from skeleton with engine stop-lines, per-language boundaries, MCP surface limits, and degradation behavior.
 
+### Performance
+
+- **Parallel import + call resolution (4.4x engine speedup)**: `extract_and_resolve_imports` and `extract_and_resolve_calls` in `crates/project-model` now run per-file extraction through rayon `par_iter` (indexes are read-only pure HashMaps, Send+Sync). Measured on open-nwe/backend (540 files, release build): importResolution 2220ms→299ms (7.4x), callResolution 1863ms→374ms (5.0x), engine total 4398ms→989ms (4.4x); MCP cold cache-warm 6.8s→3.1s (2.2x). Output stays deterministic (post-merge sort preserved; two-run diff PASS) and all 59 test suites pass. `[calls-trace]` debug output is now per-file (no cumulative counter under parallelism).
+- **CLI `analysisTrace` exposure**: `analyze --format json` output now includes `analysisTrace` (per-stage ms) in `full` and `compact` profiles for Rust; MCP already exposed it, CLI did not (inconsistency fixed). Other languages omit the optional field to preserve their existing field sets.
+
 ## [0.17.0-beta.1] - 2026-06-05
 
 ### Fixed

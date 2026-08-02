@@ -1,7 +1,7 @@
 # Consumer Contract — GitNexus Rust-core 本地试用输出契约
 
-> **日期：** 2026-05-09
-> **版本：** v1.2.0
+> **日期：** 2026-08-02
+> **版本：** v1.3.0
 > **状态：** Active
 > **受众：** 前端消费侧、AI workflow 集成、下游工具链开发者
 
@@ -49,6 +49,7 @@
 | `edges.*[].confidence` | Option<f64> | 边置信度（Rust 有值，Cangjie 为 null） |
 | `edges.*[].reason` | Option<String> | 边解析原因（Rust 有值，Cangjie 为 null） |
 | `stats.*` | u32 | 统计字段（与数组实际计数一致） |
+| `analysisTrace.*` | u32 | 可选 Rust 阶段计时；非 Rust Unified JSON 省略整个字段 |
 
 ### Tier 2 — Adapter-Required（需 adapter 映射后消费）
 
@@ -122,6 +123,11 @@ Rust-core CLI 提供三种 JSON 输出格式，通过 `--format` flag 切换：
       "detail": "0 duplicate node IDs found"
     }
   ],
+  "analysisTrace": {
+    "importResolutionMs": 2,
+    "callResolutionMs": 3,
+    "totalMs": 14
+  },
   "graph": { /* 语言特定的完整 graph */ }
 }
 ```
@@ -136,6 +142,7 @@ Rust-core CLI 提供三种 JSON 输出格式，通过 `--format` flag 切换：
 | `schemaVersion` | ✅ 稳定 | Rust: `"v0.3"`, Cangjie: `"v1.0.0"` |
 | `summary.*` | ✅ 稳定 | 7 个统计字段，见下文 |
 | `qualityGates[]` | ✅ 稳定 | gateName/passed/detail 三元组 |
+| `analysisTrace` | ✅ 可选 | Rust `full` / `compact` 为对象；非 Rust 省略 key；计时不参与确定性比较 |
 | `graph` | ⚠️ 语言相关 | Rust 和 Cangjie 的 graph 内部结构不同 |
 
 ### 2.3 GraphSummary 字段
@@ -541,6 +548,7 @@ cargo run -p gitnexus-rust-core-cli --bin codelattice -- summary \
 
 | 日期 | 版本 | 变更 |
 |------|------|------|
+| 2026-08-02 | 1.3.0 | Unified JSON 新增可选 `analysisTrace` 消费契约：Rust full/compact 输出对象，非 Rust 省略字段 |
 | 2026-05-09 | 1.2.0 | 消费者契约固化：新增 §零 字段稳定性三级分类（Stable / Adapter-Required / Intentionally-Unstable）；新增 §五 Rust vs Cangjie 输出差异表（节点/边/stats）；新增 §六 Node ID 不稳定边界与安全规则；章节重新编号 |
 | 2026-05-09 | 1.1.0 | Cross-repo consumer dry-run：Bridge edge 新增 confidence/reason 顶层字段；symbol kind 填入具体类型（非通用 "symbol"）；新增 `docs/architecture/gitnexus-rc-consumer-dry-run.md` 兼容性报告 |
 | 2026-05-09 | 1.0.0 | 初始版本：三种输出格式定义、字段稳定性、exit codes、使用示例、已知限制、stop-line |
