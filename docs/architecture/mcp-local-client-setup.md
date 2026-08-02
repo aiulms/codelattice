@@ -459,7 +459,7 @@ bash scripts/codelattice-mcp.sh --self-test
 1. CODELATTICE_ROOT 有效
 2. Binary 可找到且可执行
 3. MCP handshake 成功（initialize → 返回 codelattice server info）
-4. 默认 tools/list 返回 6 个 AI 入口工具；`CODELATTICE_MCP_TOOLSET=full` 返回 >= 49 个工具
+4. 默认 tools/list 返回 6 个 AI 入口工具；`CODELATTICE_MCP_TOOLSET=full` 返回 >= 50 个工具
 5. 每个 tool definition 都带 `annotations` 和 `x-codelattice-permissionProfile`，用于说明只读、cache 写入、`/tmp` artifact 写入、项目代码执行和网络访问预期
 5. cache_status 包含 maxEntries 和 totalEvictions (v0.5 新增)
 6. cangjieSupport / arktsSupport / typescriptSupport / cSupport / cppSupport / pythonSupport 检测
@@ -484,7 +484,7 @@ bash scripts/mcp-real-client-dry-run.sh [root_dir]
 
 模拟真实 MCP 客户端调用 10 个高频工具，不修改任何配置：
 1. initialize handshake
-2. tools/list（默认 AI 6-tool 小工具面；full 模式 49 tools）
+2. tools/list（默认 AI 6-tool 小工具面；full 模式 50 tools）
 3. cache_status (empty)
 4. codelattice_analyze (miss)
 5. codelattice_graph_overview

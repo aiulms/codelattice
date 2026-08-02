@@ -324,3 +324,108 @@ stop-lines. When reporting, include:
 Never claim CodeLattice proves runtime behavior, external usage, test coverage,
 or deletion safety.
 ```
+
+## 14. Recover From mcp_server_busy
+
+```text
+A CodeLattice MCP call returned codelattice.mcpBusy.v2 (error
+mcp_server_busy). Do not retry immediately.
+
+Inspect the response fields: retryAfterSeconds, recommendedNextCalls, and
+aiGuidance. Then:
+1. Wait for the current in-flight call to finish before the next call.
+2. Do not fire multiple CodeLattice tool calls concurrently in this session.
+3. If the busy error persists after the in-flight call completes, recommend
+   restarting the MCP session (disable/re-enable the codelattice server in the
+   client, or restart the client).
+4. For large repositories, switch to job mode instead of long synchronous
+   calls: codelattice_project(mode=job) or codelattice_workspace(mode=job),
+   then poll mode=job_status, then read pages via mode=job_detail.
+
+Report: which call was busy, how long to wait, and the follow-up plan.
+```
+
+## 15. Recover From tool_not_in_ai_toolset
+
+```text
+A CodeLattice MCP call returned tool_not_in_ai_toolset (or
+tool_not_in_core_toolset). The tool is hidden in the current toolset.
+
+Do not enable CODELATTICE_MCP_TOOLSET=full unless the user explicitly asks for
+debug mode. Instead, map the hidden tool to its facade equivalent:
+
+- codelattice_project_insights / project_overview / quality
+  → codelattice_project(mode=insights | overview | quality)
+- codelattice_symbol_search / symbol_context
+  → codelattice_symbol(mode=search | context)
+- codelattice_impact_preview / dead_code_candidates / reachability_map /
+  external_api_surface / framework_entry_hints / breaking_change_review /
+  changed_symbols / consistency_review / config_examples_review
+  → codelattice_change_review(mode=impact | dead_code | reachability |
+     external_api | framework_entries | breaking_change | changed_symbols |
+     consistency | config_examples)
+- codelattice_review_plan(mode=...)
+  → codelattice_workflow(mode=<same scenario>)
+
+If the error message names a recommended entry tool, use that. Report which
+hidden tool was requested and which facade call replaced it.
+```
+
+## 16. Recover From execution.status=needs_input
+
+```text
+A codelattice_workflow call with execute=true returned
+execution.status=needs_input. Analysis stopped on purpose.
+
+Do not guess the missing input. Read execution.missingInputs and
+execution.nextActions in order:
+1. For a missing symbol, run the suggested codelattice_symbol(mode=search)
+   discovery action, pick the best candidate, then re-run the workflow with
+   that symbol.
+2. For a missing root/target, run the suggested discovery action
+   (codelattice_workspace(mode=graph) for cross-project targets), then re-run
+   with the resolved target.
+3. If the search returns multiple same-name candidates, disambiguate by
+   file/kind/line before proceeding; do not assume the first hit.
+
+Report: what was missing, which discovery action you ran, and the resolved
+value you used for the retry.
+```
+
+## 17. Handle Symbol Disambiguation
+
+```text
+A symbol search/context/impact call returned multiple same-name candidates
+(e.g. several <symbol> across different files). Do not pick one blindly.
+
+1. Compare candidates by file path, kind, and line.
+2. Use codelattice_symbol(mode=context, name=<symbol>) with file_path or kind
+   hints to narrow down, or codelattice_change_review(mode=impact,
+   symbol=<symbol>, ...) against the file that matches the current task.
+3. If the current edit/review target is known from the user's context, prefer
+   the candidate in that file.
+4. When in doubt, ask the user which one they mean before any impact review or
+   edit.
+
+Report: the candidates you found, how you disambiguated, and whether you
+needed to ask the user.
+```
+
+## 18. Handle Cache Stale / Job Not Ready
+
+```text
+CodeLattice returned a stale-cache signal (staleReasons / scheduler
+reuse=fresh) or codelattice.jobNotReady.v1.
+
+For stale cache: read staleReasons to see which files changed and which
+phases are affected. The next analysis will re-run; treat the previous cached
+result as outdated for the changed files. If you only need symbol-level data,
+codelattice_symbol(mode=search) may still reuse the cache delta where safe.
+
+For jobNotReady: the job is still queued/running. Poll
+codelattice_project(mode=job_status, jobId=<id>) with a short delay, and when
+status=succeeded read codelattice_project(mode=job_detail, jobId=<id>, page=0,
+pageSize=50). Do not submit a duplicate job with the same root.
+
+Report: the stale reason or job progress, and what you did next.
+```

@@ -25,6 +25,36 @@ Every preset should be interpreted as:
 - Use `confidence`, `reason`, `cautions`, and `generatedFrom` fields when
   deciding whether to trust a result.
 
+## Facade Equivalence (default 6-tool AI surface)
+
+The scenario tables below use the low-level tool names returned by
+`codelattice_workflow_presets` (visible in `core` / `full` toolsets). The
+default `ai` toolset exposes only 6 facade tools, so an AI agent running under
+the default surface should substitute the facade equivalent instead of calling
+the low-level tool directly:
+
+| Low-level tool (preset step) | Facade equivalent (default `ai` toolset) |
+|------------------------------|-------------------------------------------|
+| `codelattice_project_insights` | `codelattice_project(mode=insights)` |
+| `codelattice_project_overview` | `codelattice_project(mode=overview)` |
+| `codelattice_quality` | `codelattice_project(mode=quality)` |
+| `codelattice_symbol_search` | `codelattice_symbol(mode=search)` |
+| `codelattice_symbol_context` | `codelattice_symbol(mode=context)` |
+| `codelattice_impact_preview` | `codelattice_change_review(mode=impact)` |
+| `codelattice_dead_code_candidates` | `codelattice_change_review(mode=dead_code)` |
+| `codelattice_reachability_map` | `codelattice_change_review(mode=reachability)` |
+| `codelattice_external_api_surface` | `codelattice_change_review(mode=external_api)` |
+| `codelattice_framework_entry_hints` | `codelattice_change_review(mode=framework_entries)` |
+| `codelattice_breaking_change_review` | `codelattice_change_review(mode=breaking_change)` |
+| `codelattice_changed_symbols` | `codelattice_change_review(mode=changed_symbols)` |
+| `codelattice_consistency_review` | `codelattice_change_review(mode=consistency)` |
+| `codelattice_config_examples_review` | `codelattice_change_review(mode=config_examples)` |
+| `codelattice_review_plan(mode=...)` | `codelattice_workflow(mode=<same scenario>)` |
+
+Use the low-level names only when the client explicitly enables `core` / `full`.
+Under the default `ai` toolset, calling a hidden low-level tool returns
+`tool_not_in_ai_toolset` with a facade hint.
+
 ## Scenarios
 
 ### `onboarding`

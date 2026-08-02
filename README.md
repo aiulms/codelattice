@@ -10,7 +10,7 @@ CodeLattice 是一个面向 **AI 编程工作流** 的本地代码图谱引擎�
 
 一句话概括：**先让 AI 看懂代码地图，再让它动手改。**
 
-CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、JavaScript、C、C++、Python、Shell 等本地图谱分析路径。默认 MCP `ai` 模式只暴露 6 个 facade-first 入口，让 AI 从 workflow、project、symbol、change review、workspace、cache 这些稳定入口开始；`full` 模式保留 49 个工具，用于调试、回归和底层图谱查询。能力已经从“图谱查询”扩展到影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置一致性审查、AI 工作流预设、跨项目影响分析、证据驱动根因分析，以及面向增量分析的底层调度器基础。
+CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、JavaScript、C、C++、Python、Shell 等本地图谱分析路径。默认 MCP `ai` 模式只暴露 6 个 facade-first 入口，让 AI 从 workflow、project、symbol、change review、workspace、cache 这些稳定入口开始；`full` 模式保留 50 个工具，用于调试、回归和底层图谱查询。能力已经从“图谱查询”扩展到影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置一致性审查、AI 工作流预设、跨项目影响分析、证据驱动根因分析，以及面向增量分析的底层调度器基础。
 
 **当前状态：外部 Beta / daily-use candidate（最新 GitCode Release 为 `v0.17.0-beta.1`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
@@ -407,11 +407,11 @@ AI 客户端日常配置不要设置 `CODELATTICE_MCP_TOOLSET=full`。推荐直�
 
 ### AI 工作流指南
 
-CodeLattice MCP 默认使用 `ai` toolset，只暴露上面 6 个入口工具。底层 49 个工具没有删除，只在显式调试模式中开放：
+CodeLattice MCP 默认使用 `ai` toolset，只暴露上面 6 个入口工具。底层 50 个工具没有删除，只在显式调试模式中开放：
 
 ```bash
 CODELATTICE_MCP_TOOLSET=core   # 常用底层工具 + facade
-CODELATTICE_MCP_TOOLSET=full   # 全部 49 个工具，适合调试/回归 smoke
+CODELATTICE_MCP_TOOLSET=full   # 全部 50 个工具，适合调试/回归 smoke
 ```
 
 如果 Claude / OpenCode / TRAE 等日常 AI 客户端配置了 `CODELATTICE_MCP_TOOLSET=full`，模型会看到旧底层工具，容易绕开 facade/job/paging 保护。大项目和 monorepo 应优先使用 `codelattice_workspace mode=job → job_status → job_detail`。
@@ -605,7 +605,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 - Python CLI 分析（Phase A hardened）
 - JavaScript CLI 分析（Phase A hardened）
 - Shell CLI 分析（Phase A hardened）
-- MCP sidecar 默认 AI toolset 只暴露 6 个入口工具；`CODELATTICE_MCP_TOOLSET=full` 暴露 49 个底层/专家工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱、跨项目影响分析和证据驱动根因分析
+- MCP sidecar 默认 AI toolset 只暴露 6 个入口工具；`CODELATTICE_MCP_TOOLSET=full` 暴露 50 个底层/专家工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱、跨项目影响分析和证据驱动根因分析
 - 两层持久化缓存
 - stable runtime promote
 - release tarball packaging + release smoke

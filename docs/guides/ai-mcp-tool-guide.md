@@ -64,18 +64,20 @@ OpenCode 的日常配置示例：
 }
 ```
 
-`full` 会暴露 49 个底层/调试工具，模型容易绕过 facade，直接调用 `codelattice_project_overview`、`codelattice_cache_status` 等旧入口。日常模式应保持默认 6 个 facade。
+`full` 会暴露 50 个底层/调试工具，模型容易绕过 facade，直接调用 `codelattice_project_overview`、`codelattice_cache_status` 等旧入口。日常模式应保持默认 6 个 facade。
 
 ## 默认 6 个工具
 
 | 工具 | 主要用途 | 典型模式 |
 |------|----------|----------|
-| `codelattice_workflow` | 不知道该从哪里开始时使用；把人类意图路由成下一步动作 | `onboarding`, `before_edit`, `after_edit`, `delete_code`, `release_check`, `root_cause` |
+| `codelattice_workflow` | 不知道该从哪里开始时使用；把人类意图路由成下一步动作 | `ask`, `onboarding`, `explore`, `before_edit`, `after_edit`, `delete_code`, `release_check`, `legacy_cleanup`, `workspace_review`, `cross_project_impact`, `diagnose_issue`, `explain_symbol`, `root_cause`, `docs_tests_sync`, `config_examples_sync`, `public_api_change`, `framework_route_change` |
 | `codelattice_project` | 项目级理解、质量门、热点、AI 上下文；大项目可走 job | `overview`, `quality`, `insights`, `ai_context`, `full`, `job`, `job_status`, `job_detail` |
 | `codelattice_symbol` | 查符号、看上下文、找 callers/callees、局部图；大项目可走 job | `search`, `context`, `callers`, `callees`, `graph`, `job`, `job_status`, `job_detail` |
 | `codelattice_change_review` | 改动审查、影响分析、删代码审查、发布审查、根因假设；大项目可走 job | `native_review`, `impact`, `full_review`, `safe_cleanup_review`, `release_check`, `docs_tests`, `config_examples`, `root_cause`, `job`, `job_status`, `job_detail` |
 | `codelattice_workspace` | 大仓/多项目入口、跨项目图、跨项目影响；大仓优先走 job | `overview`, `graph`, `impact`, `full`, `job`, `job_status`, `job_detail` |
 | `codelattice_cache` | 缓存状态、缓存解释、缓存清理 | `status`, `explain`, `clear` |
+
+> 每个工具的完整 mode 枚举以 MCP `tools/list` 返回的 schema 为准；上表是常用子集。`codelattice_workflow` 的 17 个 mode 与工具 schema 一致。
 
 ## 选择规则
 
@@ -213,7 +215,7 @@ Claude、OpenCode、TRAE 等日常 AI 客户端不要设置 `CODELATTICE_MCP_TOO
 
 ```bash
 CODELATTICE_MCP_TOOLSET=core   # 6 个入口 + 常用底层工具
-CODELATTICE_MCP_TOOLSET=full   # 全部 49 个工具
+CODELATTICE_MCP_TOOLSET=full   # 全部 50 个工具
 ```
 
 日常客户端配置应省略 `CODELATTICE_MCP_TOOLSET`，或显式设为 `ai`。修改配置或重新 promote `/Users/jiangxuanyang/Desktop/CodeLattice-Tool` 后，需要重启 Claude/OpenCode/TRAE 的 MCP session，让客户端重新读取工具列表。

@@ -9,6 +9,13 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 ### Added
 
 - **New diagnostic `codelattice_complexity_hotspots`**: identify functions with the highest internal complexity based on length (raw line span), fan-in/out coupling, and async/unsafe modifiers. Complements `codelattice_risk_hotspots` (which measures outward coupling risk) by measuring in-function maintainability burden. v1 dimensions: length + fan + modifiers; `paramCount` and `cyclomaticComplexity` deferred to v2 (GraphView node properties lack type annotations). Full toolset grows from 49 to 50 tools; the new tool is Full-only (not in the 6-tool AI toolset or Core toolset). Smoke scripts and test assertions updated to the new count.
+- **AI error-recovery cookbook prompts**: `docs/guides/ai-prompt-cookbook.md` adds §14-18 — recovery prompts for `mcp_server_busy`, `tool_not_in_ai_toolset` (with facade equivalence mapping), `execution.status=needs_input`, symbol disambiguation, and cache-stale/`jobNotReady` handling. Docs-only.
+
+### Fixed
+
+- **MCP `serverInfo.version` compile-time injection**: replaces the hardcoded `"0.17.0-beta.1"` in `crates/cli/src/mcp_server.rs` with `env!("CARGO_PKG_VERSION")`, so the advertised MCP server version can no longer drift from `workspace.package.version`. `CODELATTICE_CACHE_VERSION` remains a literal on purpose (cache-invalidation mechanism).
+- **Tool-count documentation drift (49 → 50)**: `mcp_server.rs` module header and current-state docs (README, ai-mcp-tool-guide, ai-usage-guide, mcp-local-client-setup, mcp-v0-contract) now state 50 registered tools; `codelattice_complexity_hotspots` added to the header version log. Historical CHANGELOG/release snapshots are untouched.
+- **AI guide consistency**: workflow `mode` vocabulary in `ai-mcp-tool-guide.md` / `ai-usage-guide.md` unified to the authoritative 17-mode enum from the tool schema; `workflow-presets.md` gains a facade-equivalence table mapping its low-level tool steps to the default 6-tool surface; `docs/guides/README.md` links `ai-usage-guide.md` and `mcp-v0-contract.md`; `docs/decisions/known-limitations.md` filled from skeleton with engine stop-lines, per-language boundaries, MCP surface limits, and degradation behavior.
 
 ## [0.17.0-beta.1] - 2026-06-05
 

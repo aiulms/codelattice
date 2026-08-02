@@ -33,14 +33,16 @@ Do NOT set `CODELATTICE_MCP_TOOLSET=full` in daily usage. The default 6 facade t
 
 | Tool | Modes | Purpose |
 |------|-------|---------|
-| `codelattice_workflow` | ask / onboarding / before_edit / diagnose_issue / explore | Natural language routing and multi-step orchestration |
+| `codelattice_workflow` | ask / onboarding / explore / before_edit / after_edit / delete_code / release_check / legacy_cleanup / workspace_review / cross_project_impact / diagnose_issue / explain_symbol / root_cause / docs_tests_sync / config_examples_sync / public_api_change / framework_route_change | Natural language routing and multi-step orchestration |
 | `codelattice_project` | quick / standard / deep / insights / job | Project-level analysis at varying depth |
 | `codelattice_symbol` | search / context / call_chains / job | Symbol lookup, context, and call chain tracing |
 | `codelattice_change_review` | before_edit / after_edit / impact / breaking_change / job | Pre/post edit risk assessment |
 | `codelattice_workspace` | overview / graph / job | Monorepo/multi-project workspace analysis |
 | `codelattice_cache` | status / clear / explain | Cache management and explanation |
 
-### Full Toolset (49 tools)
+> 上表列出常用模式子集；每个工具的完整 mode 枚举以 MCP `tools/list` 返回的 schema 为准（与 `docs/guides/ai-mcp-tool-guide.md` 一致）。
+
+### Full Toolset (50 tools)
 
 The full toolset is for debugging and development only. It exposes all internal tools including low-level analysis engines. Setting `CODELATTICE_MCP_TOOLSET=full` increases token usage and tool selection complexity for AI assistants.
 

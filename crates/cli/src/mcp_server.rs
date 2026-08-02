@@ -1,7 +1,7 @@
 //! MCP v0.8 Persistent Cache Pack for CodeLattice CLI
 //!
 //! Implements a MCP JSON-RPC server over stdin/stdout.
-//! Provides 49 tools:
+//! Provides 50 tools:
 //!   v0:  codelattice_analyze, codelattice_quality, codelattice_summary, codelattice_smoke
 //!   v0.1: codelattice_graph_overview, codelattice_unresolved_report,
 //!         codelattice_symbol_search, codelattice_export_bridge
@@ -20,6 +20,7 @@
 //!   v0.28: codelattice_workspace_graph, codelattice_cross_project_impact
 //!   v0.29: 8 facade tools (project, symbol, change_review, cleanup, workspace, release_check, cache, workflow)
 //!   v0.30: codelattice_root_cause_assistant
+//!   v0.31 (unreleased): codelattice_complexity_hotspots
 //!
 //! Transport: newline-delimited JSON-RPC.
 //! Approach: subprocess — spawns the CLI binary for analyze/quality/summary,
@@ -18679,7 +18680,8 @@ fn handle_request(request: &Value, cache: &mut McpCache) -> Option<Value> {
                     "capabilities": { "tools": {} },
                     "serverInfo": {
                         "name": "codelattice",
-                        "version": "0.17.0-beta.1",
+                        // 从 Cargo.toml 编译期注入，避免与 workspace.package.version 漂移
+                        "version": env!("CARGO_PKG_VERSION"),
                         "cangjieSupport": cangjie_support,
                         "arktsSupport": arkts_support,
                         "typescriptSupport": typescript_support,
