@@ -1151,4 +1151,19 @@ fixtures 变更仅新增 relationKey 字段（向后兼容，前端对旧 snapsh
 
 ### 提交与推送
 
-见 commit message（`docs/plans/2026-08-05-project-understanding-p0.md` 随 commit 保存）。
+```text
+commit 4e991d2 feat(workbench): Project Understanding Workbench P0 (Tauri 2 desktop)
+      （97 files，+27110/-209；CHANGELOG + execution card 随 commit 保存）
+
+push gitcode master → FAILED（非交互环境）：
+  fatal: could not read Username for 'https://gitcode.com': terminal prompts disabled
+  处理：按 §17.15 记录原始错误，不做破坏性重试。commit 已在本地 master。
+  用户可在终端执行 `git push gitcode master`（osxkeychain / 交互认证）。
+  备选：github remote 已配置，如需镜像可 `git push github master`。
+
+native detect-changes（commit 前）：summary.riskLevel = critical / overallRisk = HIGH。
+原因分析：untrackedFileCount=25295（node_modules/dist 等未跟踪噪声，已补 .gitignore）；
+changedSymbolCount=0（本次 Rust 变更全部在新 crate understanding-gateway，无既有
+符号受影响）；changedFileCount=8（scripts/fixtures/Cargo 等非 Rust 源码）。
+结论：非代码风险，但按 AGENTS.md 已向用户报告（见会话最终回复）。
+```
