@@ -99,6 +99,13 @@ export class G6GraphAdapter {
           opacity: hl.dimmed.has(n.id) ? 0.18 : 0.96,
           labelText: n.label.slice(0, 30),
           labelFill: "#172033",
+          labelFontSize: 11,
+          labelPlacement: "bottom",
+          labelOffsetY: 7,
+          labelBackground: true,
+          labelBackgroundFill: "#ffffff",
+          labelBackgroundOpacity: 0.88,
+          labelBackgroundPadding: [2, 4, 2, 4],
         },
       };
     });
@@ -110,6 +117,23 @@ export class G6GraphAdapter {
         width,
         height,
         autoResize: true,
+        autoFit: "view",
+        padding: 40,
+        zoomRange: [0.08, 4],
+        // 源数据不携带布局坐标；显式 force + collision，避免所有节点落在原点。
+        // nodeSize 同时覆盖标签附近的呼吸空间，不能靠隐藏标签掩盖重叠。
+        layout: {
+          type: "d3-force",
+          preventOverlap: true,
+          nodeSize: 58,
+          nodeSpacing: 18,
+          linkDistance: 120,
+          nodeStrength: -260,
+          collideStrength: 1,
+          collideIterations: 4,
+          iterations: 220,
+          animation: false,
+        },
         data: { nodes: g6Nodes, edges: g6Edges },
         behaviors: ["drag-canvas", "zoom-canvas", "drag-element"],
       });

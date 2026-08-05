@@ -52,6 +52,30 @@ class SessionRecordingTransport extends FakeDesktopTransport {
 }
 
 describe("Workbench production behavior", () => {
+  it("keeps the graph as the primary canvas by sharing one right rail between dashboard and inspector", async () => {
+    const json = readFileSync(fixturePath, "utf8");
+    const data = JSON.parse(json);
+    const transport = new FakeDesktopTransport(json, {
+      id: "snap:layout",
+      rootLabel: "test",
+      language: "rust",
+      createdAt: data.generatedAt,
+    });
+
+    render(<WorkbenchApp transport={transport} />);
+
+    await screen.findByTestId("dashboard");
+    expect(screen.getByTestId("graph-pane-test-double")).toBeTruthy();
+    expect(screen.queryByTestId("inspector")).toBeNull();
+
+    const firstTreeNode = document.querySelector<HTMLElement>('[data-testid^="tree-node-"]');
+    expect(firstTreeNode).not.toBeNull();
+    fireEvent.click(firstTreeNode!);
+
+    await waitFor(() => expect(screen.getByTestId("inspector")).toBeTruthy());
+    expect(screen.queryByTestId("dashboard-strip")).toBeNull();
+  });
+
   it("creates the backend session with the stable snapshot-library id", async () => {
     const json = readFileSync(fixturePath, "utf8");
     const transport = new SessionRecordingTransport(json, {

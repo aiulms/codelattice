@@ -1463,3 +1463,80 @@ CodeLattice-native 改前评估为 **medium risk**；安全存储与进程生命
   与可回滚单提交覆盖，但后续 release gate 仍应保留大仓 corpus 与平台矩阵验证。
 - 提交只纳入本执行卡 write set；`.cursor/`、`.omo/`、`.planning/`、`.workbuddy/`、
   讨论稿和 `webui/mockups/` 等用户未跟踪内容不纳入提交。
+
+---
+
+## UI 视觉闭环返工卡（2026-08-05 23:45）
+
+用户真机验收发现两项此前自动 smoke 未覆盖的产品缺陷：
+
+1. 默认态 Dashboard 作为额外 flex 列把 GraphPane 压成窄缝；修正列宽后又暴露
+   G6 未配置 layout，所有节点使用重叠初始坐标。
+2. OpenAI-compatible 后端、Keychain 和连接测试能力已存在，但模型池仍是无标签的
+   横排工程表单，用户无法形成“供应商 → 连接 → 模型”的配置心智。
+
+### 设计方向与边界
+
+- 视觉方向：**本地代码仪器 / native workbench**。深墨色导航、暖橙图谱焦点、冷青
+  事实状态；强调层级、留白和可读性，不复制 ZCode 品牌样式。
+- Graph 是工作台主舞台；项目事实与 Inspector 共用右栏，Chat 可折叠。
+- 模型设置采用独立 overlay：左侧供应商/模型导航，右侧连接配置与已配置模型详情。
+- 通用 `OpenAI-compatible` 是一等入口，支持自定义 API Base URL、API Key、Model ID；
+  Ollama 是本地入口。Key 仍只写系统 Keychain，前端和 models.json 不保存明文。
+
+### Write Set
+
+- `apps/desktop/src/{App.tsx,styles.css}`
+- `apps/desktop/src/graph/{g6-adapter.ts,g6-adapter.test.ts}`
+- `apps/desktop/src/panels/{model-pool.tsx,model-pool.test.tsx}`
+- `apps/desktop/src/e2e/workbench-production.test.tsx`
+- 本计划与 `CHANGELOG.md`
+
+### Forbidden Set / Stop-lines
+
+- 不改变 snapshot、graph、ModelConfig 或 SecretStore 契约。
+- 不把特定厂商设为事实层依赖；DeepSeek/OpenAI/Kimi 等均通过通用兼容端点配置。
+- 不引入新的 UI 框架或图引擎，不修改 CALLS 解析，不触碰 live repo。
+- 不以“节点缩小/隐藏标签”掩盖重叠；必须有确定的布局算法、防碰撞和 viewport fit。
+
+### TDD / 验收
+
+1. G6 adapter 测试先证明缺少 `d3-force + preventOverlap + autoFit`，再修复。
+2. ModelPool React 测试先证明 OpenAI-compatible 入口、字段标签和安全 Key 流程不可见，
+   再实现设置 overlay。
+3. 默认态只允许 Graph + 一个右栏；选择节点后 Dashboard 切换为 Inspector。
+4. `npm test`、`npm run build`、production Tauri build 与 WKWebView smoke 全绿。
+5. 真机窗口中节点和标签不得堆叠成单点，OpenAI-compatible 配置无需猜测下拉项。
+
+CodeLattice impact preview：`G6GraphAdapter` 为 **MEDIUM**，5 个直接调用方、影响
+6 个文件，重点回归 `GraphPane`、selftest 与 adapter test；无 backend/schema 写入。
+
+### 视觉闭环结果
+
+- `G6GraphAdapter` 已显式配置 `d3-force`、碰撞防护、节点间距与 viewport auto-fit；
+  production Tauri 窗口中节点/边已铺开，标签不再堆成单点。
+- Dashboard 与 Inspector 已改为同一右栏的互斥状态，Graph 始终是中央主画布。
+- 模型设置已改为独立 overlay：左栏明确列出 `OpenAI 兼容` 与 `Ollama 本地`，右栏
+  提供带标签的配置名称、API Base URL、API Key、模型 ID，并展示已配置连接的详情、
+  凭证状态、连接测试、默认选择与删除操作。
+- 复核时发现并修复生产契约缺陷：Rust `ModelConfig` 使用 `base_url/api_key_ref`，旧前端
+  使用 `baseUrl/apiKeyRef`。界面内部保持 camelCase，Tauri wire 统一发送 snake_case；
+  读取侧兼容两种形式，防止旧配置迁移时丢失显示。
+- 前端 64/64 tests PASS；TypeScript + Vite production build PASS；production Tauri
+  `build --no-bundle` PASS；真实 WKWebView selftest 9/9 PASS。
+- Native change review 将整体风险标为 **HIGH**，原因是 TypeScript 分析基线陈旧、4 条
+  既有 dangling edge，以及 78.4% 非调用类边为 unknown confidence；不是本轮符号影响
+  升级。`G6GraphAdapter`、`ModelPoolPanel`、`WorkbenchApp` 三个改动符号均为 LOW，最高
+  只有 2 个直接调用方。上述残余静态风险由新增 adapter/React/layout tests、production
+  build 和真实 WKWebView smoke 覆盖，但不能被解释为运行时或大图 corpus 证明。
+- Native precommit 全部通过；工作区宽口径为 critical（含 21 个未跟踪用户文件和大量
+  fixture/project），只暂存本执行卡 9 个文件后降为 HIGH，`untrackedFiles=0`。staged
+  风险来自 3155 条项目级静态 diagnostics、48.7% unknown-confidence edge 与 46 个无法
+  映射到符号的 UI/CSS/docs hunk；提交未包含工作区其他未跟踪内容。
+
+### 剩余边界
+
+- `d3-force` 解决无坐标 snapshot 的默认可读性，不宣称大图已经完成社区折叠、分层布局
+  或语义聚类；这些属于 P1 图谱导航能力。
+- OpenAI、DeepSeek、Kimi 等远程服务均走同一个 OpenAI-compatible 适配层，不在事实层
+  增加厂商依赖；若服务不是 Chat Completions 兼容协议，需要后续新增独立 adapter。

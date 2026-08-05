@@ -43,6 +43,26 @@ function host(): HTMLElement {
 }
 
 describe("G6GraphAdapter edge contract (F1 新增，P0-A #2 前置)", () => {
+  it("applies a collision-aware force layout and fits the graph into the viewport", () => {
+    const { FakeGraph, state } = makeFake();
+    const adapter = new G6GraphAdapter(
+      { onSelectNode: () => {}, onFocusNode: () => {}, onHoverNode: () => {},
+        onSelectEdge: () => {}, onHoverEdge: () => {}, onCanvasClick: () => {} },
+      FakeGraph,
+      host(),
+    );
+
+    adapter.render(nodes, edges, {});
+
+    expect(state.config).toMatchObject({
+      autoFit: "view",
+      layout: {
+        type: "d3-force",
+        preventOverlap: true,
+      },
+    });
+  });
+
   it("edge elements use unique instance ids mapping to relationKey", () => {
     const { FakeGraph, state } = makeFake();
     const events: string[] = [];

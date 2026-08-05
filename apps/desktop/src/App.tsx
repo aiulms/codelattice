@@ -386,18 +386,19 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
             </ul>
           ) : <p className="hint">加载快照后显示结构树。</p>}
         </nav>
-        {selection.type === "none" && (
-          <div className="wb-dashboard-strip" data-testid="dashboard-strip">
-            <DashboardPanel facts={dashboardFacts} error={snapshotError ?? undefined} />
-          </div>
-        )}
         <GraphPane key={indexRef.current?.snapshotId ?? "graph"} selection={selection}
           transport={props.transport} snapshot={snapshot}
           snapshotId={indexRef.current?.snapshotId} store={selStore} />
-        <InspectorPanel selection={selection}
-          nodeContext={inspectorFull.node ?? inspectorData.node}
-          edgeEvidence={inspectorFull.edge ?? inspectorData.edge}
-          onExplainClick={() => void runExplain()} onJoinConversation={() => void joinConversation()} />
+        {selection.type === "none" ? (
+          <div className="wb-dashboard-strip" data-testid="dashboard-strip">
+            <DashboardPanel facts={dashboardFacts} error={snapshotError ?? undefined} />
+          </div>
+        ) : (
+          <InspectorPanel selection={selection}
+            nodeContext={inspectorFull.node ?? inspectorData.node}
+            edgeEvidence={inspectorFull.edge ?? inspectorData.edge}
+            onExplainClick={() => void runExplain()} onJoinConversation={() => void joinConversation()} />
+        )}
         {chatOpen && (
           <ChatPanel context={convContext} messages={messages} streaming={streaming} available={modelAvailable}
             onSend={(text) => void sendChat(text)} onCancel={() => void cancelStream()} onNavigate={navigateFromAction} />

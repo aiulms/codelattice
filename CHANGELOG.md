@@ -8,6 +8,7 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **Workbench 图谱与模型设置可用性**：G6 生产图启用带碰撞防护的 force layout、viewport auto-fit 和可读标签背景，修复无坐标 snapshot 的节点全部堆在原点；默认 Dashboard 与 Inspector 复用单一右栏，Graph 保持主画布。模型池重做为“供应商 → 连接 → 已配置模型”设置工作台，将通用 OpenAI-compatible 提升为显式一级入口，支持自定义 API Base URL、API Key、模型 ID、连接测试与默认模型；同时修复前端 camelCase 与 Rust `ModelConfig` snake_case 之间的真实 IPC 契约错位，Key 仍只写系统安全存储。
 - **Workbench P0 最终返工闭环**：修复独立复核发现的 Analyzer、Chat、Stream、SecretStore、原生 UI、snapshot 身份和内存基准阻断项。
   - **Analyzer / Stream**：运行中 job 保持可观察且可取消；stdout 先写临时文件再原子发布；前端保存 active stream handle，Stop 会取消后端、终止 iterator 并解绑 listener。
   - **Chat session**：同一会话支持连续多轮；每轮严格校验 session/snapshot/pinned scope；换 snapshot 时创建新会话并关闭旧会话；无效 scope 不再静默降级为 project。
