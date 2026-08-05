@@ -21,8 +21,15 @@ def main():
     ap.add_argument("--once", action="store_true", help="采样一次后退出（供 node 调用）")
     args = ap.parse_args()
 
-    core_pids = [p.info["pid"] for p in psutil.process_iter(["pid", "cmdline"])
-                 if p.info.get("cmdline") and any(args.core in " ".join(p.info["cmdline"]) for p in [p])]
+    # G-fix: 精确 PID 匹配。原代码 any(... for p in [p]) 的内部 p 遮蔽外部 p，
+    # 导致匹配逻辑错误——实际上只检查了 [p]（单元素列表）中的 p 本身。
+    # 修正：直接检查外部 p 的 cmdline 是否包含 core 名称。
+    core_pids = []
+    for p in psutil.process_iter(["pid", "cmdline"]):
+        cmd = p.info.get("cmdline")
+        if cmd and args.core in " ".join(cmd):
+            core_pids.append(p.info["pid"])
+
     if not core_pids:
         print(json.dumps({"coreMb": 0, "webviewMb": 0, "aggregateMb": 0, "corePids": 0, "webviewPids": 0}))
         return

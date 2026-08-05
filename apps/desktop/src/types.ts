@@ -210,9 +210,9 @@ export type ChatRequest = {
   sessionId: string;
   message: string;
   providerId: string;
-  /** 返工：Chat 必须携带 pinned snapshot 和 scope（禁止后端回退第一个 snapshot）。 */
-  snapshotId?: string;
-  pinnedScope?: { type: ConversationScopeType; id: string } | null;
+  /** 返工第二轮：snapshotId 和 pinnedScope 必填（禁止后端回退）。 */
+  snapshotId: string;
+  pinnedScope: { type: ConversationScopeType; id: string } | null;
 };
 
 export interface DesktopTransport {
@@ -237,7 +237,7 @@ export interface DesktopTransport {
   // 返工新增：Analyzer / session / model pool 类型化方法
   selectProjectDirectory(): Promise<string>;
   analyze(root: string, language: string): Promise<{ jobId: string }>;
-  analyzeStatus(): Promise<{ state: string; jobId: string | null }>;
+  analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }>;
   analyzeCancel(): Promise<void>;
   pinSnapshot(snapshotId: string): Promise<void>;
   unpinSnapshot(snapshotId: string): Promise<void>;

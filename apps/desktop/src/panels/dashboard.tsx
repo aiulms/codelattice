@@ -15,6 +15,7 @@ export type DashboardFacts = {
   fileNodeCount: number;
   truncated: boolean;
   resolutionRate: number;
+  totalCalls: number;
   limitationsCount: number;
   limitations: StaticLimitation[];
   entryPoints: Array<{ id: string; label: string }>;
@@ -121,6 +122,7 @@ export function computeDashboardFacts(
     fileNodeCount: g.summary.fileNodeCount,
     truncated: g.truncated,
     resolutionRate,
+    totalCalls: total,
     limitationsCount: limitations.length,
     limitations,
     entryPoints,
@@ -154,10 +156,15 @@ export function DashboardPanel(props: { facts: DashboardFacts | null; error?: st
     ["符号节点", f.symbolNodeCount],
     ["文件节点", f.fileNodeCount],
     ["CALLS 边", f.callEdgeCount],
-    ["CALLS 覆盖率", `${Math.round(f.resolutionRate * 100)}%`],
+  ];
+  // 覆盖率：totalCalls 未知时不显示 0%，改为 N/A
+  if (f.totalCalls > 0) {
+    rows.push(["CALLS 覆盖率", `${Math.round(f.resolutionRate * 100)}%`]);
+  }
+  rows.push(
     ["图谱截断", f.truncated ? "是（preview）" : "否"],
     ["静态限制", f.limitationsCount],
-  ];
+  );
   return (
     <section className="panel dashboard" data-testid="dashboard">
       <h2>项目事实</h2>

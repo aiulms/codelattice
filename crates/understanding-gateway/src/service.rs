@@ -54,7 +54,7 @@ pub struct UnderstandingService {
     pub cache: UnderstandingCache,
     pub secret_store: Box<dyn SecretStore>,
     /// 模型归属索引（model id -> cacheKeys），用于模型删除后的关联清理。
-    model_cache_keys: HashMap<String, Vec<String>>,
+    pub(crate) model_cache_keys: HashMap<String, Vec<String>>,
 }
 
 impl UnderstandingService {

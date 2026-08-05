@@ -6,13 +6,13 @@
 mod analyzer;
 mod commands;
 mod models;
+mod query_store;
 mod snapshots;
 
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
-use understanding_gateway::graph_store::SnapshotGraphIndex;
 use understanding_gateway::secret::SecretStore;
 use understanding_gateway::secret_keychain::KeychainSecretStore;
 use understanding_gateway::service::UnderstandingService;
@@ -20,11 +20,11 @@ use understanding_gateway::service::UnderstandingService;
 pub struct AppState {
     pub gateway: Mutex<UnderstandingService>,
     pub supervisor: Mutex<analyzer::AnalyzerSupervisor>,
-    /// G3 选型：full immutable graph index 缓存（snapshotId -> 只读索引）。
-    pub query_store: Mutex<HashMap<String, Arc<SnapshotGraphIndex>>>,
+    /// 有界 LRU QueryStore（返工第二轮 D-fix）。
+    pub query_store: Mutex<query_store::QueryStore>,
     /// 进行中的流式请求取消标志。
     pub active_requests: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    /// P0-C：被 agent/UI pin 的 snapshot id（cleanup 时保留）。
+    /// 被 agent/UI pin 的 snapshot id。
     pub pinned_snapshots: Mutex<Vec<String>>,
 }
 
@@ -42,7 +42,7 @@ impl AppState {
         Self {
             gateway: Mutex::new(UnderstandingService::new(create_secret_store())),
             supervisor: Mutex::new(analyzer::AnalyzerSupervisor::default()),
-            query_store: Mutex::new(HashMap::new()),
+            query_store: Mutex::new(query_store::QueryStore::default()),
             active_requests: Mutex::new(HashMap::new()),
             pinned_snapshots: Mutex::new(Vec::new()),
         }
@@ -70,6 +70,7 @@ fn main() {
             commands::assistant::workbench_cancel,
             commands::selftest::workbench_selftest_enabled,
             commands::selftest::workbench_smoke_report,
+            commands::selftest::workbench_check_port,
             commands::analyzer::workbench_analyze,
             commands::analyzer::workbench_analyze_cancel,
             commands::analyzer::workbench_analyze_status,
@@ -79,6 +80,7 @@ fn main() {
             commands::sessions::workbench_session_pin,
             commands::sessions::workbench_session_close,
             commands::sessions::workbench_select_directory,
+            commands::evidence::workbench_query_store_metrics,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

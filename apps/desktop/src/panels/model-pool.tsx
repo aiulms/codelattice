@@ -1,7 +1,7 @@
 // ModelPoolPanel — 最小模型池管理（P0 §7.1 / B1）。
 // Ollama + OpenAI-compatible；增删、设默认、连接测试。
 // 返工修复：通过 DesktopTransport 调用，不直接 import/invoke Tauri。
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import type { DesktopTransport } from "../types";
 
 export type ModelInfo = {
@@ -36,10 +36,12 @@ export function ModelPoolPanel(props: {
     }
   }
 
-  // 懒加载：首次打开时刷新
-  if (models.length === 0 && status === "") {
+  // E-fix: 使用 useEffect 替代渲染期间调用，防止无限重渲染
+  useEffect(() => {
+    if (!props.open) return;
     void refresh();
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [props.open]);
 
   async function addModel() {
     try {

@@ -8,6 +8,8 @@
 pub mod cache;
 pub mod dispatcher;
 pub mod dto;
+#[cfg(test)]
+mod e2e_tests;
 pub mod graph_store;
 pub mod provider;
 #[cfg(feature = "http")]

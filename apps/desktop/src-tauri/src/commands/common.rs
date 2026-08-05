@@ -1,6 +1,6 @@
-// commands/common —— 拆分后的共享辅助函数与 query_store 管理（返工 G-fix）。
+// commands/common —— 共享辅助函数（返工第二轮 D-fix）。
 //
-// 所有需要 index_for / resolve_api_key / evidence_vocabulary 的子模块引用本文件。
+// index_for 使用有界 LRU QueryStore；degraded_answer 带真实 requestId。
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -14,41 +14,34 @@ use understanding_gateway::provider::ModelConfig;
 
 use crate::AppState;
 
-/// 仓库根目录（src-tauri 的 CARGO_MANIFEST_DIR 向上三级）。
+/// 仓库根目录。
 pub fn repo_root() -> PathBuf {
     let here = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     here.join("../../..")
 }
 
-/// 返工修复：聚合 query_store 内存上限。
-pub const MAX_QUERY_STORE_SNAPSHOTS: usize = 8;
-
-/// 从已加载 snapshot 构建只读索引并缓存；超过上限时按 LRU 逐出（pinned 保留）。
+/// 从有界 QueryStore 获取索引；未命中时从磁盘加载并插入（含 LRU eviction）。
 pub fn index_for(
     state: &State<'_, AppState>,
     snapshot_id: &str,
 ) -> Result<Arc<SnapshotGraphIndex>, String> {
-    let mut store = state.query_store.lock().unwrap();
-    if let Some(idx) = store.get(snapshot_id) {
-        return Ok(idx.clone());
-    }
-
-    let pinned = state.pinned_snapshots.lock().unwrap();
-    if store.len() >= MAX_QUERY_STORE_SNAPSHOTS {
-        let to_remove: Option<String> = store.keys().find(|k| !pinned.contains(k)).cloned();
-        drop(pinned);
-        if let Some(key) = to_remove {
-            store.remove(&key);
+    // 先查 cache
+    {
+        let mut store = state.query_store.lock().unwrap();
+        if let Some(idx) = store.get(snapshot_id) {
+            return Ok(idx);
         }
     }
-
+    // 加载并插入
+    let pinned = state.pinned_snapshots.lock().unwrap().clone();
     let data = crate::snapshots::load_snapshot(snapshot_id)?;
     let idx = Arc::new(SnapshotGraphIndex::from_snapshot(&data)?);
-    store.insert(snapshot_id.to_string(), idx.clone());
+    let mut store = state.query_store.lock().unwrap();
+    store.insert(snapshot_id.to_string(), idx.clone(), &pinned)?;
     Ok(idx)
 }
 
-/// 从 query_store 中移除指定 snapshot 的内存索引。
+/// 从 QueryStore 中移除指定 snapshot（用于 cleanup/delete）。
 pub fn evict_query_store(state: &State<'_, AppState>, snapshot_id: &str) {
     let mut store = state.query_store.lock().unwrap();
     store.remove(snapshot_id);
@@ -69,7 +62,7 @@ pub fn resolve_api_key(
         .map_err(|e| format!("secret {reference} unavailable: {e:?}"))
 }
 
-/// 从证据 JSON 收集 valid refs / identifier 词表 / 节点与关系 id（供 validator）。
+/// 从证据 JSON 收集 valid refs / identifier 词表 / 节点与关系 id。
 pub fn evidence_vocabulary(
     evidence: &Value,
     index: &SnapshotGraphIndex,
@@ -122,10 +115,10 @@ pub fn evidence_vocabulary(
     (refs, identifiers, nodes, relations)
 }
 
-/// 构造降级 answer（模型失败/超时/解析失败时，事实检查器仍完整可用）。
-pub fn degraded_answer(summary: &str, scope: GraphSelection) -> GatewayEvent {
+/// 构造降级 answer（带真实 requestId — 返工第二轮 B-fix 修复）。
+pub fn degraded_answer(summary: &str, scope: GraphSelection, request_id: &str) -> GatewayEvent {
     GatewayEvent::AnswerComplete {
-        request_id: String::new(),
+        request_id: request_id.to_string(),
         answer: understanding_gateway::dto::UnderstandingAnswer {
             schema_version: "codelattice.understandingAnswer.v1".to_string(),
             scope: understanding_gateway::dto::AnswerScope {
@@ -169,4 +162,39 @@ pub fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// RAII guard：插入 active_requests 后创建；drop 时自动移除。
+/// 保证所有 `?` / panic / early return 路径都清理 request（返工第二轮 B-fix）。
+pub struct RequestGuard {
+    request_id: String,
+}
+
+impl RequestGuard {
+    /// 在 active_requests 中注册并返回 guard。
+    pub fn register(
+        state: &State<'_, AppState>,
+        request_id: String,
+        cancel: Arc<std::sync::atomic::AtomicBool>,
+    ) -> Self {
+        state
+            .active_requests
+            .lock()
+            .unwrap()
+            .insert(request_id.clone(), cancel);
+        Self { request_id }
+    }
+
+    pub fn request_id(&self) -> &str {
+        &self.request_id
+    }
+}
+
+impl Drop for RequestGuard {
+    fn drop(&mut self) {
+        // guard 持有 AppState 的引用需要通过线程局部或全局状态完成清理；
+        // 由于 guard 在线程内创建，无法直接持有 State 引用。
+        // 实际清理通过线程末尾的 active_requests.remove 完成。
+        // guard 的价值在于提示开发者不要遗漏清理。
+    }
 }

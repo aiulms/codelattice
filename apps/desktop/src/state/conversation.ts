@@ -1,23 +1,20 @@
-// ConversationStore — 独立对话上下文 store（P0 §4.1 / 验收 9–10）。
+// ConversationStore — 独立对话上下文 store（返工第二轮 A-fix）。
 //
-// Chat 有自己的对话上下文：用户在图谱选择节点 A 时，Chat 仍 pinned 在 B；
-// 只有显式“加入对话”动作（pinScope）才改变 pinned scope。
-// snapshotId 改变时旧对话标记 stale，不自动重绑定到新图（验收 10）。
+// 修复：
+// - 增加 replace-session action（后端创建 session 后替换前端 sessionId）
+// - 增加 close action
+// - App 通过 subscribe 将 context 放入 React state
 import type { ConversationContext, ConversationScopeType } from "../types";
 
 export type ConversationAction =
+  | { type: "replace-session"; sessionId: string; snapshotId: string }
   | { type: "pin"; scopeType: ConversationScopeType; id: string; snapshotId: string }
   | { type: "clear-scope" }
-  | { type: "snapshot-changed"; snapshotId: string };
+  | { type: "snapshot-changed"; snapshotId: string }
+  | { type: "close" };
 
 export function createConversationState(snapshotId: string): ConversationContext {
-  return { sessionId: newSessionId(), pinnedScope: null, snapshotId, stale: false };
-}
-
-let sessionCounter = 0;
-export function newSessionId(): string {
-  sessionCounter += 1;
-  return `sess:${Date.now().toString(36)}:${sessionCounter}`;
+  return { sessionId: "", pinnedScope: null, snapshotId, stale: false };
 }
 
 export function conversationReducer(
@@ -25,6 +22,13 @@ export function conversationReducer(
   action: ConversationAction,
 ): ConversationContext {
   switch (action.type) {
+    case "replace-session":
+      return {
+        sessionId: action.sessionId,
+        pinnedScope: null,
+        snapshotId: action.snapshotId,
+        stale: false,
+      };
     case "pin":
       return {
         ...state,
@@ -35,12 +39,14 @@ export function conversationReducer(
     case "clear-scope":
       return { ...state, pinnedScope: null };
     case "snapshot-changed":
-      // 旧对话保持 pinned 但标记 stale；不自动重绑定。
+      // 旧对话保持 pinned 但标记 stale
       return {
         ...state,
         snapshotId: action.snapshotId,
         stale: state.pinnedScope !== null,
       };
+    case "close":
+      return { sessionId: "", pinnedScope: null, snapshotId: "", stale: false };
   }
 }
 

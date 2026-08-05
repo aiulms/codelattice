@@ -50,3 +50,10 @@ pub fn workbench_call_chain(
     let idx = common::index_for(&state, &snapshot_id)?;
     serde_json::to_value(idx.call_chain(&node_id, &direction, depth)).map_err(|e| e.to_string())
 }
+
+/// 返回 QueryStore metrics（返工第二轮 D-fix）。
+#[tauri::command]
+pub fn workbench_query_store_metrics(state: State<AppState>) -> Result<Value, String> {
+    let store = state.query_store.lock().unwrap();
+    serde_json::to_value(store.metrics()).map_err(|e| e.to_string())
+}

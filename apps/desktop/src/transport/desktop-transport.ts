@@ -1,15 +1,11 @@
-// DesktopTransport — 类型化传输接口（P0 §5.1）。
+// DesktopTransport — 类型化传输接口（返工第二轮 B-fix）。
 //
-// 生产实现 = Tauri commands/channels；测试实现 = in-memory fake；
-// 兼容 Web adapter（HTTP/SSE）另行实现。业务模块绝不直接调用
-// `window.__TAURI__`（组件禁止触碰 Tauri 全局对象，F1 规则）。
-//
-// 返工修复：
-// - requestId 贯穿 UI message、Tauri command、event topic、cancel；
-// - generator 在 answer-complete/error/cancel/budget-limit 后终止；
-// - 所有终止路径都 unsubscribe listener + 清空 queue；
-// - invoke 失败时也清理 listener；
-// - 同一时间单活动请求策略。
+// 关键修复：
+// - 每请求独立状态对象 {requestId, unsubscribe, terminated, waiters, queue}
+// - cleanup 按 requestId 幂等；旧 generator finally 不影响新请求
+// - 替换时 cancel 后端旧请求 + 终止旧 iterator + unsubscribe 旧 listener
+// - generator 在 terminal 事件后 return
+// - invoke 失败推入 error 事件并终止
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
@@ -25,239 +21,166 @@ import type {
   StreamHandle,
 } from "../types";
 
-/** 判定事件是否为终止信号（generator 应在此后停止 yield）。 */
+/** 判定事件是否为终止信号。 */
 function isTerminal(ev: GatewayEvent): boolean {
-  return (
-    ev.kind === "answer-complete" ||
-    ev.kind === "error" ||
-    ev.kind === "budget-limit"
-  );
+  return ev.kind === "answer-complete" || ev.kind === "error" || ev.kind === "budget-limit";
+}
+
+/** 每请求独立状态。 */
+interface RequestState {
+  requestId: string;
+  unsubscribe: (() => void) | null;
+  terminated: boolean;
+  queue: GatewayEvent[];
+  waiters: Array<(e: GatewayEvent | null) => void>;
 }
 
 export class TauriDesktopTransport implements DesktopTransport {
-  /** 当前活动请求的 requestId（单活动请求策略；disposeActive 用闭包访问）。 */
-  /** 活动请求的 unsubscribe（用于 cancel / 替换 / 错误清理）。 */
-  private activeUnsub: (() => void) | null = null;
+  private currentRequest: RequestState | null = null;
 
   async listSnapshots(): Promise<SnapshotMeta[]> {
     return invoke<SnapshotMeta[]>("workbench_list_snapshots");
   }
-
   async loadSnapshot(snapshotId: string): Promise<SnapshotData> {
     return invoke<SnapshotData>("workbench_load_snapshot", { snapshotId });
   }
-
   async getNodeContext(snapshotId: string, nodeId: string): Promise<NodeContextBundle> {
     return invoke<NodeContextBundle>("workbench_node_context", { snapshotId, nodeId });
   }
-
-  async getEdgeEvidence(
-    snapshotId: string,
-    relationKey: string,
-    occurrenceKey?: string,
-  ): Promise<EdgeEvidenceBundle> {
-    return invoke<EdgeEvidenceBundle>("workbench_edge_evidence", {
-      snapshotId, relationKey, occurrenceKey: occurrenceKey ?? null,
-    });
+  async getEdgeEvidence(snapshotId: string, relationKey: string, occurrenceKey?: string): Promise<EdgeEvidenceBundle> {
+    return invoke<EdgeEvidenceBundle>("workbench_edge_evidence", { snapshotId, relationKey, occurrenceKey: occurrenceKey ?? null });
   }
-
-  async getCallChain(
-    snapshotId: string,
-    nodeId: string,
-    direction: "upstream" | "downstream",
-    depth: number,
-  ): Promise<CallChainResult> {
-    return invoke<CallChainResult>("workbench_call_chain", {
-      snapshotId, nodeId, direction, depth,
-    });
+  async getCallChain(snapshotId: string, nodeId: string, direction: "upstream" | "downstream", depth: number): Promise<CallChainResult> {
+    return invoke<CallChainResult>("workbench_call_chain", { snapshotId, nodeId, direction, depth });
   }
-
-  // ── Analyzer / snapshot management ─────────────────────────────────────
-
   async selectProjectDirectory(): Promise<string> {
     return invoke<string>("workbench_select_directory");
   }
-
   async analyze(root: string, language: string): Promise<{ jobId: string }> {
     return invoke<{ jobId: string }>("workbench_analyze", { root, language });
   }
-
-  async analyzeStatus(): Promise<{ state: string; jobId: string | null }> {
-    return invoke<{ state: string; jobId: string | null }>("workbench_analyze_status");
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }> {
+    return invoke("workbench_analyze_status");
   }
-
-  async analyzeCancel(): Promise<void> {
-    await invoke("workbench_analyze_cancel");
-  }
-
-  async pinSnapshot(snapshotId: string): Promise<void> {
-    await invoke("workbench_pin_snapshot", { snapshotId });
-  }
-
-  async unpinSnapshot(snapshotId: string): Promise<void> {
-    await invoke("workbench_unpin_snapshot", { snapshotId });
-  }
-
-  // ── Session management ─────────────────────────────────────────────────
-
+  async analyzeCancel(): Promise<void> { await invoke("workbench_analyze_cancel"); }
+  async pinSnapshot(snapshotId: string): Promise<void> { await invoke("workbench_pin_snapshot", { snapshotId }); }
+  async unpinSnapshot(snapshotId: string): Promise<void> { await invoke("workbench_unpin_snapshot", { snapshotId }); }
   async sessionCreate(snapshotId: string): Promise<string> {
     return invoke<string>("workbench_session_create", { snapshotId });
   }
-
-  async sessionPin(
-    sessionId: string,
-    scopeType: string,
-    scopeId: string,
-    snapshotId: string,
-  ): Promise<void> {
-    await invoke("workbench_session_pin", {
-      sessionId, scopeType, scopeId, snapshotId,
-    });
+  async sessionPin(sessionId: string, scopeType: string, scopeId: string, snapshotId: string): Promise<void> {
+    await invoke("workbench_session_pin", { sessionId, scopeType, scopeId, snapshotId });
   }
-
-  async sessionClose(sessionId: string): Promise<void> {
-    await invoke("workbench_session_close", { sessionId });
-  }
-
-  // ── Model pool ─────────────────────────────────────────────────────────
-
+  async sessionClose(sessionId: string): Promise<void> { await invoke("workbench_session_close", { sessionId }); }
   async modelsList(): Promise<{ default: string; models: unknown[] }> {
     return invoke<{ default: string; models: unknown[] }>("workbench_models_list");
   }
-
-  async modelsAdd(config: Record<string, unknown>): Promise<void> {
-    await invoke("workbench_models_add", { config });
-  }
-
-  async modelsRemove(id: string): Promise<void> {
-    await invoke("workbench_models_remove", { id });
-  }
-
-  async modelsSetDefault(id: string): Promise<void> {
-    await invoke("workbench_models_set_default", { id });
-  }
-
+  async modelsAdd(config: Record<string, unknown>): Promise<void> { await invoke("workbench_models_add", { config }); }
+  async modelsRemove(id: string): Promise<void> { await invoke("workbench_models_remove", { id }); }
+  async modelsSetDefault(id: string): Promise<void> { await invoke("workbench_models_set_default", { id }); }
   async modelsTest(id: string): Promise<{ ok: boolean; detail: string }> {
     return invoke<{ ok: boolean; detail: string }>("workbench_models_test", { id });
   }
-
   async secretSet(service: string, account: string, secret: string): Promise<{ secretRef: string }> {
     return invoke<{ secretRef: string }>("workbench_secret_set", { service, account, secret });
   }
-
-  async secretDelete(secretRef: string): Promise<void> {
-    await invoke("workbench_secret_delete", { secretRef });
-  }
-
-  // ── Streaming ──────────────────────────────────────────────────────────
-
+  async secretDelete(secretRef: string): Promise<void> { await invoke("workbench_secret_delete", { secretRef }); }
   async explainSelection(req: ExplainRequest): Promise<StreamHandle> {
     const requestId = `req:${Date.now().toString(36)}:exp`;
     return this.openStream(requestId, "workbench_explain", req);
   }
-
   async chat(req: ChatRequest): Promise<StreamHandle> {
     const requestId = `req:${Date.now().toString(36)}:chat`;
     return this.openStream(requestId, "workbench_chat", req);
   }
-
-  async cancel(requestId: string): Promise<void> {
-    await invoke("workbench_cancel", { requestId });
-  }
-
-  async writeSmokeReport(payload: Record<string, unknown>): Promise<void> {
-    await invoke("workbench_smoke_report", { payload });
-  }
+  async cancel(requestId: string): Promise<void> { await invoke("workbench_cancel", { requestId }); }
+  async writeSmokeReport(payload: Record<string, unknown>): Promise<void> { await invoke("workbench_smoke_report", { payload }); }
 
   /**
-   * 启动命令，订阅该 requestId 的流式事件 channel。
-   *
-   * 返工修复要点：
-   * 1. 如果已有活动请求 → 先 cancel + 清理（替换策略）。
-   * 2. listener 在 generator 终止 / cancel / invoke 失败时必须 unsubscribe。
-   * 3. generator 在 answer-complete / error / budget-limit 后终止。
+   * 启动命令并订阅事件。每请求独立状态；替换时先 cancel 后端旧请求。
    */
   private async openStream(requestId: string, command: string, payload: unknown): Promise<StreamHandle> {
-    // 替换策略：如果有活动请求，先取消并清理
-    this.disposeActive();
+    // 替换旧请求：cancel 后端 + 终止旧 iterator + unsubscribe
+    if (this.currentRequest && !this.currentRequest.terminated) {
+      const oldRid = this.currentRequest.requestId;
+      // cancel 后端旧请求
+      await invoke("workbench_cancel", { requestId: oldRid }).catch(() => {});
+      // 终止旧请求状态
+      this.disposeRequest(oldRid);
+    }
 
-    const events: GatewayEvent[] = [];
-    const waiters: Array<(e: GatewayEvent | null) => void> = [];
-    let terminated = false;
+    const rs: RequestState = {
+      requestId,
+      unsubscribe: null,
+      terminated: false,
+      queue: [],
+      waiters: [],
+    };
 
     const unsub = await listen<GatewayEvent>(`gateway:${requestId}`, (evt) => {
       const e = evt.payload;
-      if (waiters.length > 0) {
-        waiters.shift()!(e);
+      if (rs.waiters.length > 0) {
+        rs.waiters.shift()!(e);
       } else {
-        events.push(e);
+        rs.queue.push(e);
+      }
+    });
+    rs.unsubscribe = unsub;
+    this.currentRequest = rs;
+
+    // invoke 可能失败
+    invoke(command, { requestId, ...(payload as Record<string, unknown>) }).catch((err) => {
+      const errorEvent: GatewayEvent = { kind: "error", message: String(err?.message ?? err), requestId };
+      if (rs.waiters.length > 0) {
+        rs.waiters.shift()!(errorEvent);
+      } else {
+        rs.queue.push(errorEvent);
       }
     });
 
-    this.activeUnsub = () => {
-      if (!terminated) {
-        terminated = true;
-        // 唤醒所有等待中的 waiter（传 null 表示结束）
-        while (waiters.length > 0) {
-          waiters.shift()!(null);
-        }
-        events.length = 0;
-        unsub();
-      }
-    };
-
-    // invoke 可能失败 → 必须清理 listener
-    const invokeResult = invoke(command, { requestId, ...(payload as Record<string, unknown>) })
-      .catch((err) => {
-        // invoke 失败：推入 error 事件让 generator 正常终止
-        const errorEvent: GatewayEvent = {
-          kind: "error",
-          message: String(err?.message ?? err),
-          requestId,
-        };
-        if (waiters.length > 0) {
-          waiters.shift()!(errorEvent);
-        } else {
-          events.push(errorEvent);
-        }
-      });
-
     const self = this;
-    void invokeResult; // fire and forget — 错误经 event 处理
-
     return {
       requestId,
       events: (async function* (): AsyncGenerator<GatewayEvent> {
         try {
           while (true) {
             let ev: GatewayEvent | null = null;
-            if (events.length > 0) {
-              ev = events.shift()!;
+            if (rs.queue.length > 0) {
+              ev = rs.queue.shift()!;
             } else {
-              ev = await new Promise<GatewayEvent | null>((res) => waiters.push(res));
+              ev = await new Promise<GatewayEvent | null>((res) => rs.waiters.push(res));
             }
-            if (ev === null) {
-              // disposed (cancel / replace)
-              return;
-            }
+            if (ev === null) return; // disposed
             yield ev;
-            if (isTerminal(ev)) {
-              return;
-            }
+            if (isTerminal(ev)) return; // terminal event
           }
         } finally {
-          self.disposeActive();
+          // 只清理自己对应的请求，不误清理新请求
+          self.disposeRequest(requestId);
         }
       })(),
       cancel: () => self.cancel(requestId),
     };
   }
 
-  /** 清理活动请求：unsubscribe listener + 唤醒 waiter。 */
-  private disposeActive(): void {
-    if (this.activeUnsub) {
-      this.activeUnsub();
-      this.activeUnsub = null;
+  /** 清理指定请求（幂等）。只清理匹配的请求，不影响新请求。 */
+  private disposeRequest(requestId: string): void {
+    // 只有当 currentRequest 匹配时才清理
+    if (this.currentRequest && this.currentRequest.requestId === requestId) {
+      const rs = this.currentRequest;
+      if (!rs.terminated) {
+        rs.terminated = true;
+        // 唤醒所有等待中的 waiter
+        while (rs.waiters.length > 0) {
+          rs.waiters.shift()!(null);
+        }
+        rs.queue.length = 0;
+        if (rs.unsubscribe) {
+          rs.unsubscribe();
+          rs.unsubscribe = null;
+        }
+      }
+      this.currentRequest = null;
     }
   }
 }

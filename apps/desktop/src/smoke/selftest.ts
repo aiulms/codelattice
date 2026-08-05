@@ -25,6 +25,29 @@ export async function maybeRunSelftest(transport: DesktopTransport): Promise<voi
   }
   if (!enabled) return;
 
+  // I-fix: 端口检测 — 等待 Vite dev server 就绪再执行 selftest
+  try {
+    const { invoke } = await import("@tauri-apps/api/core");
+    let portReady = false;
+    for (let i = 0; i < 10; i++) {
+      const result = await invoke<{ port: number; reachable: boolean }>("workbench_check_port", { port: 1420 });
+      if (result.reachable) { portReady = true; break; }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    if (!portReady) {
+      await transport.writeSmokeReport({
+        schemaVersion: "codelattice.selftest.v1",
+        finishedAt: new Date().toISOString(),
+        fatal: "Vite dev server port 1420 not reachable after 5s",
+        steps: [],
+        allPass: false,
+      });
+      return;
+    }
+  } catch {
+    // 端口检测不可用时继续执行（非阻断）
+  }
+
   const steps: SelftestStep[] = [];
   const step = (name: string, fn: () => void | Promise<void>) =>
     Promise.resolve()

@@ -3,13 +3,19 @@ import { describe, it, expect } from "vitest";
 import { ConversationStore, conversationReducer } from "./conversation";
 
 describe("ConversationStore", () => {
-  it("starts with an empty pinned scope and a session id", () => {
+  it("starts with an empty pinned scope and empty session id (session created via backend)", () => {
     const store = new ConversationStore("snap:1");
     const s = store.getState();
     expect(s.pinnedScope).toBeNull();
     expect(s.snapshotId).toBe("snap:1");
     expect(s.stale).toBe(false);
-    expect(s.sessionId.startsWith("sess:")).toBe(true);
+    expect(s.sessionId).toBe(""); // session ID assigned by backend via replace-session
+  });
+
+  it("replace-session assigns the backend-generated session id", () => {
+    const store = new ConversationStore("snap:1");
+    store.dispatch({ type: "replace-session", sessionId: "sess:abc:123", snapshotId: "snap:1" });
+    expect(store.getState().sessionId).toBe("sess:abc:123");
   });
 
   it("pin() binds the conversation to the explicit scope (验收 9)", () => {

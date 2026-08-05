@@ -1,6 +1,11 @@
-// commands/assistant —— explain/chat 流式命令（返工 G-fix 拆分）。
+// commands/assistant —— explain/chat 流式命令（返工第二轮 B-fix）。
 //
-// 包含 explain、chat、cancel 及辅助函数。
+// 关键修复：
+// - 所有提前 return（`?`、cache hit）都清理 active_requests
+// - degraded_answer 带真实 requestId
+// - budget.consume 失败终止请求（不再 continue）
+// - 六轮工具循环无最终回答 → emit BudgetLimit terminal
+// - 每个请求只产生一个 terminal event
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
@@ -51,6 +56,7 @@ pub fn workbench_explain(
         }
     };
 
+    // 注册 cancel flag
     let cancel = Arc::new(AtomicBool::new(false));
     state
         .active_requests
@@ -58,39 +64,106 @@ pub fn workbench_explain(
         .unwrap()
         .insert(request_id.clone(), cancel.clone());
 
-    let index = common::index_for(&state, &snapshot_id)?;
+    // 辅助：在错误路径上 emit error 并清理 request
+    let fail_and_cleanup = |app: &tauri::AppHandle, state: &State<'_, AppState>, rid: &str, msg: &str| {
+        let _ = app.emit(
+            &format!("gateway:{rid}"),
+            GatewayEvent::Error { message: msg.to_string(), request_id: rid.to_string() },
+        );
+        state.active_requests.lock().unwrap().remove(rid);
+    };
+
+    // 构建 evidence bundle — 错误路径必须清理
+    let index = match common::index_for(&state, &snapshot_id) {
+        Ok(i) => i,
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &e);
+            return Ok(());
+        }
+    };
     let evidence = if let Some(nid) = &node_id {
-        serde_json::to_value(index.node_context(nid)).map_err(|e| e.to_string())?
+        match serde_json::to_value(index.node_context(nid)) {
+            Ok(v) => v,
+            Err(e) => {
+                fail_and_cleanup(&app, &state, &request_id, &format!("evidence build failed: {e}"));
+                return Ok(());
+            }
+        }
     } else if let Some(rk) = &relation_key {
-        index
-            .edge_evidence(rk)
-            .map(|b| serde_json::to_value(b).map_err(|e| e.to_string()))
-            .ok_or_else(|| format!("relation not found: {rk}"))??
+        match index.edge_evidence(rk) {
+            Some(b) => match serde_json::to_value(b) {
+                Ok(v) => v,
+                Err(e) => {
+                    fail_and_cleanup(&app, &state, &request_id, &format!("evidence serialize: {e}"));
+                    return Ok(());
+                }
+            },
+            None => {
+                fail_and_cleanup(&app, &state, &request_id, &format!("relation not found: {rk}"));
+                return Ok(());
+            }
+        }
     } else {
         unreachable!()
     };
     let (valid_refs, vocab, nodes, relations) = common::evidence_vocabulary(&evidence, &index);
 
-    let model = models::get_model(provider_id.as_deref())?;
-    let api_key = common::resolve_api_key(&state, &model)?;
-    let adapter = HttpModelAdapter::new(model.clone())?;
+    // 模型配置
+    let model = match models::get_model(provider_id.as_deref()) {
+        Ok(m) => m,
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &format!("model not found: {e}"));
+            return Ok(());
+        }
+    };
+    let api_key = match common::resolve_api_key(&state, &model) {
+        Ok(k) => k,
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &e);
+            return Ok(());
+        }
+    };
+    let adapter = match HttpModelAdapter::new(model.clone()) {
+        Ok(a) => a,
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &format!("adapter init: {e}"));
+            return Ok(());
+        }
+    };
 
-    let evidence_json = serde_json::to_string(&evidence).map_err(|e| e.to_string())?;
+    // cache check — hit 时 emit complete 并清理
+    let evidence_json = serde_json::to_string(&evidence).map_err(|e| e.to_string()).unwrap_or_default();
     let eh = UnderstandingService::evidence_hash(&evidence_json);
     let cache_key = {
         let gw = state.gateway.lock().unwrap();
         gw.cache_key_for(&eh, &model, "v1", "zh-CN", &level)
     };
-    if let Some(hit) = state.gateway.lock().unwrap().cache.get(&cache_key) {
-        let answer = hit.clone();
-        let _ = app.emit(
-            &format!("gateway:{request_id}"),
-            GatewayEvent::AnswerComplete {
-                request_id: request_id.clone(),
-                answer: serde_json::from_value(answer).map_err(|e| e.to_string())?,
-            },
-        );
-        return Ok(());
+    {
+        let gw = state.gateway.lock().unwrap();
+        if let Some(hit) = gw.cache.get(&cache_key) {
+            let answer = hit.clone();
+            let _ = app.emit(
+                &format!("gateway:{request_id}"),
+                GatewayEvent::AnswerComplete {
+                    request_id: request_id.clone(),
+                    answer: serde_json::from_value(answer).unwrap_or_else(|_| {
+                        understanding_gateway::dto::UnderstandingAnswer {
+                            schema_version: "codelattice.understandingAnswer.v1".into(),
+                            scope: understanding_gateway::dto::AnswerScope {
+                                scope_type: common::scope_scope_type(&selection),
+                                id: common::scope_id(&selection),
+                            },
+                            answer_summary: "cache deserialize failed".into(),
+                            claims: vec![],
+                            navigation_actions: vec![],
+                        }
+                    }),
+                },
+            );
+            // 返工修复：cache hit 必须清理 active_requests
+            state.active_requests.lock().unwrap().remove(&request_id);
+            return Ok(());
+        }
     }
 
     let app2 = app.clone();
@@ -101,18 +174,16 @@ pub fn workbench_explain(
         gw.explain_prompt(&evidence, &level)
     };
     std::thread::spawn(move || {
+        // 线程结束时的 deferred cleanup（所有路径都执行）
         let binding = app2.state::<AppState>();
-        let mut gw = binding.gateway.lock().unwrap();
-        let emit = |ev: GatewayEvent| {
-            let _ = app2.emit(&format!("gateway:{request_id2}"), ev);
-        };
+        let rid = request_id2.clone();
 
         if cancel.load(Ordering::SeqCst) {
-            emit(GatewayEvent::Error {
-                message: "cancelled before start".to_string(),
-                request_id: request_id2.clone(),
-            });
-            binding.active_requests.lock().unwrap().remove(&request_id2);
+            let _ = app2.emit(
+                &format!("gateway:{rid}"),
+                GatewayEvent::Error { message: "cancelled before start".into(), request_id: rid.clone() },
+            );
+            binding.active_requests.lock().unwrap().remove(&rid);
             return;
         }
 
@@ -122,20 +193,20 @@ pub fn workbench_explain(
                 let mut text = String::new();
                 for chunk in iter {
                     if cancel.load(Ordering::SeqCst) {
-                        emit(GatewayEvent::Error {
-                            message: "cancelled".to_string(),
-                            request_id: request_id2.clone(),
-                        });
-                        binding.active_requests.lock().unwrap().remove(&request_id2);
+                        let _ = app2.emit(
+                            &format!("gateway:{rid}"),
+                            GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                        );
+                        binding.active_requests.lock().unwrap().remove(&rid);
                         return;
                     }
                     match chunk {
                         StreamChunk::Text(t) => {
                             text.push_str(&t);
-                            emit(GatewayEvent::AnswerChunk {
-                                text: t,
-                                request_id: request_id2.clone(),
-                            });
+                            let _ = app2.emit(
+                                &format!("gateway:{rid}"),
+                                GatewayEvent::AnswerChunk { text: t, request_id: rid.clone() },
+                            );
                         }
                         StreamChunk::Done => break,
                     }
@@ -145,16 +216,17 @@ pub fn workbench_explain(
                     Ok(mut a) => {
                         for c in &mut a.claims {
                             if c.coverage_caveat_refs.is_empty() {
-                                c.coverage_caveat_refs
-                                    .push("coverage:project:calls".to_string());
+                                c.coverage_caveat_refs.push("coverage:project:calls".to_string());
                             }
                         }
+                        let mut gw = binding.gateway.lock().unwrap();
                         let _report = gw.validate_answer(&mut a, &valid_refs, &vocab, &nodes, &relations);
                         a
                     }
                     Err(e) => {
+                        // 返工修复：degraded_answer 带真实 requestId
                         if let GatewayEvent::AnswerComplete { mut answer, .. } =
-                            common::degraded_answer(&format!("模型输出解析失败：{e}"), scope_for_degraded.clone())
+                            common::degraded_answer(&format!("模型输出解析失败：{e}"), scope_for_degraded.clone(), &rid)
                         {
                             answer.answer_summary = format!(
                                 "未能解析模型输出（{e}）。以下为静态降级说明：当前选择没有可用解释。"
@@ -177,17 +249,22 @@ pub fn workbench_explain(
                 }
 
                 let answer_value = serde_json::to_value(&answer).unwrap_or(Value::Null);
-                gw.cache.put(cache_key.clone(), answer_value, common::now_secs());
-                emit(GatewayEvent::AnswerComplete {
-                    request_id: request_id2.clone(),
-                    answer,
-                });
+                {
+                    let mut gw = binding.gateway.lock().unwrap();
+                    gw.cache.put(cache_key.clone(), answer_value, common::now_secs());
+                }
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::AnswerComplete { request_id: rid.clone(), answer },
+                );
             }
             Err(e) => {
-                emit(common::degraded_answer(&e, scope_for_degraded));
+                // 返工修复：degraded_answer 带真实 requestId
+                let _ = app2.emit(&format!("gateway:{rid}"), common::degraded_answer(&e, scope_for_degraded, &rid));
             }
         }
-        binding.active_requests.lock().unwrap().remove(&request_id2);
+        // 所有路径的最终清理
+        binding.active_requests.lock().unwrap().remove(&rid);
     });
 
     Ok(())
@@ -214,7 +291,7 @@ pub fn workbench_chat(
     let session_id = payload
         .get("sessionId")
         .and_then(Value::as_str)
-        .unwrap_or("sess:adhoc")
+        .unwrap_or("")
         .to_string();
     let message = payload
         .get("message")
@@ -224,38 +301,30 @@ pub fn workbench_chat(
     if message.trim().is_empty() {
         return Err("empty message".to_string());
     }
+
+    // 返工第二轮：session 必须存在（禁止 adhoc 回退）
+    if session_id.is_empty() {
+        return Err("sessionId is required".to_string());
+    }
+    let snapshot_id = {
+        let gw = state.gateway.lock().unwrap();
+        let session = gw.sessions.get(&session_id)
+            .ok_or_else(|| format!("session not found: {session_id}"))?;
+        // 验证 session 状态：stale/closed 不允许
+        if session.status != understanding_gateway::session::SessionStatus::Active {
+            return Err(format!("session is not active: {:?}, please recreate", session.status));
+        }
+        session.context.snapshot_id.clone()
+    };
+
+    // 从 payload 获取 pinnedScope（必须存在）
+    let pinned_scope = payload.get("pinnedScope")
+        .ok_or_else(|| "pinnedScope is required".to_string())?;
+
     let provider_id = payload
         .get("providerId")
         .and_then(Value::as_str)
         .map(str::to_string);
-
-    // 返工修复：snapshot 来自前端或 session；未知 session 返回错误
-    let snapshot_id = {
-        let from_payload = payload
-            .get("snapshotId")
-            .and_then(Value::as_str)
-            .map(str::to_string);
-        let gw = state.gateway.lock().unwrap();
-        if let Some(sid) = from_payload {
-            if !session_id.is_empty() && session_id != "sess:adhoc" {
-                if !gw.sessions.exists(&session_id) {
-                    return Err(format!("session not found: {session_id}"));
-                }
-            }
-            sid
-        } else if let Some(s) = gw.sessions.get(&session_id) {
-            s.context.snapshot_id.clone()
-        } else if session_id.is_empty() || session_id == "sess:adhoc" {
-            drop(gw);
-            crate::snapshots::list_snapshots()?
-                .first()
-                .and_then(|m| m.get("id").and_then(Value::as_str))
-                .unwrap_or("rust-portable-smoke")
-                .to_string()
-        } else {
-            return Err(format!("session not found: {session_id}"));
-        }
-    };
 
     let cancel = Arc::new(AtomicBool::new(false));
     state
@@ -264,14 +333,34 @@ pub fn workbench_chat(
         .unwrap()
         .insert(request_id.clone(), cancel.clone());
 
-    let index = common::index_for(&state, &snapshot_id)?;
+    let fail_and_cleanup = |app: &tauri::AppHandle, state: &State<'_, AppState>, rid: &str, msg: &str| {
+        let _ = app.emit(
+            &format!("gateway:{rid}"),
+            GatewayEvent::Error { message: msg.to_string(), request_id: rid.to_string() },
+        );
+        state.active_requests.lock().unwrap().remove(rid);
+    };
+
+    let index = match common::index_for(&state, &snapshot_id) {
+        Ok(i) => i,
+        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &e); return Ok(()); }
+    };
     let mut budget = understanding_gateway::dispatcher::BudgetTracker::new();
     let tools = chat_tools_schema();
     let system_prompt = UnderstandingService::chat_system_prompt(&tools);
 
-    let model = models::get_model(provider_id.as_deref())?;
-    let api_key = common::resolve_api_key(&state, &model)?;
-    let adapter = HttpModelAdapter::new(model.clone())?;
+    let model = match models::get_model(provider_id.as_deref()) {
+        Ok(m) => m,
+        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &format!("model: {e}")); return Ok(()); }
+    };
+    let api_key = match common::resolve_api_key(&state, &model) {
+        Ok(k) => k,
+        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &e); return Ok(()); }
+    };
+    let adapter = match HttpModelAdapter::new(model.clone()) {
+        Ok(a) => a,
+        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &format!("adapter: {e}")); return Ok(()); }
+    };
 
     let history: Vec<Value> = {
         let gw = state.gateway.lock().unwrap();
@@ -292,43 +381,48 @@ pub fn workbench_chat(
     let request_id2 = request_id.clone();
     let session_id2 = session_id.clone();
     let index_arc = index.clone();
+    let pinned_scope_text = serde_json::to_string(pinned_scope).unwrap_or_default();
     std::thread::spawn(move || {
         let binding = app2.state::<AppState>();
-        let mut gw = binding.gateway.lock().unwrap();
-        let emit = |ev: GatewayEvent| {
-            let _ = app2.emit(&format!("gateway:{request_id2}"), ev);
-        };
+        let rid = request_id2.clone();
 
         if cancel.load(Ordering::SeqCst) {
-            emit(GatewayEvent::Error {
-                message: "cancelled before start".to_string(),
-                request_id: request_id2.clone(),
-            });
-            binding.active_requests.lock().unwrap().remove(&request_id2);
+            let _ = app2.emit(
+                &format!("gateway:{rid}"),
+                GatewayEvent::Error { message: "cancelled before start".into(), request_id: rid.clone() },
+            );
+            binding.active_requests.lock().unwrap().remove(&rid);
             return;
         }
 
+        // 构建带 pinned scope 的 context
         let mut context = vec![
-            json!({"role": "system", "content": system_prompt}),
+            json!({"role": "system", "content": format!("{system_prompt}\n当前对话上下文：pinned scope = {pinned_scope_text}")}),
             json!({"role": "user", "content": message}),
         ];
         context.extend(history);
 
         let mut evidence_text = String::new();
+        let mut got_terminal = false;
+
         for round in 0..6u32 {
             if cancel.load(Ordering::SeqCst) {
-                emit(GatewayEvent::Error {
-                    message: "cancelled".to_string(),
-                    request_id: request_id2.clone(),
-                });
-                binding.active_requests.lock().unwrap().remove(&request_id2);
-                return;
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                );
+                got_terminal = true;
+                break;
             }
             if budget.exhausted() {
-                emit(GatewayEvent::BudgetLimit {
-                    reason: "session tool/evidence budget exhausted (12 calls / 16K tokens)".to_string(),
-                    request_id: request_id2.clone(),
-                });
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::BudgetLimit {
+                        reason: "session tool/evidence budget exhausted (12 calls / 16K tokens)".to_string(),
+                        request_id: rid.clone(),
+                    },
+                );
+                got_terminal = true;
                 break;
             }
 
@@ -336,35 +430,34 @@ pub fn workbench_chat(
             let stream = match adapter.stream_explain_with_key(&round_prompt, api_key.as_deref()) {
                 Ok(s) => s,
                 Err(e) => {
-                    emit(GatewayEvent::Error {
-                        message: format!("model request failed: {e}"),
-                        request_id: request_id2.clone(),
-                    });
+                    let _ = app2.emit(
+                        &format!("gateway:{rid}"),
+                        GatewayEvent::Error { message: format!("model request failed: {e}"), request_id: rid.clone() },
+                    );
+                    got_terminal = true;
                     break;
                 }
             };
             let mut text = String::new();
             for chunk in stream {
-                if cancel.load(Ordering::SeqCst) {
-                    break;
-                }
+                if cancel.load(Ordering::SeqCst) { break; }
                 match chunk {
                     StreamChunk::Text(t) => text.push_str(&t),
                     StreamChunk::Done => break,
                 }
             }
             if cancel.load(Ordering::SeqCst) {
-                emit(GatewayEvent::Error {
-                    message: "cancelled".to_string(),
-                    request_id: request_id2.clone(),
-                });
-                binding.active_requests.lock().unwrap().remove(&request_id2);
-                return;
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                );
+                got_terminal = true;
+                break;
             }
 
             let calls = UnderstandingService::parse_tool_calls(&text);
             if calls.is_empty() {
-                // 最终回答：走 validate_answer（返工修复）
+                // 最终回答
                 let (valid_refs, vocab, nodes, relations) = common::evidence_vocabulary(
                     &Value::String(evidence_text.clone()),
                     &index_arc,
@@ -373,103 +466,115 @@ pub fn workbench_chat(
                     Ok(mut a) => {
                         for c in &mut a.claims {
                             if c.coverage_caveat_refs.is_empty() {
-                                c.coverage_caveat_refs
-                                    .push("coverage:project:calls".to_string());
+                                c.coverage_caveat_refs.push("coverage:project:calls".to_string());
                             }
                         }
+                        let mut gw = binding.gateway.lock().unwrap();
                         let _report = gw.validate_answer(&mut a, &valid_refs, &vocab, &nodes, &relations);
                         a
                     }
                     Err(e) => {
                         if let GatewayEvent::AnswerComplete { answer, .. } =
-                            common::degraded_answer(&format!("模型输出解析失败：{e}"), GraphSelection::None)
+                            common::degraded_answer(&format!("模型输出解析失败：{e}"), GraphSelection::None, &rid)
                         {
                             answer
-                        } else {
-                            unreachable!()
-                        }
+                        } else { unreachable!() }
                     }
                 };
-                emit(GatewayEvent::AnswerChunk {
-                    text: answer.answer_summary.clone(),
-                    request_id: request_id2.clone(),
-                });
-                emit(GatewayEvent::AnswerComplete {
-                    request_id: request_id2.clone(),
-                    answer,
-                });
-                gw.sessions.complete(&session_id2);
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::AnswerChunk { text: answer.answer_summary.clone(), request_id: rid.clone() },
+                );
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::AnswerComplete { request_id: rid.clone(), answer },
+                );
+                {
+                    let mut gw = binding.gateway.lock().unwrap();
+                    gw.sessions.complete(&session_id2);
+                }
+                got_terminal = true;
                 break;
             }
 
+            // 执行工具
+            let mut budget_failed = false;
             for call in calls {
-                if cancel.load(Ordering::SeqCst) {
-                    break;
-                }
+                if cancel.load(Ordering::SeqCst) { break; }
                 let name = call.get("name").and_then(Value::as_str).unwrap_or("").to_string();
                 let arguments = call.get("arguments").cloned().unwrap_or(Value::Null);
+                // 返工修复：budget 失败 → 终止，不再 continue
                 if let Err(budget_err) = budget.consume(&name) {
-                    emit(GatewayEvent::BudgetLimit {
-                        reason: format!("tool rejected: {budget_err:?}"),
-                        request_id: request_id2.clone(),
-                    });
-                    continue;
+                    let _ = app2.emit(
+                        &format!("gateway:{rid}"),
+                        GatewayEvent::BudgetLimit {
+                            reason: format!("tool budget exhausted: {budget_err:?}"),
+                            request_id: rid.clone(),
+                        },
+                    );
+                    budget_failed = true;
+                    got_terminal = true;
+                    break;
                 }
                 let result = index_arc.execute_tool(&name, &arguments);
                 let (payload_val, truncated) = match result {
                     Ok(v) => {
                         let s = serde_json::to_string(&v).unwrap_or_default();
-                        let (kept, trunc) =
-                            understanding_gateway::dispatcher::truncate_bytes(s.as_bytes(), 32 * 1024);
-                        (
-                            serde_json::from_slice::<Value>(&kept).unwrap_or(Value::Null),
-                            trunc,
-                        )
+                        let (kept, trunc) = understanding_gateway::dispatcher::truncate_bytes(s.as_bytes(), 32 * 1024);
+                        (serde_json::from_slice::<Value>(&kept).unwrap_or(Value::Null), trunc)
                     }
                     Err(e) => (json!({"error": e}), false),
                 };
                 let payload_str = serde_json::to_string(&payload_val).unwrap_or_default();
                 let _ = budget.add_evidence_tokens((payload_str.len() / 4) as u64);
-                gw.sessions.append_trace(
-                    &session_id2,
-                    understanding_gateway::dto::ToolTrace {
-                        tool: name.clone(),
-                        params: arguments.clone(),
-                        returned_bytes: payload_str.len() as u64,
-                        truncated,
+                {
+                    let mut gw = binding.gateway.lock().unwrap();
+                    gw.sessions.append_trace(
+                        &session_id2,
+                        understanding_gateway::dto::ToolTrace {
+                            tool: name.clone(), params: arguments.clone(),
+                            returned_bytes: payload_str.len() as u64, truncated,
+                        },
+                    );
+                }
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::ToolCall {
+                        trace: understanding_gateway::dto::ToolTrace {
+                            tool: name.clone(), params: arguments.clone(),
+                            returned_bytes: payload_str.len() as u64, truncated,
+                        },
+                        request_id: rid.clone(),
                     },
                 );
-                emit(GatewayEvent::ToolCall {
-                    trace: understanding_gateway::dto::ToolTrace {
-                        tool: name.clone(),
-                        params: arguments.clone(),
-                        returned_bytes: payload_str.len() as u64,
-                        truncated,
-                    },
-                    request_id: request_id2.clone(),
-                });
                 evidence_text.push_str(&payload_str);
-                context.push(json!({
-                    "role": "assistant",
-                    "content": format!("tool call: {name}"),
-                }));
-                context.push(json!({
-                    "role": "user",
-                    "content": format!("工具 {name} 返回（可能已截断，truncated={truncated}）：\n{payload_str}"),
-                }));
+                context.push(json!({"role": "assistant", "content": format!("tool call: {name}")}));
+                context.push(json!({"role": "user", "content": format!("工具 {name} 返回（truncated={truncated}）：\n{payload_str}")}));
             }
-            let _ = round;
+            if budget_failed { break; }
 
             if cancel.load(Ordering::SeqCst) {
-                emit(GatewayEvent::Error {
-                    message: "cancelled".to_string(),
-                    request_id: request_id2.clone(),
-                });
-                binding.active_requests.lock().unwrap().remove(&request_id2);
-                return;
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                );
+                got_terminal = true;
+                break;
             }
         }
-        binding.active_requests.lock().unwrap().remove(&request_id2);
+
+        // 返工修复：六轮全是 tool call 且无最终回答 → emit terminal
+        if !got_terminal {
+            let _ = app2.emit(
+                &format!("gateway:{rid}"),
+                GatewayEvent::BudgetLimit {
+                    reason: "reached max tool rounds (6) without a final answer".to_string(),
+                    request_id: rid.clone(),
+                },
+            );
+        }
+
+        binding.active_requests.lock().unwrap().remove(&rid);
     });
 
     Ok(())

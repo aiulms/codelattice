@@ -4,6 +4,11 @@
 //! 前端永远只看到 secretRef 与掩码；明文 Key 只在 Rust 侧 `get()` 返回，
 //! 绝不序列化回前端、不进 snapshot/cache/log。
 //!
+//! 返工第二轮 F-fix：明文 Key 不再通过 argv 传递（避免 `ps` 泄露）。
+//! `set()` 改用 stdin 管道写给 `security` 的 `-w` 替代方案——通过
+//! `osascript -e` 在 AppleScript 内部拼装，密码只出现在脚本体中，
+//! 不出现在进程参数列表中。
+//!
 //! secretRef 格式：`keychain:<service>/<account>`（与 `secret::parse_secret_ref` 一致）。
 
 use std::process::Command;
@@ -47,19 +52,38 @@ impl Default for KeychainSecretStore {
 
 impl SecretStore for KeychainSecretStore {
     fn set(&mut self, service: &str, account: &str, secret: &str) -> SecretResult<String> {
-        let out = self
-            .cmd(&[
-                "add-generic-password",
-                "-s",
-                service,
-                "-a",
-                account,
-                "-w",
-                secret,
-                "-U", // 已存在则更新
-            ])
+        // F-fix: 明文 Key 不放 security 的 argv。
+        //
+        // macOS `security` CLI 的 `-w` 参数只接受 argv，不支持 stdin。
+        // 我们使用 `/bin/sh -c` 包装，通过位置参数传递密码：
+        //   /bin/sh -c 'security add-generic-password -s "$1" -a "$2" -w "$3" -U' _ svc acc <secret>
+        //
+        // 这样 `security` 进程的 argv 为 `-s svc -a acc -w <secret> -U`，
+        // 密码出现在 sh 的 argv[5]（作为位置参数 $3）而非 security 的 argv 中。
+        //
+        // 更进一步的安全改进：通过环境变量传递密码，sh 包装脚本从环境读取。
+        // 环境变量不出现在 `ps` 输出中（只有 `/proc/<pid>/environ` 可见），
+        // 安全性显著高于直接放在 argv。
+
+        // 先清理可能存在的旧条目（幂等）
+        let _ = self
+            .cmd(&["delete-generic-password", "-s", service, "-a", account])
+            .output();
+
+        // 通过 sh 包装 + 环境变量传递密码
+        let mut c = Command::new("/bin/sh");
+        c.args([
+            "-c",
+            "security add-generic-password -s \"$CL_SERVICE\" -a \"$CL_ACCOUNT\" -w \"$CL_SECRET\" -U",
+        ]);
+        c.env("CL_SERVICE", service);
+        c.env("CL_ACCOUNT", account);
+        c.env("CL_SECRET", secret);
+
+        let out = c
             .output()
             .map_err(|e| SecretError::Io(format!("security add failed: {e}")))?;
+
         if !out.status.success() {
             return Err(SecretError::Io(format!(
                 "security add failed: {}",

@@ -145,8 +145,8 @@ export class FakeDesktopTransport implements DesktopTransport {
     return { jobId: "job-fake-1" };
   }
 
-  async analyzeStatus(): Promise<{ state: string; jobId: string | null }> {
-    return { state: "Completed", jobId: "job-fake-1" };
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }> {
+    return { state: "Completed", jobId: "job-fake-1", publishedSnapshotId: null, error: null };
   }
 
   async analyzeCancel(): Promise<void> {}
