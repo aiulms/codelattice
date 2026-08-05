@@ -1155,11 +1155,12 @@ fixtures 变更仅新增 relationKey 字段（向后兼容，前端对旧 snapsh
 commit 4e991d2 feat(workbench): Project Understanding Workbench P0 (Tauri 2 desktop)
       （97 files，+27110/-209；CHANGELOG + execution card 随 commit 保存）
 
-push gitcode master → FAILED（非交互环境）：
-  fatal: could not read Username for 'https://gitcode.com': terminal prompts disabled
-  处理：按 §17.15 记录原始错误，不做破坏性重试。commit 已在本地 master。
-  用户可在终端执行 `git push gitcode master`（osxkeychain / 交互认证）。
-  备选：github remote 已配置，如需镜像可 `git push github master`。
+push gitcode master → 已完成（2026-08-05 16:01，用户提供一次性 access token，
+  经环境变量 + GIT_ASKPASS 一次性注入，未落盘/未写日志，push 后立即清理）：
+  To https://gitcode.com/aiulms/codelattice.git
+     45aec387..836d4ded  master -> master   （remote hooks PASSED）
+  git status：master 与 gitcode/master 同步（ahead 0）。
+  ⚠️ 该 token 曾出现在对话中，已提醒用户到 gitcode 后台撤销/轮换。
 
 native detect-changes（commit 前）：summary.riskLevel = critical / overallRisk = HIGH。
 原因分析：untrackedFileCount=25295（node_modules/dist 等未跟踪噪声，已补 .gitignore）；
