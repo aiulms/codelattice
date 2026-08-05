@@ -91,19 +91,15 @@ impl crate::mcp_job::FacadeCacheWarmer for McpCacheWarmer {
 
         // Build cache entry directly from job artifacts
         let (entry, meta) = build_warm_cache_entry_from_result(&canonical, language, result)?;
-        let manifest_hashes =
-            extract_u64_map_from_analyze_meta(&entry.analyze_result, "__manifest_hashes");
-        let docs_mtimes = extract_u64_map_from_analyze_meta(&entry.analyze_result, "__docs_mtimes");
         let cache_key_str = format!("{}:{}:{}", key.root, key.language, key.strict);
         save_persistent(
             &cache_key_str,
             &key.root,
             &key.language,
-            &entry.analyze_result,
-            Some(&entry.graph_view),
+            entry.analyze_result.as_ref(),
             &entry.file_mtimes,
-            &manifest_hashes,
-            &docs_mtimes,
+            &entry.manifest_hashes,
+            &entry.docs_mtimes,
             scheduler_fingerprint(&entry.scheduler),
             &entry.scheduler_files,
             entry.analysis_duration_ms,
@@ -894,8 +890,10 @@ struct CacheKey {
 
 /// A cached analysis result with its pre-built GraphView.
 struct CacheEntry {
-    analyze_result: Value,
-    graph_view: GraphView,
+    /// Raw analyze JSON is immutable after insertion and shared across cache hits.
+    analyze_result: Arc<Value>,
+    /// Query indexes are shared as one container; individual nodes/edges are also Arc-backed.
+    graph_view: Arc<GraphView>,
     /// Scheduler metadata captured for the analysis entry.
     scheduler: Value,
     /// Scheduler-tracked file snapshot captured for dirty-file planning.
@@ -907,10 +905,23 @@ struct CacheEntry {
     /// File mtimes captured at analysis time, used for staleness detection.
     /// Maps relative_path → mtime (as duration since UNIX epoch in ms).
     file_mtimes: HashMap<String, u64>,
+    /// Manifest/docs freshness metadata lives beside the raw result so cache insertion
+    /// does not need to clone and mutate the complete analyze JSON.
+    manifest_hashes: HashMap<String, u64>,
+    docs_mtimes: HashMap<String, u64>,
     /// Absolute root path (canonical) used for file resolution.
     root_canonical: String,
     /// Stale reason from last check (None = fresh).
     stale_reason: Option<String>,
+}
+
+/// Stale-delta 是唯一允许修改缓存图的路径。通常缓存只持有一个 Arc；
+/// 若调用方仍保留旧快照，则只复制索引容器，底层 node/edge JSON 继续共享。
+fn graph_view_arc_mut(graph_view: &mut Arc<GraphView>) -> &mut GraphView {
+    if Arc::get_mut(graph_view).is_none() {
+        *graph_view = Arc::new(graph_view.clone_shallow());
+    }
+    Arc::get_mut(graph_view).expect("graph view must be uniquely owned")
 }
 
 /// Default maximum cache entries (LRU eviction kicks in above this).
@@ -1088,6 +1099,7 @@ fn build_facade_digest(
         .nodes_by_id
         .values()
         .filter(|node| node["label"].as_str() == Some("symbol"))
+        .map(Arc::as_ref)
         .collect();
     symbols.sort_by(|a, b| {
         let af = a["properties"]["sourcePath"].as_str().unwrap_or("");
@@ -1282,18 +1294,6 @@ fn build_warm_cache_entry_from_result(
     graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(canonical)));
     let doc_scan_ms = doc_scan_start.elapsed().as_millis() as u64;
 
-    let mut result_with_meta = analyze_value.clone();
-    if let Some(obj) = result_with_meta.as_object_mut() {
-        obj.insert(
-            "__manifest_hashes".to_string(),
-            serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
-        );
-        obj.insert(
-            "__docs_mtimes".to_string(),
-            serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
-        );
-    }
-
     let duration_ms = start.elapsed().as_millis() as u64;
 
     let cache_insert_start = Instant::now();
@@ -1336,8 +1336,8 @@ fn build_warm_cache_entry_from_result(
 
     Ok((
         CacheEntry {
-            analyze_result: result_with_meta,
-            graph_view,
+            analyze_result: Arc::new(analyze_value),
+            graph_view: Arc::new(graph_view),
             scheduler: scheduler.value.clone(),
             scheduler_files: scheduler.file_snapshot.clone(),
             created_at: Instant::now(),
@@ -1345,6 +1345,8 @@ fn build_warm_cache_entry_from_result(
             hit_count: 0,
             analysis_duration_ms: duration_ms,
             file_mtimes: file_mtimes.clone(),
+            manifest_hashes,
+            docs_mtimes,
             root_canonical: canonical.to_string_lossy().to_string(),
             stale_reason: None,
         },
@@ -1359,18 +1361,11 @@ fn build_warm_cache_entry_from_result(
     ))
 }
 
-fn extract_u64_map_from_analyze_meta(analyze_result: &Value, key: &str) -> HashMap<String, u64> {
-    analyze_result
-        .get(key)
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default()
-}
-
 /// Persistent cache schema version.
 ///
-/// v2 会淘汰旧 typed graph snapshot；旧 TypeScript CALLS edge 仍是
-/// `file -> ref:*` 占位符，无法支撑 callers/callees/impact 的符号级查询。
-const CACHE_SCHEMA_VERSION: u32 = 2;
+/// v3 不再持久化重复的 typed GraphView snapshot。跨进程命中从唯一的
+/// analyze JSON 重建 Arc-backed indexes，避免磁盘体积和启动峰值翻倍。
+const CACHE_SCHEMA_VERSION: u32 = 3;
 
 fn build_scheduler_metadata(
     root: &Path,
@@ -1773,7 +1768,7 @@ fn get_persistent_cache_dir() -> Option<PathBuf> {
 }
 
 /// A serialized persistent cache entry stored on disk.
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Deserialize)]
 struct PersistentCacheEntry {
     /// Cache schema version for forward compatibility.
     schema_version: u32,
@@ -1785,9 +1780,10 @@ struct PersistentCacheEntry {
     language: String,
     /// Full analyze result JSON.
     analyze_result: Value,
-    /// Query-ready GraphView indexes. Optional so older cache files remain readable.
+    /// Legacy typed GraphView payload is deliberately ignored. Schema v3 writers
+    /// omit it; keeping an ignored field makes corrupted/hand-written inputs bounded.
     #[serde(default)]
-    graph_view: Option<PersistentGraphViewSnapshot>,
+    graph_view: Option<serde::de::IgnoredAny>,
     /// File mtimes at cache time.
     file_mtimes: HashMap<String, u64>,
     /// Manifest hashes at cache time.
@@ -1805,9 +1801,58 @@ struct PersistentCacheEntry {
     analysis_duration_ms: u64,
 }
 
+/// Persistent cache header used by status/clear operations.
+///
+/// `analyze_result` and `graph_view` can contain hundreds of megabytes of nested JSON.
+/// Control-plane metadata queries must traverse those fields without materializing them.
+#[derive(serde::Deserialize)]
+struct PersistentCacheSummary {
+    root: String,
+    language: String,
+    #[serde(default)]
+    graph_view: Option<serde::de::IgnoredAny>,
+    #[serde(default)]
+    file_mtimes: HashMap<String, u64>,
+    scheduler_fingerprint: Option<String>,
+    #[serde(default)]
+    created_at: String,
+    #[serde(default)]
+    analysis_duration_ms: u64,
+}
+
+/// Small prefix header used to reject old large cache files before allocating their
+/// analyze/graph payloads. CodeLattice writers always serialize these fields first.
+fn read_persistent_cache_prefix(path: &Path) -> Option<(u32, String)> {
+    let mut file = std::fs::File::open(path).ok()?;
+    let mut bytes = vec![0_u8; 4096];
+    let read = std::io::Read::read(&mut file, &mut bytes).ok()?;
+    let prefix = std::str::from_utf8(&bytes[..read]).ok()?;
+
+    let schema_marker = "\"schema_version\":";
+    let schema_start = prefix.find(schema_marker)? + schema_marker.len();
+    let schema_digits: String = prefix[schema_start..]
+        .chars()
+        .skip_while(|c| c.is_ascii_whitespace())
+        .take_while(|c| c.is_ascii_digit())
+        .collect();
+    let schema_version = schema_digits.parse().ok()?;
+
+    let version_marker = "\"version\":\"";
+    let version_start = prefix.find(version_marker)? + version_marker.len();
+    let version_end = prefix[version_start..].find('"')? + version_start;
+    Some((
+        schema_version,
+        prefix[version_start..version_end].to_string(),
+    ))
+}
+
+fn read_persistent_cache_summary(path: &Path) -> Option<PersistentCacheSummary> {
+    let file = std::fs::File::open(path).ok()?;
+    serde_json::from_reader(std::io::BufReader::new(file)).ok()
+}
+
 struct PersistentCacheHit {
     analyze_result: Value,
-    graph_view: Option<PersistentGraphViewSnapshot>,
     file_mtimes: HashMap<String, u64>,
     manifest_hashes: HashMap<String, u64>,
     docs_mtimes: HashMap<String, u64>,
@@ -1831,17 +1876,10 @@ struct PersistentStaleContext {
 }
 
 fn graph_view_from_persistent_hit(persistent: &PersistentCacheHit) -> (GraphView, &'static str) {
-    if let Some(snapshot) = persistent.graph_view.clone() {
-        (
-            GraphView::from_persistent_snapshot(snapshot),
-            "persistent_typed_graph",
-        )
-    } else {
-        (
-            GraphView::build(&persistent.analyze_result),
-            "rebuilt_from_analyze_json",
-        )
-    }
+    (
+        GraphView::build(&persistent.analyze_result),
+        "rebuilt_from_analyze_json",
+    )
 }
 
 /// Try to load a cached analysis from the persistent cache layer.
@@ -1866,11 +1904,25 @@ fn try_load_persistent(
         return PersistentLookupResult::Miss;
     }
 
-    let content = match std::fs::read_to_string(&path) {
-        Ok(c) => c,
+    // 先读固定小前缀；旧 schema 的 100+ MiB typed graph 无需完整反序列化。
+    let Some((schema_version, version)) = read_persistent_cache_prefix(&path) else {
+        let _ = std::fs::remove_file(&path);
+        return PersistentLookupResult::Corrupted("missing cache prefix".to_string());
+    };
+    if version != CODELATTICE_CACHE_VERSION || schema_version != CACHE_SCHEMA_VERSION {
+        eprintln!(
+            "[mcp] persistent cache header mismatch: version {} schema {}, removing",
+            version, schema_version
+        );
+        let _ = std::fs::remove_file(&path);
+        return PersistentLookupResult::Miss;
+    }
+
+    let file = match std::fs::File::open(&path) {
+        Ok(file) => file,
         Err(_) => return PersistentLookupResult::Miss,
     };
-    let entry: PersistentCacheEntry = match serde_json::from_str(&content) {
+    let entry: PersistentCacheEntry = match serde_json::from_reader(std::io::BufReader::new(file)) {
         Ok(e) => e,
         Err(e) => {
             eprintln!("[mcp] persistent cache corrupted: {}, removing", e);
@@ -1927,7 +1979,6 @@ fn try_load_persistent(
     // 构建 PersistentCacheHit 供后续复用
     let persistent_hit = PersistentCacheHit {
         analyze_result: entry.analyze_result,
-        graph_view: entry.graph_view,
         file_mtimes: entry.file_mtimes,
         manifest_hashes: entry.manifest_hashes,
         docs_mtimes: entry.docs_mtimes,
@@ -1986,7 +2037,6 @@ fn save_persistent(
     canonical_root: &str,
     language: &str,
     analyze_result: &Value,
-    graph_view: Option<&GraphView>,
     file_mtimes: &HashMap<String, u64>,
     manifest_hashes: &HashMap<String, u64>,
     docs_mtimes: &HashMap<String, u64>,
@@ -2014,32 +2064,63 @@ fn save_persistent(
         }
     }
 
-    let entry = PersistentCacheEntry {
+    #[derive(serde::Serialize)]
+    struct PersistentCacheWriteEntry<'a> {
+        schema_version: u32,
+        version: &'static str,
+        root: &'a str,
+        language: &'a str,
+        analyze_result: &'a Value,
+        file_mtimes: &'a HashMap<String, u64>,
+        manifest_hashes: &'a HashMap<String, u64>,
+        docs_mtimes: &'a HashMap<String, u64>,
+        scheduler_fingerprint: Option<&'a str>,
+        scheduler_files: &'a [FileSnapshot],
+        created_at: &'a str,
+        analysis_duration_ms: u64,
+    }
+
+    let created_at = chrono_now_iso();
+    let entry = PersistentCacheWriteEntry {
         schema_version: CACHE_SCHEMA_VERSION,
-        version: CODELATTICE_CACHE_VERSION.to_string(),
-        root: canonical_root.to_string(),
-        language: language.to_string(),
-        analyze_result: analyze_result.clone(),
-        graph_view: graph_view.map(GraphView::to_persistent_snapshot),
-        file_mtimes: file_mtimes.clone(),
-        manifest_hashes: manifest_hashes.clone(),
-        docs_mtimes: docs_mtimes.clone(),
-        scheduler_fingerprint,
-        scheduler_files: scheduler_files.to_vec(),
-        created_at: chrono_now_iso(),
+        version: CODELATTICE_CACHE_VERSION,
+        root: canonical_root,
+        language,
+        analyze_result,
+        file_mtimes,
+        manifest_hashes,
+        docs_mtimes,
+        scheduler_fingerprint: scheduler_fingerprint.as_deref(),
+        scheduler_files,
+        created_at: &created_at,
         analysis_duration_ms,
     };
 
-    let json_str = match serde_json::to_string(&entry) {
-        Ok(s) => s,
+    let nonce = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let temp_path = cache_dir.join(format!(".{}.{}.{nonce}.tmp", filename, std::process::id()));
+    let file = match std::fs::File::create(&temp_path) {
+        Ok(file) => file,
         Err(e) => {
-            eprintln!("[mcp] failed to serialize persistent cache: {}", e);
+            eprintln!("[mcp] failed to create persistent cache: {}", e);
             return;
         }
     };
-
-    if let Err(e) = std::fs::write(&path, json_str) {
-        eprintln!("[mcp] failed to write persistent cache: {}", e);
+    let mut writer = std::io::BufWriter::new(file);
+    if let Err(e) = serde_json::to_writer(&mut writer, &entry) {
+        eprintln!("[mcp] failed to serialize persistent cache: {}", e);
+        let _ = std::fs::remove_file(&temp_path);
+    } else if let Err(e) = std::io::Write::flush(&mut writer) {
+        eprintln!("[mcp] failed to flush persistent cache: {}", e);
+        let _ = std::fs::remove_file(&temp_path);
+    } else {
+        drop(writer);
+        if let Err(e) = std::fs::rename(&temp_path, &path) {
+            eprintln!("[mcp] failed to publish persistent cache: {}", e);
+            let _ = std::fs::remove_file(&temp_path);
+        }
     }
 }
 
@@ -2079,16 +2160,12 @@ fn clear_persistent(filter_root: Option<&str>, filter_lang: Option<&str>) -> usi
                 }
             }
 
-            // Read to check root/language match
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(cached) = serde_json::from_str::<PersistentCacheEntry>(&content) {
-                    let matches_root = filter_root.map(|r| cached.root.contains(r)).unwrap_or(true);
-                    let matches_lang = filter_lang.map(|l| cached.language == l).unwrap_or(true);
-                    if matches_root && matches_lang {
-                        if std::fs::remove_file(&path).is_ok() {
-                            deleted += 1;
-                        }
-                    }
+            // 控制面只读取 header；禁止为筛选 root/language 构造完整图对象。
+            if let Some(cached) = read_persistent_cache_summary(&path) {
+                let matches_root = filter_root.map(|r| cached.root.contains(r)).unwrap_or(true);
+                let matches_lang = filter_lang.map(|l| cached.language == l).unwrap_or(true);
+                if matches_root && matches_lang && std::fs::remove_file(&path).is_ok() {
+                    deleted += 1;
                 }
             }
         }
@@ -2126,27 +2203,27 @@ fn persistent_cache_status(filter_root: Option<&str>, filter_lang: Option<&str>)
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             total_size += file_size;
 
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(cached) = serde_json::from_str::<PersistentCacheEntry>(&content) {
-                    let matches_root = filter_root.map(|r| cached.root.contains(r)).unwrap_or(true);
-                    let matches_lang = filter_lang.map(|l| cached.language == l).unwrap_or(true);
-                    if matches_root && matches_lang {
-                        entries.push(json!({
-                            "root": cached.root,
-                            "language": cached.language,
-                            "createdAt": cached.created_at,
-                            "analysisDurationMs": cached.analysis_duration_ms,
-                            "trackedFiles": cached.file_mtimes.len(),
-                            "schedulerFingerprint": cached.scheduler_fingerprint,
-                            "typedGraphSnapshot": cached.graph_view.is_some(),
-                            "graphViewCache": if cached.graph_view.is_some() {
-                                "persistent_typed_graph"
-                            } else {
-                                "rebuilt_from_analyze_json"
-                            },
-                            "sizeBytes": file_size,
-                        }));
-                    }
+            // status 只消费元数据；IgnoredAny 流式跳过 analyze_result/graph_view 内容。
+            if let Some(cached) = read_persistent_cache_summary(&path) {
+                let matches_root = filter_root.map(|r| cached.root.contains(r)).unwrap_or(true);
+                let matches_lang = filter_lang.map(|l| cached.language == l).unwrap_or(true);
+                if matches_root && matches_lang {
+                    let has_graph_view = cached.graph_view.is_some();
+                    entries.push(json!({
+                        "root": cached.root,
+                        "language": cached.language,
+                        "createdAt": cached.created_at,
+                        "analysisDurationMs": cached.analysis_duration_ms,
+                        "trackedFiles": cached.file_mtimes.len(),
+                        "schedulerFingerprint": cached.scheduler_fingerprint,
+                        "typedGraphSnapshot": has_graph_view,
+                        "graphViewCache": if has_graph_view {
+                            "persistent_typed_graph"
+                        } else {
+                            "rebuilt_from_analyze_json"
+                        },
+                        "sizeBytes": file_size,
+                    }));
                 }
             }
         }
@@ -2451,7 +2528,7 @@ impl McpCache {
         root: &Path,
         language: &str,
         strict: bool,
-    ) -> Result<(GraphView, Value, Value), Value> {
+    ) -> Result<(Arc<GraphView>, Arc<Value>, Value), Value> {
         let canonical = root.canonicalize().map_err(|_| {
             mcp_error(
                 "path_not_found",
@@ -2475,23 +2552,8 @@ impl McpCache {
             let stale_reason_code: Option<String> = if let Some(reason) = &file_stale_reason {
                 Some(reason.reason_code().to_string())
             } else {
-                let manifest_stale = check_manifest_stale(
-                    root_path,
-                    &entry
-                        .analyze_result
-                        .get("__manifest_hashes")
-                        .and_then(|v| serde_json::from_value(v.clone()).ok())
-                        .unwrap_or_default(),
-                );
-                let docs_stale = check_docs_stale(
-                    root_path,
-                    &entry
-                        .file_mtimes
-                        .iter()
-                        .filter(|(p, _)| p.ends_with(".md"))
-                        .map(|(k, v)| (k.clone(), *v))
-                        .collect(),
-                );
+                let manifest_stale = check_manifest_stale(root_path, &entry.manifest_hashes);
+                let docs_stale = check_docs_stale(root_path, &entry.docs_mtimes);
                 if let Some(reason) = manifest_stale.or(docs_stale) {
                     Some(reason.reason_code().to_string())
                 } else {
@@ -2525,11 +2587,7 @@ impl McpCache {
                             "freshness": "fresh_snapshot",
                             "schedule": scheduler.value,
                         });
-                        return Ok((
-                            entry.graph_view.clone_shallow(),
-                            entry.analyze_result.clone(),
-                            meta,
-                        ));
+                        return Ok((entry.graph_view.clone(), entry.analyze_result.clone(), meta));
                     }
                 }
             };
@@ -2585,7 +2643,7 @@ impl McpCache {
                                 Vec::new();
                             for sym in &output.symbols {
                                 let sym_node_id = format!("symbol:{}", sym.id);
-                                let sym_node = json!({
+                                let sym_node = Arc::new(json!({
                                     "id": sym_node_id,
                                     "label": "symbol",
                                     "evidenceSource": "fresh_delta",
@@ -2606,14 +2664,12 @@ impl McpCache {
                                         "isPub": sym.is_pub,
                                         "implDetails": sym.impl_details,
                                     }
-                                });
-                                entry
-                                    .graph_view
+                                }));
+                                graph_view_arc_mut(&mut entry.graph_view)
                                     .nodes_by_id
                                     .insert(sym_node_id.clone(), sym_node.clone());
                                 let name_lower = sym.name.to_lowercase();
-                                entry
-                                    .graph_view
+                                graph_view_arc_mut(&mut entry.graph_view)
                                     .symbols_by_name
                                     .entry(name_lower)
                                     .or_default()
@@ -2639,17 +2695,16 @@ impl McpCache {
                             extract_tsjs_delta_symbols(&files_to_extract, root_path, language);
                         for (node, sym) in &tsjs_nodes {
                             let node_id = node["id"].as_str().unwrap_or("").to_string();
-                            entry
-                                .graph_view
+                            let shared_node = Arc::new(node.clone());
+                            graph_view_arc_mut(&mut entry.graph_view)
                                 .nodes_by_id
-                                .insert(node_id.clone(), node.clone());
+                                .insert(node_id.clone(), shared_node.clone());
                             let name_lower = sym.name.to_lowercase();
-                            entry
-                                .graph_view
+                            graph_view_arc_mut(&mut entry.graph_view)
                                 .symbols_by_name
                                 .entry(name_lower)
                                 .or_default()
-                                .push(node.clone());
+                                .push(shared_node);
                             delta_symbol_count += 1;
                         }
                         let tsjs_syms: Vec<gitnexus_project_model::model::Symbol> =
@@ -2885,7 +2940,7 @@ impl McpCache {
                                                     .to_string();
                                                 let source_sym_id = caller_id.1.clone();
 
-                                                let edge = json!({
+                                                let edge = Arc::new(json!({
                                                     "id": format!("{}::delta_call::{}::{}", rel_path, line_num, callee_name),
                                                     "type": "CALLS",
                                                     "source": format!("symbol:{}", source_sym_id),
@@ -2900,12 +2955,11 @@ impl McpCache {
                                                         "rawText": trimmed,
                                                         "evidenceSource": "fresh_delta",
                                                     }
-                                                });
+                                                }));
 
                                                 let source_key =
                                                     format!("symbol:{}", source_sym_id);
-                                                entry
-                                                    .graph_view
+                                                graph_view_arc_mut(&mut entry.graph_view)
                                                     .outgoing
                                                     .entry(source_key)
                                                     .or_default()
@@ -2913,8 +2967,7 @@ impl McpCache {
 
                                                 let target_key =
                                                     format!("symbol:{}", target_sym_id);
-                                                entry
-                                                    .graph_view
+                                                graph_view_arc_mut(&mut entry.graph_view)
                                                     .incoming
                                                     .entry(target_key)
                                                     .or_default()
@@ -3019,7 +3072,7 @@ impl McpCache {
                                                 .unwrap_or(target_nid)
                                                 .to_string();
                                             let source_sym_id = caller_id.clone();
-                                            let edge = json!({
+                                            let edge = Arc::new(json!({
                                                 "id": format!(
                                                     "{}::tsjs_delta_call::{}::{}",
                                                     rel_path, line_num, callee_name
@@ -3036,17 +3089,15 @@ impl McpCache {
                                                     "lineStart": line_num,
                                                     "evidenceSource": "fresh_delta",
                                                 }
-                                            });
+                                            }));
                                             let source_key = format!("symbol:{}", source_sym_id);
-                                            entry
-                                                .graph_view
+                                            graph_view_arc_mut(&mut entry.graph_view)
                                                 .outgoing
                                                 .entry(source_key)
                                                 .or_default()
                                                 .push(edge.clone());
                                             let target_key = format!("symbol:{}", target_sym_id);
-                                            entry
-                                                .graph_view
+                                            graph_view_arc_mut(&mut entry.graph_view)
                                                 .incoming
                                                 .entry(target_key)
                                                 .or_default()
@@ -3114,11 +3165,7 @@ impl McpCache {
                         );
                     }
                 }
-                return Ok((
-                    entry.graph_view.clone_shallow(),
-                    entry.analyze_result.clone(),
-                    meta,
-                ));
+                return Ok((entry.graph_view.clone(), entry.analyze_result.clone(), meta));
             }
         }
 
@@ -3136,31 +3183,21 @@ impl McpCache {
                 let (mut graph_view, graph_view_cache) =
                     graph_view_from_persistent_hit(&persistent);
                 graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
+                let graph_view = Arc::new(graph_view);
+                let analyze_result = Arc::new(persistent.analyze_result);
 
                 self.insert_memory_entry(
                     key.clone(),
-                    persistent.analyze_result.clone(),
-                    graph_view.clone_shallow(),
+                    analyze_result.clone(),
+                    graph_view.clone(),
                     persistent.file_mtimes.clone(),
+                    persistent.manifest_hashes.clone(),
+                    persistent.docs_mtimes.clone(),
                     &canonical,
                     persistent.analysis_duration_ms,
                     persistent.scheduler.clone(),
                     persistent.scheduler_files.clone(),
                 );
-
-                if let Some(obj) = self.entries.get_mut(&key) {
-                    obj.analyze_result.as_object_mut().map(|o| {
-                        o.insert(
-                            "__manifest_hashes".to_string(),
-                            serde_json::to_value(&persistent.manifest_hashes)
-                                .unwrap_or(Value::Null),
-                        );
-                        o.insert(
-                            "__docs_mtimes".to_string(),
-                            serde_json::to_value(&persistent.docs_mtimes).unwrap_or(Value::Null),
-                        );
-                    });
-                }
 
                 self.persistent_hits += 1;
                 self.total_hits += 1;
@@ -3174,18 +3211,22 @@ impl McpCache {
                     "graphViewCache": graph_view_cache,
                     "schedule": persistent.scheduler,
                 });
-                return Ok((graph_view, persistent.analyze_result, meta));
+                return Ok((graph_view, analyze_result, meta));
             }
             PersistentLookupResult::StaleHit(persistent, reason) => {
                 let (mut graph_view, graph_view_cache) =
                     graph_view_from_persistent_hit(&persistent);
                 graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
+                let graph_view = Arc::new(graph_view);
+                let analyze_result = Arc::new(persistent.analyze_result);
 
                 self.insert_memory_entry(
                     key.clone(),
-                    persistent.analyze_result.clone(),
-                    graph_view.clone_shallow(),
+                    analyze_result,
+                    graph_view,
                     persistent.file_mtimes.clone(),
+                    persistent.manifest_hashes.clone(),
+                    persistent.docs_mtimes.clone(),
                     &canonical,
                     persistent.analysis_duration_ms,
                     persistent.scheduler.clone(),
@@ -3194,17 +3235,6 @@ impl McpCache {
 
                 if let Some(obj) = self.entries.get_mut(&key) {
                     obj.stale_reason = Some(reason.clone());
-                    obj.analyze_result.as_object_mut().map(|o| {
-                        o.insert(
-                            "__manifest_hashes".to_string(),
-                            serde_json::to_value(&persistent.manifest_hashes)
-                                .unwrap_or(Value::Null),
-                        );
-                        o.insert(
-                            "__docs_mtimes".to_string(),
-                            serde_json::to_value(&persistent.docs_mtimes).unwrap_or(Value::Null),
-                        );
-                    });
                 }
 
                 // 增量提取：对新增/修改文件做 symbol extraction
@@ -3254,7 +3284,7 @@ impl McpCache {
                                 Vec::new();
                             for sym in &output.symbols {
                                 let sym_node_id = format!("symbol:{}", sym.id);
-                                let sym_node = json!({
+                                let sym_node = Arc::new(json!({
                                     "id": sym_node_id,
                                     "label": "symbol",
                                     "evidenceSource": "fresh_delta",
@@ -3275,15 +3305,13 @@ impl McpCache {
                                         "isPub": sym.is_pub,
                                         "implDetails": sym.impl_details,
                                     }
-                                });
+                                }));
                                 if let Some(entry) = self.entries.get_mut(&key) {
-                                    entry
-                                        .graph_view
+                                    graph_view_arc_mut(&mut entry.graph_view)
                                         .nodes_by_id
                                         .insert(sym_node_id.clone(), sym_node.clone());
                                     let name_lower = sym.name.to_lowercase();
-                                    entry
-                                        .graph_view
+                                    graph_view_arc_mut(&mut entry.graph_view)
                                         .symbols_by_name
                                         .entry(name_lower)
                                         .or_default()
@@ -3308,18 +3336,17 @@ impl McpCache {
                             extract_tsjs_delta_symbols(&files_to_extract, &canonical, language);
                         for (node, sym) in &tsjs_nodes {
                             let node_id = node["id"].as_str().unwrap_or("").to_string();
+                            let shared_node = Arc::new(node.clone());
                             if let Some(entry) = self.entries.get_mut(&key) {
-                                entry
-                                    .graph_view
+                                graph_view_arc_mut(&mut entry.graph_view)
                                     .nodes_by_id
-                                    .insert(node_id.clone(), node.clone());
+                                    .insert(node_id.clone(), shared_node.clone());
                                 let name_lower = sym.name.to_lowercase();
-                                entry
-                                    .graph_view
+                                graph_view_arc_mut(&mut entry.graph_view)
                                     .symbols_by_name
                                     .entry(name_lower)
                                     .or_default()
-                                    .push(node.clone());
+                                    .push(shared_node);
                             }
                             delta_symbol_count += 1;
                         }
@@ -3564,7 +3591,7 @@ impl McpCache {
                                                         .to_string();
                                                     let source_sym_id = caller_id.1.clone();
 
-                                                    let edge = json!({
+                                                    let edge = Arc::new(json!({
                                                         "id": format!("{}::delta_call::{}::{}", rel_path, line_num, callee_name),
                                                         "type": "CALLS",
                                                         "source": format!("symbol:{}", source_sym_id),
@@ -3579,12 +3606,11 @@ impl McpCache {
                                                             "rawText": trimmed,
                                                             "evidenceSource": "fresh_delta",
                                                         }
-                                                    });
+                                                    }));
 
                                                     let source_key =
                                                         format!("symbol:{}", source_sym_id);
-                                                    entry
-                                                        .graph_view
+                                                    graph_view_arc_mut(&mut entry.graph_view)
                                                         .outgoing
                                                         .entry(source_key)
                                                         .or_default()
@@ -3592,8 +3618,7 @@ impl McpCache {
 
                                                     let target_key =
                                                         format!("symbol:{}", target_sym_id);
-                                                    entry
-                                                        .graph_view
+                                                    graph_view_arc_mut(&mut entry.graph_view)
                                                         .incoming
                                                         .entry(target_key)
                                                         .or_default()
@@ -3704,7 +3729,7 @@ impl McpCache {
                                                 .unwrap_or(target_nid)
                                                 .to_string();
                                             let source_sym_id = caller_id.clone();
-                                            let edge = json!({
+                                            let edge = Arc::new(json!({
                                                 "id": format!(
                                                     "{}::tsjs_delta_call::{}::{}",
                                                     rel_path, line_num, callee_name
@@ -3721,20 +3746,18 @@ impl McpCache {
                                                     "lineStart": line_num,
                                                     "evidenceSource": "fresh_delta",
                                                 }
-                                            });
+                                            }));
                                             if let Some(entry) = self.entries.get_mut(&key) {
                                                 let source_key =
                                                     format!("symbol:{}", source_sym_id);
-                                                entry
-                                                    .graph_view
+                                                graph_view_arc_mut(&mut entry.graph_view)
                                                     .outgoing
                                                     .entry(source_key)
                                                     .or_default()
                                                     .push(edge.clone());
                                                 let target_key =
                                                     format!("symbol:{}", target_sym_id);
-                                                entry
-                                                    .graph_view
+                                                graph_view_arc_mut(&mut entry.graph_view)
                                                     .incoming
                                                     .entry(target_key)
                                                     .or_default()
@@ -3809,11 +3832,7 @@ impl McpCache {
                 }
 
                 let entry = self.entries.get(&key).unwrap();
-                return Ok((
-                    entry.graph_view.clone_shallow(),
-                    entry.analyze_result.clone(),
-                    meta,
-                ));
+                return Ok((entry.graph_view.clone(), entry.analyze_result.clone(), meta));
             }
             PersistentLookupResult::Miss | PersistentLookupResult::Corrupted(_) => {
                 // Fall through to Layer 3 (fresh analysis)
@@ -3855,7 +3874,7 @@ impl McpCache {
             previous_scheduler_fingerprint_for_fresh,
             previous_scheduler_files_for_fresh,
         );
-        let result = run_analyze_subprocess(root, language, "json", strict)?;
+        let result = Arc::new(run_analyze_subprocess(root, language, "json", strict)?);
         let duration_ms = start.elapsed().as_millis() as u64;
         let mut graph_view = GraphView::build(&result);
 
@@ -3873,24 +3892,14 @@ impl McpCache {
         // Build doc scanner for code ↔ docs association and attach to GraphView
         graph_view.doc_scanner = Some(std::sync::Arc::new(DocScanner::build(&canonical)));
 
-        // Store in memory cache
-        let mut result_with_meta = result.clone();
-        if let Some(obj) = result_with_meta.as_object_mut() {
-            obj.insert(
-                "__manifest_hashes".to_string(),
-                serde_json::to_value(&manifest_hashes).unwrap_or(Value::Null),
-            );
-            obj.insert(
-                "__docs_mtimes".to_string(),
-                serde_json::to_value(&docs_mtimes).unwrap_or(Value::Null),
-            );
-        }
+        // Store one immutable graph/result allocation and share it across hits.
+        let graph_view = Arc::new(graph_view);
 
         self.entries.insert(
             key.clone(),
             CacheEntry {
-                analyze_result: result_with_meta.clone(),
-                graph_view: graph_view.clone_shallow(),
+                analyze_result: result.clone(),
+                graph_view: graph_view.clone(),
                 scheduler: scheduler.value.clone(),
                 scheduler_files: scheduler.file_snapshot.clone(),
                 created_at: Instant::now(),
@@ -3898,6 +3907,8 @@ impl McpCache {
                 hit_count: 0,
                 analysis_duration_ms: duration_ms,
                 file_mtimes: file_mtimes.clone(),
+                manifest_hashes: manifest_hashes.clone(),
+                docs_mtimes: docs_mtimes.clone(),
                 root_canonical: canonical.to_string_lossy().to_string(),
                 stale_reason: None,
             },
@@ -3908,8 +3919,7 @@ impl McpCache {
             &cache_key_str,
             &canonical.to_string_lossy(),
             language,
-            &result,
-            Some(&graph_view),
+            result.as_ref(),
             &file_mtimes,
             &manifest_hashes,
             &docs_mtimes,
@@ -3964,23 +3974,8 @@ impl McpCache {
                     "staleReason": reason.reason_code(),
                 });
             }
-            let manifest_stale = check_manifest_stale(
-                root_path,
-                &entry
-                    .analyze_result
-                    .get("__manifest_hashes")
-                    .and_then(|v| serde_json::from_value(v.clone()).ok())
-                    .unwrap_or_default(),
-            );
-            let docs_stale = check_docs_stale(
-                root_path,
-                &entry
-                    .file_mtimes
-                    .iter()
-                    .filter(|(p, _)| p.ends_with(".md"))
-                    .map(|(k, v)| (k.clone(), *v))
-                    .collect(),
-            );
+            let manifest_stale = check_manifest_stale(root_path, &entry.manifest_hashes);
+            let docs_stale = check_docs_stale(root_path, &entry.docs_mtimes);
             if manifest_stale.is_some() || docs_stale.is_some() {
                 return json!({
                     "status": "stale",
@@ -4042,9 +4037,11 @@ impl McpCache {
     fn insert_memory_entry(
         &mut self,
         key: CacheKey,
-        analyze_result: Value,
-        graph_view: GraphView,
+        analyze_result: Arc<Value>,
+        graph_view: Arc<GraphView>,
         file_mtimes: HashMap<String, u64>,
+        manifest_hashes: HashMap<String, u64>,
+        docs_mtimes: HashMap<String, u64>,
         canonical: &Path,
         duration_ms: u64,
         scheduler: Value,
@@ -4062,6 +4059,8 @@ impl McpCache {
                 hit_count: 0,
                 analysis_duration_ms: duration_ms,
                 file_mtimes,
+                manifest_hashes,
+                docs_mtimes,
                 root_canonical: canonical.to_string_lossy().to_string(),
                 stale_reason: None,
             },
@@ -4507,7 +4506,21 @@ fn handle_analyze(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
     let (_gv, result, cache_meta) = cache.get_or_analyze(&validated, language, strict)?;
 
-    let mut output = result;
+    // compact/default 响应不应先深拷贝整张 graph 再删除；只复制真正要返回的
+    // 顶层字段。includeGraph=true 是显式完整输出边界，才允许复制完整结果。
+    let mut output = if include_graph {
+        result.as_ref().clone()
+    } else if let Some(object) = result.as_object() {
+        Value::Object(
+            object
+                .iter()
+                .filter(|(key, _)| key.as_str() != "graph")
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+        )
+    } else {
+        result.as_ref().clone()
+    };
     // Merge cache_meta into output
     if let (Some(obj), Some(meta)) = (output.as_object_mut(), cache_meta.as_object()) {
         for (k, v) in meta {
@@ -4516,12 +4529,6 @@ fn handle_analyze(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     }
 
     // Compact output: strip graph unless includeGraph=true
-    if !include_graph {
-        if let Some(obj) = output.as_object_mut() {
-            obj.remove("graph");
-        }
-    }
-
     Ok(tool_result(&output))
 }
 
@@ -5140,7 +5147,7 @@ fn fuzzy_symbol_suggestions(
                     continue;
                 }
             }
-            scored.push((distance, name.clone(), node.clone()));
+            scored.push((distance, name.clone(), node.as_ref().clone()));
         }
     }
 
@@ -5537,20 +5544,6 @@ fn extract_tsjs_symbols_fallback(content: &str) -> Vec<(String, String, String, 
     syms
 }
 
-/// Serializable query index persisted alongside full analyze JSON.
-/// This lets a new MCP session skip rebuilding GraphView from large JSON when
-/// the persistent baseline is still fresh.
-#[derive(Clone, serde::Serialize, serde::Deserialize)]
-struct PersistentGraphViewSnapshot {
-    nodes_by_id: HashMap<String, Value>,
-    symbols_by_name: HashMap<String, Vec<Value>>,
-    outgoing: HashMap<String, Vec<Value>>,
-    incoming: HashMap<String, Vec<Value>>,
-    diagnostics: Vec<Value>,
-    language: String,
-    root: String,
-}
-
 // ============================================================
 // Graph 归一化层 — Cangjie 适配（多语言诊断推广前置）
 // ============================================================
@@ -5699,15 +5692,15 @@ fn normalize_node_properties(node: &Value) -> Value {
 /// Provides efficient lookup without repeated parsing.
 struct GraphView {
     /// All nodes indexed by id
-    nodes_by_id: HashMap<String, Value>,
+    nodes_by_id: HashMap<String, Arc<Value>>,
     /// Symbol nodes indexed by lowercase name
-    symbols_by_name: HashMap<String, Vec<Value>>,
+    symbols_by_name: HashMap<String, Vec<Arc<Value>>>,
     /// Outgoing edges grouped by source node id
-    outgoing: HashMap<String, Vec<Value>>,
+    outgoing: HashMap<String, Vec<Arc<Value>>>,
     /// Incoming edges grouped by target node id
-    incoming: HashMap<String, Vec<Value>>,
+    incoming: HashMap<String, Vec<Arc<Value>>>,
     /// Diagnostics
-    diagnostics: Vec<Value>,
+    diagnostics: Vec<Arc<Value>>,
     /// Raw analyze result metadata
     language: String,
     root: String,
@@ -5721,29 +5714,29 @@ impl GraphView {
         let nodes = graph
             .get("nodes")
             .and_then(|n| n.as_array())
-            .cloned()
+            .map(Vec::as_slice)
             .unwrap_or_default();
         let edges = graph
             .get("edges")
             .and_then(|e| e.as_array())
-            .cloned()
+            .map(Vec::as_slice)
             .unwrap_or_default();
         let diags = graph
             .get("diagnostics")
             .and_then(|d| d.as_array())
-            .cloned()
+            .map(|values| values.iter().cloned().map(Arc::new).collect())
             .unwrap_or_default();
 
         let mut nodes_by_id = HashMap::new();
-        let mut symbols_by_name: HashMap<String, Vec<Value>> = HashMap::new();
-        let mut outgoing: HashMap<String, Vec<Value>> = HashMap::new();
-        let mut incoming: HashMap<String, Vec<Value>> = HashMap::new();
+        let mut symbols_by_name: HashMap<String, Vec<Arc<Value>>> = HashMap::new();
+        let mut outgoing: HashMap<String, Vec<Arc<Value>>> = HashMap::new();
+        let mut incoming: HashMap<String, Vec<Arc<Value>>> = HashMap::new();
 
-        for node in &nodes {
+        for node in nodes {
             // 归一化 node properties（Cangjie 字段名 → GraphView 标准字段名）。
             // 对 Rust/TS 是 no-op；存入 nodes_by_id 的是归一化后的版本，
             // 下游所有诊断读取的都是统一字段名。
-            let node = normalize_node_properties(node);
+            let node = Arc::new(normalize_node_properties(node));
             if let Some(id) = node["id"].as_str() {
                 nodes_by_id.insert(id.to_string(), node.clone());
 
@@ -5800,10 +5793,10 @@ impl GraphView {
             }
         }
 
-        for edge in &edges {
+        for edge in edges {
             // 归一化 edge（Cangjie 字段名 sourceId/targetId → source/target，
             // kind camelCase → 大写 + 语义映射）。对 Rust/TS 是 no-op。
-            let edge = normalize_edge_for_graphview(edge);
+            let edge = Arc::new(normalize_edge_for_graphview(edge));
             if let Some(src) = edge["source"].as_str() {
                 outgoing
                     .entry(src.to_string())
@@ -5833,33 +5826,7 @@ impl GraphView {
         }
     }
 
-    fn to_persistent_snapshot(&self) -> PersistentGraphViewSnapshot {
-        PersistentGraphViewSnapshot {
-            nodes_by_id: self.nodes_by_id.clone(),
-            symbols_by_name: self.symbols_by_name.clone(),
-            outgoing: self.outgoing.clone(),
-            incoming: self.incoming.clone(),
-            diagnostics: self.diagnostics.clone(),
-            language: self.language.clone(),
-            root: self.root.clone(),
-        }
-    }
-
-    fn from_persistent_snapshot(snapshot: PersistentGraphViewSnapshot) -> Self {
-        GraphView {
-            nodes_by_id: snapshot.nodes_by_id,
-            symbols_by_name: snapshot.symbols_by_name,
-            outgoing: snapshot.outgoing,
-            incoming: snapshot.incoming,
-            diagnostics: snapshot.diagnostics,
-            language: snapshot.language,
-            root: snapshot.root,
-            doc_scanner: None,
-        }
-    }
-
-    /// Cheap clone — clones the HashMap/Vec containers but shares the underlying
-    /// Value allocations (serde_json Values are reference-counted internally).
+    /// Cheap clone — clones index containers and `Arc` handles, not JSON trees.
     fn clone_shallow(&self) -> Self {
         GraphView {
             nodes_by_id: self.nodes_by_id.clone(),
@@ -5953,7 +5920,7 @@ impl GraphView {
         // back to a display name.
         if let Some(node) = self.nodes_by_id.get(query) {
             if kind_matches(node) && is_symbol_like(node) {
-                return vec![node.clone()];
+                return vec![node.as_ref().clone()];
             }
         }
 
@@ -5987,7 +5954,7 @@ impl GraphView {
         // segment. This keeps exact graph-id behavior while making the facade
         // usable from code-reading context without exposing internal ids.
         if query_lower.contains("::") || query_lower.contains('.') || query_lower.contains(':') {
-            let mut nodes: Vec<&Value> = self.nodes_by_id.values().collect();
+            let mut nodes: Vec<&Value> = self.nodes_by_id.values().map(Arc::as_ref).collect();
             nodes.sort_by(|a, b| {
                 a["id"]
                     .as_str()
@@ -6114,7 +6081,7 @@ impl GraphView {
                     }
                 }
                 if hits == token_count {
-                    scored.push((hits, name_lower.len(), node.clone()));
+                    scored.push((hits, name_lower.len(), node.as_ref().clone()));
                 }
             }
         }
@@ -6149,7 +6116,7 @@ impl GraphView {
                         }
                     }
                     if hits > 0 && hits >= (token_count + 1) / 2 && hits < token_count {
-                        scored.push((hits, name_lower.len(), node.clone()));
+                        scored.push((hits, name_lower.len(), node.as_ref().clone()));
                     }
                 }
             }
@@ -6177,7 +6144,7 @@ impl GraphView {
                             .map(|t| e["type"].as_str() == Some(t))
                             .unwrap_or(true)
                     })
-                    .cloned()
+                    .map(|edge| edge.as_ref().clone())
                     .collect()
             })
             .unwrap_or_default()
@@ -6195,7 +6162,7 @@ impl GraphView {
                             .map(|t| e["type"].as_str() == Some(t))
                             .unwrap_or(true)
                     })
-                    .cloned()
+                    .map(|edge| edge.as_ref().clone())
                     .collect()
             })
             .unwrap_or_default()
@@ -6233,7 +6200,7 @@ impl GraphView {
                         .map(|id| id.contains(node_id.split("::").last().unwrap_or("")))
                         .unwrap_or(false)
             })
-            .cloned()
+            .map(|diagnostic| diagnostic.as_ref().clone())
             .collect()
     }
 }
@@ -6242,7 +6209,7 @@ impl GraphView {
 /// Pure function: no side effects, returns a serde_json::Value.
 fn compute_quality_metrics(gv: &GraphView) -> Value {
     // Flatten all edges
-    let all_edges: Vec<&Value> = gv.outgoing.values().flatten().collect();
+    let all_edges: Vec<&Value> = gv.outgoing.values().flatten().map(Arc::as_ref).collect();
     let total_edge_count: usize = all_edges.len();
 
     // graphCompleteness
@@ -8225,7 +8192,7 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
                 if !visited.contains(tgt) {
                     visited.insert(tgt.to_string());
                     if let Some(node) = gv.nodes_by_id.get(tgt) {
-                        impacted_nodes.insert(tgt.to_string(), node.clone());
+                        impacted_nodes.insert(tgt.to_string(), node.as_ref().clone());
                         queue.push((tgt.to_string(), d + 1));
                     }
                 }
@@ -8254,7 +8221,7 @@ fn handle_impact_preview(cache: &mut McpCache, params: &Value) -> Result<Value, 
                 if !visited.contains(src) {
                     visited.insert(src.to_string());
                     if let Some(node) = gv.nodes_by_id.get(src) {
-                        impacted_nodes.insert(src.to_string(), node.clone());
+                        impacted_nodes.insert(src.to_string(), node.as_ref().clone());
                         queue.push((src.to_string(), d + 1));
                     }
                 }
@@ -9241,7 +9208,7 @@ fn map_hunks_to_symbols(
             symbols_by_file
                 .entry(sp.to_string())
                 .or_default()
-                .push(node.clone());
+                .push(node.as_ref().clone());
         }
     }
 
@@ -14038,6 +14005,7 @@ fn score_candidate_symbols(
                 let t = e["type"].as_str().unwrap_or("");
                 t == "CALLS" || t == "REFERENCES" || t == "IMPORTS" || t == "INCLUDES"
             })
+            .map(Arc::as_ref)
             .collect();
 
         if relevant_incoming.is_empty() {
@@ -14078,6 +14046,7 @@ fn score_candidate_symbols(
                 let t = e["type"].as_str().unwrap_or("");
                 t == "IMPORTS" || t == "REFERENCES" || t == "INCLUDES"
             })
+            .map(Arc::as_ref)
             .collect();
         if file_relevant.is_empty() {
             score += 0.10;
@@ -14210,7 +14179,7 @@ fn score_candidate_files(
         file_symbols
             .entry(file.clone())
             .or_default()
-            .push(node.clone());
+            .push(node.as_ref().clone());
     }
 
     // Count file-level incoming/outgoing edges
@@ -14436,7 +14405,7 @@ fn resolve_target_nodes(gv: &GraphView, target: &str) -> Vec<Value> {
     // 1. Try symbol name (case-insensitive)
     if let Some(syms) = gv.symbols_by_name.get(&target_lower) {
         for s in syms {
-            matches.push(s.clone());
+            matches.push(s.as_ref().clone());
         }
     }
 
@@ -14445,7 +14414,7 @@ fn resolve_target_nodes(gv: &GraphView, target: &str) -> Vec<Value> {
         for node in gv.nodes_by_id.values() {
             let file = node["properties"]["sourcePath"].as_str().unwrap_or("");
             if file == target || file.ends_with(&format!("/{target}")) || file.contains(target) {
-                matches.push(node.clone());
+                matches.push(node.as_ref().clone());
             }
         }
     }
@@ -14453,7 +14422,7 @@ fn resolve_target_nodes(gv: &GraphView, target: &str) -> Vec<Value> {
     // 3. Try direct ID lookup
     if matches.is_empty() {
         if let Some(node) = gv.nodes_by_id.get(target) {
-            matches.push(node.clone());
+            matches.push(node.as_ref().clone());
         }
     }
 
@@ -16221,7 +16190,7 @@ fn handle_complexity_hotspots(cache: &mut McpCache, params: &Value) -> Result<Va
             continue;
         }
 
-        hotspots.push((score, node.clone(), drivers, metrics));
+        hotspots.push((score, node.as_ref().clone(), drivers, metrics));
     }
 
     // 按分数降序，取 top max_results
@@ -16582,7 +16551,7 @@ fn handle_ai_context_pack(cache: &mut McpCache, params: &Value) -> Result<Value,
         let matches = keywords.iter().any(|kw| name_lower.contains(kw));
         if matches {
             for sym in syms {
-                matched_symbols.push(sym.clone());
+                matched_symbols.push(sym.as_ref().clone());
             }
         }
     }
@@ -17045,7 +17014,7 @@ fn handle_review_gate(cache: &mut McpCache, params: &Value) -> Result<Value, Val
             || node["properties"]["visibility"].as_str() == Some("public");
 
         // Count callers
-        let empty_incoming: Vec<Value> = Vec::new();
+        let empty_incoming: Vec<Arc<Value>> = Vec::new();
         let incoming = gv.incoming.get(node_id).unwrap_or(&empty_incoming);
         let caller_count = incoming
             .iter()
@@ -17877,6 +17846,7 @@ fn detect_entry_points_rich(
                 let k = n["kind"].as_str().unwrap_or("");
                 k == "function" || k == "method" || k == "symbol"
             })
+            .map(Arc::as_ref)
             .collect();
         cands.sort_by_key(|n| {
             std::cmp::Reverse(
@@ -20084,7 +20054,7 @@ struct BrReview {
 /// avoids mode-specific "symbol not found" drift.
 fn resolve_changed_symbol_query(gv: &GraphView, raw: &str) -> Vec<Value> {
     if let Some(node) = gv.nodes_by_id.get(raw) {
-        return vec![node.clone()];
+        return vec![node.as_ref().clone()];
     }
 
     let mut matches = gv.find_symbols(raw, None, 20);
@@ -20102,7 +20072,7 @@ fn resolve_changed_symbol_query(gv: &GraphView, raw: &str) -> Vec<Value> {
                 let file = node_source_path(node);
                 !file.is_empty() && file.contains(raw)
             })
-            .cloned()
+            .map(|node| node.as_ref().clone())
             .collect();
         file_matches.sort_by(|a, b| {
             node_source_path(a)
@@ -21626,6 +21596,177 @@ fn automation_is_shell_file(path: &Path) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn shared_graph_fixture() -> Value {
+        json!({
+            "language": "rust",
+            "root": "/tmp/shared-graph",
+            "graph": {
+                "nodes": [
+                    {
+                        "id": "symbol:fixture::foo",
+                        "label": "symbol",
+                        "properties": {"name": "foo", "symbolKind": "function"}
+                    },
+                    {
+                        "id": "symbol:fixture::bar",
+                        "label": "symbol",
+                        "properties": {"name": "bar", "symbolKind": "function"}
+                    }
+                ],
+                "edges": [
+                    {
+                        "type": "CALLS",
+                        "source": "symbol:fixture::foo",
+                        "target": "symbol:fixture::bar",
+                        "properties": {"reason": "fixture"}
+                    }
+                ],
+                "diagnostics": []
+            }
+        })
+    }
+
+    #[test]
+    fn graph_view_secondary_indexes_share_node_and_edge_allocations() {
+        let graph = GraphView::build(&shared_graph_fixture());
+
+        let node_from_id = graph
+            .nodes_by_id
+            .get("symbol:fixture::foo")
+            .expect("node by id");
+        let node_from_name = graph
+            .symbols_by_name
+            .get("foo")
+            .and_then(|nodes| nodes.first())
+            .expect("node by name");
+        assert_eq!(
+            node_from_id["properties"]["name"]
+                .as_str()
+                .expect("node name")
+                .as_ptr(),
+            node_from_name["properties"]["name"]
+                .as_str()
+                .expect("indexed node name")
+                .as_ptr(),
+            "secondary node indexes must share the same JSON allocation"
+        );
+
+        let outgoing = graph
+            .outgoing
+            .get("symbol:fixture::foo")
+            .and_then(|edges| edges.first())
+            .expect("outgoing edge");
+        let incoming = graph
+            .incoming
+            .get("symbol:fixture::bar")
+            .and_then(|edges| edges.first())
+            .expect("incoming edge");
+        assert_eq!(
+            outgoing["properties"]["reason"]
+                .as_str()
+                .expect("outgoing reason")
+                .as_ptr(),
+            incoming["properties"]["reason"]
+                .as_str()
+                .expect("incoming reason")
+                .as_ptr(),
+            "incoming/outgoing indexes must share the same edge allocation"
+        );
+    }
+
+    #[test]
+    fn graph_view_clone_shallow_shares_json_allocations() {
+        let graph = GraphView::build(&shared_graph_fixture());
+        let cloned = graph.clone_shallow();
+
+        let original = graph
+            .nodes_by_id
+            .get("symbol:fixture::foo")
+            .expect("original node");
+        let copy = cloned
+            .nodes_by_id
+            .get("symbol:fixture::foo")
+            .expect("cloned node");
+        assert_eq!(
+            original["id"].as_str().expect("original id").as_ptr(),
+            copy["id"].as_str().expect("cloned id").as_ptr(),
+            "clone_shallow must not recursively clone serde_json::Value"
+        );
+    }
+
+    #[test]
+    fn memory_cache_hits_share_graph_and_analyze_allocations() {
+        let fixture = tempfile::tempdir().expect("memory cache fixture");
+        std::fs::create_dir_all(fixture.path().join("src")).expect("create src");
+        std::fs::write(
+            fixture.path().join("Cargo.toml"),
+            "[package]\nname = \"memory-cache-fixture\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        )
+        .expect("write manifest");
+        std::fs::write(
+            fixture.path().join("src/lib.rs"),
+            "pub fn foo() { bar(); }\npub fn bar() {}\n",
+        )
+        .expect("write source");
+
+        let canonical = fixture.path().canonicalize().expect("canonical fixture");
+        let mut analyze_result = shared_graph_fixture();
+        analyze_result["root"] = json!(canonical.to_string_lossy());
+        let file_mtimes = scan_file_mtimes(&canonical);
+        let manifest_hashes = compute_manifest_hashes(&canonical);
+
+        let scheduler = build_scheduler_metadata(&canonical, "rust", false, None, None);
+        let key = CacheKey {
+            root: canonical.to_string_lossy().to_string(),
+            language: "rust".to_string(),
+            strict: false,
+        };
+        let mut cache = McpCache::new();
+        cache.insert_memory_entry(
+            key,
+            Arc::new(analyze_result.clone()),
+            Arc::new(GraphView::build(&analyze_result)),
+            file_mtimes,
+            manifest_hashes,
+            HashMap::new(),
+            &canonical,
+            1,
+            scheduler.value,
+            scheduler.file_snapshot,
+        );
+
+        let (first_graph, first_result, _) = cache
+            .get_or_analyze(&canonical, "rust", false)
+            .expect("first memory hit");
+        let (second_graph, second_result, _) = cache
+            .get_or_analyze(&canonical, "rust", false)
+            .expect("second memory hit");
+
+        let first_key = first_graph
+            .nodes_by_id
+            .get_key_value("symbol:fixture::foo")
+            .expect("first graph key")
+            .0;
+        let second_key = second_graph
+            .nodes_by_id
+            .get_key_value("symbol:fixture::foo")
+            .expect("second graph key")
+            .0;
+        assert_eq!(
+            first_key.as_ptr(),
+            second_key.as_ptr(),
+            "memory hits must share the GraphView container instead of cloning all index keys"
+        );
+        assert_eq!(
+            first_result["root"].as_str().expect("first root").as_ptr(),
+            second_result["root"]
+                .as_str()
+                .expect("second root")
+                .as_ptr(),
+            "memory hits must share the raw analyze JSON allocation"
+        );
+    }
 
     // ═══ Fix #1: ask evidence/confidence 必须出现在 ask_result ═══
 
@@ -24357,8 +24498,8 @@ fn build_project_diagnose(cache: &mut McpCache, params: &Value) -> Result<Value,
                 "target": candidate.name,
                 "direction": if source == candidate.id { "outgoing" } else { "incoming" },
                 "edgeKind": edge_type_name(edge),
-                "relatedSymbol": other.map(node_display_name).unwrap_or_else(|| other_id.to_string()),
-                "relatedFile": other.map(node_source_path).unwrap_or_default(),
+                "relatedSymbol": other.map(|node| node_display_name(node)).unwrap_or_else(|| other_id.to_string()),
+                "relatedFile": other.map(|node| node_source_path(node)).unwrap_or_default(),
                 "confidence": edge["properties"]["confidence"].as_f64().unwrap_or(1.0),
                 "reason": edge["properties"]["reason"].as_str().unwrap_or("static graph edge")
             }));
@@ -31403,7 +31544,7 @@ fn ask_find_symbols_in_graph(gv: &GraphView, search_terms: &[String]) -> Vec<Val
                 if let Some(id) = sym["id"].as_str() {
                     let score = score_symbol_for_terms(sym, search_terms);
                     if score > 0 && seen.insert(id.to_string()) {
-                        found_symbols.push((score, sym.clone()));
+                        found_symbols.push((score, sym.as_ref().clone()));
                     }
                 }
             }
@@ -31432,7 +31573,7 @@ fn ask_find_symbols_in_graph(gv: &GraphView, search_terms: &[String]) -> Vec<Val
             {
                 let score = score_symbol_for_terms(node, search_terms);
                 if score > 0 && seen.insert(id.to_string()) {
-                    found_symbols.push((score, node.clone()));
+                    found_symbols.push((score, node.as_ref().clone()));
                 }
             }
         }

@@ -678,9 +678,11 @@ pub fn cache_stats() -> serde_json::Value {
     }
 }
 
-pub fn cache_store(key: gitnexus_analysis_engine::cache::CacheKey, artifact: AnalysisArtifact) {
+pub fn cache_store(key: gitnexus_analysis_engine::cache::CacheKey, artifact: &AnalysisArtifact) {
     if let Ok(mut cache) = ENGINE_CACHE.lock() {
-        cache.store(key, artifact);
+        // project-once artifact 已由 facade cache 持有完整 analyze graph；engine
+        // 层只落盘，避免同一进程再常驻一份 analyzeValue。
+        cache.store_persistent_only(key, artifact);
     }
 }
 
@@ -914,7 +916,7 @@ fn spawn_project_job_worker(
             stage: AnalysisStage::Merge.name().to_string(),
             engine_version: "1.3".into(),
         };
-        cache_store(key, result.artifacts[0].clone());
+        cache_store(key, &result.artifacts[0]);
 
         let detail_items: Vec<Value> = result.artifacts.iter().map(|a| serde_json::json!({
             "taskId": a.task_id, "stage": a.stage.name(), "unitId": a.unit_id,
@@ -1521,7 +1523,7 @@ fn analyze_workspace_project_once(root: &str, project: ProjectInfo) -> Value {
         stage: AnalysisStage::Merge.name().to_string(),
         engine_version: "1.3".into(),
     };
-    cache_store(key, result.artifacts[0].clone());
+    cache_store(key, &result.artifacts[0]);
 
     let warm_result = try_warm_facade_cache_from_result(&project_root, &language, &result);
     let facade_symbol_count = warm_result.as_ref().map(|m| m.symbol_count).unwrap_or(0);

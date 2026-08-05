@@ -10023,7 +10023,7 @@ fn mcp_persistent_cache_hit_on_new_process() {
 }
 
 #[test]
-fn mcp_persistent_cache_status_marks_typed_graph_snapshot() {
+fn mcp_persistent_cache_status_omits_duplicate_graph_snapshot() {
     let root = create_small_helper_rust_project();
     let cache_dir = make_isolated_cache_dir("typed-graph-status");
 
@@ -10053,17 +10053,70 @@ fn mcp_persistent_cache_status_marks_typed_graph_snapshot() {
         .expect("persistent entries array");
     assert!(
         entries.iter().any(|entry| {
-            entry["typedGraphSnapshot"].as_bool() == Some(true)
-                && entry["graphViewCache"].as_str() == Some("persistent_typed_graph")
+            entry["typedGraphSnapshot"].as_bool() == Some(false)
+                && entry["graphViewCache"].as_str() == Some("rebuilt_from_analyze_json")
         }),
-        "persistent status should mark typed GraphView snapshot: {status:?}"
+        "persistent status should not store a duplicate typed GraphView snapshot: {status:?}"
     );
 
     let _ = std::fs::remove_dir_all(&cache_dir);
 }
 
 #[test]
-fn mcp_persistent_hit_uses_typed_graph_snapshot() {
+fn mcp_persistent_cache_status_reads_only_entry_metadata() {
+    let cache_dir = make_isolated_cache_dir("metadata-only-status");
+    let root = portable_smoke_dir();
+    let cache_file = cache_dir.join("cl-cache-metadata-only.json");
+    std::fs::write(
+        &cache_file,
+        serde_json::to_vec(&serde_json::json!({
+            "schema_version": 2,
+            "version": "0.17.0-beta.1",
+            "root": root.to_string_lossy(),
+            "language": "rust",
+            "analyze_result": {"graph": {"nodes": [], "edges": [], "diagnostics": []}},
+            "graph_view": {"opaquePayloadThatStatusMustIgnore": [1, 2, 3]},
+            "file_mtimes": {"src/lib.rs": 1},
+            "manifest_hashes": {},
+            "docs_mtimes": {},
+            "scheduler_fingerprint": "metadata-only",
+            "scheduler_files": [],
+            "created_at": "2026-08-05T00:00:00Z",
+            "analysis_duration_ms": 7
+        }))
+        .expect("serialize metadata-only cache fixture"),
+    )
+    .expect("write metadata-only cache fixture");
+
+    let mut session = McpSession::start_with_cache_dir(Some(&cache_dir));
+    session.initialize();
+    session.send_notification_initialized();
+    let status = call_tool_json(
+        &mut session,
+        80041,
+        "codelattice_cache_status",
+        serde_json::json!({
+            "root": root.to_string_lossy(),
+            "language": "rust"
+        }),
+    );
+
+    let entries = status["persistent"]["entries"]
+        .as_array()
+        .expect("persistent entries array");
+    assert_eq!(
+        entries.len(),
+        1,
+        "status should read cache header only: {status:?}"
+    );
+    assert_eq!(entries[0]["typedGraphSnapshot"].as_bool(), Some(true));
+    assert_eq!(entries[0]["trackedFiles"].as_u64(), Some(1));
+
+    let _ = std::fs::remove_dir_all(&cache_dir);
+}
+
+#[test]
+fn mcp_persistent_hit_rebuilds_shared_graph_from_analyze_json() {
     let root = create_small_helper_rust_project();
     let cache_dir = make_isolated_cache_dir("typed-graph-hit");
 
@@ -10104,8 +10157,8 @@ fn mcp_persistent_hit_uses_typed_graph_snapshot() {
         );
         assert_eq!(
             second["graphViewCache"].as_str(),
-            Some("persistent_typed_graph"),
-            "persistent hit should load query index snapshot instead of rebuilding: {second:?}"
+            Some("rebuilt_from_analyze_json"),
+            "persistent hit should rebuild shared indexes without loading a duplicate graph snapshot: {second:?}"
         );
     }
 
@@ -10113,7 +10166,7 @@ fn mcp_persistent_hit_uses_typed_graph_snapshot() {
 }
 
 #[test]
-fn mcp_project_job_persists_typed_graph_snapshot_for_next_session() {
+fn mcp_project_job_persists_only_analyze_json_for_next_session() {
     let root = create_small_helper_rust_project();
     let cache_dir = make_isolated_cache_dir("typed-graph-job");
 
@@ -10164,8 +10217,8 @@ fn mcp_project_job_persists_typed_graph_snapshot_for_next_session() {
         );
         assert_eq!(
             second["graphViewCache"].as_str(),
-            Some("persistent_typed_graph"),
-            "job warm should persist typed GraphView for next MCP session: {second:?}"
+            Some("rebuilt_from_analyze_json"),
+            "job warm should persist one analyze JSON and rebuild shared indexes next session: {second:?}"
         );
     }
 

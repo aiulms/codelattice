@@ -101,7 +101,7 @@ impl ArtifactCache {
         if let Some(ref dir) = persistent_dir {
             let _ = fs::create_dir_all(dir);
         }
-        let mut cache = Self {
+        Self {
             memory: HashMap::new(),
             persistent_dir,
             stats_hits: 0,
@@ -109,9 +109,7 @@ impl ArtifactCache {
             stats_stale: 0,
             stats_rebuilt: 0,
             previous_snapshots: Vec::new(),
-        };
-        cache.load_from_disk();
-        cache
+        }
     }
 
     pub fn persistent_enabled(&self) -> bool {
@@ -136,18 +134,45 @@ impl ArtifactCache {
         if artifact.error.is_some() {
             return;
         }
-        // Persist if dir is set
-        if let Some(dir) = &self.persistent_dir {
-            if let Some(pp) = self.persistent_path(&key) {
-                if let Some(parent) = pp.parent() {
-                    let _ = fs::create_dir_all(parent);
-                }
-                if let Ok(json) = serde_json::to_string(&artifact) {
-                    let _ = fs::write(&pp, json);
-                }
-            }
-        }
+        self.persist(&key, &artifact);
         self.memory.insert(key, artifact);
+    }
+
+    /// Persist a large artifact without retaining a second in-process copy.
+    /// Callers that explicitly need it can still promote it through `get`.
+    pub fn store_persistent_only(&mut self, key: CacheKey, artifact: &AnalysisArtifact) {
+        if artifact.error.is_some() {
+            return;
+        }
+        self.persist(&key, artifact);
+    }
+
+    fn persist(&self, key: &CacheKey, artifact: &AnalysisArtifact) {
+        let Some(path) = self.persistent_path(key) else {
+            return;
+        };
+        if let Some(parent) = path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or_default();
+        let temp_path = path.with_extension(format!("json.{}.{nonce}.tmp", std::process::id()));
+        let Ok(file) = fs::File::create(&temp_path) else {
+            return;
+        };
+        let mut writer = std::io::BufWriter::new(file);
+        if serde_json::to_writer(&mut writer, artifact).is_err()
+            || std::io::Write::flush(&mut writer).is_err()
+        {
+            let _ = fs::remove_file(temp_path);
+            return;
+        }
+        drop(writer);
+        if fs::rename(&temp_path, &path).is_err() {
+            let _ = fs::remove_file(temp_path);
+        }
     }
 
     pub fn get(&mut self, key: &CacheKey) -> Option<&AnalysisArtifact> {
@@ -161,8 +186,10 @@ impl ArtifactCache {
             .and_then(|_| self.persistent_path(key))
         {
             if pp.exists() {
-                if let Ok(content) = fs::read_to_string(&pp) {
-                    if let Ok(artifact) = serde_json::from_str::<AnalysisArtifact>(&content) {
+                if let Ok(file) = fs::File::open(&pp) {
+                    if let Ok(artifact) = serde_json::from_reader::<_, AnalysisArtifact>(
+                        std::io::BufReader::new(file),
+                    ) {
                         self.stats_hits += 1;
                         self.memory.insert(key.clone(), artifact);
                         return self.memory.get(key);
@@ -184,24 +211,6 @@ impl ArtifactCache {
                 &safe_path[..safe_path.len().min(80)]
             ))
         })
-    }
-
-    fn load_from_disk(&mut self) {
-        if let Some(dir) = &self.persistent_dir {
-            if let Ok(entries) = fs::read_dir(dir) {
-                for e in entries.flatten() {
-                    let p = e.path();
-                    if p.extension().and_then(|e| e.to_str()) != Some("json") {
-                        continue;
-                    }
-                    if let Ok(content) = fs::read_to_string(&p) {
-                        if let Ok(artifact) = serde_json::from_str::<AnalysisArtifact>(&content) {
-                            // Keep in persistent only (load on demand)
-                        }
-                    }
-                }
-            }
-        }
     }
 
     /// Build a cache key for a file unit and stage.
@@ -398,6 +407,58 @@ impl ArtifactCache {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dag::{AnalysisStage, ArtifactSemantics};
+
+    #[test]
+    fn persistent_only_artifact_is_loaded_on_demand_without_memory_residency() {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let cache_dir = std::env::temp_dir().join(format!(
+            "codelattice-artifact-persistent-only-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&cache_dir).expect("create cache dir");
+
+        let key = CacheKey {
+            path: "__project__".to_string(),
+            content_hash: "fixture".to_string(),
+            language: "rust".to_string(),
+            adapter_version: "1.3".to_string(),
+            parser_version: "project-once".to_string(),
+            stage: AnalysisStage::Merge.name().to_string(),
+            engine_version: "1.3".to_string(),
+        };
+        let artifact = AnalysisArtifact {
+            schema_version: "0.3.0".to_string(),
+            task_id: "project".to_string(),
+            stage: AnalysisStage::Merge,
+            language: "rust".to_string(),
+            unit_id: "__project__".to_string(),
+            cache_key: None,
+            data: serde_json::json!({"analyzeValue": {"graph": {"nodes": [], "edges": []}}}),
+            error: None,
+            duration_ms: 1,
+            generated_from: ArtifactSemantics::default(),
+        };
+
+        let mut cache = ArtifactCache::new(Some(cache_dir.clone()));
+        cache.store_persistent_only(key.clone(), &artifact);
+        assert_eq!(
+            cache.entry_count(),
+            0,
+            "project artifact must not remain in the independent engine memory cache"
+        );
+        assert!(matches!(cache.check(&key), CacheStatus::Hit));
+        assert_eq!(
+            cache.get(&key).map(|loaded| loaded.task_id.as_str()),
+            Some("project"),
+            "persistent-only artifacts must still be available on explicit demand"
+        );
+
+        let _ = std::fs::remove_dir_all(cache_dir);
+    }
 
     #[test]
     fn incremental_detection() {
