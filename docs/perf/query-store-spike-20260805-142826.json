@@ -1,0 +1,60 @@
+{
+  "meta": {
+    "date": "2026-08-05T06:28:24Z",
+    "machine": "darwin arm64",
+    "python": "3.13.12",
+    "candidates": [
+      "A=mcp-facade",
+      "B=full-graph-index",
+      "C=sqlite"
+    ]
+  },
+  "datasets": {
+    "small": {
+      "dataset": "small",
+      "nodes": 16,
+      "probe": "Calculator",
+      "A_startup_ms": 4.8,
+      "A_context": {
+        "cold_ms": 28.87,
+        "hot_p50_ms": 28.87,
+        "hot_p95_ms": 30.73
+      },
+      "A_chain": {
+        "cold_ms": 30.58,
+        "hot_p50_ms": 30.35,
+        "hot_p95_ms": 30.41
+      },
+      "B_startup_ms": 0.0,
+      "B_context": {
+        "cold_ms": 0.01,
+        "hot_p50_ms": 0.0,
+        "hot_p95_ms": 0.0
+      },
+      "B_twohop": {
+        "cold_ms": 0.0,
+        "hot_p50_ms": 0.0,
+        "hot_p95_ms": 0.0
+      },
+      "C_startup_ms": 3.1,
+      "C_context": {
+        "cold_ms": 0.05,
+        "hot_p50_ms": 0.01,
+        "hot_p95_ms": 0.04
+      },
+      "C_twohop": {
+        "cold_ms": 0.02,
+        "hot_p50_ms": 0.0,
+        "hot_p95_ms": 0.01
+      },
+      "C_disk_mb": 0.0,
+      "C_concurrent_ms": 25.7,
+      "A_concurrent_ms": 662.4,
+      "B_concurrent_ms": 1.4,
+      "A_publish_duration_ms": 7.6,
+      "A_rss_mb": 32800.0,
+      "B_rss_mb": 32800.0,
+      "C_rss_mb": null
+    }
+  }
+}

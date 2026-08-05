@@ -1,9 +1,9 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T17:34:53+00:00",
+  "generatedAt": "2026-08-05T06:46:12+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.15.0-beta.1",
+    "toolVersion": "codelattice 0.17.0-beta.1",
     "snapshotSchema": "webui.snapshot.v1",
     "staticAnalysis": true,
     "runtimeVerified": false,
@@ -13,13 +13,13 @@
     "schemaVersion": "webui.snapshot.v1",
     "nodeCount": 40,
     "edgeCount": 77,
-    "symbolCount": 0,
-    "sourceFileCount": 0,
+    "symbolCount": 33,
+    "sourceFileCount": 3,
     "moduleCount": 0,
-    "packageCount": 0,
-    "generatedAt": "2026-05-16T17:34:53+00:00",
-    "language": "unknown",
-    "toolVersion": "codelattice 0.15.0-beta.1"
+    "packageCount": 1,
+    "generatedAt": "2026-08-05T06:46:12+00:00",
+    "language": "cpp",
+    "toolVersion": "codelattice 0.17.0-beta.1"
   },
   "quality": {
     "overall": "pass",
@@ -683,7 +683,7 @@
       {
         "id": "repo:<redacted-root>",
         "label": "repo:<redacted-user>/project/project/fixtures/cpp/p",
-        "kind": "portable-smoke",
+        "kind": "package",
         "file": ""
       },
       {
@@ -705,6 +705,270 @@
         "file": "src/math_utils.cpp"
       },
       {
+        "id": "sym:7:LOGGER_HPP",
+        "label": "LOGGER_HPP",
+        "kind": "symbol",
+        "file": "",
+        "line": 2,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:8:utils::LogLevel",
+        "label": "LogLevel",
+        "kind": "symbol",
+        "file": "",
+        "line": 8,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:9:utils::Logger",
+        "label": "Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 15,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:10:utils::Logger::Logger",
+        "label": "Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 17,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:11:utils::Logger::Logger",
+        "label": "Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 18,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:12:utils::Logger::~Logger",
+        "label": "~Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 19,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:13:utils::Logger::enable",
+        "label": "enable",
+        "kind": "symbol",
+        "file": "",
+        "line": 24,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:14:utils::Logger::disable",
+        "label": "disable",
+        "kind": "symbol",
+        "file": "",
+        "line": 25,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:15:utils::Logger::enabled_",
+        "label": "enabled_",
+        "kind": "symbol",
+        "file": "",
+        "line": 29,
+        "visibility": "private"
+      },
+      {
+        "id": "sym:16:utils::initialize_logging",
+        "label": "initialize_logging",
+        "kind": "symbol",
+        "file": "",
+        "line": 32,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:17:MATH_UTILS_HPP",
+        "label": "MATH_UTILS_HPP",
+        "kind": "symbol",
+        "file": "",
+        "line": 2,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:18:utils::MathUtils",
+        "label": "MathUtils",
+        "kind": "symbol",
+        "file": "",
+        "line": 8,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:19:utils::MathUtils::add",
+        "label": "add",
+        "kind": "symbol",
+        "file": "",
+        "line": 10,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:20:utils::MathUtils::multiply",
+        "label": "multiply",
+        "kind": "symbol",
+        "file": "",
+        "line": 11,
+        "visibility": "public"
+      },
+      {
+        "id": "sym:21:utils::Point",
+        "label": "Point",
+        "kind": "symbol",
+        "file": "",
+        "line": 19,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:22:utils::Operation",
+        "label": "Operation",
+        "kind": "symbol",
+        "file": "",
+        "line": 26,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:23:utils::apply_operation",
+        "label": "apply_operation",
+        "kind": "symbol",
+        "file": "",
+        "line": 33,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:24:utils::MathFunc",
+        "label": "MathFunc",
+        "kind": "symbol",
+        "file": "",
+        "line": 35,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:25:utils::Logger",
+        "label": "Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 8,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:26:utils::Logger",
+        "label": "Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 10,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:27:utils::~Logger",
+        "label": "~Logger",
+        "kind": "symbol",
+        "file": "",
+        "line": 12,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:28:utils::log",
+        "label": "log",
+        "kind": "symbol",
+        "file": "",
+        "line": 16,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:29:utils::set_level",
+        "label": "set_level",
+        "kind": "symbol",
+        "file": "",
+        "line": 21,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:30:utils::enable",
+        "label": "enable",
+        "kind": "symbol",
+        "file": "",
+        "line": 25,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:31:utils::disable",
+        "label": "disable",
+        "kind": "symbol",
+        "file": "",
+        "line": 29,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:32:utils::initialize_logging",
+        "label": "initialize_logging",
+        "kind": "symbol",
+        "file": "",
+        "line": 33,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:33:main",
+        "label": "main",
+        "kind": "symbol",
+        "file": "",
+        "line": 7,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:34:utils::add",
+        "label": "add",
+        "kind": "symbol",
+        "file": "",
+        "line": 7,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:35:utils::multiply",
+        "label": "multiply",
+        "kind": "symbol",
+        "file": "",
+        "line": 11,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:36:utils::compute",
+        "label": "compute",
+        "kind": "symbol",
+        "file": "",
+        "line": 15,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:37:utils::distance",
+        "label": "distance",
+        "kind": "symbol",
+        "file": "",
+        "line": 19,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:38:utils::apply_operation",
+        "label": "apply_operation",
+        "kind": "symbol",
+        "file": "",
+        "line": 23,
+        "visibility": "default"
+      },
+      {
+        "id": "sym:39:utils::internal_helper",
+        "label": "internal_helper",
+        "kind": "symbol",
+        "file": "",
+        "line": 38,
+        "visibility": "default"
+      },
+      {
         "id": "file:4:include/logger.hpp",
         "label": "file:4:include/logger.hpp",
         "kind": "include/logger.hpp",
@@ -722,87 +986,374 @@
         "kind": "utils",
         "file": "",
         "line": 6
-      },
-      {
-        "id": "sym:7:LOGGER_HPP",
-        "label": "LOGGER_HPP",
-        "kind": "LOGGER_HPP",
-        "file": "",
-        "line": 2,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:8:utils::LogLevel",
-        "label": "LogLevel",
-        "kind": "LogLevel",
-        "file": "",
-        "line": 8,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:9:utils::Logger",
-        "label": "Logger",
-        "kind": "Logger",
-        "file": "",
-        "line": 15,
-        "visibility": "default"
       }
     ],
     "edges": [
       {
         "source": "repo:<redacted-root>",
         "target": "file:1:src/logger.cpp",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:13a8e1ab16122e2669f00afe9c8de9a5975d9d03e0cb7f9aeae3d7ac733f0884"
       },
       {
         "source": "repo:<redacted-root>",
         "target": "file:2:src/main.cpp",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:55826ba557fa44ee630886b21ac7b83f03b64f7e58a6bd2703b2c0bd99d46969"
       },
       {
         "source": "repo:<redacted-root>",
         "target": "file:3:src/math_utils.cpp",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:0c34bb98145125ba4e50fac5096659c21bd20390e9e304030a7d181214a3fd6e"
       },
       {
         "source": "repo:<redacted-root>",
         "target": "file:4:include/logger.hpp",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:76618ab6e9be73f9917fe535443af1017fc23f9cfca855c00406aa52dd929d4b"
       },
       {
         "source": "repo:<redacted-root>",
         "target": "file:5:include/math_utils.hpp",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:b37fc4c131c3e20373d98e5d5ff432523be98ea8e30ad30e5b282ed759914180"
       },
       {
         "source": "file:4:include/logger.hpp",
         "target": "sym:7:LOGGER_HPP",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:e0c1dd60f7dedf7bee70c0025cc7e9afef5e31dba044e1651039ccce5f37dd70"
       },
       {
         "source": "file:4:include/logger.hpp",
         "target": "sym:8:utils::LogLevel",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:f5e3a0fd3958bd74a86d50559e68fab6220898f07b9aeabd36be09ede1be9d5e"
       },
       {
         "source": "ns:6:utils",
         "target": "sym:8:utils::LogLevel",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:30a1e3e1938b9f3189ca29d1682d96e56aa6d0d61831f7e388caf3830b7914fa"
       },
       {
         "source": "file:4:include/logger.hpp",
         "target": "sym:9:utils::Logger",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:e36c693b71abd5a37929c30c789fe40f1b44b9d443e1e58cdd3f82053c844762"
       },
       {
         "source": "ns:6:utils",
         "target": "sym:9:utils::Logger",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:ee18e51c4870b78ec0b8808a262f34514ad73feba5188b381aa1882a21c3ad88"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:10:utils::Logger::Logger",
+        "kind": "defines",
+        "relationKey": "rel:sha256:9b8b949d6fdb54bd7d8372c2d6bc9d4fd1b18a53073d577b0b8fa2732981d17d"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:11:utils::Logger::Logger",
+        "kind": "defines",
+        "relationKey": "rel:sha256:6585bacc4652db3d6c6011f5340bc5d9447ed17b75d10f7906661b7bc0f0b6d5"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:12:utils::Logger::~Logger",
+        "kind": "defines",
+        "relationKey": "rel:sha256:d8b56f8aba7f514dfa1e7d785cbd0df84e71142712d032ab0730a746bca1f856"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:13:utils::Logger::enable",
+        "kind": "defines",
+        "relationKey": "rel:sha256:7887522386918dabf43d976ccb033926314c0685a5c9c5b3995b9d116b5dac24"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:14:utils::Logger::disable",
+        "kind": "defines",
+        "relationKey": "rel:sha256:52ad5b751c3bafdfd212fedfd7b96c0cfc1bd23d9b6c0c268b2b2ddb8e8b1d9d"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:15:utils::Logger::enabled_",
+        "kind": "defines",
+        "relationKey": "rel:sha256:f92953461a884ef14302b480fcfd8d6d268264caa211a73b9cbf4293796e7965"
+      },
+      {
+        "source": "file:4:include/logger.hpp",
+        "target": "sym:16:utils::initialize_logging",
+        "kind": "defines",
+        "relationKey": "rel:sha256:f6cbeddfd7a58fb37c027cac2e9c426a57fa01b41ceffd281305f6d9530fc557"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:16:utils::initialize_logging",
+        "kind": "related",
+        "relationKey": "rel:sha256:7a1c7a041450f9c04edc3410ba7b2be13742107dedf2e5e9b20600e6f26c15bc"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:17:MATH_UTILS_HPP",
+        "kind": "defines",
+        "relationKey": "rel:sha256:688c01aeedeb360a1cd471496d201763000ee2f6324eb72efd8b60a5906119b1"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:18:utils::MathUtils",
+        "kind": "defines",
+        "relationKey": "rel:sha256:5a567c4a572ca34dbae4ff35c44b5b175f7b08540635af128212aeb4530d97c1"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:18:utils::MathUtils",
+        "kind": "related",
+        "relationKey": "rel:sha256:a99eb1dacedbb5a4f584b72156908180c1d0a25e994d5adccd88dce59e0d819d"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:19:utils::MathUtils::add",
+        "kind": "defines",
+        "relationKey": "rel:sha256:caff74673bdaee763b8f2372960a3bb4f75003bfa198eb368ae7a9bb538570e7"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:20:utils::MathUtils::multiply",
+        "kind": "defines",
+        "relationKey": "rel:sha256:7ea74b0e15196768728987177878b7291c184fc3127b0b6ae1a09313086097a0"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:21:utils::Point",
+        "kind": "defines",
+        "relationKey": "rel:sha256:73e793d94ee6b8a82ace81883a456f19f230074e7500d6e45243ff4e29312c84"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:21:utils::Point",
+        "kind": "related",
+        "relationKey": "rel:sha256:7b961bf6689bc0b8440031ecbfa0141bc2789953adcb1ef4e715afc99013ac00"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:22:utils::Operation",
+        "kind": "defines",
+        "relationKey": "rel:sha256:f9372a8732940f1192ae83f79f6b8d01d394e62dc0ded4b3f352881e21d5ad75"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:22:utils::Operation",
+        "kind": "related",
+        "relationKey": "rel:sha256:5ad941c2abb0d1b7e315f6d29c62920a1899b62e8d9ca6bfb4d45bb8397810e6"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:23:utils::apply_operation",
+        "kind": "defines",
+        "relationKey": "rel:sha256:9cba9eac41dda89d7c1c0eefe6724e4ca8d1765d6ba605fb8dd8808199dc0638"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:23:utils::apply_operation",
+        "kind": "related",
+        "relationKey": "rel:sha256:e3c3866d04ac6cbb3254b86076986a5ef0519e2dfff46374653a33aeaeade04b"
+      },
+      {
+        "source": "file:5:include/math_utils.hpp",
+        "target": "sym:24:utils::MathFunc",
+        "kind": "defines",
+        "relationKey": "rel:sha256:c3942542102853ebe337936224b12a4fa09b1f64ee2f0a68c10a7f87d48707c0"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:24:utils::MathFunc",
+        "kind": "related",
+        "relationKey": "rel:sha256:cf3a7d4f65319c6030799aefb677a96d277e3f1d3fc61cd2da504c2a5d64e6ab"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:25:utils::Logger",
+        "kind": "defines",
+        "relationKey": "rel:sha256:4d362d8ea0eb9bdb1580eb1e88a114b656b720e31cd7aa18eb07c9284a43c421"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:25:utils::Logger",
+        "kind": "related",
+        "relationKey": "rel:sha256:512fb5be7fbccdd35cfabfb027f0d1154e7c084c168d19be4a15457909c7ef8b"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:26:utils::Logger",
+        "kind": "defines",
+        "relationKey": "rel:sha256:25bbb1c131cd2b003c89817aac57a34032998089a687b78ff6dd04d2c707b120"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:26:utils::Logger",
+        "kind": "related",
+        "relationKey": "rel:sha256:ae2c0f8cbc3745ca2a36c7d8f6c9d3412916fb3316b9681c5420dab08e999466"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:27:utils::~Logger",
+        "kind": "defines",
+        "relationKey": "rel:sha256:1916a1ac4572ed78cac2d3b7a2274afa97cd015583cfbcfa63a143c6e3fe77f3"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:27:utils::~Logger",
+        "kind": "related",
+        "relationKey": "rel:sha256:c1656d0fd4cad259525a337d6871cb480efa54d21963e20d59a89707c315a792"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:28:utils::log",
+        "kind": "defines",
+        "relationKey": "rel:sha256:76cc9f3e25b06b938c8d289176b77d411240f10ec61014c9eeb0fc722672a394"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:28:utils::log",
+        "kind": "related",
+        "relationKey": "rel:sha256:080b790ab2857d2f5826214bb10ba7c1606ce89831dd1fe59f322b38c43a11fd"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:29:utils::set_level",
+        "kind": "defines",
+        "relationKey": "rel:sha256:bd3b7cf409791e1c77d790d3ee82eb58bf69c2832c06de7a8e6a7c71bd13455a"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:29:utils::set_level",
+        "kind": "related",
+        "relationKey": "rel:sha256:aa3c639b6f6a07b58a919ee4aaa9d4d167c6cc3dab52015d4297309c9ee8ebc5"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:30:utils::enable",
+        "kind": "defines",
+        "relationKey": "rel:sha256:2750f412e904a410c06f9e549af90ceeaaef127f8f373ed7a51d5dbe2b171ba7"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:30:utils::enable",
+        "kind": "related",
+        "relationKey": "rel:sha256:4e6de62f0bb938c5c0b9bae6416060df8e5087c670e12164324943530437bfdd"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:31:utils::disable",
+        "kind": "defines",
+        "relationKey": "rel:sha256:1f42ddc187b2dadf3e63a5e513b81778d472d633615f1059f46dadb98082efe3"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:31:utils::disable",
+        "kind": "related",
+        "relationKey": "rel:sha256:9390ac53bd0c836fbc7c95f8e85fd81b5c09c8353a627fea0c52904ab4da03d1"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:32:utils::initialize_logging",
+        "kind": "defines",
+        "relationKey": "rel:sha256:247fec3c20848314d658b2831f77446595737ce9871d75154f732706cba83fec"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:32:utils::initialize_logging",
+        "kind": "related",
+        "relationKey": "rel:sha256:e03e7687a983315e17c162f487552a59a753caca2c14236c51aa7a4e45aa815c"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:33:main",
+        "kind": "defines",
+        "relationKey": "rel:sha256:5aa9d228c49ba1b81c592e440bf7835c3d663c2f228d5378c017454794ac9e4c"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:34:utils::add",
+        "kind": "defines",
+        "relationKey": "rel:sha256:65a0386562c32b611daf2ae11a4a6a04dd9b97e2f2f93af3d788cf53572fdb76"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:34:utils::add",
+        "kind": "related",
+        "relationKey": "rel:sha256:9d17530da61eb552b8d17a5d0e073abab4043bfc3372930aed556b63a3853dca"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:35:utils::multiply",
+        "kind": "defines",
+        "relationKey": "rel:sha256:5bd77e9cf5c3ca98f81699884febf85c55ebd3ecbbd312e3d4ad983495fda927"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:35:utils::multiply",
+        "kind": "related",
+        "relationKey": "rel:sha256:29d4a543e902dc5f8b62997c0aee9ca1581002f517a9ad108072a5ecc4b5fd82"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:36:utils::compute",
+        "kind": "defines",
+        "relationKey": "rel:sha256:cbab1a7f24f42191d20ff586fce8c32a60ec1062399611f673d8215c2daeffdc"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:36:utils::compute",
+        "kind": "related",
+        "relationKey": "rel:sha256:0bbaf75ab5fd0236da313503f707d57e0876ef5545cd0d549c10f9e539c1b595"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:37:utils::distance",
+        "kind": "defines",
+        "relationKey": "rel:sha256:14403e8c1e5f34eb2a1886922112acfb36369f8c8f948661bfb86d7ec61bc37e"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:37:utils::distance",
+        "kind": "related",
+        "relationKey": "rel:sha256:f01627d35b1ab8c8787efd36fafae687f349641c0bf82dc3a957ef240fc2d9a1"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:38:utils::apply_operation",
+        "kind": "defines",
+        "relationKey": "rel:sha256:f720d40e32400ee159a63b12a03c976f09fdc526b5ad61954d660e0b6693c77c"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:38:utils::apply_operation",
+        "kind": "related",
+        "relationKey": "rel:sha256:86270a0eb04d5bc7397cdaa69ec94ff85582865adcc322b2ab13a2848161ae11"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:39:utils::internal_helper",
+        "kind": "defines",
+        "relationKey": "rel:sha256:a28efe09409308bca73876a185fc1e874e0d4a9b36e59baf6ccf762b544e417d"
+      },
+      {
+        "source": "ns:6:utils",
+        "target": "sym:39:utils::internal_helper",
+        "kind": "related",
+        "relationKey": "rel:sha256:19f0e34a023496182329e1ba301322a4515eddb370e7de9b5b2156cf551782f0"
       },
       {
         "source": "file:1:src/logger.cpp",
         "target": "file:4:include/logger.hpp",
         "kind": "related",
+        "relationKey": "rel:sha256:535ca4631092d0b714972216ef2c53fa916ccdc0c58f2e0a4a5ac5b3e2da3094",
         "confidence": 0.6,
         "reason": "cpp-filename-unique-fallback"
       },
@@ -810,6 +1361,7 @@
         "source": "file:2:src/main.cpp",
         "target": "file:5:include/math_utils.hpp",
         "kind": "related",
+        "relationKey": "rel:sha256:47bc70b7fb3733f6e946f580f5e0e57e1fb932be47a7fab37c0d0caf394496f4",
         "confidence": 0.6,
         "reason": "cpp-filename-unique-fallback"
       },
@@ -817,6 +1369,7 @@
         "source": "file:2:src/main.cpp",
         "target": "file:4:include/logger.hpp",
         "kind": "related",
+        "relationKey": "rel:sha256:cb6801ffa4ba41dd7ddda710a333611757e645776c9c66d1a7a806f34496c6df",
         "confidence": 0.6,
         "reason": "cpp-filename-unique-fallback"
       },
@@ -824,6 +1377,7 @@
         "source": "file:3:src/math_utils.cpp",
         "target": "file:5:include/math_utils.hpp",
         "kind": "related",
+        "relationKey": "rel:sha256:cfcbff2036bc7159c782585cee163a87d1c33b02dadaf07b1ac60c6be19cc925",
         "confidence": 0.6,
         "reason": "cpp-filename-unique-fallback"
       },
@@ -831,16 +1385,113 @@
         "source": "file:3:src/math_utils.cpp",
         "target": "file:4:include/logger.hpp",
         "kind": "related",
+        "relationKey": "rel:sha256:2eb7d456849fcf3d956768e7051f3f9d043a06996ffd7a8176d677c20859644c",
         "confidence": 0.6,
         "reason": "cpp-filename-unique-fallback"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:28:utils::log",
+        "kind": "calls",
+        "relationKey": "rel:sha256:6ca17685d0089156310d2d1d91afe57347f9e45ef31fe54e2d0d21ff05febec6",
+        "confidence": 0.9,
+        "reason": "direct-same-file-function-call"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:13:utils::Logger::enable",
+        "kind": "calls",
+        "relationKey": "rel:sha256:f8f2d44528fcec7ff24beccf3cdd0ec1dfa8ecff63b532b518e47628172f9f66",
+        "confidence": 0.8,
+        "reason": "qualified-project-function-call"
+      },
+      {
+        "source": "file:1:src/logger.cpp",
+        "target": "sym:28:utils::log",
+        "kind": "calls",
+        "relationKey": "rel:sha256:6ca17685d0089156310d2d1d91afe57347f9e45ef31fe54e2d0d21ff05febec6",
+        "confidence": 0.75,
+        "reason": "receiver-method-project-match"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:28:utils::log",
+        "kind": "calls",
+        "relationKey": "rel:sha256:98817b9fc3e3638aa573af252b1f020916ef2134d3de8342d3ac3763b82a7f41",
+        "confidence": 0.75,
+        "reason": "receiver-method-project-match"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:19:utils::MathUtils::add",
+        "kind": "calls",
+        "relationKey": "rel:sha256:83a0c55ca653c0c8f12a7ca67f352e496cdfa42cbd2d2ff3cdd9d1b26067969d",
+        "confidence": 0.8,
+        "reason": "qualified-project-function-call"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:20:utils::MathUtils::multiply",
+        "kind": "calls",
+        "relationKey": "rel:sha256:23284a35a4e7b21324cbb832ce67eb2e8cd832e0c80a0ee12f3023682e322e3b",
+        "confidence": 0.8,
+        "reason": "qualified-project-function-call"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:37:utils::distance",
+        "kind": "calls",
+        "relationKey": "rel:sha256:47444a7f627a83e9690fc3051734625ca138827083b971219cac82fa7ddb2ec1",
+        "confidence": 0.75,
+        "reason": "receiver-method-project-match"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:38:utils::apply_operation",
+        "kind": "calls",
+        "relationKey": "rel:sha256:63d84c02ea59c14c865950ea64adea372a9a6e150d5773f9b42a32ae67b7ff5d",
+        "confidence": 0.9,
+        "reason": "direct-same-file-function-call"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:36:utils::compute",
+        "kind": "calls",
+        "relationKey": "rel:sha256:58d2093b3b219799260d40667f3babde4c52ce4f83bfffc116bc4d32ff8805a9",
+        "confidence": 0.75,
+        "reason": "receiver-method-project-match"
+      },
+      {
+        "source": "file:2:src/main.cpp",
+        "target": "sym:32:utils::initialize_logging",
+        "kind": "calls",
+        "relationKey": "rel:sha256:78104d39ed2f1cfca70d526a270ec6517bb9ab0bcb3ca18432a1968110af43da",
+        "confidence": 0.9,
+        "reason": "direct-same-file-function-call"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:19:utils::MathUtils::add",
+        "kind": "calls",
+        "relationKey": "rel:sha256:27da0629d1036c80d8cf671680dbcfbd252adfdcba398563b97d95a1baa0f96d",
+        "confidence": 0.8,
+        "reason": "qualified-project-function-call"
+      },
+      {
+        "source": "file:3:src/math_utils.cpp",
+        "target": "sym:20:utils::MathUtils::multiply",
+        "kind": "calls",
+        "relationKey": "rel:sha256:169bfe08280f8a64824e894eb61c4a9c10d5ae0be31f0d3f8a18b273252d3fce",
+        "confidence": 0.8,
+        "reason": "qualified-project-function-call"
       }
     ],
     "summary": {
-      "nodeCount": 10,
-      "edgeCount": 15,
+      "nodeCount": 40,
+      "edgeCount": 77,
       "fileNodeCount": 0,
-      "symbolNodeCount": 0,
-      "callEdgeCount": 0
+      "symbolNodeCount": 33,
+      "callEdgeCount": 12
     },
     "truncated": false,
     "cautions": [

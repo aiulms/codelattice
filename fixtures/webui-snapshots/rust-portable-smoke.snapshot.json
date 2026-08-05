@@ -1,9 +1,9 @@
 {
   "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T17:34:52+00:00",
+  "generatedAt": "2026-08-05T06:46:12+00:00",
   "generatedFrom": {
     "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.15.0-beta.1",
+    "toolVersion": "codelattice 0.17.0-beta.1",
     "snapshotSchema": "webui.snapshot.v1",
     "staticAnalysis": true,
     "runtimeVerified": false,
@@ -17,9 +17,9 @@
     "sourceFileCount": 2,
     "moduleCount": 0,
     "packageCount": 1,
-    "generatedAt": "2026-05-16T17:34:52+00:00",
-    "language": "unknown",
-    "toolVersion": "codelattice 0.15.0-beta.1"
+    "generatedAt": "2026-08-05T06:46:12+00:00",
+    "language": "rust",
+    "toolVersion": "codelattice 0.17.0-beta.1"
   },
   "quality": {
     "overall": "pass",
@@ -447,6 +447,42 @@
     "stability": "preview",
     "nodes": [
       {
+        "id": "package:Cargo.toml",
+        "label": "portable-smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "repo:<redacted-root>",
+        "label": "repo:<redacted-user>/project/project/fixtures/rust/",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "target:portable-smoke::portable_smoke::bin",
+        "label": "portable_smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "target:portable-smoke::portable_smoke::lib",
+        "label": "portable_smoke",
+        "kind": "package",
+        "file": ""
+      },
+      {
+        "id": "file:src/lib.rs",
+        "label": "src/lib.rs",
+        "kind": "file",
+        "file": "src/lib.rs"
+      },
+      {
+        "id": "file:src/main.rs",
+        "label": "src/main.rs",
+        "kind": "file",
+        "file": "src/main.rs"
+      },
+      {
         "id": "symbol:portable-smoke::crate::Calculator",
         "label": "Calculator",
         "kind": "symbol",
@@ -517,42 +553,6 @@
         "file": "src/lib.rs",
         "line": 10,
         "visibility": "public"
-      },
-      {
-        "id": "file:src/lib.rs",
-        "label": "src/lib.rs",
-        "kind": "file",
-        "file": "src/lib.rs"
-      },
-      {
-        "id": "file:src/main.rs",
-        "label": "src/main.rs",
-        "kind": "file",
-        "file": "src/main.rs"
-      },
-      {
-        "id": "package:Cargo.toml",
-        "label": "portable-smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "target:portable-smoke::portable_smoke::bin",
-        "label": "portable_smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "target:portable-smoke::portable_smoke::lib",
-        "label": "portable_smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "repo:<redacted-root>",
-        "label": "repo:<redacted-user>/project/project/fixtures/rust/",
-        "kind": "package",
-        "file": ""
       }
     ],
     "edges": [
@@ -560,6 +560,7 @@
         "source": "symbol:portable-smoke::crate::create_calculator",
         "target": "symbol:portable-smoke::crate::Calculator",
         "kind": "related",
+        "relationKey": "rel:sha256:c5875acb99522cd86af408d87cb0f6a47487c15417fc276e0e2bbde07dc414d9",
         "confidence": 0.85,
         "reason": "function-return-type-access"
       },
@@ -567,6 +568,7 @@
         "source": "symbol:portable-smoke::crate::new",
         "target": "symbol:portable-smoke::crate::Calculator",
         "kind": "related",
+        "relationKey": "rel:sha256:64423d361dc9d329dcac0d90f430fdbe311e9fbfc8d1076ef71afe6b7a3e6780",
         "confidence": 0.85,
         "reason": "function-return-type-access"
       },
@@ -574,6 +576,7 @@
         "source": "symbol:portable-smoke::crate::create_calculator",
         "target": "symbol:portable-smoke::crate::new",
         "kind": "calls",
+        "relationKey": "rel:sha256:36b203af975003b4208321f73a9fe8d8775af22869f3f6e6b303b38d0bfad4f8",
         "confidence": 0.75,
         "reason": "call-associated-fn-resolved"
       },
@@ -581,6 +584,7 @@
         "source": "symbol:portable-smoke::crate::main",
         "target": "symbol:portable-smoke::crate::add",
         "kind": "calls",
+        "relationKey": "rel:sha256:d8c0746789c169239e3ba53a2d402026e064c274a7450b45015ab59b5816c648",
         "confidence": 0.6499999761581421,
         "reason": "call-method-name-resolved"
       },
@@ -588,6 +592,7 @@
         "source": "symbol:portable-smoke::crate::main",
         "target": "symbol:portable-smoke::crate::get",
         "kind": "calls",
+        "relationKey": "rel:sha256:214d45ff74207458c856862ac598980d545f4614d1025f21c6d2a81bf908b384",
         "confidence": 0.6499999761581421,
         "reason": "call-method-name-resolved"
       },
@@ -595,6 +600,7 @@
         "source": "symbol:portable-smoke::crate::main",
         "target": "symbol:portable-smoke::crate::multiply",
         "kind": "calls",
+        "relationKey": "rel:sha256:248723c47e17ec98214a84e3bcc7d365b9471f0880fcd21081ca27859adf15bd",
         "confidence": 0.8999999761581421,
         "reason": "call-same-module-resolved"
       },
@@ -602,100 +608,119 @@
         "source": "symbol:portable-smoke::crate::main",
         "target": "symbol:portable-smoke::crate::new",
         "kind": "calls",
+        "relationKey": "rel:sha256:251887adbc96dab8d41d346fa41f4dfe9d11644b7f9fd9ce7b313ee2047e89bc",
         "confidence": 0.75,
         "reason": "call-associated-fn-resolved"
       },
       {
         "source": "repo:<redacted-root>",
         "target": "package:Cargo.toml",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:c81662335b8341f6dd06d1214aed61994ee35bb30bab5d9f1f0c2caf40b54377"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::Calculator",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:d5aedff8f72ce570024f8e9f68616588be935bdc9aa2ee0c9eab862ece80df0f"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:98168c0eb181f5aa8b40dd36164b7c223f34c85758223ed1f474d0455596681d"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::add",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:cac028fcfddb62a81296e7617f2d1a538df5c69146670c109b7d2ee9da6d087e"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::add::_L29",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:3b35303d968df124cf04bb860fadd9e3cb52cea1f83dc30ccb5dc0a652605210"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::create_calculator",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:2a73719b065009db32c09b262eab27641ec4e2bc9313e3df85145e8406e666e2"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::get",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:f9bacf46caf406c5a85cd407612b5bb2d5fbcd1e97be198387a78bc9ec3d6d6b"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::multiply",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:757733a9d0c8ad2c0381c93d3d46c8459a661ff74e5192099a1b18a8213a07fe"
       },
       {
         "source": "file:src/lib.rs",
         "target": "symbol:portable-smoke::crate::new",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:81d00cc686b0ee4eb4e6319e7241e39171e54e7cf08fc1195645e1239799aba1"
       },
       {
         "source": "file:src/main.rs",
         "target": "symbol:portable-smoke::crate::main",
-        "kind": "defines"
+        "kind": "defines",
+        "relationKey": "rel:sha256:f46c1930ceaaa2148626ec667f9131ce513fff744ec9d292cd037c8f3b568894"
       },
       {
         "source": "symbol:portable-smoke::crate::_impl_Calculator",
         "target": "symbol:portable-smoke::crate::Calculator",
         "kind": "related",
+        "relationKey": "rel:sha256:43923f1ece5602d81192fd5ecd4be37c3507a1f79c2cdd6ab04bb0763823d8a6",
         "confidence": 0.95,
         "reason": "impl-block-target-designation"
       },
       {
         "source": "symbol:portable-smoke::crate::add",
         "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:1d4e3ad75b436150bfd7d564c167c05b5b75cfa2b9c8a51fdfe9716ade8160d4"
       },
       {
         "source": "symbol:portable-smoke::crate::get",
         "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:72491ae0cc121244c712b0c686055ef8a5416da8a7819802775e2b54af9a5fdc"
       },
       {
         "source": "symbol:portable-smoke::crate::new",
         "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:4c1fd74af83f9e5228e86c307d3db460c3d090583fdd6cee225cd86efd090726"
       },
       {
         "source": "package:Cargo.toml",
         "target": "target:portable-smoke::portable_smoke::bin",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:784993c87004c14d9d3f2448eb5212f2cdf740425907524c09dae59b9a2aab08"
       },
       {
         "source": "package:Cargo.toml",
         "target": "target:portable-smoke::portable_smoke::lib",
-        "kind": "related"
+        "kind": "related",
+        "relationKey": "rel:sha256:c6cc840b4b1a66d58efec6a795992e8097a08f6aa822268d5f0e853af33199f1"
       },
       {
         "source": "target:portable-smoke::portable_smoke::lib",
         "target": "file:src/lib.rs",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:8942b5adacde5e335f5bdd05c51df1ef693b97d3ec1d41db04ce4668178f74a6"
       },
       {
         "source": "target:portable-smoke::portable_smoke::lib",
         "target": "file:src/main.rs",
-        "kind": "owns"
+        "kind": "owns",
+        "relationKey": "rel:sha256:c4ede271539b15c0bfa522489ac034c3975ab12489d0222854bdfba47fbe09dd"
       }
     ],
     "summary": {

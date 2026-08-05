@@ -1,0 +1,81 @@
+{
+  "meta": {
+    "date": "2026-08-05T06:56:05.549Z",
+    "machine": "darwin arm64",
+    "profile": "debug (tauri dev)",
+    "fixture": "fixtures/webui-snapshots/rust-portable-smoke.snapshot.json",
+    "idleMs": 60000,
+    "env": {
+      "SNAP_DIR": "independent tmp dir"
+    },
+    "logTail": "     Running BeforeDevCommand (`npm run dev`)\n\n> codelattice-workbench@0.1.0 dev\n> vite\n\n\n  VITE v5.4.21  ready in 154 ms\n\n  ➜  Local:   http://localhost:1420/\n  ➜  Network: use --host to expose\n     Running DevCommand (`cargo  run --no-default-features --color always --`)\n        Info Watching /Users/jiangxuanyang/Desktop/codelattice/apps/desktop/src-tauri for changes...\n\u001b[1m\u001b[92m    Finished\u001b[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.13s\n\u001b[1m\u001b[92m     Running\u001b[0m `target/debug/codelattice-workbench`\n"
+  },
+  "emptyWorkbench": {
+    "atLoadMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "afterIdle60sMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "idleGrowthPct": 0
+  },
+  "snapshotOpened": {
+    "atLoadMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "afterIdle60sMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "idleGrowthPct": 0
+  },
+  "analyzePeak": {
+    "peakAggregateMb": 154,
+    "atPeak": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "afterMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    }
+  },
+  "interaction20Rounds": {
+    "afterRoundsMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "afterIdle60sMb": {
+      "coreMb": 154,
+      "webviewMb": 0,
+      "aggregateMb": 154,
+      "corePids": 2,
+      "webviewPids": 0
+    },
+    "idleGrowthPct": 0
+  }
+}

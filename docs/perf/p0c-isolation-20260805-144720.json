@@ -1,0 +1,41 @@
+{
+  "meta": {
+    "date": "2026-08-05T06:47:20Z",
+    "machine": "darwin arm64",
+    "python": "3.13.12",
+    "scenario": "agent MCP long-lived sidecar + Desktop Analyzer (nice -n 10) concurrent",
+    "rounds_per_bench": 6
+  },
+  "baseline": {
+    "label": "baseline-no-analyzer",
+    "cold_ms": 83.49,
+    "p50_ms": 88.49,
+    "p95_ms": 89.18,
+    "samples": [
+      83.49,
+      87.51,
+      89.18,
+      88.89,
+      87.98,
+      88.49
+    ]
+  },
+  "concurrent": {
+    "label": "during-analyzer",
+    "cold_ms": 85.72,
+    "p50_ms": 85.72,
+    "p95_ms": 85.72,
+    "rounds": 1
+  },
+  "degradation": {
+    "p95_pct": -3.9,
+    "passes_30pct_threshold": true
+  },
+  "protocolErrors": [],
+  "noProtocolErrors": true,
+  "cancel": {
+    "publishDir": "/var/folders/ky/dv5j49rn7mlfjt54k3bqp83c0000gn/T/cls-p0c-cancel-6ztazurw",
+    "leftoverFiles": [],
+    "noHalfwrittenSnapshot": true
+  }
+}

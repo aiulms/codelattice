@@ -18,6 +18,7 @@ import json
 import os
 import re
 import sys
+import hashlib
 from collections import Counter
 from datetime import datetime, timezone
 
@@ -609,6 +610,17 @@ def build_generated_from(version: str) -> dict:
 
 # ── Insights (optional enrichment) ───────────────────────────────────────────
 
+def _relation_key(source: str, kind: str, target: str) -> str:
+    """§6.1 初始规则：relationKey = sha256(source + kind + target)。
+
+    语义关系身份（同一 source/kind/target 的平行边共享同一 relationKey）；
+    occurrenceKey 只在事实层提供稳定 call-site designation 时生成（P0 不产出）。
+    用 NUL 分隔避免 source/target 含分隔符时的拼接歧义。
+    """
+    raw = f"{source}\u0000{kind}\u0000{target}"
+    return f"rel:sha256:{hashlib.sha256(raw.encode('utf-8')).hexdigest()}"
+
+
 def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 300,
                         redact_root: bool = False, root: str = "") -> dict:
     """Build graph section with nodes and edges for visualization."""
@@ -712,7 +724,8 @@ def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 30
         confidence = props_e.get("confidence")
         reason = props_e.get("reason", "")
 
-        ge = {"source": src, "target": tgt, "kind": ek}
+        ge = {"source": src, "target": tgt, "kind": ek,
+              "relationKey": _relation_key(src, ek, tgt)}
         if confidence is not None:
             ge["confidence"] = float(confidence) if isinstance(confidence, (int, float, str)) else None
         if reason:
@@ -941,6 +954,12 @@ def main():
         ]:
             raw_out = raw_out.replace(pattern, replacement)
         snapshot = json.loads(raw_out)
+        # relationKey 必须基于 redact 后的最终字符串计算（§6.1 确定性身份；
+        # redact 全局替换会改变 source/target，若沿用替换前计算的 key 会不一致）
+        for e in snapshot.get("graph", {}).get("edges", []):
+            e["relationKey"] = _relation_key(
+                e.get("source", ""), e.get("kind", "related"), e.get("target", "")
+            )
 
     # Output
     indent = None if compact else 2

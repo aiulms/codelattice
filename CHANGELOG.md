@@ -8,6 +8,14 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Added
 
+- **Project Understanding Workbench P0（Tauri 2 桌面端）**：本地代码理解工作台，事实默认可用、模型解释显式触发。详见 `docs/plans/2026-08-05-project-understanding-p0.md`（execution card v4）与 `docs/webui/workbench-user-guide.md`。
+  - `apps/desktop`：Tauri 2 + Vite + TypeScript + React；GraphSelection/ConversationContext 双 store；G6 图引擎（edge click/hover/selection 事件，relationKey 语义身份）；确定性项目仪表盘；Inspector（直接上下游/coverageContext/证据/静态边界）；模型池（Ollama/OpenAI-compatible，Key 入系统钥匙串）；证据型 Chat（只读工具循环 + 分级预算 + claim 分级 + 导航联动）。
+  - `crates/understanding-gateway`：纯 Rust Understanding Gateway（provider_http/validator/cache/session/secret/dispatcher/graph_store/worker），DTO 契约统一 camelCase；G3 选型 full immutable graph index（512MB 内存上限）。
+  - snapshot 边身份：`relationKey = sha256(source + kind + target)` 由 `codelattice-snapshot-gen.py` 产出（redact 后重算）；occurrenceKey 无 call-site designation 时冻结 relation-level。
+  - 基线/契约：`webui/contract-tests`（relationKey 契约 + 平行边 + 重分析确定性 + 旧 Viewer smoke）；F0/F1 内存基线、G3 query-store spike、P0-C 并发隔离基准（P95 退化 +0.6% ≤30%）。
+
+### Added
+
 - **New diagnostic `codelattice_complexity_hotspots`**: identify functions with the highest internal complexity based on length (raw line span), fan-in/out coupling, and async/unsafe modifiers. Complements `codelattice_risk_hotspots` (which measures outward coupling risk) by measuring in-function maintainability burden. v1 dimensions: length + fan + modifiers; `paramCount` and `cyclomaticComplexity` deferred to v2 (GraphView node properties lack type annotations). Full toolset grows from 49 to 50 tools; the new tool is Full-only (not in the 6-tool AI toolset or Core toolset). Smoke scripts and test assertions updated to the new count.
 - **AI error-recovery cookbook prompts**: `docs/guides/ai-prompt-cookbook.md` adds §14-18 — recovery prompts for `mcp_server_busy`, `tool_not_in_ai_toolset` (with facade equivalence mapping), `execution.status=needs_input`, symbol disambiguation, and cache-stale/`jobNotReady` handling. Docs-only.
 

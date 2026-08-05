@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "date": "2026-08-05T05:41:17.167Z",
+    "machine": "darwin arm64",
+    "fixture": "fixtures/webui-snapshots/rust-portable-smoke.snapshot.json",
+    "idleMs": 60000,
+    "samples": 11,
+    "runner": "scripts/webui-runner.py",
+    "browser": "Google Chrome (headless)",
+    "chromePidsAtLoad": 32,
+    "runnerPidsAtLoad": 1,
+    "pageErrors": []
+  },
+  "apiLatencyMs": {
+    "listSnapshots": {
+      "p50": 0.8690410000000384,
+      "p95": 3.463291999999967
+    },
+    "getSnapshot": {
+      "p50": 0.4914580000000228,
+      "p95": 1.4869170000000054
+    }
+  },
+  "rssAtLoadMb": {
+    "runner": 39,
+    "chrome": 4574,
+    "aggregate": 4613
+  },
+  "rssAfter60sIdleMb": {
+    "runner": 39,
+    "chrome": 4414,
+    "aggregate": 4452
+  },
+  "idleGrowthPct": -3.5
+}

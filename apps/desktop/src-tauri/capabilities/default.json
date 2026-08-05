@@ -1,0 +1,10 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "CodeLattice Workbench default capability — 白名单命令、事件；默认拒绝 shell / 任意文件系统 / 任意网络（§7.2）。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:event:default"
+  ]
+}
