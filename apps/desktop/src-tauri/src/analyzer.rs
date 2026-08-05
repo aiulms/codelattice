@@ -52,7 +52,8 @@ impl AnalyzerSupervisor {
         codelattice_bin: PathBuf,
         _publish_dir: PathBuf,
     ) -> Result<WorkerEvent, String> {
-        let job_id = format!("job:{}", std::time::SystemTime::now()
+        // 返工修复：job_id 使用安全格式（不含冒号等 loader 禁止字符）
+        let job_id = format!("job-{}", std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs());
         let temp_output = std::env::temp_dir().join(format!("{job_id}.tmp.json"));
 

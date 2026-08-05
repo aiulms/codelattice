@@ -117,9 +117,29 @@ impl ModelAdapter for HttpModelAdapter {
     }
 
     fn ping(&self) -> ConnectionStatus {
+        // 返工修复：ping 也携带解析后的凭证（authenticated ping）
+        self.ping_with_key(None)
+    }
+
+    fn stream_explain(
+        &self,
+        prompt: &str,
+    ) -> Result<Box<dyn Iterator<Item = StreamChunk> + Send + '_>, String> {
+        // P0-B1：无 Key 配置的本地模型（Ollama）为主路径；带 apiKeyRef 的模型
+        // 由调用方（命令层）传入 Key 后走 `stream_explain_with_key`。
+        self.stream_explain_with_key(prompt, None)
+    }
+}
+
+impl HttpModelAdapter {
+    /// authenticated ping：携带凭证的连接测试（§7.2 修复）。
+    pub fn ping_with_key(&self, api_key: Option<&str>) -> ConnectionStatus {
         let url = format!("{}/models", self.config.base_url.trim_end_matches('/'));
-        let result = self.client.get(&url).send();
-        match result {
+        let mut req = self.client.get(&url);
+        if let Some(key) = api_key {
+            req = req.bearer_auth(key);
+        }
+        match req.send() {
             Ok(resp) if resp.status().is_success() => ConnectionStatus {
                 ok: true,
                 detail: format!("{} ok", resp.status()),
@@ -143,17 +163,6 @@ impl ModelAdapter for HttpModelAdapter {
         }
     }
 
-    fn stream_explain(
-        &self,
-        prompt: &str,
-    ) -> Result<Box<dyn Iterator<Item = StreamChunk> + Send + '_>, String> {
-        // P0-B1：无 Key 配置的本地模型（Ollama）为主路径；带 apiKeyRef 的模型
-        // 由调用方（命令层）传入 Key 后走 `stream_explain_with_key`。
-        self.stream_explain_with_key(prompt, None)
-    }
-}
-
-impl HttpModelAdapter {
     /// 带 Key 的流式解释（命令层从 SecretStore 解析 Key 后调用）。
     /// 返回的 iterator 在独立线程读 SSE；错误以文本前缀 + Done 表达，
     /// 满足"流式期间的错误可被 UI 呈现"且不 panic。
@@ -268,6 +277,8 @@ mod tests {
         assert_eq!(body["model"], "qwen3:14b");
         assert_eq!(body["stream"], true);
         assert!(body["messages"].as_array().unwrap().len() >= 2);
-        assert!(adapter.auth_header().is_some() == adapter.config.api_key_ref.is_some());
+        // request_body 不含任何认证信息（§7.2）
+        assert!(body.get("authorization").is_none());
+        assert!(body.get("api_key").is_none());
     }
 }

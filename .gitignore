@@ -8,6 +8,8 @@ __pycache__/
 .hvigor/
 .sisyphus/
 
+# Vite timestamp temp files
+*.timestamp-*.mjs
 # P0 Workbench（apps/desktop）：依赖与构建产物不入库
 node_modules/
 apps/desktop/dist/

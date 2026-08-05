@@ -124,6 +124,24 @@ export class GraphSelectionStore {
     return this.state;
   }
 
+  /** 直接设置选择（便捷方法，供树点击等调用）。 */
+  select(sel: GraphSelection): void {
+    switch (sel.type) {
+      case "node":
+        this.dispatch({ type: "select-node", nodeId: sel.nodeId, snapshotId: sel.snapshotId });
+        break;
+      case "relation":
+        this.dispatch({ type: "select-relation", relationKey: sel.relationKey, occurrenceKey: sel.occurrenceKey, snapshotId: sel.snapshotId });
+        break;
+      case "chain":
+        this.dispatch({ type: "select-chain", chainId: sel.chainId, snapshotId: sel.snapshotId });
+        break;
+      case "none":
+        this.dispatch({ type: "clear" });
+        break;
+    }
+  }
+
   navigate(
     action: NavigationAction,
     currentSnapshotId: string,

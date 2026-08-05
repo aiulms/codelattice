@@ -210,6 +210,9 @@ export type ChatRequest = {
   sessionId: string;
   message: string;
   providerId: string;
+  /** 返工：Chat 必须携带 pinned snapshot 和 scope（禁止后端回退第一个 snapshot）。 */
+  snapshotId?: string;
+  pinnedScope?: { type: ConversationScopeType; id: string } | null;
 };
 
 export interface DesktopTransport {
@@ -231,4 +234,21 @@ export interface DesktopTransport {
   chat(req: ChatRequest): Promise<StreamHandle>;
   cancel(requestId: string): Promise<void>;
   writeSmokeReport(payload: Record<string, unknown>): Promise<void>;
+  // 返工新增：Analyzer / session / model pool 类型化方法
+  selectProjectDirectory(): Promise<string>;
+  analyze(root: string, language: string): Promise<{ jobId: string }>;
+  analyzeStatus(): Promise<{ state: string; jobId: string | null }>;
+  analyzeCancel(): Promise<void>;
+  pinSnapshot(snapshotId: string): Promise<void>;
+  unpinSnapshot(snapshotId: string): Promise<void>;
+  sessionCreate(snapshotId: string): Promise<string>;
+  sessionPin(sessionId: string, scopeType: string, scopeId: string, snapshotId: string): Promise<void>;
+  sessionClose(sessionId: string): Promise<void>;
+  modelsList(): Promise<{ default: string; models: unknown[] }>;
+  modelsAdd(config: Record<string, unknown>): Promise<void>;
+  modelsRemove(id: string): Promise<void>;
+  modelsSetDefault(id: string): Promise<void>;
+  modelsTest(id: string): Promise<{ ok: boolean; detail: string }>;
+  secretSet(service: string, account: string, secret: string): Promise<{ secretRef: string }>;
+  secretDelete(secretRef: string): Promise<void>;
 }

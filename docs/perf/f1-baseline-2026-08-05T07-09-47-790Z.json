@@ -8,7 +8,9 @@
     "env": {
       "SNAP_DIR": "independent tmp dir"
     },
-    "logTail": "     Running BeforeDevCommand (`npm run dev`)\n\n> codelattice-workbench@0.1.0 dev\n> vite\n\n\n  VITE v5.4.21  ready in 115 ms\n\n  ➜  Local:   http://localhost:1420/\n  ➜  Network: use --host to expose\n     Running DevCommand (`cargo  run --no-default-features --color always --`)\n        Info Watching /Users/jiangxuanyang/Desktop/codelattice/apps/desktop/src-tauri for changes...\n\u001b[1m\u001b[92m    Finished\u001b[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.11s\n\u001b[1m\u001b[92m     Running\u001b[0m `target/debug/codelattice-workbench`\n"
+    "logTail": "     Running BeforeDevCommand (`npm run dev`)\n\n> codelattice-workbench@0.1.0 dev\n> vite\n\n\n  VITE v5.4.21  ready in 115 ms\n\n  \u279c  Local:   http://localhost:1420/\n  \u279c  Network: use --host to expose\n     Running DevCommand (`cargo  run --no-default-features --color always --`)\n        Info Watching /Users/jiangxuanyang/Desktop/codelattice/apps/desktop/src-tauri for changes...\n\u001b[1m\u001b[92m    Finished\u001b[0m `dev` profile [unoptimized + debuginfo] target(s) in 0.11s\n\u001b[1m\u001b[92m     Running\u001b[0m `target/debug/codelattice-workbench`\n",
+    "status": "INVALID/superseded",
+    "invalidReason": "Process attribution errors: sampler matched itself as codelattice-workbench, WebContent without bundleIdentifier counted, empty Workbench auto-loaded snapshot, 20-round scenario did not execute real rounds. See rework audit."
   },
   "emptyWorkbench": {
     "atLoadMb": {

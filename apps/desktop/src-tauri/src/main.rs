@@ -13,26 +13,34 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 use understanding_gateway::graph_store::SnapshotGraphIndex;
-use understanding_gateway::secret::MemorySecretStore;
+use understanding_gateway::secret::SecretStore;
+use understanding_gateway::secret_keychain::KeychainSecretStore;
 use understanding_gateway::service::UnderstandingService;
 
 pub struct AppState {
     pub gateway: Mutex<UnderstandingService>,
     pub supervisor: Mutex<analyzer::AnalyzerSupervisor>,
     /// G3 选型：full immutable graph index 缓存（snapshotId -> 只读索引）。
-    /// 懒加载 + 缓存；snapshot 原子发布后按 id 重载。与 Agent MCP 进程内
-    /// cache 完全独立（§8.1）。
     pub query_store: Mutex<HashMap<String, Arc<SnapshotGraphIndex>>>,
-    /// 进行中的流式请求取消标志（requestId -> flag；P0-B1 streaming/cancel）。
+    /// 进行中的流式请求取消标志。
     pub active_requests: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// P0-C：被 agent/UI pin 的 snapshot id（cleanup 时保留）。
     pub pinned_snapshots: Mutex<Vec<String>>,
 }
 
+/// 生产 SecretStore：macOS Keychain（§7.2）；测试通过 env CODELATTICE_TEST_SECRET=1
+/// 退回 MemorySecretStore 以避免污染用户钥匙串。
+fn create_secret_store() -> Box<dyn SecretStore> {
+    if std::env::var("CODELATTICE_TEST_SECRET").map(|v| v == "1").unwrap_or(false) {
+        return Box::new(understanding_gateway::secret::MemorySecretStore::new());
+    }
+    Box::new(KeychainSecretStore::new())
+}
+
 impl AppState {
     pub fn new() -> Self {
         Self {
-            gateway: Mutex::new(UnderstandingService::new(Box::new(MemorySecretStore::new()))),
+            gateway: Mutex::new(UnderstandingService::new(create_secret_store())),
             supervisor: Mutex::new(analyzer::AnalyzerSupervisor::default()),
             query_store: Mutex::new(HashMap::new()),
             active_requests: Mutex::new(HashMap::new()),
@@ -45,28 +53,32 @@ fn main() {
     tauri::Builder::default()
         .manage(AppState::new())
         .invoke_handler(tauri::generate_handler![
-            commands::workbench_list_snapshots,
-            commands::workbench_load_snapshot,
-            commands::workbench_node_context,
-            commands::workbench_edge_evidence,
-            commands::workbench_call_chain,
-            commands::workbench_models_list,
-            commands::workbench_models_add,
-            commands::workbench_models_remove,
-            commands::workbench_models_set_default,
-            commands::workbench_models_test,
-            commands::workbench_secret_set,
-            commands::workbench_secret_delete,
-            commands::workbench_explain,
-            commands::workbench_chat,
-            commands::workbench_cancel,
-            commands::workbench_selftest_enabled,
-            commands::workbench_smoke_report,
-            commands::workbench_analyze,
-            commands::workbench_analyze_cancel,
-            commands::workbench_analyze_status,
-            commands::workbench_pin_snapshot,
-            commands::workbench_unpin_snapshot,
+            commands::evidence::workbench_list_snapshots,
+            commands::evidence::workbench_load_snapshot,
+            commands::evidence::workbench_node_context,
+            commands::evidence::workbench_edge_evidence,
+            commands::evidence::workbench_call_chain,
+            commands::models::workbench_models_list,
+            commands::models::workbench_models_add,
+            commands::models::workbench_models_remove,
+            commands::models::workbench_models_set_default,
+            commands::models::workbench_models_test,
+            commands::secrets::workbench_secret_set,
+            commands::secrets::workbench_secret_delete,
+            commands::assistant::workbench_explain,
+            commands::assistant::workbench_chat,
+            commands::assistant::workbench_cancel,
+            commands::selftest::workbench_selftest_enabled,
+            commands::selftest::workbench_smoke_report,
+            commands::analyzer::workbench_analyze,
+            commands::analyzer::workbench_analyze_cancel,
+            commands::analyzer::workbench_analyze_status,
+            commands::analyzer::workbench_pin_snapshot,
+            commands::analyzer::workbench_unpin_snapshot,
+            commands::sessions::workbench_session_create,
+            commands::sessions::workbench_session_pin,
+            commands::sessions::workbench_session_close,
+            commands::sessions::workbench_select_directory,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

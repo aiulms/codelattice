@@ -135,6 +135,56 @@ export class FakeDesktopTransport implements DesktopTransport {
     // no-op in tests
   }
 
+  // ── 返工新增方法（fake 实现）─────────────────────────────────────────
+
+  async selectProjectDirectory(): Promise<string> {
+    return "/fake/project";
+  }
+
+  async analyze(_root: string, _language: string): Promise<{ jobId: string }> {
+    return { jobId: "job-fake-1" };
+  }
+
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null }> {
+    return { state: "Completed", jobId: "job-fake-1" };
+  }
+
+  async analyzeCancel(): Promise<void> {}
+
+  async pinSnapshot(_snapshotId: string): Promise<void> {}
+
+  async unpinSnapshot(_snapshotId: string): Promise<void> {}
+
+  async sessionCreate(_snapshotId: string): Promise<string> {
+    return "sess:fake:1";
+  }
+
+  async sessionPin(_sessionId: string, _scopeType: string, _scopeId: string, _snapshotId: string): Promise<void> {}
+
+  async sessionClose(_sessionId: string): Promise<void> {}
+
+  async modelsList(): Promise<{ default: string; models: unknown[] }> {
+    return { default: "", models: [] };
+  }
+
+  async modelsAdd(_config: Record<string, unknown>): Promise<void> {}
+
+  async modelsRemove(_id: string): Promise<void> {}
+
+  async modelsSetDefault(_id: string): Promise<void> {}
+
+  async modelsTest(_id: string): Promise<{ ok: boolean; detail: string }> {
+    return { ok: true, detail: "fake ok" };
+  }
+
+  async secretSet(_service: string, _account: string, _secret: string): Promise<{ secretRef: string }> {
+    return { secretRef: "keychain:fake/account" };
+  }
+
+  async secretDelete(_secretRef: string): Promise<void> {}
+
+  // ── stream ────────────────────────────────────────────────────────────
+
   private async stream(kinds: string[]): Promise<StreamHandle> {
     const requestId = `req:fake:${this.explainCalls + this.chatCalls}`;
     const events: GatewayEvent[] = kinds.map((k) => {

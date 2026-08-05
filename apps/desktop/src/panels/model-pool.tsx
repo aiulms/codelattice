@@ -1,6 +1,6 @@
 // ModelPoolPanel — 最小模型池管理（P0 §7.1 / B1）。
 // Ollama + OpenAI-compatible；增删、设默认、连接测试。
-// Key 通过 secret command 写入 SecretStore，前端只持有 secretRef（验收 18）。
+// 返工修复：通过 DesktopTransport 调用，不直接 import/invoke Tauri。
 import { useState } from "react";
 import type { DesktopTransport } from "../types";
 
@@ -27,9 +27,8 @@ export function ModelPoolPanel(props: {
 
   async function refresh() {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const list = await invoke<{ default: string; models: ModelInfo[] }>("workbench_models_list");
-      setModels(list.models ?? []);
+      const list = await props.transport.modelsList();
+      setModels((list.models as ModelInfo[]) ?? []);
       setDefaultId(list.default ?? null);
       setStatus("");
     } catch (e) {
@@ -37,31 +36,24 @@ export function ModelPoolPanel(props: {
     }
   }
 
-  // 懒加载：首次打开时刷新（Web 测试环境无 Tauri 时静默降级）
+  // 懒加载：首次打开时刷新
   if (models.length === 0 && status === "") {
     void refresh();
   }
 
   async function addModel() {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
       let apiKeyRef: string | null = null;
       if (form.provider === "openai-compatible" && form.apiKey.trim()) {
-        const r = await invoke<{ secretRef: string }>("workbench_secret_set", {
-          service: "codelattice",
-          account: form.id,
-          secret: form.apiKey,
-        });
+        const r = await props.transport.secretSet("codelattice", form.id, form.apiKey);
         apiKeyRef = r.secretRef;
       }
-      await invoke("workbench_models_add", {
-        config: {
-          id: form.id,
-          provider: form.provider,
-          baseUrl: form.baseUrl,
-          model: form.model,
-          apiKeyRef,
-        },
+      await props.transport.modelsAdd({
+        id: form.id,
+        provider: form.provider,
+        baseUrl: form.baseUrl,
+        model: form.model,
+        apiKeyRef,
       });
       setStatus("已添加模型");
       setForm({ id: "", provider: "ollama", baseUrl: "", model: "", apiKey: "" });
@@ -73,9 +65,8 @@ export function ModelPoolPanel(props: {
 
   async function removeModel(id: string) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const r = await invoke<{ purgedCacheEntries: number }>("workbench_models_remove", { id });
-      setStatus(`已删除 ${id}（清理缓存条目 ${r.purgedCacheEntries}）`);
+      await props.transport.modelsRemove(id);
+      setStatus(`已删除 ${id}`);
       await refresh();
     } catch (e) {
       setStatus(`删除失败：${String(e)}`);
@@ -84,8 +75,7 @@ export function ModelPoolPanel(props: {
 
   async function setDefault(id: string) {
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      await invoke("workbench_models_set_default", { id });
+      await props.transport.modelsSetDefault(id);
       setDefaultId(id);
     } catch (e) {
       setStatus(`设默认失败：${String(e)}`);
@@ -95,8 +85,7 @@ export function ModelPoolPanel(props: {
   async function testModel(id: string) {
     setTesting(id);
     try {
-      const { invoke } = await import("@tauri-apps/api/core");
-      const r = await invoke<{ ok: boolean; detail: string }>("workbench_models_test", { id });
+      const r = await props.transport.modelsTest(id);
       setStatus(`测试 ${id}：${r.ok ? "OK" : "失败"}（${r.detail}）`);
     } catch (e) {
       setStatus(`测试失败：${String(e)}`);

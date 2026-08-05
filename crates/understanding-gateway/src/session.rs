@@ -121,6 +121,16 @@ impl SessionManager {
             _ => false,
         }
     }
+
+    /// 关闭并移除 session（返工新增：session close 接口）。
+    pub fn close(&mut self, session_id: &str) -> bool {
+        self.sessions.remove(session_id).is_some()
+    }
+
+    /// 检查 session 是否存在且未关闭。
+    pub fn exists(&self, session_id: &str) -> bool {
+        self.sessions.contains_key(session_id)
+    }
 }
 
 #[cfg(test)]

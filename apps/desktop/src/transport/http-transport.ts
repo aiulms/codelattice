@@ -66,4 +66,56 @@ export class HttpDesktopTransport implements DesktopTransport {
     // 浏览器环境：写入 window 供外部读取
     (window as unknown as Record<string, unknown>).__smokeReport = _payload;
   }
+
+  // ── 返工新增方法（旧 Web Runner 不支持，抛错降级）─────────────────────
+
+  async selectProjectDirectory(): Promise<string> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async analyze(_root: string, _language: string): Promise<{ jobId: string }> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null }> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async analyzeCancel(): Promise<void> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async pinSnapshot(_snapshotId: string): Promise<void> {}
+
+  async unpinSnapshot(_snapshotId: string): Promise<void> {}
+
+  async sessionCreate(_snapshotId: string): Promise<string> {
+    return `sess:web:${Date.now().toString(36)}`;
+  }
+
+  async sessionPin(_sessionId: string, _scopeType: string, _scopeId: string, _snapshotId: string): Promise<void> {}
+
+  async sessionClose(_sessionId: string): Promise<void> {}
+
+  async modelsList(): Promise<{ default: string; models: unknown[] }> {
+    return { default: "", models: [] };
+  }
+
+  async modelsAdd(_config: Record<string, unknown>): Promise<void> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async modelsRemove(_id: string): Promise<void> {}
+
+  async modelsSetDefault(_id: string): Promise<void> {}
+
+  async modelsTest(_id: string): Promise<{ ok: boolean; detail: string }> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async secretSet(_service: string, _account: string, _secret: string): Promise<{ secretRef: string }> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async secretDelete(_secretRef: string): Promise<void> {}
 }

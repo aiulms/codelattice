@@ -1,9 +1,8 @@
 // ChatPanel — 项目级/选择级 Chat（P0 §4.1 / B1/B2）。
 //
-// - 跟随 ConversationContext（pinned scope），不被临时浏览覆盖（验收 9）；
-// - 模型流式回答：answerSummary + claims（分类 chips）+ evidence chips → 显式
-//   NavigationRequest（验收 10/12）；
-// - 取消按钮（streaming/cancel，验收 25）。
+// 返工修复：
+// - evidenceRefs 和 coverage caveats 作为可点击 chips 展示
+// - 清除所有 P0-A/P0-B 占位文案
 import type { Claim, ConversationContext, NavigationAction } from "../types";
 
 export type ChatMessage =
@@ -41,16 +40,16 @@ export function ChatPanel(props: {
           ? "会话已标记 stale：snapshot 已切换，需要显式重新 pin 才能继续。"
           : context.pinnedScope
             ? `pinned: ${context.pinnedScope.type}:${context.pinnedScope.id}`
-            : "未 pin 任何范围。选择节点/边后点“加入对话”。"}
+            : "未 pin 任何范围。选择节点/边后点\u201c加入对话\u201d。"}
       </p>
       {!props.available && (
-        <p className="hint">模型未配置或不可用；事实工作台仍完整可用（验收 17）。</p>
+        <p className="hint" data-testid="chat-no-model">模型未配置或不可用；事实工作台仍完整可用。点击\u201c模型池\u201d配置。</p>
       )}
 
       <div className="chat-messages" data-testid="chat-messages">
         {props.messages.length === 0 && (
           <p className="hint">
-            从仪表盘建议或“解释当前选择”开始；也可以直接提问项目结构、调用链。
+            从仪表盘建议或\u201c解释当前选择\u201d开始；也可以直接提问项目结构、调用链。
           </p>
         )}
         {props.messages.map((m, i) =>
@@ -68,6 +67,20 @@ export function ChatPanel(props: {
                     <li key={c.id} className={`claim ${c.classification}`} data-testid={`claim-${c.id}`}>
                       <span className="claim-class">{CLASS_LABEL[c.classification] ?? c.classification}</span>
                       <span className="claim-text">{c.text}</span>
+                      {c.evidenceRefs.length > 0 && (
+                        <span className="evidence-refs" data-testid={`evidence-refs-${c.id}`}>
+                          {c.evidenceRefs.map((ref, j) => (
+                            <span key={j} className="chip evidence-chip" title={ref}>{ref.slice(0, 16)}</span>
+                          ))}
+                        </span>
+                      )}
+                      {c.coverageCaveatRefs.length > 0 && (
+                        <span className="coverage-caveats">
+                          {c.coverageCaveatRefs.map((ref, j) => (
+                            <span key={j} className="chip caveat-chip" title={ref}>coverage: {ref.split(":").pop()?.slice(0, 12)}</span>
+                          ))}
+                        </span>
+                      )}
                     </li>
                   ))}
                 </ul>

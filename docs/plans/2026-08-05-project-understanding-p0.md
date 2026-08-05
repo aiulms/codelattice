@@ -1167,4 +1167,162 @@ native detect-changes（commit 前）：summary.riskLevel = critical / overallRi
 changedSymbolCount=0（本次 Rust 变更全部在新 crate understanding-gateway，无既有
 符号受影响）；changedFileCount=8（scripts/fixtures/Cargo 等非 Rust 源码）。
 结论：非代码风险，但按 AGENTS.md 已向用户报告（见会话最终回复）。
+
+---
+
+## 返工审计与重新验收（2026-08-05 17:00）
+
+### 背景
+
+用户发起阻断缺陷返工审计，不认可之前 G0–G6 全 PASS 的结论。审计发现多处生产阻断
+缺陷：流式链路 requestId 分裂 / generator 永不终止 / listener 泄漏，SecretStore
+生产用 Memory（重启丢失），chat 未执行 validate_answer，Analyzer job_id 含冒号导致
+loader 拒绝，Dashboard resolutionRate 伪计算，query_store 无 eviction，commands.rs
+单体膨胀，旧 F1 基线采样器进程归属错误。
+
+**旧 G0–G6 全 PASS 已被本次返工 supersede。**
+
+### 修复项
+
+#### A. Assistant 流式链路 — PASS
+
+| 问题 | 修复 |
+|------|------|
+| App 自造 msgId 与 Transport requestId 不一致 | App 不再造 msgId；用 `handle.requestId` 创建占位消息并匹配更新 |
+| openStream generator 永不终止 | generator 在 `answer-complete` / `error` / `budget-limit` 后 `return` |
+| listener 不 unsubscribe | `disposeActive()` 在所有终止路径调用（generator finally + cancel + 替换） |
+| invoke 失败不清理 | invoke catch 推入 error 事件，generator 正常终止并 dispose |
+| 单活动请求无策略 | 替换策略：新请求前 `disposeActive()` 先取消旧请求 |
+| streaming 永久 true | `finally { setStreaming(false) }` 保证所有路径 |
+
+验证：
+- TypeScript 编译 0 错误
+- 前端 43/43 测试通过
+- WKWebView selftest 8/8 通过
+
+#### B. Chat session 与选择上下文 — PASS
+
+| 问题 | 修复 |
+|------|------|
+| ChatRequest 无 snapshot/scope | ChatRequest 增加 `snapshotId` / `pinnedScope` |
+| 后端回退第一个 snapshot | session 不存在时返回 `Err("session not found")`；只有 adhoc 允许回退 |
+| chat 最终回答未执行 validate_answer | 在 `calls.is_empty()` 分支收集 evidence vocabulary 并执行 `validate_answer` |
+| 无 session lifecycle 命令 | 新增 `workbench_session_create/pin/close` + `workbench_select_directory` |
+| 前端 ConversationStore pin 不同步 | sendChat 携带 `convStore.getState().snapshotId` + `pinnedScope` |
+
+#### C. SecretStore 和模型池 — PASS
+
+| 问题 | 修复 |
+|------|------|
+| 生产用 MemorySecretStore | `create_secret_store()`: 生产用 `KeychainSecretStore`；`CODELATTICE_TEST_SECRET=1` 时回退 Memory |
+| ping 不携带凭证 | 新增 `ping_with_key(api_key)` 方法；`workbench_models_test` 调用 `ping_with_key` |
+| 删除模型不清理 secret | `workbench_models_remove` 先取 `api_key_ref`，删除后 `secret_store.delete()` |
+| models.json 存明文 Key | 已有拒绝逻辑（`plaintext_key_ref_is_rejected_on_add` 测试通过） |
+
+#### D. Desktop Analyzer — PASS
+
+| 问题 | 修复 |
+|------|------|
+| job_id `job:{timestamp}` 含冒号 → loader 拒绝 | 改为 `job-{timestamp}`（安全格式） |
+| UI 无 Analyzer 入口 | App 增加"分析项目"按钮 + 状态轮询 + 完成后自动刷新 snapshot |
+| DesktopTransport 无 analyze 能力 | 新增 `selectProjectDirectory/analyze/analyzeStatus/analyzeCancel/pinSnapshot/unpinSnapshot` |
+| ModelPoolPanel 直接 import Tauri | 重写为通过 `DesktopTransport` 接口调用 |
+
+#### E. 确定性事实 UI — PASS
+
+| 问题 | 修复 |
+|------|------|
+| resolutionRate 伪计算（有 CALLS = 1） | 从 `summary.resolvedCalls / totalCalls` 真实计算 |
+| Dashboard 只有节点/边计数 | 增加：入口点、热点符号（按出入度排序 top-5）、三层结构骨架、CALLS coverage、静态限制、建议起点 |
+| Chat 不展示 evidenceRefs/caveats | ChatPanel 增加 evidence chip 和 coverage caveat chip |
+| modelAvailable 硬编码 true | 从 `transport.modelsList()` 动态判定 |
+| 结构树占位 "P0-A 接入模块/文件树" | 从 snapshot.graph.nodes 按 file 分组真实渲染 |
+
+#### F. Query store 与内存 — PARTIAL
+
+| 问题 | 修复状态 |
+|------|----------|
+| query_store 无 eviction | ✅ `MAX_QUERY_STORE_SNAPSHOTS=8`，pinned 不逐出 |
+| cleanup 不释放内存索引 | ✅ 新增 `evict_query_store` 函数 |
+| 旧 F1 基线无效 | ✅ 两份 JSON 标记为 `INVALID/superseded` |
+| 内存采样器进程归属修复 | ❌ 未修复（采样器脚本未更新） |
+| 新可信 F1 基线 | ❌ 未重测 |
+
+#### G. 模块边界和构建卫生 — PASS
+
+| 问题 | 修复 |
+|------|------|
+| commands.rs 991 行单体 | 拆分为薄 re-export（64 行）+ 8 个子模块：common(172) / evidence(52) / models(61) / secrets(40) / sessions(54) / assistant(489) / analyzer(93) / selftest(27) |
+| vite timestamp mjs 误提交 | 删除 + `.gitignore` 新增 `*.timestamp-*.mjs` |
+| 前端 1.42MB chunk | manualChunks 拆包：主 chunk 45KB / react 141KB / g6 独立 chunk |
+| ModelPoolPanel 绕过 Transport | 重写为通过 DesktopTransport 调用 |
+
+### 验证命令与结果
+
+```bash
+# Rust
+cargo fmt --check                                    # ✅ clean
+git diff --check                                     # ✅ clean
+cargo test -p understanding-gateway                  # ✅ 50/50
+cargo test -p understanding-gateway --features http  # ✅ 54/54
+cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml  # ✅ 3/3
+
+# 前端
+cd apps/desktop
+npm test                                             # ✅ 43/43
+npm run build                                        # ✅ 主 chunk 45KB
+
+# 契约测试
+cd webui/contract-tests && npm test                  # ✅ 25/25
+
+# WKWebView selftest
+bash scripts/webui-tauri-selftest.sh --timeout 300   # ✅ 8/8 allPass: true
+
+# Native precommit
+bash scripts/codelattice-precommit-check.sh          # 338/339 (mcp_smoke_rust_only pre-existing flaky)
+```
+
+### Gate 重新判定
+
+| Gate | 判定 | 说明 |
+|------|------|------|
+| G0 (F0 characterization) | PASS | 旧结论保持：无回归 |
+| G1 (WKWebView smoke) | PASS | 8/8 通过 |
+| G2 (relationKey) | PASS | 旧结论保持：平行边修复无回归 |
+| G3 (query store) | PASS | eviction 新增，50/50 + 54/54 测试通过 |
+| G4 (validator/secret) | PASS | chat validate_answer 修复；Keychain 生产路径接入 |
+| G5 (进程隔离) | PASS | 旧结论保持：Desktop Analyzer 独立进程 |
+| G6 (closure) | **PARTIAL** | 核心阻断已修复并验证；**未覆盖**：内存采样器修复、新 F1 基线重测、新增端到端集成测试（mock SSE server、20 轮交互回归、Keychain smoke） |
+
+### 未覆盖项
+
+1. **内存采样器修复** — `webui-rss-sampler.py` 进程归属问题未修复
+2. **新可信 F1 基线** — 未用修复后的采样器重新测量
+3. **mock OpenAI SSE server** — 未编写（需 Node.js http server + SSE 模拟）
+4. **20 轮真实交互回归** — 未编写自动化脚本
+5. **Keychain 临时条目 smoke** — 未编写
+6. **Windows/WebView2** — 环境无
+
+### 已知限制
+
+- `mcp_smoke_rust_only` pre-existing flaky（非本轮引入）
+- 内存基线暂缺可信数据（旧基线已标 INVALID）
+- Tauri 端到端集成测试（explain/chat/cancel 全链路）需要真实模型服务
+
+### 回滚方法
+
+```bash
+git revert <rework-commit-sha>
+```
+
+本轮改动集中在：apps/desktop/src/ 前端文件、apps/desktop/src-tauri/src/ Rust 文件
+（拆分 + 修复）、vite.config.ts、.gitignore。无 schema 或 fixture 变更。
+
+### 是否可接受为 P0 完成
+
+**不可完全接受为 P0 完成。** 核心阻断缺陷已全部修复并通过现有测试验证，
+但缺少可信内存基线和新增端到端集成测试。建议：
+
+1. 当前状态可作为 **P0-RC（候选发布）**
+2. 补完内存采样器修复 + F1 基线重测 + 新增 E2E 测试后，方可声明 P0 完成
 ```

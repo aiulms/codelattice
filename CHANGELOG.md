@@ -6,6 +6,19 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Fixed
+
+- **Workbench P0 阻断缺陷返工**：修复审计发现的 7 类生产阻断问题（详见 execution card 返工审计章节）。
+  - **流式链路**：requestId 统一（App 不再造 msgId）；generator 在终止事件后正确 return；listener 在所有路径 unsubscribe；invoke 失败推入 error 事件。
+  - **SecretStore**：生产路径改用 macOS Keychain（`KeychainSecretStore`），`CODELATTICE_TEST_SECRET=1` 回退 Memory；authenticated ping 携带凭证（`ping_with_key`）；删除模型时清理关联 secret。
+  - **Chat session**：ChatRequest 携带 snapshotId/pinnedScope；未知 session 返回错误不回退第一个 snapshot；chat 最终回答执行 `validate_answer`。
+  - **Analyzer**：job_id 从 `job:{ts}` 改为 `job-{ts}`（snapshot loader 安全格式）；新增 `workbench_select_directory` 命令；DesktopTransport 增加 analyze/status/cancel/pin/unpin 方法。
+  - **确定性事实 UI**：resolutionRate 从 summary 真实计算；Dashboard 增加入口点/热点/结构骨架/限制/建议起点；ChatPanel 展示 evidenceRef/coverage chips；modelAvailable 动态判定；结构树从 snapshot 渲染。
+  - **query_store eviction**：聚合上限 8 个 snapshot，pinned 不逐出。
+  - **模块拆分**：commands.rs 从 991 行拆分为薄 re-export（64 行）+ 8 子模块。
+  - **构建卫生**：删除 vite timestamp mjs + .gitignore；前端 bundle manualChunks 拆包（主 chunk 45KB）。
+  - **provider_http**：修复 `auth_header()` 编译失败（测试改用 request_body 无认证断言）。
+
 ### Added
 
 - **Project Understanding Workbench P0（Tauri 2 桌面端）**：本地代码理解工作台，事实默认可用、模型解释显式触发。详见 `docs/plans/2026-08-05-project-understanding-p0.md`（execution card v4）与 `docs/webui/workbench-user-guide.md`。
