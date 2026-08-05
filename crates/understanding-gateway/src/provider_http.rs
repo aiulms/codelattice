@@ -225,6 +225,8 @@ impl Iterator for ChannelIter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
 
     #[test]
     fn parses_openai_compatible_sse_lines() {
@@ -280,5 +282,127 @@ mod tests {
         // request_body 不含任何认证信息（§7.2）
         assert!(body.get("authorization").is_none());
         assert!(body.get("api_key").is_none());
+    }
+
+    #[test]
+    fn real_socket_sse_stream_sends_auth_and_terminates_once() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut socket, _) = listener.accept().unwrap();
+            let mut request = Vec::new();
+            let mut buf = [0_u8; 2048];
+            while !request.windows(4).any(|w| w == b"\r\n\r\n") {
+                let read = socket.read(&mut buf).unwrap();
+                if read == 0 {
+                    break;
+                }
+                request.extend_from_slice(&buf[..read]);
+            }
+            let body = concat!(
+                "data: {\"choices\":[{\"delta\":{\"content\":\"你\"}}]}\n\n",
+                "data: {bad json\n\n",
+                "data: {\"choices\":[{\"delta\":{\"content\":\"好\"}}]}\n\n",
+                "data: [DONE]\n\n"
+            );
+            write!(
+                socket,
+                "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .unwrap();
+            String::from_utf8(request).unwrap()
+        });
+
+        let adapter = HttpModelAdapter::new(ModelConfig {
+            id: "mock".into(),
+            provider: ProviderKind::OpenaiCompatible,
+            base_url: format!("http://{addr}/v1"),
+            model: "mock-model".into(),
+            api_key_ref: Some("keychain:test/mock".into()),
+        })
+        .unwrap();
+        let chunks: Vec<_> = adapter
+            .stream_explain_with_key("test", Some("dummy-secret"))
+            .unwrap()
+            .collect();
+        let request = server.join().unwrap();
+
+        assert!(request.starts_with("POST /v1/chat/completions HTTP/1.1"));
+        assert!(request
+            .to_ascii_lowercase()
+            .contains("authorization: bearer dummy-secret"));
+        assert_eq!(
+            chunks,
+            vec![
+                StreamChunk::Text("你".into()),
+                StreamChunk::Text("好".into()),
+                StreamChunk::Done,
+            ]
+        );
+    }
+
+    /// 真实供应商 smoke：凭证只从环境注入，并先写入临时 Keychain 条目再读取。
+    /// Cleanup guard 保证测试成功或 panic 时都会删除临时条目；测试不打印模型正文。
+    #[cfg(target_os = "macos")]
+    #[test]
+    #[ignore = "requires CODELATTICE_LIVE_API_KEY and performs a paid remote request"]
+    fn live_openai_compatible_stream_via_temporary_keychain() {
+        use crate::secret::SecretStore;
+        use crate::secret_keychain::KeychainSecretStore;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        struct KeychainCleanup(String);
+        impl Drop for KeychainCleanup {
+            fn drop(&mut self) {
+                let _ = KeychainSecretStore::new().delete(&self.0);
+            }
+        }
+
+        let supplied_key = std::env::var("CODELATTICE_LIVE_API_KEY")
+            .expect("CODELATTICE_LIVE_API_KEY is required for this ignored smoke");
+        let suffix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let service = format!("com.codelattice.workbench.live-test.{}", std::process::id());
+        let account = format!("temporary-{suffix}");
+        let mut keychain = KeychainSecretStore::new();
+        let secret_ref = keychain.set(&service, &account, &supplied_key).unwrap();
+        let _cleanup = KeychainCleanup(secret_ref.clone());
+        drop(supplied_key);
+
+        let api_key = keychain.get(&secret_ref).unwrap();
+        let adapter = HttpModelAdapter::new(ModelConfig {
+            id: "deepseek-live-smoke".into(),
+            provider: ProviderKind::OpenaiCompatible,
+            base_url: std::env::var("CODELATTICE_LIVE_BASE_URL")
+                .unwrap_or_else(|_| "https://api.deepseek.com/v1".into()),
+            model: std::env::var("CODELATTICE_LIVE_MODEL")
+                .unwrap_or_else(|_| "deepseek-v4-flash".into()),
+            api_key_ref: Some(secret_ref),
+        })
+        .unwrap();
+        let chunks: Vec<_> = adapter
+            .stream_explain_with_key("只回复一个汉字：好", Some(&api_key))
+            .unwrap()
+            .collect();
+        drop(api_key);
+
+        assert!(
+            chunks
+                .iter()
+                .any(|chunk| matches!(chunk, StreamChunk::Text(text) if !text.is_empty())),
+            "remote stream returned no text chunks"
+        );
+        assert_eq!(
+            chunks
+                .iter()
+                .filter(|chunk| matches!(chunk, StreamChunk::Done))
+                .count(),
+            1,
+            "remote stream must terminate exactly once"
+        );
     }
 }

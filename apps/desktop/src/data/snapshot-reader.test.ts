@@ -42,6 +42,11 @@ describe("relationKey identity (§6.1)", () => {
 });
 
 describe("buildIndex / directNeighbors (验收 1：先显示 snapshot 内直接关系)", () => {
+  it("uses the stable library snapshot id when the caller provides it", () => {
+    expect(buildIndex(data, "rust-portable-smoke.snapshot").snapshotId)
+      .toBe("rust-portable-smoke.snapshot");
+  });
+
   it("indexes nodes/edges and exposes direct upstream/downstream", () => {
     const idx = buildIndex(data);
     expect(idx.nodeById.size).toBe(data.graph.nodes.length);

@@ -32,6 +32,21 @@ export function ChatPanel(props: {
   onNavigate(action: NavigationAction): void;
 }) {
   const { context } = props;
+  const navigateEvidence = (ref: string) => {
+    if (ref.startsWith("rel:")) {
+      props.onNavigate({
+        type: "focusRelation",
+        relationKey: ref,
+        snapshotId: context.snapshotId,
+      });
+    } else if (ref.startsWith("src:")) {
+      props.onNavigate({
+        type: "focusSource",
+        sourceRefId: ref,
+        snapshotId: context.snapshotId,
+      });
+    }
+  };
   return (
     <section className="panel chat" data-testid="chat">
       <h2>Chat</h2>
@@ -70,7 +85,21 @@ export function ChatPanel(props: {
                       {c.evidenceRefs.length > 0 && (
                         <span className="evidence-refs" data-testid={`evidence-refs-${c.id}`}>
                           {c.evidenceRefs.map((ref, j) => (
-                            <span key={j} className="chip evidence-chip" title={ref}>{ref.slice(0, 16)}</span>
+                            ref.startsWith("rel:") || ref.startsWith("src:") ? (
+                              <button
+                                key={j}
+                                type="button"
+                                className="chip evidence-chip"
+                                title={ref}
+                                onClick={() => navigateEvidence(ref)}
+                              >
+                                {ref.slice(0, 16)}
+                              </button>
+                            ) : (
+                              <span key={j} className="chip evidence-chip" title={ref}>
+                                {ref.slice(0, 16)}
+                              </span>
+                            )
                           ))}
                         </span>
                       )}

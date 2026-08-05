@@ -80,8 +80,20 @@ mod e2e_tests {
         m.pin(&s2, ConversationScopeType::Edge, "rel:ab", "snap:1");
 
         assert_ne!(
-            m.get(&s1).unwrap().context.pinned_scope.as_ref().unwrap().scope_type,
-            m.get(&s2).unwrap().context.pinned_scope.as_ref().unwrap().scope_type
+            m.get(&s1)
+                .unwrap()
+                .context
+                .pinned_scope
+                .as_ref()
+                .unwrap()
+                .scope_type,
+            m.get(&s2)
+                .unwrap()
+                .context
+                .pinned_scope
+                .as_ref()
+                .unwrap()
+                .scope_type
         );
 
         m.close(&s1);
@@ -104,8 +116,11 @@ mod e2e_tests {
             coverage_caveat_refs: vec![],
         };
 
-        let (result, report) =
-            validator.validate_claim(claim, &["rel:abc".to_string()], &["RealFunction".to_string()]);
+        let (result, report) = validator.validate_claim(
+            claim,
+            &["rel:abc".to_string()],
+            &["RealFunction".to_string()],
+        );
 
         assert_eq!(result.classification, ClaimClassification::Hypothesis);
         assert!(!report.downgraded_claims.is_empty());
@@ -128,7 +143,10 @@ mod e2e_tests {
             &["Calculator::new".to_string()],
         );
 
-        assert_eq!(result.classification, ClaimClassification::GroundedInterpretation);
+        assert_eq!(
+            result.classification,
+            ClaimClassification::GroundedInterpretation
+        );
         assert!(report.downgraded_claims.is_empty());
     }
 
@@ -176,7 +194,9 @@ mod e2e_tests {
         let mut store = MemorySecretStore::new();
 
         // set
-        let ref1 = store.set("codelattice", "remote-openai", "sk-abc123").unwrap();
+        let ref1 = store
+            .set("codelattice", "remote-openai", "sk-abc123")
+            .unwrap();
         assert!(ref1.contains("codelattice"));
         assert!(ref1.contains("remote-openai"));
 
@@ -252,8 +272,14 @@ mod e2e_tests {
 
         // claim:1 应保持 grounded（identifier 存在）
         // claim:2 应降级为 hypothesis（identifier 不存在）
-        assert_eq!(answer.claims[0].classification, ClaimClassification::GroundedInterpretation);
-        assert_eq!(answer.claims[1].classification, ClaimClassification::Hypothesis);
+        assert_eq!(
+            answer.claims[0].classification,
+            ClaimClassification::GroundedInterpretation
+        );
+        assert_eq!(
+            answer.claims[1].classification,
+            ClaimClassification::Hypothesis
+        );
 
         // 有效导航保留，无效导航丢弃
         assert_eq!(answer.navigation_actions.len(), 1);

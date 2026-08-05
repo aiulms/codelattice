@@ -1325,4 +1325,141 @@ git revert <rework-commit-sha>
 
 1. 当前状态可作为 **P0-RC（候选发布）**
 2. 补完内存采样器修复 + F1 基线重测 + 新增 E2E 测试后，方可声明 P0 完成
-```
+
+---
+
+## 最终返工执行卡（2026-08-05，supersedes 旧 PASS 判定）
+
+第三轮独立审计证明 `2222b932` 仍有生产缺陷，前述 A–G/G0–G6 的 PASS/RC
+结论全部以本执行卡及最终 closure 为准。在新的验证证据落盘前，P0 状态为
+**REWORK IN PROGRESS**。
+
+### 根因与风险
+
+| 切片 | 已确认根因 | 风险 |
+|---|---|---|
+| Analyzer | AppState 外层 mutex 覆盖整个 wait；RunningJob 在 wait 前被移出共享状态 | status/cancel 阻塞，无法终止运行中分析 |
+| Chat/session | request 完成被错误建模为 session 完成；payload snapshot 未和 backend session 对账 | 只能单轮对话，可能查询旧 snapshot |
+| Stream UI | App 未保存 active StreamHandle，Stop 回调为空 | 用户无法停止生成 |
+| SecretStore | shell 展开环境变量后仍把 secret 传给 `security -w` argv | 本机进程列表可暴露 API key |
+| Native UI | directory command 返回 fixture，而非系统选择器 | 用户无法选择真实项目 |
+| E2E | Rust 只测纯逻辑、TS 只测 Fake transport | 测试全绿但生产 IPC/HTTP 仍坏 |
+| Memory | 估算脚本硬编码 450KB；sampler 用 cmdline substring 且会匹配自身/其他 WebKit | 基线数字无效，无法证明内存目标 |
+
+CodeLattice-native 改前评估为 **medium risk**；安全存储与进程生命周期按发布阻断处理。
+
+### Write Set
+
+- `apps/desktop/src-tauri/src/{analyzer.rs,main.rs,commands/**,query_store.rs}`
+- `apps/desktop/src-tauri/{Cargo.toml,Cargo.lock,capabilities/**}`（仅 Tauri dialog/测试依赖）
+- `apps/desktop/src/**`、`apps/desktop/{package.json,package-lock.json}`（仅 Workbench UI/集成测试）
+- `crates/understanding-gateway/src/**`、`crates/understanding-gateway/Cargo.toml`
+- `scripts/{webui-rss-sampler.py,f1-memory-benchmark.sh,webui-tauri-selftest.sh}` 及其测试
+- `docs/plans/2026-08-05-project-understanding-p0.md`、`docs/perf/**`、`CHANGELOG.md`
+
+### Forbidden Set / Stop-lines
+
+- 不修改 CALLS 解析策略、graph schema、GitNexus-RC 或任何 live repo。
+- 不把用户 API key 写入源码、fixture、模型配置、日志、测试快照、argv 或 Git 历史。
+- 不用 Fake-only 测试替代生产 transport/HTTP/command 行为；mock server 必须经过真实 socket。
+- 不以估算字节数替代 RSS；基准必须从本轮启动 PID 建立所有权并记录采样时间线。
+- 不杀死或复用已有非本轮 Vite/Tauri/agent 进程；测试使用动态空闲端口/独立进程。
+- 不商业打包、签名、公证或发布安装器。
+
+### TDD 与验收顺序
+
+1. 先为 Analyzer 并发、Chat 多轮/snapshot、Stop、Keychain、mock SSE、PID 采样写失败测试。
+2. 逐切片做最小生产修复，每次确认 RED → GREEN。
+3. 用临时 Keychain service/account 执行 set → get → delete；任何失败都做 finally cleanup。
+4. 使用当前 DeepSeek OpenAI-compatible API 与 `deepseek-v4-flash` 做一次真实流式验证；
+   只记录状态、chunk 数和终止类型，不记录请求头或正文中的 secret。
+5. 受控启动 Workbench/核心进程，执行 20 轮选择/证据/Chat 场景并按 PID 树采集
+   Core + 本应用 WebView RSS、峰值、末值与回落。
+6. 最后运行 fmt、全部相关测试/build/contract/selftest、native detect-changes 和完整 precommit。
+
+### 完成定义
+
+- Chat 同一 session 至少连续两轮成功；snapshot 切换必须拒绝旧上下文或显式重建。
+- Stop 在 1 秒内触发 backend cancel，iterator 终止，active request 归零且只有一个 terminal。
+- Analyzer 运行时 status P95 <100ms；cancel 可终止 child，且不发布半成品 snapshot。
+- Keychain round-trip 成功，secret 不出现在 child argv/日志/仓库；临时条目清理成功。
+- mock SSE 覆盖 chunk、`[DONE]`、HTTP error、malformed event、cancel 和 terminal exactly once。
+- 内存报告必须包含 launch PID、owned PID 列表、20 轮真实动作、峰值/末值；无进程时 FAIL，
+  不允许生成 PASS。
+- `cargo fmt --check`、`git diff --check` 和 native precommit 达到仓库门槛。
+
+---
+
+## 最终 closure（2026-08-05 20:10）
+
+本节 supersede 文档中所有较早的 PASS、PARTIAL、RC 和“未覆盖项”判定。
+最终返工按 TDD 完成，P0 进入 closure gate；是否提交以本节后的 native precommit
+与 commit 记录为准。
+
+### 已关闭的阻断项
+
+| Gate | 最终状态 | 关闭证据 |
+|---|---|---|
+| Analyzer 可观察/取消 | PASS | 运行期共享 `RunningJob`，短锁 `try_wait`；并发测试约 0.12s，取消不发布 snapshot |
+| Chat 多轮与上下文 | PASS | `validate_turn` 严格对账 session/snapshot/scope；同 session 连续两轮测试通过 |
+| Stream 生命周期 | PASS | active handle、requestId 隔离、本地 cancel/dispose；production Transport/React 测试通过 |
+| SecretStore | PASS | Security.framework 原生 API；真实临时 Keychain `set→get→delete` 通过，无 shell argv |
+| 模型流 | PASS | mock TCP SSE 验证 Bearer/chunk/malformed/`[DONE]`/single terminal；DeepSeek HTTPS/SSE live smoke 通过，临时 secret 已删除 |
+| Tauri 原生目录选择 | PASS | dialog plugin、`dialog:allow-open`、生产 Transport 测试；fixture command 删除 |
+| snapshot 身份 | PASS | Rust/TS 均使用 library id；首次图点击与 session 创建的 RED→GREEN 测试通过 |
+| QueryStore / RSS | PASS | 8 snapshot + 512MB bounded LRU；production WKWebView 20 轮事实查询 + 精确 PID RSS 报告通过 |
+| 前端供应链 | PASS | Vite 7.3.6、Vitest 3.2.6、plugin-react 5.1.4；`npm audit` 0 |
+
+### 可信内存结果
+
+报告：`target/f1-memory-benchmark.json`（运行产物，不提交）。测量口径：
+
+- 用 `tauri build --no-bundle` 构建内嵌 `frontendDist` 的 production binary；裸
+  `cargo build` 不再作为 production 证据。
+- 只跟踪本轮 launch PID/descendants；WebKit XPC 使用启动前 PID baseline 差集，
+  并要求 `~/Library/WebKit/codelattice-workbench` 或对应 cache 的 open-file anchor。
+- 真实 WKWebView 内执行 G6 mount、node/edge click、3 次 destroy/remount、20 轮
+  selection 与 20 轮 production evidence/query-store 查询。
+
+| 指标 | 结果 | Gate |
+|---|---:|---:|
+| 样本 / 归属确认样本 | 10 / 7 | ≥3 / ≥3 |
+| Core peak | 104.8MB | 记录项 |
+| WebView peak | 237.5MB | 记录项 |
+| aggregate peak | 342.3MB | ≤512MB |
+| aggregate final verified | 342.3MB | ≤384MB |
+| WKWebView selftest | 9/9 PASS | 全绿 |
+
+该结果证明 portable-smoke + 20 轮事实交互场景不再出现此前 1.72GB 级占用；它不等于
+所有大仓库的绝对上界。大仓库仍由 QueryStore 的 512MB 估算上限与 8-snapshot LRU
+防守，后续可追加真实大型 snapshot corpus 基线。
+
+### 最终验证矩阵（precommit 前）
+
+- `cargo test -p understanding-gateway --features http`：70 PASS / 2 ignored；两个
+  ignored live test 已在本机分别显式运行并通过。
+- Tauri Rust：12/12 PASS，0 warnings。
+- 前端：60/60 PASS；TypeScript + Vite production build PASS；audit 0。
+- RSS sampler contract：3/3 PASS。
+- production WKWebView/F1：PASS，见上表。
+
+### 安全与回滚
+
+- 用户提供的 API key 未写入仓库、models.json、日志、argv 或基准报告；live smoke
+  只用隐藏 stdin 注入临时 Keychain 项并在 finally/drop 中删除。
+- 密钥曾出现在聊天正文，仍建议用户完成后在供应商控制台轮换。
+- 回滚使用 `git revert <final-commit>`；不需要删除或迁移 snapshot schema。
+
+### Native closure gate
+
+- `scripts/codelattice-precommit-check.sh`：PASS；主测试 339/339、MCP concurrency
+  smoke、detect-changes smoke 17/17 均通过。
+- Native detect-changes 对完整工作区判定为 `critical`：本轮涉及 Desktop、Gateway、
+  脚本和契约共 43 个跟踪文件，同时工作区存在 24 个与本任务无关的未跟踪文件，
+  因而形成跨项目宽变更面。该判定记录为发布审查风险，不代表发现数据破坏或安全漏洞。
+- 只审查暂存内容时判定为 `HIGH`，`untrackedFiles=0`，且没有具体 changed symbol 被
+  判为 high-risk；残余风险来自 47 个跨层文件、构建/基准脚本，以及当前静态图中
+  48.7% 的 unknown-confidence edge。上述风险由本节验证矩阵、真实 production smoke
+  与可回滚单提交覆盖，但后续 release gate 仍应保留大仓 corpus 与平台矩阵验证。
+- 提交只纳入本执行卡 write set；`.cursor/`、`.omo/`、`.planning/`、`.workbuddy/`、
+  讨论稿和 `webui/mockups/` 等用户未跟踪内容不纳入提交。

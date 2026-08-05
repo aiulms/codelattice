@@ -25,29 +25,6 @@ export async function maybeRunSelftest(transport: DesktopTransport): Promise<voi
   }
   if (!enabled) return;
 
-  // I-fix: 端口检测 — 等待 Vite dev server 就绪再执行 selftest
-  try {
-    const { invoke } = await import("@tauri-apps/api/core");
-    let portReady = false;
-    for (let i = 0; i < 10; i++) {
-      const result = await invoke<{ port: number; reachable: boolean }>("workbench_check_port", { port: 1420 });
-      if (result.reachable) { portReady = true; break; }
-      await new Promise((r) => setTimeout(r, 500));
-    }
-    if (!portReady) {
-      await transport.writeSmokeReport({
-        schemaVersion: "codelattice.selftest.v1",
-        finishedAt: new Date().toISOString(),
-        fatal: "Vite dev server port 1420 not reachable after 5s",
-        steps: [],
-        allPass: false,
-      });
-      return;
-    }
-  } catch {
-    // 端口检测不可用时继续执行（非阻断）
-  }
-
   const steps: SelftestStep[] = [];
   const step = (name: string, fn: () => void | Promise<void>) =>
     Promise.resolve()
@@ -58,6 +35,7 @@ export async function maybeRunSelftest(transport: DesktopTransport): Promise<voi
   let adapter: G6GraphAdapter | null = null;
   let graphRef: G6GraphLike | null = null;
   let index: SnapshotIndex | null = null;
+  let querySnapshotId = "";
   let host: HTMLDivElement | null = null;
   const selStore = new GraphSelectionStore();
   const convStore = new ConversationStore("");
@@ -65,6 +43,7 @@ export async function maybeRunSelftest(transport: DesktopTransport): Promise<voi
   async function loadIndex(): Promise<SnapshotIndex> {
     const snaps = await transport.listSnapshots();
     if (snaps.length === 0) throw new Error("no snapshots");
+    querySnapshotId = snaps[0].id;
     const data = await transport.loadSnapshot(snaps[0].id);
     const idx = buildIndex(data);
     if (idx.nodes.length === 0 || idx.edges.length === 0) throw new Error("empty snapshot graph");
@@ -166,6 +145,26 @@ export async function maybeRunSelftest(transport: DesktopTransport): Promise<voi
         } else {
           selStore.dispatch({ type: "clear" });
           if (selStore.getState().type !== "none") throw new Error(`round ${i}: clear failed`);
+        }
+      }
+    });
+
+    await step("20 production evidence queries exercise QueryStore", async () => {
+      if (!index) throw new Error("no index");
+      for (let i = 0; i < 20; i++) {
+        if (i % 2 === 0) {
+          const nodeId = index.nodes[i % index.nodes.length].id;
+          const context = await transport.getNodeContext(querySnapshotId, nodeId);
+          if (context.snapshotId !== querySnapshotId || context.nodeId !== nodeId) {
+            throw new Error(`round ${i}: node context identity mismatch`);
+          }
+        } else {
+          const edge = index.edges[i % index.edges.length];
+          const relationKey = relationKeyOf(edge);
+          const evidence = await transport.getEdgeEvidence(querySnapshotId, relationKey);
+          if (evidence.snapshotId !== querySnapshotId || evidence.selection.relationKey !== relationKey) {
+            throw new Error(`round ${i}: edge evidence identity mismatch`);
+          }
         }
       }
     });

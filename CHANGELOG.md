@@ -8,16 +8,15 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
-- **Workbench P0 阻断缺陷返工**：修复审计发现的 7 类生产阻断问题（详见 execution card 返工审计章节）。
-  - **流式链路**：requestId 统一（App 不再造 msgId）；generator 在终止事件后正确 return；listener 在所有路径 unsubscribe；invoke 失败推入 error 事件。
-  - **SecretStore**：生产路径改用 macOS Keychain（`KeychainSecretStore`），`CODELATTICE_TEST_SECRET=1` 回退 Memory；authenticated ping 携带凭证（`ping_with_key`）；删除模型时清理关联 secret。
-  - **Chat session**：ChatRequest 携带 snapshotId/pinnedScope；未知 session 返回错误不回退第一个 snapshot；chat 最终回答执行 `validate_answer`。
-  - **Analyzer**：job_id 从 `job:{ts}` 改为 `job-{ts}`（snapshot loader 安全格式）；新增 `workbench_select_directory` 命令；DesktopTransport 增加 analyze/status/cancel/pin/unpin 方法。
-  - **确定性事实 UI**：resolutionRate 从 summary 真实计算；Dashboard 增加入口点/热点/结构骨架/限制/建议起点；ChatPanel 展示 evidenceRef/coverage chips；modelAvailable 动态判定；结构树从 snapshot 渲染。
-  - **query_store eviction**：聚合上限 8 个 snapshot，pinned 不逐出。
-  - **模块拆分**：commands.rs 从 991 行拆分为薄 re-export（64 行）+ 8 子模块。
-  - **构建卫生**：删除 vite timestamp mjs + .gitignore；前端 bundle manualChunks 拆包（主 chunk 45KB）。
-  - **provider_http**：修复 `auth_header()` 编译失败（测试改用 request_body 无认证断言）。
+- **Workbench P0 最终返工闭环**：修复独立复核发现的 Analyzer、Chat、Stream、SecretStore、原生 UI、snapshot 身份和内存基准阻断项。
+  - **Analyzer / Stream**：运行中 job 保持可观察且可取消；stdout 先写临时文件再原子发布；前端保存 active stream handle，Stop 会取消后端、终止 iterator 并解绑 listener。
+  - **Chat session**：同一会话支持连续多轮；每轮严格校验 session/snapshot/pinned scope；换 snapshot 时创建新会话并关闭旧会话；无效 scope 不再静默降级为 project。
+  - **SecretStore / Provider**：macOS 生产路径直接调用 Security.framework，不再启动携带明文参数的 `security` 子进程；真实 Keychain `set→get→delete` 与 DeepSeek compatible HTTPS/SSE 临时凭证测试通过。
+  - **Tauri 2 原生交互**：项目目录选择切换到 dialog plugin + capability；fixture IPC stub 删除；production Transport 的目录选择与 cancel 生命周期新增测试。
+  - **事实身份**：QueryStore 与前端统一使用 snapshot library id，禁止把 `generatedAt` 当身份；修复首次图点击产生空 snapshotId、Inspector 查询静默回退的问题。
+  - **确定性事实 UI**：evidence chip 改为可导航按钮；Dashboard/Inspector 保持无模型可用；模型只在显式解释/Chat 中调用。
+  - **有界缓存 / 可信内存**：QueryStore 维持 8 snapshot / 512MB 上限；F1 改为 production Tauri binary、精确 launch PID、WebKit baseline delta + bundle open-file anchor 的真实 RSS。20 轮选择与证据查询后，macOS 聚合峰值/稳定值 342.3MB（Core 104.8MB、WebView 237.5MB），通过 512/384MB gate。
+  - **供应链卫生**：Vite/Vitest/React plugin 升级并执行非破坏性 audit fix；`npm audit` 为 0 vulnerabilities。
 
 ### Added
 

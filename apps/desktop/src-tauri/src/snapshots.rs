@@ -122,7 +122,11 @@ pub fn cleanup_published(max_keep: usize, pinned: &[String]) -> Result<usize, St
             continue;
         }
         let created = meta_of(&path)
-            .and_then(|m| m.get("createdAt").and_then(Value::as_str).map(str::to_string))
+            .and_then(|m| {
+                m.get("createdAt")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+            })
             .unwrap_or_default();
         all.push((path, created));
     }

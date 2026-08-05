@@ -11,6 +11,7 @@ export function GraphPane(props: {
   selection: GraphSelection;
   transport: DesktopTransport;
   snapshot?: SnapshotData | null;
+  snapshotId?: string;
   store: GraphSelectionStore;
 }) {
   const hostRef = useRef<HTMLDivElement | null>(null);
@@ -24,11 +25,13 @@ export function GraphPane(props: {
     let disposed = false;
 
     async function mount() {
-      const snap = props.snapshot ?? (await loadFirstSnapshot(props.transport));
-      if (disposed || !snap) return;
+      const loaded = props.snapshot
+        ? { data: props.snapshot, snapshotId: props.snapshotId ?? props.snapshot.generatedAt }
+        : await loadFirstSnapshot(props.transport);
+      if (disposed || !loaded) return;
       const { buildIndex } = await import("../data/snapshot-reader");
-      const index = buildIndex(snap);
-      const controller = new GraphController(props.store);
+      const index = buildIndex(loaded.data, loaded.snapshotId);
+      const controller = new GraphController(props.store, index.snapshotId);
       // 动态加载 G6（WKWebView 首屏后可异步；失败不阻塞事实面板）
       const g6mod = await import("@antv/g6");
       const factory = g6mod.Graph as unknown as G6Like;
@@ -63,11 +66,13 @@ export function GraphPane(props: {
   );
 }
 
-async function loadFirstSnapshot(transport: DesktopTransport): Promise<SnapshotData | null> {
+async function loadFirstSnapshot(
+  transport: DesktopTransport,
+): Promise<{ data: SnapshotData; snapshotId: string } | null> {
   try {
     const snaps = await transport.listSnapshots();
     if (snaps.length === 0) return null;
-    return transport.loadSnapshot(snaps[0].id);
+    return { data: await transport.loadSnapshot(snaps[0].id), snapshotId: snaps[0].id };
   } catch {
     return null;
   }

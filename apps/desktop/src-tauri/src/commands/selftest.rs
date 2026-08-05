@@ -1,50 +1,68 @@
 // commands/selftest —— selftest/smoke 命令（返工 G-fix 拆分 / I-fix 端口检测）。
+use serde_json::Value;
 use std::path::PathBuf;
-use std::time::Duration;
-
-use serde_json::{json, Value};
-use tauri::State;
-
-use crate::AppState;
+use std::{fs::OpenOptions, io::Write};
+use tauri::AppHandle;
 
 use super::common;
 
-#[tauri::command]
-pub fn workbench_selftest_enabled() -> bool {
-    std::env::var("CODELATTICE_SELFTEST").map(|v| v == "1").unwrap_or(false)
+/// 仅 selftest 环境写阶段标记，定位 production WebView/IPC 启动故障。
+pub fn trace(stage: &str) {
+    if std::env::var("CODELATTICE_SELFTEST").as_deref() != Ok("1") {
+        return;
+    }
+    let out = std::env::var("CODELATTICE_SMOKE_OUT").unwrap_or_else(|_| {
+        common::repo_root()
+            .join("target/selftest-report.json")
+            .to_string_lossy()
+            .to_string()
+    });
+    let path = PathBuf::from(out).with_extension("trace.log");
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(file, "{stage}");
+    }
 }
 
 #[tauri::command]
-pub fn workbench_smoke_report(payload: Value) -> Result<(), String> {
+pub fn workbench_selftest_enabled() -> bool {
+    trace("ipc:selftest-enabled");
+    std::env::var("CODELATTICE_SELFTEST")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn workbench_selftest_probe(details: Value) {
+    trace(&format!("webview:probe:{details}"));
+}
+
+#[tauri::command]
+pub fn workbench_smoke_report(app: AppHandle, payload: Value) -> Result<(), String> {
+    trace("ipc:smoke-report");
     let out = std::env::var("CODELATTICE_SMOKE_OUT").unwrap_or_else(|_| {
-        common::repo_root().join("target/selftest-report.json").to_string_lossy().to_string()
+        common::repo_root()
+            .join("target/selftest-report.json")
+            .to_string_lossy()
+            .to_string()
     });
     let path = PathBuf::from(&out);
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     }
-    std::fs::write(&path, serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?)
-        .map_err(|e| e.to_string())
-}
-
-/// I-fix: 检测 Vite dev server 端口可达性。
-///
-/// 在 selftest 启动前由前端调用，确认 1420 端口已就绪。
-/// 如果端口未就绪，selftest 应等待而非立即失败。
-#[tauri::command]
-pub fn workbench_check_port(port: Option<u16>) -> Result<Value, String> {
-    let port = port.unwrap_or(1420);
-    let addr = format!("127.0.0.1:{}", port);
-
-    // 尝试 TCP 连接（2 秒超时）
-    let reachable = std::net::TcpStream::connect_timeout(
-        &addr.parse::<std::net::SocketAddr>().map_err(|e| e.to_string())?,
-        Duration::from_secs(2),
-    ).is_ok();
-
-    Ok(json!({
-        "port": port,
-        "reachable": reachable,
-        "addr": addr,
-    }))
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+    if std::env::var("CODELATTICE_SELFTEST_EXIT").as_deref() == Ok("1") {
+        // 给采样器留出最后一个时间片；只退出本次精确启动的应用进程。
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            app.exit(0);
+        });
+    }
+    Ok(())
 }

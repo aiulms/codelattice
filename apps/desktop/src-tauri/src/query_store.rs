@@ -156,7 +156,6 @@ impl QueryStore {
         let mut projected = current_bytes + incoming_bytes;
         while projected > self.max_bytes {
             if !self.try_evict_oldest(pinned) {
-                let metrics = self.metrics();
                 return Err(format!(
                     "query_store memory budget exceeded: projected {} bytes > max {} bytes; all remaining entries are pinned",
                     projected, self.max_bytes
@@ -171,7 +170,9 @@ impl QueryStore {
     /// 尝试逐出最旧的非 pinned 条目。返回 false 如果没有可逐出的。
     fn try_evict_oldest(&mut self, pinned: &[String]) -> bool {
         // 找到 last_access 最小的非 pinned 条目
-        let oldest = self.entries.iter()
+        let oldest = self
+            .entries
+            .iter()
             .filter(|(id, e)| !pinned.contains(id) && !e.pinned)
             .min_by_key(|(_, e)| e.last_access)
             .map(|(id, _)| id.clone());
@@ -233,7 +234,10 @@ mod tests {
         store.get("s1");
         // 插入 s4 → 应逐出 s2（最旧未访问）
         store.insert("s4".into(), make_index(10), &[]).unwrap();
-        assert!(store.get("s1").is_some(), "s1 should survive (recently accessed)");
+        assert!(
+            store.get("s1").is_some(),
+            "s1 should survive (recently accessed)"
+        );
         assert!(store.get("s2").is_none(), "s2 should be evicted (oldest)");
         assert!(store.get("s3").is_some());
         assert!(store.get("s4").is_some());
@@ -242,10 +246,14 @@ mod tests {
     #[test]
     fn pinned_entry_not_evicted() {
         let mut store = QueryStore::new(2, u64::MAX);
-        store.insert("s1".into(), make_index(10), &["s1".into()]).unwrap();
+        store
+            .insert("s1".into(), make_index(10), &["s1".into()])
+            .unwrap();
         store.insert("s2".into(), make_index(10), &[]).unwrap();
         // 插入 s3 → 应逐出 s2，保留 pinned s1
-        store.insert("s3".into(), make_index(10), &["s1".into()]).unwrap();
+        store
+            .insert("s3".into(), make_index(10), &["s1".into()])
+            .unwrap();
         assert!(store.get("s1").is_some(), "pinned s1 must survive");
         assert!(store.get("s2").is_none(), "s2 should be evicted");
     }
@@ -253,8 +261,12 @@ mod tests {
     #[test]
     fn all_pinned_rejects_load() {
         let mut store = QueryStore::new(2, u64::MAX);
-        store.insert("s1".into(), make_index(10), &["s1".into()]).unwrap();
-        store.insert("s2".into(), make_index(10), &["s2".into()]).unwrap();
+        store
+            .insert("s1".into(), make_index(10), &["s1".into()])
+            .unwrap();
+        store
+            .insert("s2".into(), make_index(10), &["s2".into()])
+            .unwrap();
         // 两个都是 pinned，插入第三个应失败
         let result = store.insert("s3".into(), make_index(10), &["s1".into(), "s2".into()]);
         assert!(result.is_err(), "should reject when all pinned");
@@ -267,11 +279,18 @@ mod tests {
         // 设 max=2640+100 → 只能放1个；第二个会逐出第一个（非 pinned），然后成功。
         // 要测试真正拒绝，需要全 pinned：两个 pinned 条目都放进去后再加第三个 → 拒绝。
         let mut store = QueryStore::new(100, 2640 * 2 + 100);
-        store.insert("s1".into(), make_index(10), &["s1".into()]).unwrap();
-        store.insert("s2".into(), make_index(10), &["s2".into()]).unwrap();
+        store
+            .insert("s1".into(), make_index(10), &["s1".into()])
+            .unwrap();
+        store
+            .insert("s2".into(), make_index(10), &["s2".into()])
+            .unwrap();
         // 两个 pinned 占满，第三个超 bytes 上限且全 pinned → 拒绝
         let result = store.insert("s3".into(), make_index(10), &["s1".into(), "s2".into()]);
-        assert!(result.is_err(), "should reject: all pinned + byte limit exceeded");
+        assert!(
+            result.is_err(),
+            "should reject: all pinned + byte limit exceeded"
+        );
     }
 
     #[test]
@@ -305,6 +324,9 @@ mod tests {
         let bytes_after_first = store.metrics().current_estimated_bytes;
         store.insert("s1".into(), make_index(10), &[]).unwrap();
         let bytes_after_second = store.metrics().current_estimated_bytes;
-        assert_eq!(bytes_after_first, bytes_after_second, "duplicate insert must not double charge");
+        assert_eq!(
+            bytes_after_first, bytes_after_second,
+            "duplicate insert must not double charge"
+        );
     }
 }

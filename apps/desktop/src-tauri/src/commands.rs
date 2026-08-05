@@ -10,55 +10,13 @@
 //   analyzer  — Desktop Analyzer
 //   selftest  — selftest/smoke
 //
-// 本文件只做 pub use 重导出，不再持有业务逻辑。
+// 本文件只声明子模块；main.rs 使用实际模块路径注册命令。
 
+pub mod analyzer;
+pub mod assistant;
 pub mod common;
 pub mod evidence;
 pub mod models;
 pub mod secrets;
-pub mod sessions;
-pub mod assistant;
-pub mod analyzer;
 pub mod selftest;
-
-// 重导出所有 Tauri 命令函数，供 main.rs invoke_handler 使用
-pub use evidence::{
-    workbench_list_snapshots,
-    workbench_load_snapshot,
-    workbench_node_context,
-    workbench_edge_evidence,
-    workbench_call_chain,
-};
-pub use models::{
-    workbench_models_list,
-    workbench_models_add,
-    workbench_models_remove,
-    workbench_models_set_default,
-    workbench_models_test,
-};
-pub use secrets::{
-    workbench_secret_set,
-    workbench_secret_delete,
-};
-pub use sessions::{
-    workbench_session_create,
-    workbench_session_pin,
-    workbench_session_close,
-    workbench_select_directory,
-};
-pub use assistant::{
-    workbench_explain,
-    workbench_chat,
-    workbench_cancel,
-};
-pub use analyzer::{
-    workbench_analyze,
-    workbench_analyze_cancel,
-    workbench_analyze_status,
-    workbench_pin_snapshot,
-    workbench_unpin_snapshot,
-};
-pub use selftest::{
-    workbench_selftest_enabled,
-    workbench_smoke_report,
-};
+pub mod sessions;

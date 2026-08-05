@@ -54,6 +54,14 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
 
   const indexRef = useRef<SnapshotIndex | null>(null);
   const evidenceRef = useRef<EvidenceClient | null>(null);
+  const activeStreamRef = useRef<StreamHandle | null>(null);
+  const activeSessionIdRef = useRef("");
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   // 订阅 stores → React state
   useEffect(() => {
@@ -71,14 +79,17 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
         if (cancelled || snaps.length === 0) return;
         const data = await props.transport.loadSnapshot(snaps[0].id);
         if (cancelled || !data) return;
-        const index = buildIndex(data);
+        const index = buildIndex(data, snaps[0].id);
         indexRef.current = index;
         evidenceRef.current = new EvidenceClient(props.transport, index, data);
         setSnapshot(data);
         // 通过后端创建 session
         try {
           const sessionId = await props.transport.sessionCreate(index.snapshotId);
-          if (!cancelled) {
+          if (cancelled) {
+            void props.transport.sessionClose(sessionId).catch(() => {});
+          } else {
+            activeSessionIdRef.current = sessionId;
             convStore.dispatch({ type: "replace-session", sessionId, snapshotId: index.snapshotId });
           }
         } catch (e) {
@@ -98,7 +109,12 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
         if (!cancelled) setModelAvailable(false);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      const sessionId = activeSessionIdRef.current;
+      activeSessionIdRef.current = "";
+      if (sessionId) void props.transport.sessionClose(sessionId).catch(() => {});
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [props.transport]);
 
@@ -150,6 +166,7 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
   // ── 模型流 ────────────────────────────────────────────────────────────
 
   async function consumeStream(handle: StreamHandle, placeholderText: string) {
+    activeStreamRef.current = handle;
     setStreaming(true);
     setMessages((prev) => [...prev, { role: "assistant", text: placeholderText, requestId: handle.requestId }]);
     try {
@@ -170,7 +187,10 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
           ? { ...m, error: String(e) } : m),
       );
     } finally {
-      setStreaming(false);
+      if (activeStreamRef.current?.requestId === handle.requestId) {
+        activeStreamRef.current = null;
+        setStreaming(false);
+      }
     }
   }
 
@@ -193,6 +213,14 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
         setMessages((prev) => [...prev, { role: "assistant", text: "会话未初始化，请刷新页面。", error: "no session" }]);
         return;
       }
+      if (ctx.stale) {
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          text: "当前会话仍绑定旧 snapshot，请重新选择范围或等待新会话创建。",
+          error: "stale session",
+        }]);
+        return;
+      }
       const handle = await props.transport.chat({
         sessionId: ctx.sessionId,
         message: text,
@@ -208,8 +236,13 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
   }
 
   async function cancelStream() {
-    // Transport 的 cancel 通过 requestId 调用后端
-    // currentRequest 在 transport 内部管理
+    const handle = activeStreamRef.current;
+    if (!handle) return;
+    await handle.cancel();
+    if (activeStreamRef.current?.requestId === handle.requestId) {
+      activeStreamRef.current = null;
+      setStreaming(false);
+    }
   }
 
   function navigateFromAction(action: NavigationAction) {
@@ -263,11 +296,24 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
             if (status.state === "Completed" && status.publishedSnapshotId) {
               // 加载精确的 publishedSnapshotId（不依赖 snaps[0] 排序）
               const data = await props.transport.loadSnapshot(status.publishedSnapshotId);
-              const index = buildIndex(data);
+              const index = buildIndex(data, status.publishedSnapshotId);
               indexRef.current = index;
               evidenceRef.current = new EvidenceClient(props.transport, index, data);
-              // snapshot 切换 → 旧 session 标记 stale
-              convStore.dispatch({ type: "snapshot-changed", snapshotId: index.snapshotId });
+              const newSessionId = await props.transport.sessionCreate(index.snapshotId);
+              if (!mountedRef.current) {
+                await props.transport.sessionClose(newSessionId).catch(() => {});
+                return;
+              }
+              const oldSessionId = activeSessionIdRef.current;
+              activeSessionIdRef.current = newSessionId;
+              if (oldSessionId) {
+                await props.transport.sessionClose(oldSessionId).catch(() => {});
+              }
+              convStore.dispatch({
+                type: "replace-session",
+                sessionId: newSessionId,
+                snapshotId: index.snapshotId,
+              });
               setSnapshot(data);
             }
           }
@@ -346,7 +392,8 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
           </div>
         )}
         <GraphPane key={indexRef.current?.snapshotId ?? "graph"} selection={selection}
-          transport={props.transport} snapshot={snapshot} store={selStore} />
+          transport={props.transport} snapshot={snapshot}
+          snapshotId={indexRef.current?.snapshotId} store={selStore} />
         <InspectorPanel selection={selection}
           nodeContext={inspectorFull.node ?? inspectorData.node}
           edgeEvidence={inspectorFull.edge ?? inspectorData.edge}

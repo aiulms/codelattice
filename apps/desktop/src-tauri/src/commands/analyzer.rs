@@ -27,7 +27,10 @@ pub fn workbench_analyze(
         PathBuf::from(root)
     };
     if !project_root.is_dir() {
-        return Err(format!("project root not found: {}", project_root.display()));
+        return Err(format!(
+            "project root not found: {}",
+            project_root.display()
+        ));
     }
     let bin = common::repo_root().join("target/debug/codelattice");
     if !bin.is_file() {
@@ -38,28 +41,27 @@ pub fn workbench_analyze(
 
     // start 只做短操作（spawn + insert）
     let job_id = {
-        let sup = state.supervisor.lock().unwrap();
-        sup.start(project_root, language, bin, publish_dir.clone())?
+        state
+            .supervisor
+            .start(project_root, language, bin, publish_dir.clone())?
     };
 
     // 后台线程：锁外 wait，完成后 emit
     let app2 = app.clone();
-    let state_ref = app.state::<AppState>();
-    let publish_dir2 = publish_dir.clone();
-    let job_id2 = job_id.clone();
     std::thread::spawn(move || {
         let binding = app2.state::<AppState>();
-        let sup = binding.supervisor.lock().unwrap();
-        let result = sup.wait_and_publish();
-        drop(sup); // 立即释放 supervisor lock
+        let result = binding.supervisor.wait_and_publish();
 
         // emit 结果
-        let _ = app2.emit("analyzer://event", json!({
-            "jobId": result.job_id,
-            "state": format!("{:?}", result.state),
-            "publishedSnapshotId": result.published_snapshot_id,
-            "error": result.error,
-        }));
+        let _ = app2.emit(
+            "analyzer://event",
+            json!({
+                "jobId": result.job_id,
+                "state": format!("{:?}", result.state),
+                "publishedSnapshotId": result.published_snapshot_id,
+                "error": result.error,
+            }),
+        );
 
         // cleanup published（保留 pinned + 最近 2）
         if result.state == crate::analyzer::AnalyzerState::Completed {
@@ -72,39 +74,52 @@ pub fn workbench_analyze(
 }
 
 #[tauri::command]
-pub fn workbench_pin_snapshot(state: State<AppState>, snapshot_id: String) -> Result<Value, String> {
+pub fn workbench_pin_snapshot(
+    state: State<AppState>,
+    snapshot_id: String,
+) -> Result<Value, String> {
     snapshots::load_snapshot(&snapshot_id)?;
     let mut pinned = state.pinned_snapshots.lock().unwrap();
     if !pinned.contains(&snapshot_id) {
         pinned.push(snapshot_id.clone());
     }
     // 同步更新 query store pin 状态
-    state.query_store.lock().unwrap().set_pinned(&snapshot_id, true);
+    state
+        .query_store
+        .lock()
+        .unwrap()
+        .set_pinned(&snapshot_id, true);
     Ok(json!({"pinned": pinned.clone()}))
 }
 
 #[tauri::command]
-pub fn workbench_unpin_snapshot(state: State<AppState>, snapshot_id: String) -> Result<Value, String> {
+pub fn workbench_unpin_snapshot(
+    state: State<AppState>,
+    snapshot_id: String,
+) -> Result<Value, String> {
     let mut pinned = state.pinned_snapshots.lock().unwrap();
     pinned.retain(|id| id != &snapshot_id);
-    state.query_store.lock().unwrap().set_pinned(&snapshot_id, false);
+    state
+        .query_store
+        .lock()
+        .unwrap()
+        .set_pinned(&snapshot_id, false);
     Ok(json!({"pinned": pinned.clone()}))
 }
 
 #[tauri::command]
 pub fn workbench_analyze_cancel(state: State<AppState>) -> Result<(), String> {
-    state.supervisor.lock().unwrap().request_cancel();
+    state.supervisor.request_cancel();
     Ok(())
 }
 
 #[tauri::command]
 pub fn workbench_analyze_status(state: State<AppState>) -> Result<Value, String> {
-    let sup = state.supervisor.lock().unwrap();
-    let analyzer_state = sup.analyzer_state();
-    let result = sup.last_result();
+    let analyzer_state = state.supervisor.analyzer_state();
+    let result = state.supervisor.last_result();
     Ok(json!({
         "state": format!("{:?}", analyzer_state),
-        "jobId": sup.active_job_id(),
+        "jobId": state.supervisor.active_job_id(),
         "publishedSnapshotId": result.as_ref().and_then(|r| r.published_snapshot_id.clone()),
         "error": result.as_ref().and_then(|r| r.error.clone()),
     }))

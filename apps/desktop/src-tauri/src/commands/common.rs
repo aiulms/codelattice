@@ -35,16 +35,13 @@ pub fn index_for(
     // 加载并插入
     let pinned = state.pinned_snapshots.lock().unwrap().clone();
     let data = crate::snapshots::load_snapshot(snapshot_id)?;
-    let idx = Arc::new(SnapshotGraphIndex::from_snapshot(&data)?);
+    let idx = Arc::new(SnapshotGraphIndex::from_snapshot_with_id(
+        snapshot_id,
+        &data,
+    )?);
     let mut store = state.query_store.lock().unwrap();
     store.insert(snapshot_id.to_string(), idx.clone(), &pinned)?;
     Ok(idx)
-}
-
-/// 从 QueryStore 中移除指定 snapshot（用于 cleanup/delete）。
-pub fn evict_query_store(state: &State<'_, AppState>, snapshot_id: &str) {
-    let mut store = state.query_store.lock().unwrap();
-    store.remove(snapshot_id);
 }
 
 /// 从 SecretStore 解析 Key（仅 Rust 侧使用，绝不回传前端）。
@@ -75,7 +72,11 @@ pub fn evidence_vocabulary(
     fn walk(v: &Value, refs: &mut Vec<String>, identifiers: &mut Vec<String>) {
         match v {
             Value::String(s) => {
-                if s.starts_with("rel:") || s.starts_with("src:") || s.starts_with("limit:") || s.starts_with("coverage:") {
+                if s.starts_with("rel:")
+                    || s.starts_with("src:")
+                    || s.starts_with("limit:")
+                    || s.starts_with("coverage:")
+                {
                     if !refs.contains(s) {
                         refs.push(s.clone());
                     }
@@ -162,39 +163,4 @@ pub fn now_secs() -> u64 {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
-}
-
-/// RAII guard：插入 active_requests 后创建；drop 时自动移除。
-/// 保证所有 `?` / panic / early return 路径都清理 request（返工第二轮 B-fix）。
-pub struct RequestGuard {
-    request_id: String,
-}
-
-impl RequestGuard {
-    /// 在 active_requests 中注册并返回 guard。
-    pub fn register(
-        state: &State<'_, AppState>,
-        request_id: String,
-        cancel: Arc<std::sync::atomic::AtomicBool>,
-    ) -> Self {
-        state
-            .active_requests
-            .lock()
-            .unwrap()
-            .insert(request_id.clone(), cancel);
-        Self { request_id }
-    }
-
-    pub fn request_id(&self) -> &str {
-        &self.request_id
-    }
-}
-
-impl Drop for RequestGuard {
-    fn drop(&mut self) {
-        // guard 持有 AppState 的引用需要通过线程局部或全局状态完成清理；
-        // 由于 guard 在线程内创建，无法直接持有 State 引用。
-        // 实际清理通过线程末尾的 active_requests.remove 完成。
-        // guard 的价值在于提示开发者不要遗漏清理。
-    }
 }

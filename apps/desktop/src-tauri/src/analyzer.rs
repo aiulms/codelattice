@@ -6,13 +6,12 @@
 // - status 立即返回 Running（不需要等任务结束）
 // - 完成后返回 publishedSnapshotId
 
+use std::fs::File;
 use std::path::PathBuf;
-use std::process::{Child, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
-
-use serde_json::json;
-use understanding_gateway::worker::{SupervisorConfig, WorkerEvent, WorkerState, WorkerSupervisor};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 /// 运行中的 analyzer 进程信息（child 独立 mutex，不阻塞 supervisor）。
 struct RunningJob {
@@ -24,9 +23,8 @@ struct RunningJob {
 }
 
 pub struct AnalyzerSupervisor {
-    machine: WorkerSupervisor,
-    /// 独立 mutex 保护 RunningJob 引用；wait 在锁外执行。
-    running: Mutex<Option<RunningJob>>,
+    /// 共享 job 保留到 wait 结束，使 status/cancel 始终能定位 child。
+    running: Mutex<Option<Arc<RunningJob>>>,
     /// 最终结果（完成后可查）。
     last_result: Mutex<Option<AnalyzerResult>>,
 }
@@ -53,10 +51,6 @@ pub enum AnalyzerState {
 impl Default for AnalyzerSupervisor {
     fn default() -> Self {
         Self {
-            machine: WorkerSupervisor::new(SupervisorConfig {
-                temp_prefix: "codelattice-desktop-analyzer-".to_string(),
-                default_nice: 10,
-            }),
             running: Mutex::new(None),
             last_result: Mutex::new(None),
         }
@@ -64,10 +58,6 @@ impl Default for AnalyzerSupervisor {
 }
 
 impl AnalyzerSupervisor {
-    pub fn state(&self) -> WorkerState {
-        self.machine.state()
-    }
-
     /// 返回当前状态（不阻塞 wait）。
     pub fn analyzer_state(&self) -> AnalyzerState {
         if self.running.lock().unwrap().is_some() {
@@ -81,7 +71,11 @@ impl AnalyzerSupervisor {
 
     /// 返回当前 job_id（不阻塞）。
     pub fn active_job_id(&self) -> Option<String> {
-        self.running.lock().unwrap().as_ref().map(|r| r.job_id.clone())
+        self.running
+            .lock()
+            .unwrap()
+            .as_ref()
+            .map(|r| r.job_id.clone())
     }
 
     /// 返回最近一次结果（不阻塞）。
@@ -102,9 +96,16 @@ impl AnalyzerSupervisor {
             return Err("analyzer already running".to_string());
         }
 
-        let job_id = format!("job-{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs());
+        let job_id = format!(
+            "job-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_nanos()
+        );
         let temp_output = std::env::temp_dir().join(format!("{job_id}.tmp.json"));
+        let stdout = File::create(&temp_output)
+            .map_err(|e| format!("create analyzer output failed: {e}"))?;
 
         let mut command = std::process::Command::new("nice");
         command
@@ -114,18 +115,21 @@ impl AnalyzerSupervisor {
             .args(["analyze", "--root"])
             .arg(&project_root)
             .args(["--language", &language, "--format", "json"])
-            .stdout(Stdio::piped())
+            .stdout(Stdio::from(stdout))
             .stderr(Stdio::null());
 
-        let child = command.spawn().map_err(|e| format!("spawn failed: {e}"))?;
+        let child = command.spawn().map_err(|e| {
+            let _ = std::fs::remove_file(&temp_output);
+            format!("spawn failed: {e}")
+        })?;
 
-        let job = RunningJob {
+        let job = Arc::new(RunningJob {
             job_id: job_id.clone(),
             child: Mutex::new(Some(child)),
             cancel_flag: AtomicBool::new(false),
             temp_output,
             publish_dir,
-        };
+        });
         *self.running.lock().unwrap() = Some(job);
         *self.last_result.lock().unwrap() = None;
         Ok(job_id)
@@ -133,22 +137,35 @@ impl AnalyzerSupervisor {
 
     /// 取消正在运行的 child（不阻塞 wait）。
     pub fn request_cancel(&self) {
-        if let Some(job) = self.running.lock().unwrap().as_ref() {
+        let job = self.running.lock().unwrap().clone();
+        if let Some(job) = job {
             job.cancel_flag.store(true, Ordering::SeqCst);
-            // kill child — 短操作
-            if let Some(mut child) = job.child.lock().unwrap().take() {
+            // child 保留在共享 job 中；kill 后由 wait loop 回收状态。
+            if let Some(child) = job.child.lock().unwrap().as_mut() {
                 let _ = child.kill();
             }
         }
     }
 
-    /// 等待完成并发布（在独立线程调用；锁外执行 wait）。
+    fn finish(&self, result: AnalyzerResult) -> AnalyzerResult {
+        let mut running = self.running.lock().unwrap();
+        if running
+            .as_ref()
+            .is_some_and(|job| job.job_id == result.job_id)
+        {
+            *running = None;
+        }
+        drop(running);
+        *self.last_result.lock().unwrap() = Some(result.clone());
+        result
+    }
+
+    /// 等待完成并发布（独立线程调用；只短暂锁 child 做 try_wait）。
     pub fn wait_and_publish(&self) -> AnalyzerResult {
-        // 从 mutex 中取出 job（短操作），然后在锁外 wait
         let job = {
-            let mut guard = self.running.lock().unwrap();
-            match guard.take() {
-                Some(j) => j,
+            let guard = self.running.lock().unwrap();
+            match guard.as_ref() {
+                Some(j) => Arc::clone(j),
                 None => {
                     return AnalyzerResult {
                         job_id: String::new(),
@@ -161,81 +178,72 @@ impl AnalyzerSupervisor {
             }
         };
 
-        if job.cancel_flag.load(Ordering::SeqCst) {
-            let _ = std::fs::remove_file(&job.temp_output);
-            let result = AnalyzerResult {
-                job_id: job.job_id.clone(),
-                state: AnalyzerState::Cancelled,
-                published_snapshot_id: None,
-                published_path: None,
-                error: None,
+        let status: ExitStatus = loop {
+            let polled = {
+                let mut child = job.child.lock().unwrap();
+                match child.as_mut() {
+                    Some(child) => child.try_wait(),
+                    None => {
+                        return self.finish(AnalyzerResult {
+                            job_id: job.job_id.clone(),
+                            state: AnalyzerState::Failed,
+                            published_snapshot_id: None,
+                            published_path: None,
+                            error: Some("analyzer child missing".to_string()),
+                        });
+                    }
+                }
             };
-            *self.last_result.lock().unwrap() = Some(result.clone());
-            return result;
-        }
-
-        // 锁外执行 wait_with_output
-        let child = match job.child.lock().unwrap().take() {
-            Some(c) => c,
-            None => {
-                let result = AnalyzerResult {
-                    job_id: job.job_id.clone(),
-                    state: AnalyzerState::Failed,
-                    published_snapshot_id: None,
-                    published_path: None,
-                    error: Some("child already taken".to_string()),
-                };
-                *self.last_result.lock().unwrap() = Some(result.clone());
-                return result;
-            }
-        };
-
-        let output = match child.wait_with_output() {
-            Ok(o) => o,
-            Err(e) => {
-                let result = AnalyzerResult {
-                    job_id: job.job_id.clone(),
-                    state: AnalyzerState::Failed,
-                    published_snapshot_id: None,
-                    published_path: None,
-                    error: Some(format!("wait failed: {e}")),
-                };
-                *self.last_result.lock().unwrap() = Some(result.clone());
-                return result;
+            match polled {
+                Ok(Some(status)) => break status,
+                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                Err(e) => {
+                    return self.finish(AnalyzerResult {
+                        job_id: job.job_id.clone(),
+                        state: AnalyzerState::Failed,
+                        published_snapshot_id: None,
+                        published_path: None,
+                        error: Some(format!("wait failed: {e}")),
+                    });
+                }
             }
         };
 
         if job.cancel_flag.load(Ordering::SeqCst) {
             let _ = std::fs::remove_file(&job.temp_output);
-            let result = AnalyzerResult {
+            return self.finish(AnalyzerResult {
                 job_id: job.job_id.clone(),
                 state: AnalyzerState::Cancelled,
                 published_snapshot_id: None,
                 published_path: None,
                 error: None,
-            };
-            *self.last_result.lock().unwrap() = Some(result.clone());
-            return result;
+            });
         }
 
-        if !output.status.success() {
+        if !status.success() {
             let _ = std::fs::remove_file(&job.temp_output);
-            let result = AnalyzerResult {
+            return self.finish(AnalyzerResult {
                 job_id: job.job_id.clone(),
                 state: AnalyzerState::Failed,
                 published_snapshot_id: None,
                 published_path: None,
-                error: Some(format!("analyze failed with {}", output.status)),
-            };
-            *self.last_result.lock().unwrap() = Some(result.clone());
-            return result;
+                error: Some(format!("analyze failed with {status}")),
+            });
         }
 
         // 原子发布
-        let _ = std::fs::write(&job.temp_output, &output.stdout);
         let final_path = job.publish_dir.join(format!("{}.json", job.job_id));
         let tmp_path = job.publish_dir.join(format!(".{}.tmp", job.job_id));
-        let _ = std::fs::write(&tmp_path, &output.stdout);
+        if let Err(e) = std::fs::copy(&job.temp_output, &tmp_path) {
+            let _ = std::fs::remove_file(&job.temp_output);
+            return self.finish(AnalyzerResult {
+                job_id: job.job_id.clone(),
+                state: AnalyzerState::Failed,
+                published_snapshot_id: None,
+                published_path: None,
+                error: Some(format!("stage publish failed: {e}")),
+            });
+        }
         let publish_result = std::fs::rename(&tmp_path, &final_path);
         let _ = std::fs::remove_file(&job.temp_output);
 
@@ -248,8 +256,7 @@ impl AnalyzerSupervisor {
                     published_path: Some(final_path.to_string_lossy().to_string()),
                     error: None,
                 };
-                *self.last_result.lock().unwrap() = Some(result.clone());
-                result
+                self.finish(result)
             }
             Err(e) => {
                 let result = AnalyzerResult {
@@ -259,9 +266,61 @@ impl AnalyzerSupervisor {
                     published_path: None,
                     error: Some(format!("publish failed: {e}")),
                 };
-                *self.last_result.lock().unwrap() = Some(result.clone());
-                result
+                self.finish(result)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::Arc;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+    fn test_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "codelattice-analyzer-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn running_job_remains_observable_and_cancellable_while_waiting() {
+        let dir = test_dir("cancel");
+        let script = dir.join("slow-analyzer.sh");
+        fs::write(&script, "#!/bin/sh\nsleep 2\nprintf '{\"ok\":true}'\n").unwrap();
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+
+        let supervisor = Arc::new(AnalyzerSupervisor::default());
+        supervisor
+            .start(dir.clone(), "rust".into(), script, dir.clone())
+            .unwrap();
+
+        let waiter = Arc::clone(&supervisor);
+        let join = std::thread::spawn(move || waiter.wait_and_publish());
+        std::thread::sleep(Duration::from_millis(100));
+
+        let observed_while_waiting = supervisor.analyzer_state();
+        let cancel_started = std::time::Instant::now();
+        supervisor.request_cancel();
+        let cancel_latency = cancel_started.elapsed();
+        let result = join.join().unwrap();
+
+        let _ = fs::remove_dir_all(&dir);
+        assert_eq!(observed_while_waiting, AnalyzerState::Running);
+        assert!(cancel_latency < Duration::from_millis(100));
+        assert_eq!(result.state, AnalyzerState::Cancelled);
+        assert!(result.published_snapshot_id.is_none());
     }
 }

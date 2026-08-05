@@ -15,7 +15,9 @@ pub fn workbench_secret_set(
     let mut store = state.gateway.lock().unwrap();
     let reference = {
         let store = store.secret_store.as_mut();
-        store.set(&service, &account, &secret).map_err(|e| format!("{e:?}"))?
+        store
+            .set(&service, &account, &secret)
+            .map_err(|e| format!("{e:?}"))?
     };
     Ok(json!({
         "secretRef": reference,

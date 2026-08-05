@@ -2,8 +2,8 @@
 use serde_json::{json, Value};
 use tauri::State;
 
-use crate::AppState;
 use super::common;
+use crate::AppState;
 
 #[tauri::command]
 pub fn workbench_list_snapshots() -> Result<Value, String> {

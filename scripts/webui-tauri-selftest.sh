@@ -1,59 +1,96 @@
 #!/usr/bin/env bash
-# webui-tauri-selftest.sh — P0-F1 #7 / G1 gate：真实 WKWebView 内的 G6 smoke。
-#
-# 执行：CODELATTICE_SELFTEST=1 启动 tauri dev → selftest 在 WebView 内跑
-# （mount / node click / edge click / resize / 重复 mount/unmount ×3）→
-# 结果写 CODELATTICE_SMOKE_OUT → 本脚本等待文件出现后退出。
-#
-# 用法：
-#   bash scripts/webui-tauri-selftest.sh [--timeout 秒] [--keep-running]
+# production WKWebView selftest：不依赖 Vite 端口，只管理本次精确启动的 PID。
 
-set -u
+set -euo pipefail
+
 WS="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TIMEOUT=240
 KEEP=false
-for a in "$@"; do
-  case "$a" in
-    --timeout) TIMEOUT="$2"; shift 2 ;;
-    --keep-running) KEEP=true ;;
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --timeout)
+      TIMEOUT="$2"
+      shift 2
+      ;;
+    --keep-running)
+      KEEP=true
+      shift
+      ;;
+    *)
+      echo "unknown argument: $1" >&2
+      exit 2
+      ;;
   esac
 done
 
 OUT="${CODELATTICE_SMOKE_OUT:-$WS/target/selftest-report.json}"
-rm -f "$OUT"
+LOG="${CODELATTICE_SELFTEST_LOG:-$WS/target/tauri-selftest.log}"
+BINARY="$WS/apps/desktop/src-tauri/target/release/codelattice-workbench"
+SNAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codelattice-selftest.XXXXXX")"
+APP_PID=""
 
-echo "[selftest] starting tauri dev with CODELATTICE_SELFTEST=1 (timeout ${TIMEOUT}s)"
-cd "$WS/apps/desktop" || exit 1
-CODELATTICE_SELFTEST=1 CODELATTICE_SMOKE_OUT="$OUT" npx tauri dev > /tmp/tauri-selftest.log 2>&1 &
-PID=$!
-trap '[[ "$KEEP" != true ]] && kill $PID 2>/dev/null; pkill -f "codelattice-workbench" 2>/dev/null; true' EXIT
+cleanup() {
+  if [[ -n "$APP_PID" ]] && kill -0 "$APP_PID" 2>/dev/null; then
+    if [[ "$KEEP" != true ]]; then
+      kill "$APP_PID" 2>/dev/null || true
+      wait "$APP_PID" 2>/dev/null || true
+    fi
+  fi
+  rm -rf "$SNAP_DIR"
+}
+trap cleanup EXIT
 
-# 等待报告文件
-ELAPSED=0
+mkdir -p "$WS/target"
+cp "$WS/fixtures/webui-snapshots/rust-portable-smoke.snapshot.json" \
+  "$SNAP_DIR/rust-portable-smoke.snapshot.json"
+rm -f "$OUT" "${OUT%.json}.trace.log"
+
+echo "[selftest] building production frontend and Tauri binary"
+(cd "$WS/apps/desktop" && npm run tauri build -- --no-bundle)
+
+EXIT_AFTER_REPORT=1
+if [[ "$KEEP" == true ]]; then
+  EXIT_AFTER_REPORT=0
+fi
+echo "[selftest] launching exact binary (timeout ${TIMEOUT}s)"
+CODELATTICE_SELFTEST=1 \
+CODELATTICE_SELFTEST_EXIT="$EXIT_AFTER_REPORT" \
+CODELATTICE_SMOKE_OUT="$OUT" \
+CODELATTICE_SNAP_DIR="$SNAP_DIR" \
+CODELATTICE_PUBLISH_DIR="$SNAP_DIR/published" \
+  "$BINARY" >"$LOG" 2>&1 &
+APP_PID=$!
+echo "[selftest] appPid=$APP_PID"
+
+START=$SECONDS
 while [[ ! -f "$OUT" ]]; do
-  sleep 3
-  ELAPSED=$((ELAPSED + 3))
-  if [[ $ELAPSED -ge $TIMEOUT ]]; then
-    echo "[selftest] TIMEOUT after ${TIMEOUT}s — no report file"
-    tail -20 /tmp/tauri-selftest.log
+  if ! kill -0 "$APP_PID" 2>/dev/null; then
+    echo "[selftest] app exited before writing report" >&2
+    tail -30 "$LOG" >&2 || true
     exit 1
   fi
+  if (( SECONDS - START >= TIMEOUT )); then
+    echo "[selftest] timeout: no report after ${TIMEOUT}s" >&2
+    tail -30 "$LOG" >&2 || true
+    exit 1
+  fi
+  sleep 0.25
 done
 
-sleep 1
-echo "[selftest] report written after ${ELAPSED}s:"
-cat "$OUT"
-echo ""
-python3 - "$OUT" << 'PYEOF'
-import json, sys
-report = json.load(open(sys.argv[1]))
+python3 - "$OUT" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    report = json.load(handle)
 ok = report.get("allPass") is True
+print(json.dumps(report, ensure_ascii=False, indent=2))
 print("allPass:", ok)
-for s in report.get("steps", []):
-    mark = "PASS" if s.get("pass") else "FAIL"
-    print(f"  [{mark}] {s.get('name')}" + (f" — {s.get('detail')}" if not s.get("pass") else ""))
-sys.exit(0 if ok else 1)
-PYEOF
-RC=$?
-echo "[selftest] exit=$RC"
-exit $RC
+for step in report.get("steps", []):
+    mark = "PASS" if step.get("pass") else "FAIL"
+    detail = f" — {step.get('detail')}" if not step.get("pass") else ""
+    print(f"  [{mark}] {step.get('name')}{detail}")
+raise SystemExit(0 if ok else 1)
+PY
+
+echo "[selftest] PASS"

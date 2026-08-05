@@ -18,6 +18,8 @@ pub struct Session {
     pub trace: Vec<ToolTrace>,
     pub status: SessionStatus,
     pub created_at: u64,
+    /// 已成功完成的对话轮次；完成一轮不会关闭 conversation session。
+    pub completed_turns: u64,
 }
 
 impl Session {
@@ -34,6 +36,7 @@ impl Session {
             trace: Vec::new(),
             status: SessionStatus::Active,
             created_at: now,
+            completed_turns: 0,
         }
     }
 }
@@ -92,6 +95,49 @@ impl SessionManager {
     pub fn append_trace(&mut self, session_id: &str, trace: ToolTrace) {
         if let Some(s) = self.sessions.get_mut(session_id) {
             s.trace.push(trace);
+        }
+    }
+
+    /// 验证一次 Chat 请求仍绑定到同一 snapshot/pinned scope。
+    /// 前后端任一侧上下文漂移都必须显式重建或重新 pin，禁止静默读取旧图。
+    pub fn validate_turn(
+        &self,
+        session_id: &str,
+        snapshot_id: &str,
+        pinned_scope: Option<&PinnedScope>,
+    ) -> Result<(), String> {
+        let session = self
+            .sessions
+            .get(session_id)
+            .ok_or_else(|| format!("session not found: {session_id}"))?;
+        if session.status != SessionStatus::Active {
+            return Err(format!("session is not active: {:?}", session.status));
+        }
+        if session.context.stale {
+            return Err(
+                "session snapshot is stale; recreate or re-pin before chatting".to_string(),
+            );
+        }
+        if session.context.snapshot_id != snapshot_id {
+            return Err(format!(
+                "session snapshot mismatch: expected {}, got {}",
+                session.context.snapshot_id, snapshot_id
+            ));
+        }
+        if session.context.pinned_scope.as_ref() != pinned_scope {
+            return Err("session pinned scope mismatch; re-pin before chatting".to_string());
+        }
+        Ok(())
+    }
+
+    /// 完成单个请求轮次，conversation session 保持 Active 以支持多轮对话。
+    pub fn finish_turn(&mut self, session_id: &str) -> bool {
+        match self.sessions.get_mut(session_id) {
+            Some(session) if session.status == SessionStatus::Active => {
+                session.completed_turns += 1;
+                true
+            }
+            _ => false,
         }
     }
 
@@ -177,5 +223,39 @@ mod tests {
         assert!(m.cancel(&id));
         assert!(!m.cancel(&id), "已取消不能再次取消");
         assert_eq!(m.get(&id).unwrap().status, SessionStatus::Cancelled);
+    }
+
+    #[test]
+    fn active_conversation_accepts_two_completed_turns() {
+        let mut m = SessionManager::new();
+        let id = m.create("snap:1", 1);
+        let scope = PinnedScope {
+            scope_type: ConversationScopeType::Node,
+            id: "n:a".into(),
+        };
+        assert!(m.pin(&id, scope.scope_type, &scope.id, "snap:1"));
+
+        m.validate_turn(&id, "snap:1", Some(&scope)).unwrap();
+        assert!(m.finish_turn(&id));
+        m.validate_turn(&id, "snap:1", Some(&scope)).unwrap();
+        assert!(m.finish_turn(&id));
+
+        let session = m.get(&id).unwrap();
+        assert_eq!(session.status, SessionStatus::Active);
+        assert_eq!(session.completed_turns, 2);
+    }
+
+    #[test]
+    fn turn_validation_rejects_snapshot_or_scope_mismatch() {
+        let mut m = SessionManager::new();
+        let id = m.create("snap:1", 1);
+        let scope = PinnedScope {
+            scope_type: ConversationScopeType::Edge,
+            id: "rel:a-b".into(),
+        };
+        assert!(m.pin(&id, scope.scope_type, &scope.id, "snap:1"));
+
+        assert!(m.validate_turn(&id, "snap:2", Some(&scope)).is_err());
+        assert!(m.validate_turn(&id, "snap:1", None).is_err());
     }
 }

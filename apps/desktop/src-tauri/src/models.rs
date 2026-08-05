@@ -62,7 +62,10 @@ pub(crate) fn add_model(config: ModelConfig) -> Result<(), String> {
     // 明文 Key 防守（§7.2）：配置中不允许明文 Key
     if let Some(r) = &config.api_key_ref {
         if !r.starts_with("keychain:") && !r.starts_with("secret:") {
-            return Err("apiKeyRef must be a secret reference (keychain:/secret:), plaintext rejected".to_string());
+            return Err(
+                "apiKeyRef must be a secret reference (keychain:/secret:), plaintext rejected"
+                    .to_string(),
+            );
         }
     }
     let mut mf = load_models()?;
@@ -111,7 +114,14 @@ pub fn get_model(id: Option<&str>) -> Result<ModelConfig, String> {
     } else {
         mf.models
             .iter()
-            .find(|m| Some(m.id.as_str()) == if mf.default.is_empty() { None } else { Some(mf.default.as_str()) })
+            .find(|m| {
+                Some(m.id.as_str())
+                    == if mf.default.is_empty() {
+                        None
+                    } else {
+                        Some(mf.default.as_str())
+                    }
+            })
             .or_else(|| mf.models.first())
             .cloned()
             .ok_or_else(|| "no model configured".to_string())

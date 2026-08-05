@@ -12,8 +12,10 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 use tauri::{Emitter, Manager, State};
 
-use understanding_gateway::dto::{Claim, ClaimClassification, GatewayEvent, GraphSelection};
-use understanding_gateway::provider::{ModelAdapter, StreamChunk};
+use understanding_gateway::dto::{
+    Claim, ClaimClassification, GatewayEvent, GraphSelection, PinnedScope,
+};
+use understanding_gateway::provider::StreamChunk;
 use understanding_gateway::provider_http::HttpModelAdapter;
 use understanding_gateway::service::UnderstandingService;
 
@@ -43,9 +45,10 @@ pub fn workbench_explain(
         .to_string();
 
     let (snapshot_id, node_id, relation_key) = match &selection {
-        GraphSelection::Node { snapshot_id, node_id } => {
-            (snapshot_id.clone(), Some(node_id.clone()), None)
-        }
+        GraphSelection::Node {
+            snapshot_id,
+            node_id,
+        } => (snapshot_id.clone(), Some(node_id.clone()), None),
         GraphSelection::Relation {
             snapshot_id,
             relation_key,
@@ -65,13 +68,17 @@ pub fn workbench_explain(
         .insert(request_id.clone(), cancel.clone());
 
     // 辅助：在错误路径上 emit error 并清理 request
-    let fail_and_cleanup = |app: &tauri::AppHandle, state: &State<'_, AppState>, rid: &str, msg: &str| {
-        let _ = app.emit(
-            &format!("gateway:{rid}"),
-            GatewayEvent::Error { message: msg.to_string(), request_id: rid.to_string() },
-        );
-        state.active_requests.lock().unwrap().remove(rid);
-    };
+    let fail_and_cleanup =
+        |app: &tauri::AppHandle, state: &State<'_, AppState>, rid: &str, msg: &str| {
+            let _ = app.emit(
+                &format!("gateway:{rid}"),
+                GatewayEvent::Error {
+                    message: msg.to_string(),
+                    request_id: rid.to_string(),
+                },
+            );
+            state.active_requests.lock().unwrap().remove(rid);
+        };
 
     // 构建 evidence bundle — 错误路径必须清理
     let index = match common::index_for(&state, &snapshot_id) {
@@ -85,7 +92,12 @@ pub fn workbench_explain(
         match serde_json::to_value(index.node_context(nid)) {
             Ok(v) => v,
             Err(e) => {
-                fail_and_cleanup(&app, &state, &request_id, &format!("evidence build failed: {e}"));
+                fail_and_cleanup(
+                    &app,
+                    &state,
+                    &request_id,
+                    &format!("evidence build failed: {e}"),
+                );
                 return Ok(());
             }
         }
@@ -94,12 +106,22 @@ pub fn workbench_explain(
             Some(b) => match serde_json::to_value(b) {
                 Ok(v) => v,
                 Err(e) => {
-                    fail_and_cleanup(&app, &state, &request_id, &format!("evidence serialize: {e}"));
+                    fail_and_cleanup(
+                        &app,
+                        &state,
+                        &request_id,
+                        &format!("evidence serialize: {e}"),
+                    );
                     return Ok(());
                 }
             },
             None => {
-                fail_and_cleanup(&app, &state, &request_id, &format!("relation not found: {rk}"));
+                fail_and_cleanup(
+                    &app,
+                    &state,
+                    &request_id,
+                    &format!("relation not found: {rk}"),
+                );
                 return Ok(());
             }
         }
@@ -132,7 +154,9 @@ pub fn workbench_explain(
     };
 
     // cache check — hit 时 emit complete 并清理
-    let evidence_json = serde_json::to_string(&evidence).map_err(|e| e.to_string()).unwrap_or_default();
+    let evidence_json = serde_json::to_string(&evidence)
+        .map_err(|e| e.to_string())
+        .unwrap_or_default();
     let eh = UnderstandingService::evidence_hash(&evidence_json);
     let cache_key = {
         let gw = state.gateway.lock().unwrap();
@@ -181,7 +205,10 @@ pub fn workbench_explain(
         if cancel.load(Ordering::SeqCst) {
             let _ = app2.emit(
                 &format!("gateway:{rid}"),
-                GatewayEvent::Error { message: "cancelled before start".into(), request_id: rid.clone() },
+                GatewayEvent::Error {
+                    message: "cancelled before start".into(),
+                    request_id: rid.clone(),
+                },
             );
             binding.active_requests.lock().unwrap().remove(&rid);
             return;
@@ -195,7 +222,10 @@ pub fn workbench_explain(
                     if cancel.load(Ordering::SeqCst) {
                         let _ = app2.emit(
                             &format!("gateway:{rid}"),
-                            GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                            GatewayEvent::Error {
+                                message: "cancelled".into(),
+                                request_id: rid.clone(),
+                            },
                         );
                         binding.active_requests.lock().unwrap().remove(&rid);
                         return;
@@ -205,7 +235,10 @@ pub fn workbench_explain(
                             text.push_str(&t);
                             let _ = app2.emit(
                                 &format!("gateway:{rid}"),
-                                GatewayEvent::AnswerChunk { text: t, request_id: rid.clone() },
+                                GatewayEvent::AnswerChunk {
+                                    text: t,
+                                    request_id: rid.clone(),
+                                },
                             );
                         }
                         StreamChunk::Done => break,
@@ -216,17 +249,23 @@ pub fn workbench_explain(
                     Ok(mut a) => {
                         for c in &mut a.claims {
                             if c.coverage_caveat_refs.is_empty() {
-                                c.coverage_caveat_refs.push("coverage:project:calls".to_string());
+                                c.coverage_caveat_refs
+                                    .push("coverage:project:calls".to_string());
                             }
                         }
-                        let mut gw = binding.gateway.lock().unwrap();
-                        let _report = gw.validate_answer(&mut a, &valid_refs, &vocab, &nodes, &relations);
+                        let gw = binding.gateway.lock().unwrap();
+                        let _report =
+                            gw.validate_answer(&mut a, &valid_refs, &vocab, &nodes, &relations);
                         a
                     }
                     Err(e) => {
                         // 返工修复：degraded_answer 带真实 requestId
                         if let GatewayEvent::AnswerComplete { mut answer, .. } =
-                            common::degraded_answer(&format!("模型输出解析失败：{e}"), scope_for_degraded.clone(), &rid)
+                            common::degraded_answer(
+                                &format!("模型输出解析失败：{e}"),
+                                scope_for_degraded.clone(),
+                                &rid,
+                            )
                         {
                             answer.answer_summary = format!(
                                 "未能解析模型输出（{e}）。以下为静态降级说明：当前选择没有可用解释。"
@@ -251,16 +290,23 @@ pub fn workbench_explain(
                 let answer_value = serde_json::to_value(&answer).unwrap_or(Value::Null);
                 {
                     let mut gw = binding.gateway.lock().unwrap();
-                    gw.cache.put(cache_key.clone(), answer_value, common::now_secs());
+                    gw.cache
+                        .put(cache_key.clone(), answer_value, common::now_secs());
                 }
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
-                    GatewayEvent::AnswerComplete { request_id: rid.clone(), answer },
+                    GatewayEvent::AnswerComplete {
+                        request_id: rid.clone(),
+                        answer,
+                    },
                 );
             }
             Err(e) => {
                 // 返工修复：degraded_answer 带真实 requestId
-                let _ = app2.emit(&format!("gateway:{rid}"), common::degraded_answer(&e, scope_for_degraded, &rid));
+                let _ = app2.emit(
+                    &format!("gateway:{rid}"),
+                    common::degraded_answer(&e, scope_for_degraded, &rid),
+                );
             }
         }
         // 所有路径的最终清理
@@ -306,20 +352,25 @@ pub fn workbench_chat(
     if session_id.is_empty() {
         return Err("sessionId is required".to_string());
     }
+    let payload_snapshot_id = payload
+        .get("snapshotId")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "snapshotId is required".to_string())?
+        .to_string();
+    let pinned_scope: Option<PinnedScope> = serde_json::from_value(
+        payload
+            .get("pinnedScope")
+            .cloned()
+            .ok_or_else(|| "pinnedScope is required".to_string())?,
+    )
+    .map_err(|e| format!("invalid pinnedScope: {e}"))?;
+
     let snapshot_id = {
         let gw = state.gateway.lock().unwrap();
-        let session = gw.sessions.get(&session_id)
-            .ok_or_else(|| format!("session not found: {session_id}"))?;
-        // 验证 session 状态：stale/closed 不允许
-        if session.status != understanding_gateway::session::SessionStatus::Active {
-            return Err(format!("session is not active: {:?}, please recreate", session.status));
-        }
-        session.context.snapshot_id.clone()
+        gw.sessions
+            .validate_turn(&session_id, &payload_snapshot_id, pinned_scope.as_ref())?;
+        payload_snapshot_id.clone()
     };
-
-    // 从 payload 获取 pinnedScope（必须存在）
-    let pinned_scope = payload.get("pinnedScope")
-        .ok_or_else(|| "pinnedScope is required".to_string())?;
 
     let provider_id = payload
         .get("providerId")
@@ -333,17 +384,24 @@ pub fn workbench_chat(
         .unwrap()
         .insert(request_id.clone(), cancel.clone());
 
-    let fail_and_cleanup = |app: &tauri::AppHandle, state: &State<'_, AppState>, rid: &str, msg: &str| {
-        let _ = app.emit(
-            &format!("gateway:{rid}"),
-            GatewayEvent::Error { message: msg.to_string(), request_id: rid.to_string() },
-        );
-        state.active_requests.lock().unwrap().remove(rid);
-    };
+    let fail_and_cleanup =
+        |app: &tauri::AppHandle, state: &State<'_, AppState>, rid: &str, msg: &str| {
+            let _ = app.emit(
+                &format!("gateway:{rid}"),
+                GatewayEvent::Error {
+                    message: msg.to_string(),
+                    request_id: rid.to_string(),
+                },
+            );
+            state.active_requests.lock().unwrap().remove(rid);
+        };
 
     let index = match common::index_for(&state, &snapshot_id) {
         Ok(i) => i,
-        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &e); return Ok(()); }
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &e);
+            return Ok(());
+        }
     };
     let mut budget = understanding_gateway::dispatcher::BudgetTracker::new();
     let tools = chat_tools_schema();
@@ -351,15 +409,24 @@ pub fn workbench_chat(
 
     let model = match models::get_model(provider_id.as_deref()) {
         Ok(m) => m,
-        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &format!("model: {e}")); return Ok(()); }
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &format!("model: {e}"));
+            return Ok(());
+        }
     };
     let api_key = match common::resolve_api_key(&state, &model) {
         Ok(k) => k,
-        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &e); return Ok(()); }
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &e);
+            return Ok(());
+        }
     };
     let adapter = match HttpModelAdapter::new(model.clone()) {
         Ok(a) => a,
-        Err(e) => { fail_and_cleanup(&app, &state, &request_id, &format!("adapter: {e}")); return Ok(()); }
+        Err(e) => {
+            fail_and_cleanup(&app, &state, &request_id, &format!("adapter: {e}"));
+            return Ok(());
+        }
     };
 
     let history: Vec<Value> = {
@@ -381,7 +448,7 @@ pub fn workbench_chat(
     let request_id2 = request_id.clone();
     let session_id2 = session_id.clone();
     let index_arc = index.clone();
-    let pinned_scope_text = serde_json::to_string(pinned_scope).unwrap_or_default();
+    let pinned_scope_text = serde_json::to_string(&pinned_scope).unwrap_or_default();
     std::thread::spawn(move || {
         let binding = app2.state::<AppState>();
         let rid = request_id2.clone();
@@ -389,7 +456,10 @@ pub fn workbench_chat(
         if cancel.load(Ordering::SeqCst) {
             let _ = app2.emit(
                 &format!("gateway:{rid}"),
-                GatewayEvent::Error { message: "cancelled before start".into(), request_id: rid.clone() },
+                GatewayEvent::Error {
+                    message: "cancelled before start".into(),
+                    request_id: rid.clone(),
+                },
             );
             binding.active_requests.lock().unwrap().remove(&rid);
             return;
@@ -405,11 +475,14 @@ pub fn workbench_chat(
         let mut evidence_text = String::new();
         let mut got_terminal = false;
 
-        for round in 0..6u32 {
+        for _round in 0..6u32 {
             if cancel.load(Ordering::SeqCst) {
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
-                    GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                    GatewayEvent::Error {
+                        message: "cancelled".into(),
+                        request_id: rid.clone(),
+                    },
                 );
                 got_terminal = true;
                 break;
@@ -418,7 +491,8 @@ pub fn workbench_chat(
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
                     GatewayEvent::BudgetLimit {
-                        reason: "session tool/evidence budget exhausted (12 calls / 16K tokens)".to_string(),
+                        reason: "session tool/evidence budget exhausted (12 calls / 16K tokens)"
+                            .to_string(),
                         request_id: rid.clone(),
                     },
                 );
@@ -432,7 +506,10 @@ pub fn workbench_chat(
                 Err(e) => {
                     let _ = app2.emit(
                         &format!("gateway:{rid}"),
-                        GatewayEvent::Error { message: format!("model request failed: {e}"), request_id: rid.clone() },
+                        GatewayEvent::Error {
+                            message: format!("model request failed: {e}"),
+                            request_id: rid.clone(),
+                        },
                     );
                     got_terminal = true;
                     break;
@@ -440,7 +517,9 @@ pub fn workbench_chat(
             };
             let mut text = String::new();
             for chunk in stream {
-                if cancel.load(Ordering::SeqCst) { break; }
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
                 match chunk {
                     StreamChunk::Text(t) => text.push_str(&t),
                     StreamChunk::Done => break,
@@ -449,7 +528,10 @@ pub fn workbench_chat(
             if cancel.load(Ordering::SeqCst) {
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
-                    GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                    GatewayEvent::Error {
+                        message: "cancelled".into(),
+                        request_id: rid.clone(),
+                    },
                 );
                 got_terminal = true;
                 break;
@@ -458,40 +540,50 @@ pub fn workbench_chat(
             let calls = UnderstandingService::parse_tool_calls(&text);
             if calls.is_empty() {
                 // 最终回答
-                let (valid_refs, vocab, nodes, relations) = common::evidence_vocabulary(
-                    &Value::String(evidence_text.clone()),
-                    &index_arc,
-                );
+                let (valid_refs, vocab, nodes, relations) =
+                    common::evidence_vocabulary(&Value::String(evidence_text.clone()), &index_arc);
                 let answer = match UnderstandingService::parse_model_answer(&text) {
                     Ok(mut a) => {
                         for c in &mut a.claims {
                             if c.coverage_caveat_refs.is_empty() {
-                                c.coverage_caveat_refs.push("coverage:project:calls".to_string());
+                                c.coverage_caveat_refs
+                                    .push("coverage:project:calls".to_string());
                             }
                         }
-                        let mut gw = binding.gateway.lock().unwrap();
-                        let _report = gw.validate_answer(&mut a, &valid_refs, &vocab, &nodes, &relations);
+                        let gw = binding.gateway.lock().unwrap();
+                        let _report =
+                            gw.validate_answer(&mut a, &valid_refs, &vocab, &nodes, &relations);
                         a
                     }
                     Err(e) => {
-                        if let GatewayEvent::AnswerComplete { answer, .. } =
-                            common::degraded_answer(&format!("模型输出解析失败：{e}"), GraphSelection::None, &rid)
-                        {
+                        if let GatewayEvent::AnswerComplete { answer, .. } = common::degraded_answer(
+                            &format!("模型输出解析失败：{e}"),
+                            GraphSelection::None,
+                            &rid,
+                        ) {
                             answer
-                        } else { unreachable!() }
+                        } else {
+                            unreachable!()
+                        }
                     }
                 };
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
-                    GatewayEvent::AnswerChunk { text: answer.answer_summary.clone(), request_id: rid.clone() },
+                    GatewayEvent::AnswerChunk {
+                        text: answer.answer_summary.clone(),
+                        request_id: rid.clone(),
+                    },
                 );
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
-                    GatewayEvent::AnswerComplete { request_id: rid.clone(), answer },
+                    GatewayEvent::AnswerComplete {
+                        request_id: rid.clone(),
+                        answer,
+                    },
                 );
                 {
                     let mut gw = binding.gateway.lock().unwrap();
-                    gw.sessions.complete(&session_id2);
+                    gw.sessions.finish_turn(&session_id2);
                 }
                 got_terminal = true;
                 break;
@@ -500,8 +592,14 @@ pub fn workbench_chat(
             // 执行工具
             let mut budget_failed = false;
             for call in calls {
-                if cancel.load(Ordering::SeqCst) { break; }
-                let name = call.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+                if cancel.load(Ordering::SeqCst) {
+                    break;
+                }
+                let name = call
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 let arguments = call.get("arguments").cloned().unwrap_or(Value::Null);
                 // 返工修复：budget 失败 → 终止，不再 continue
                 if let Err(budget_err) = budget.consume(&name) {
@@ -520,8 +618,14 @@ pub fn workbench_chat(
                 let (payload_val, truncated) = match result {
                     Ok(v) => {
                         let s = serde_json::to_string(&v).unwrap_or_default();
-                        let (kept, trunc) = understanding_gateway::dispatcher::truncate_bytes(s.as_bytes(), 32 * 1024);
-                        (serde_json::from_slice::<Value>(&kept).unwrap_or(Value::Null), trunc)
+                        let (kept, trunc) = understanding_gateway::dispatcher::truncate_bytes(
+                            s.as_bytes(),
+                            32 * 1024,
+                        );
+                        (
+                            serde_json::from_slice::<Value>(&kept).unwrap_or(Value::Null),
+                            trunc,
+                        )
                     }
                     Err(e) => (json!({"error": e}), false),
                 };
@@ -532,8 +636,10 @@ pub fn workbench_chat(
                     gw.sessions.append_trace(
                         &session_id2,
                         understanding_gateway::dto::ToolTrace {
-                            tool: name.clone(), params: arguments.clone(),
-                            returned_bytes: payload_str.len() as u64, truncated,
+                            tool: name.clone(),
+                            params: arguments.clone(),
+                            returned_bytes: payload_str.len() as u64,
+                            truncated,
                         },
                     );
                 }
@@ -541,8 +647,10 @@ pub fn workbench_chat(
                     &format!("gateway:{rid}"),
                     GatewayEvent::ToolCall {
                         trace: understanding_gateway::dto::ToolTrace {
-                            tool: name.clone(), params: arguments.clone(),
-                            returned_bytes: payload_str.len() as u64, truncated,
+                            tool: name.clone(),
+                            params: arguments.clone(),
+                            returned_bytes: payload_str.len() as u64,
+                            truncated,
                         },
                         request_id: rid.clone(),
                     },
@@ -551,12 +659,17 @@ pub fn workbench_chat(
                 context.push(json!({"role": "assistant", "content": format!("tool call: {name}")}));
                 context.push(json!({"role": "user", "content": format!("工具 {name} 返回（truncated={truncated}）：\n{payload_str}")}));
             }
-            if budget_failed { break; }
+            if budget_failed {
+                break;
+            }
 
             if cancel.load(Ordering::SeqCst) {
                 let _ = app2.emit(
                     &format!("gateway:{rid}"),
-                    GatewayEvent::Error { message: "cancelled".into(), request_id: rid.clone() },
+                    GatewayEvent::Error {
+                        message: "cancelled".into(),
+                        request_id: rid.clone(),
+                    },
                 );
                 got_terminal = true;
                 break;
@@ -581,10 +694,7 @@ pub fn workbench_chat(
 }
 
 #[tauri::command]
-pub fn workbench_cancel(
-    state: State<AppState>,
-    request_id: String,
-) -> Result<(), String> {
+pub fn workbench_cancel(state: State<AppState>, request_id: String) -> Result<(), String> {
     if let Some(flag) = state.active_requests.lock().unwrap().get(&request_id) {
         flag.store(true, Ordering::SeqCst);
         Ok(())

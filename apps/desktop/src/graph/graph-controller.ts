@@ -7,7 +7,10 @@ import type { G6AdapterCallbacks } from "./g6-adapter";
 import type { GraphSelectionStore } from "../state/graph-selection";
 
 export class GraphController implements G6AdapterCallbacks {
-  constructor(private readonly selectionStore: GraphSelectionStore) {}
+  constructor(
+    private readonly selectionStore: GraphSelectionStore,
+    private readonly snapshotId: string,
+  ) {}
 
   onSelectNode(nodeId: string): void {
     const snapshotId = this.currentSnapshotId();
@@ -37,8 +40,7 @@ export class GraphController implements G6AdapterCallbacks {
   }
 
   private currentSnapshotId(): string {
-    const sel = this.selectionStore.getState();
-    return sel.type === "none" ? "" : sel.snapshotId;
+    return this.snapshotId;
   }
 }
 

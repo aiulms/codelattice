@@ -8,6 +8,7 @@
 // - invoke 失败推入 error 事件并终止
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { open } from "@tauri-apps/plugin-dialog";
 import type {
   CallChainResult,
   ChatRequest,
@@ -37,6 +38,7 @@ interface RequestState {
 
 export class TauriDesktopTransport implements DesktopTransport {
   private currentRequest: RequestState | null = null;
+  private requestSequence = 0;
 
   async listSnapshots(): Promise<SnapshotMeta[]> {
     return invoke<SnapshotMeta[]>("workbench_list_snapshots");
@@ -54,7 +56,8 @@ export class TauriDesktopTransport implements DesktopTransport {
     return invoke<CallChainResult>("workbench_call_chain", { snapshotId, nodeId, direction, depth });
   }
   async selectProjectDirectory(): Promise<string> {
-    return invoke<string>("workbench_select_directory");
+    const selected = await open({ directory: true, multiple: false });
+    return typeof selected === "string" ? selected : "";
   }
   async analyze(root: string, language: string): Promise<{ jobId: string }> {
     return invoke<{ jobId: string }>("workbench_analyze", { root, language });
@@ -86,11 +89,11 @@ export class TauriDesktopTransport implements DesktopTransport {
   }
   async secretDelete(secretRef: string): Promise<void> { await invoke("workbench_secret_delete", { secretRef }); }
   async explainSelection(req: ExplainRequest): Promise<StreamHandle> {
-    const requestId = `req:${Date.now().toString(36)}:exp`;
+    const requestId = this.nextRequestId("exp");
     return this.openStream(requestId, "workbench_explain", req);
   }
   async chat(req: ChatRequest): Promise<StreamHandle> {
-    const requestId = `req:${Date.now().toString(36)}:chat`;
+    const requestId = this.nextRequestId("chat");
     return this.openStream(requestId, "workbench_chat", req);
   }
   async cancel(requestId: string): Promise<void> { await invoke("workbench_cancel", { requestId }); }
@@ -159,8 +162,21 @@ export class TauriDesktopTransport implements DesktopTransport {
           self.disposeRequest(requestId);
         }
       })(),
-      cancel: () => self.cancel(requestId),
+      cancel: async () => {
+        try {
+          await self.cancel(requestId);
+        } finally {
+          // 后端即使没有及时返回 terminal，也必须结束本地 generator 并释放 listener。
+          self.disposeRequest(requestId);
+        }
+      },
     };
+  }
+
+  /** 同一毫秒内也保持唯一，避免并发请求覆盖 active_requests。 */
+  private nextRequestId(kind: "exp" | "chat"): string {
+    this.requestSequence += 1;
+    return `req:${Date.now().toString(36)}:${this.requestSequence.toString(36)}:${kind}`;
   }
 
   /** 清理指定请求（幂等）。只清理匹配的请求，不影响新请求。 */

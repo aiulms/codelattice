@@ -51,8 +51,7 @@ export function fnv1aHex(s: string): string {
   return h.toString(16).padStart(16, "0");
 }
 
-export function buildIndex(data: SnapshotData): SnapshotIndex {
-  const snapshotId = data.generatedAt;
+export function buildIndex(data: SnapshotData, snapshotId = data.generatedAt): SnapshotIndex {
   const nodeById = new Map<string, SnapshotNode>();
   for (const n of data.graph.nodes) nodeById.set(n.id, n);
   const edges = data.graph.edges;

@@ -60,8 +60,27 @@ impl SnapshotGraphIndex {
         Self::from_snapshot_with_limit(value, QUERY_STORE_MEMORY_LIMIT_ITEMS)
     }
 
+    /// 从库中加载时由调用方注入稳定 snapshot id；查询结果必须回显该 id，
+    /// 不能误用 generatedAt（时间戳不是 snapshot 身份）。
+    pub fn from_snapshot_with_id(snapshot_id: &str, value: &Value) -> Result<Self, String> {
+        Self::from_snapshot_with_id_and_limit(snapshot_id, value, QUERY_STORE_MEMORY_LIMIT_ITEMS)
+    }
+
     /// 内部入口：limit 可注入（生产用冻结上限；测试用小值验证拒绝逻辑）。
     fn from_snapshot_with_limit(value: &Value, limit: usize) -> Result<Self, String> {
+        let snapshot_id = value
+            .get("snapshotId")
+            .and_then(Value::as_str)
+            .or_else(|| value.get("generatedAt").and_then(Value::as_str))
+            .unwrap_or("snap:unknown");
+        Self::from_snapshot_with_id_and_limit(snapshot_id, value, limit)
+    }
+
+    fn from_snapshot_with_id_and_limit(
+        snapshot_id: &str,
+        value: &Value,
+        limit: usize,
+    ) -> Result<Self, String> {
         let graph = value
             .get("graph")
             .ok_or_else(|| "snapshot missing graph section".to_string())?;
@@ -84,11 +103,7 @@ impl SnapshotGraphIndex {
         }
 
         let mut idx = Self {
-            snapshot_id: value
-                .get("generatedAt")
-                .and_then(Value::as_str)
-                .unwrap_or("snap:unknown")
-                .to_string(),
+            snapshot_id: snapshot_id.to_string(),
             nodes: Vec::new(),
             edges: Vec::new(),
             node_by_id: HashMap::new(),
@@ -544,6 +559,27 @@ mod tests {
         assert_eq!(ctx.source_refs[0].file, "src/b.rs");
         assert_eq!(ctx.coverage_context.scope, "project");
         assert_eq!(ctx.origin, EvidenceOrigin::Full);
+    }
+
+    #[test]
+    fn explicit_library_snapshot_id_is_preserved_in_all_query_results() {
+        let idx = SnapshotGraphIndex::from_snapshot_with_id(
+            "rust-portable-smoke.snapshot",
+            &snapshot_json(),
+        )
+        .unwrap();
+        assert_eq!(
+            idx.node_context("n:b").snapshot_id,
+            "rust-portable-smoke.snapshot"
+        );
+        assert_eq!(
+            idx.edge_evidence("rel:sha256:abc").unwrap().snapshot_id,
+            "rust-portable-smoke.snapshot"
+        );
+        assert_eq!(
+            idx.call_chain("n:a", "downstream", 2).snapshot_id,
+            "rust-portable-smoke.snapshot"
+        );
     }
 
     #[test]
