@@ -7,6 +7,7 @@
 
 pub mod calls;
 pub mod calls_index;
+pub mod calls_text_fallback;
 pub mod diagnostic;
 pub mod graph;
 pub mod imports;

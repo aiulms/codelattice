@@ -6,6 +6,10 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Changed
+
+- **calls.rs 第三刀拆分**：text fallback（extract_calls_text_fallback 等 5 个函数，443 行）迁出为独立模块 `calls_text_fallback.rs`，calls.rs 2119→1694 行（-20.1%）；共享的 `resolve_free_function`/`resolve_associated_function` 提升为 `pub(crate)` 留在原处，无逻辑复制。行为等价：self-analysis CALLS 边数一致（3222），仅 4 条边 confidence 因文件跨模块从 0.90 调整为 0.85。
+
 ### Fixed
 
 - **TypeScript/ArkTS 图谱质量债清理**：消除 TS 静态图的 dangling edge 与重复边，补齐质量门与置信度口径。

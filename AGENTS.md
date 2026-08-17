@@ -91,13 +91,14 @@ For multi-step work：
 
 状态：**ACTIVE quality watch；不是 stop-line，但继续扩大 CALLS 方向前必须显式处理。**
 
-当前观察（2026-07-26）：
+当前观察（2026-08-17）：
 
-- `crates/project-model/src/calls.rs` 已从 2364 行拆分至 1984 行（2026-07-26 第二刀 calls_index 提取，-16.1%）。
-- 已提取 `calls_index.rs`（466 行）：CalleeIndex / ImportBindingTable / CallerIndex 三个查询索引 + builder + impl（含新增 `set_wildcard_modules` / `wildcard_modules_for` / `ImportBindingTable::empty` 封装入口）。
-- 第一刀 `stdlib_tables.rs`（311 行）：prelude type / trait method / type method 映射表 + 辅助函数（2026-05-04）。
-- Text fallback（~376 行）暂留 calls.rs，待第三刀；它与 resolve 逻辑共享 `resolve_free_function` / `resolve_associated_function`，需单独评估共享函数的可见性提升。
-- CALLS resolution rate: 65.7%（2338/3557 on CodeLattice self-analysis，2026-05-08 Phase 2f wildcard import disambiguation 落地）。
+- `crates/project-model/src/calls.rs` 已拆分至 1694 行（2026-08-17 第三刀 text fallback 提取）。
+- 第三刀 `calls_text_fallback.rs`（443 行）：extract_calls_text_fallback / parse_text_call / find_outermost_call / classify_text_callee / resolve_call_site_text 整体迁出，行为等价；共享函数 `resolve_free_function` / `resolve_associated_function` 提升为 `pub(crate)` 留在 calls.rs，未复制逻辑。
+- 第二刀 `calls_index.rs`（427 行）：CalleeIndex / ImportBindingTable / CallerIndex 三个查询索引 + builder + impl（2026-07-26）。
+- 第一刀 `stdlib_tables.rs`（485 行）：prelude type / trait method / type method 映射表 + 辅助函数（2026-05-04）。
+- 等价性证据（2026-08-17 self-analysis 对照）：拆分前后 CALLS 边数一致（3222），仅 4 条边 confidence 0.90→0.85（同模块解析变跨模块，源于文件物理移动本身）。
+- CALLS resolution rate 基线 65.7%（2338/3557，2026-05-08）；当前 self-analysis callEdgeCount 3222。
 - 继续新增 CALLS 策略前，需再次评估是否进一步拆分。
 
 质量要求：
@@ -132,7 +133,8 @@ scripts/codelattice-precommit-check.sh
 ## Changelog
 
 | Date | Version | Change |
-|------|---------|--------|
+|------|---------|-------|
+| 2026-08-17 | 1.3.2 | Recorded calls.rs third extraction (calls_text_fallback.rs, 2119→1694 lines); refreshed roadmap for graph-quality debt cleanup. |
 | 2026-07-26 | 1.3.1 | Recorded calls.rs second extraction (calls_index.rs, 2364→1984 lines); updated CALLS quality-watch to reflect deferred text-fallback slice. |
 | 2026-05-20 | 1.3.0 | Switched daily CodeLattice governance to native `codelattice detect-changes` / `scripts/codelattice-precommit-check.sh`; legacy GitNexus Tool is fallback/comparison only. |
 | 2026-05-09 | 1.2.0 | Renamed public project identity from GitNexus Rust-core to CodeLattice; indexed repo as codelattice. |

@@ -63,6 +63,25 @@ Stop-lines（继承 AGENTS.md）：
 - 验证：`cargo fmt --check`、`cargo test` 全量、CodeLattice self-analysis
   CALLS resolution rate 不回退（基线 65.7%，2338/3557）。
 
+### Closure（2026-08-17）
+
+- 新模块 `crates/project-model/src/calls_text_fallback.rs`（443 行）：
+  extract_calls_text_fallback（pub(crate) 入口）/ parse_text_call /
+  find_outermost_call / classify_text_callee / resolve_call_site_text。
+- 共享函数处理：`resolve_free_function` / `resolve_associated_function`
+  留在 calls.rs 并提升为 `pub(crate)`；`scan_variable_type_annotation` /
+  `strip_generics` / receiver-type / trait-method 查表沿用 stdlib_tables
+  既有 `pub(crate)` 导出。无逻辑复制。
+- calls.rs 2119 → 1694 行（-20.1%）。
+- 等价性证据：拆分前后 self-analysis CALLS 边数一致（3222/3222），
+  diagnostics 一致（3510/3510），8479 条公共边中仅 4 条 confidence
+  0.90→0.85（同模块解析变跨模块，文件物理移动的必然效应，非解析能力
+  回退）；其余差异全部是新文件进入分析的自引用效应。
+- 验证：`cargo test` 全量 0 fail；`cargo test -p gitnexus-project-model`
+  通过；precommit ALL PASS，detect-changes 工作区风险 high（较上轮
+  critical 下降）。
+- AGENTS.md quality watch 已更新至 1.3.2。
+
 ## 任务 4：Workbench P1 图谱导航（仅 preflight）
 
 - 方向：社区折叠、分层布局、语义聚类（P0 closure “剩余边界” 挂账项）。
