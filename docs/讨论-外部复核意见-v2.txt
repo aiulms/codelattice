@@ -1,0 +1,251 @@
+有更好的建议。整体方向已经对了，但我不建议直接按当前 P0 文档开工：它把“图谱工作台、理解产品、模型平台、桌面架构”混在了一期，而且有几项与真实实现不一致。
+
+## 我最认可的部分
+
+这四条应该保留：
+
+- 点节点、点边默认只显示确定性数据。
+- 翻译由用户主动触发。
+- Chat 带当前选择上下文，并能反向定位图谱。
+- 模型可替换，但不改变图谱事实。
+
+v3 的工作台形态也比第一版好很多。不过它目前更像“代码图谱 IDE”，主要解决“我已经找到一条边，想深入理解”，还没有完全解决最初的问题：
+
+> 用户刚打开项目，甚至不知道应该看哪里、问什么、点哪条线。
+
+因此最终产品应该有两个入口，共用一个工作台：
+
+- “帮我认识这个项目”：项目级对话，模型通过只读工具主动查询项目。
+- “帮我理解当前选择”：节点、边、调用链的局部解释。
+
+## 当前计划里六个需要调整的地方
+
+### 1. 不应该把模型结果写进事实 snapshot
+
+计划一边规定“翻译不污染事实”，一边又准备给 snapshot 增加模型生成的 `understanding` section，这两者有冲突：[P0 计划](/Users/jiangxuanyang/Desktop/codelattice/docs/plans/2026-08-05-project-understanding-p0.md:52)。
+
+建议拆成两个文件：
+
+```text
+snapshot.json
+  只包含 CodeLattice 事实
+
+understanding-cache.json
+  snapshotId + modelId + promptVersion + 模型解释
+```
+
+这样换模型、删除缓存、重新生成解释，都不会改变事实快照。
+
+### 2. 边证据不能预先全部塞进 snapshot
+
+当前 Web snapshot 只保留最多 150 个节点、300 条边，而且明确是截断预览：[codelattice-snapshot-gen.py](/Users/jiangxuanyang/Desktop/codelattice/scripts/codelattice-snapshot-gen.py:612)。
+
+所以“点击任意 CALLS 边就得到完整上下游调用链”无法只靠现有 snapshot 实现。全量预生成每条边的调用链又会产生巨大的重复数据。
+
+更合理的是增加一个本地只读查询层：
+
+```text
+GET /graph/edge/{edgeKey}
+GET /graph/node/{nodeId}/neighbors
+GET /graph/node/{nodeId}/call-chain
+GET /graph/node/{nodeId}/source
+```
+
+UI 保存轻量预览，用户点击后按需查询完整证据。
+
+### 3. 必须先定义稳定 edgeKey
+
+现有 snapshot edge 没有稳定 ID，G6 只能临时用 `source-target` 拼接，平行边再附加数组序号：[graph-g6.js](/Users/jiangxuanyang/Desktop/codelattice/webui/snapshot-viewer/graph-g6.js:295)。
+
+这不能用于：
+
+- 翻译缓存。
+- Chat 引用。
+- 跨 snapshot diff。
+- 点击证据后重新定位。
+
+建议由事实层生成：
+
+```text
+edgeKey = hash(sourceId + edgeKind + targetId + reason)
+```
+
+如果同一组三元组允许多条边，还要加入稳定的来源位置或 designation。
+
+### 4. “影响链”需要一个假设，不能直接由边得出
+
+点击 `A → B` 时，“调用关系”是确定的，但“影响”并不明确：
+
+- 修改 A？
+- 修改 B 的签名？
+- 删除这次调用？
+- 改变返回值？
+- 修改 B 的内部实现？
+
+这些假设会产生完全不同的影响范围。
+
+因此默认 Tab 建议改为：
+
+- 上游调用。
+- 下游调用。
+- 依赖扩散。
+- 代码证据。
+
+只有用户选择“如果删除这条调用”或者“如果修改 B”之后，才运行真正的影响分析。模型也不能在没有变更假设时直接宣布 high risk。
+
+### 5. 模型引用需要做到 claim 级别
+
+“有 `evidenceRefs` 就是事实、没有就是推断”还不够。模型完全可能引用一个真实节点，然后说出证据不支持的结论。
+
+建议输出：
+
+```json
+{
+  "claims": [
+    {
+      "text": "resolve_calls 是该路径的直接被调方",
+      "kind": "observation",
+      "evidenceRefs": ["edge:abc"],
+      "confidence": "high"
+    },
+    {
+      "text": "这里可能是性能瓶颈",
+      "kind": "interpretation",
+      "evidenceRefs": ["edge:abc", "node:def"],
+      "confidence": "medium"
+    }
+  ],
+  "unknowns": [],
+  "navigationActions": [
+    {"type": "focusEdge", "edgeKey": "edge:abc"}
+  ]
+}
+```
+
+事实层负责验证引用是否存在；模型最多产生“解释”，不能自行制造新的事实状态。
+
+### 6. 进程隔离不等于互不影响
+
+当前 Runner 每次 MCP 调用都会启动一个新进程：[webui-runner.py](/Users/jiangxuanyang/Desktop/codelattice/scripts/webui-runner.py:2463)。这确实不会锁住 agent 的 stdio 会话，但两个进程仍然竞争：
+
+- CPU
+- 内存
+- 磁盘
+- cache 文件
+- 分析线程池
+
+桌面端架构应该再加三层隔离：
+
+- analyzer 使用独立缓存命名空间。
+- snapshot 先写临时版本，完成后原子发布。
+- desktop analysis 使用低优先级和资源预算；agent 请求拥有更高优先级。
+
+验收标准也不应只是“不报错”，建议改为：
+
+> 桌面端分析期间，agent 查询成功率 100%，P95 延迟退化不超过约定阈值。
+
+## 模型层更适合做成“理解网关”
+
+我建议不要把模型限制为“收到一个边证据包，然后写一段解释”。项目级问题经常需要多轮取证。
+
+更合理的架构是：
+
+```mermaid
+flowchart LR
+    UI["Workbench UI"] --> Q["确定性查询服务"]
+    UI --> U["Understanding Gateway"]
+    U --> M["用户选择的模型"]
+    U --> Q
+    Q --> S["Immutable Graph Snapshot Store"]
+    A["Desktop Analyzer Worker"] --> S
+    MCP["Agent MCP Sidecar"] --> S
+    U --> C["理解缓存与会话"]
+```
+
+模型只能使用一组只读查询：
+
+- 项目概览。
+- 搜索文件和符号。
+- 查询节点上下游。
+- 获取调用链。
+- 获取有限代码片段。
+- 获取静态分析边界。
+- 在明确变更假设后查询影响。
+
+模型回答中的 `navigationActions` 由 UI 验证后执行。这样用户问：
+
+> “缓存系统到底是怎么工作的？”
+
+模型可以先找缓存相关符号，再读取入口和调用链，最后返回解释；用户点击回答中的证据，图谱自动移动到对应位置。
+
+这才真正实现了“模型通过工具理解项目，用户通过模型理解项目”。
+
+## 模型池还需要两条安全修正
+
+当前计划写着 API Key“不出本机”，对远程模型并不准确：[P0 计划](/Users/jiangxuanyang/Desktop/codelattice/docs/plans/2026-08-05-project-understanding-p0.md:101)。
+
+应该改成：
+
+- Key 不进入 snapshot、浏览器 localStorage、日志和模型上下文。
+- 远程调用时，Key 只发送给用户选择的模型提供商。
+- 代码证据发送远程模型前，明确展示发送范围并支持脱敏。
+- 本地 Ollama 才能声明“项目证据不离开本机”。
+- 模型调用统一经过本地 backend，浏览器不能直接持有 API Key。
+- 源码和 README 都按不可信输入处理，防止 prompt injection。
+
+翻译缓存键也应改为：
+
+```text
+evidenceHash + modelId + modelRevision + promptVersion + locale + explanationLevel
+```
+
+不能只使用 `edgeId + snapshotId + modelId`。
+
+## 我建议重新切 P0
+
+当前 P0 太大。更稳妥的是做一个真正贯通的垂直切片：
+
+### P0-A：真实图谱交互
+
+- snapshot 生成稳定 nodeId/edgeKey。
+- G6 支持真实 edge click；当前实际上只有 node click：[graph-g6.js](/Users/jiangxuanyang/Desktop/codelattice/webui/snapshot-viewer/graph-g6.js:352)。
+- 右侧显示真实上游、下游、证据和静态边界。
+- 完整链路通过本地查询服务按需获取。
+- 不接模型，先证明真实数据下的 UI 交互成立。
+
+### P0-B：最小理解闭环
+
+- 一个 Ollama provider。
+- 一个 OpenAI-compatible provider。
+- 显式“解释当前选择”按钮。
+- 项目级和选择级 Chat。
+- claim 级证据引用。
+- 点击引用定位图谱。
+- 流式输出、取消和错误恢复。
+
+### 暂缓到 P1
+
+- 自动能力地图。
+- 跨版本能力 diff。
+- 完整模型市场或 embedding 池。
+- Tauri 打包。
+- 复杂影响链叙述。
+- 全量模型解释离线生成。
+
+## UI 上再补一个重要调整
+
+v3 的 Chat 抽屉会覆盖右侧检查器。用户提问时反而看不到确定性证据。
+
+建议改成可调整宽度的双栏：
+
+```text
+中央图谱 | 事实检查器 | Chat
+```
+
+或者右侧使用两个可固定 Tab，但允许拆开并排。Chat 回答和事实证据必须能同时可见，这会比“聊天覆盖检查器”更符合产品核心。
+
+最终判断：讨论已经找到了正确方向，但当前 execution card 还不能直接开工。最关键的修正是：
+
+> 不要把“理解层”做成 snapshot 里的几段 AI 文案；要把它做成一个由模型驱动、以确定性查询为工具、能不断操纵和解释 UI 的本地理解会话。
+
+而且当前新计划和 mockup 都还是未跟踪文件，我没有修改或提交它们。建议先据此重写 P0，再开始真实数据接入。

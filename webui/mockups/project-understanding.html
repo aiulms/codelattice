@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeLattice · 项目护照 — Project Understanding Mockup</title>
+<style>
+  :root {
+    --bg: #f6f4ef;
+    --ink: #1c1a16;
+    --ink-2: #57534a;
+    --ink-3: #8a8578;
+    --line: #e3ded2;
+    --card: #fffdf8;
+    --accent: #b3541e;
+    --accent-soft: #f7e8dd;
+    --fact: #2e7d4f;
+    --fact-bg: #e5f2ea;
+    --infer: #a06d10;
+    --infer-bg: #f8efd8;
+    --unknown: #6d6a62;
+    --unknown-bg: #eeece6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 28px 32px 40px;
+    font-size: 14px;
+    line-height: 1.55;
+  }
+  /* ---------- top bar ---------- */
+  .topbar { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+  .brand { font-size: 20px; font-weight: 700; letter-spacing: .02em; }
+  .brand span { color: var(--accent); }
+  .top-meta { color: var(--ink-3); font-size: 12.5px; }
+  .top-meta b { color: var(--ink-2); font-weight: 600; }
+  /* ---------- passport hero ---------- */
+  .passport {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 24px 28px;
+    margin-bottom: 18px;
+  }
+  .passport-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .passport-title { font-size: 12px; letter-spacing: .18em; color: var(--ink-3); text-transform: uppercase; }
+  .tier-toggle { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .tier-toggle button {
+    border: 0; background: transparent; padding: 5px 14px; font-size: 12.5px;
+    color: var(--ink-2); cursor: pointer; font-family: inherit;
+  }
+  .tier-toggle button.active { background: var(--ink); color: #fff; }
+  .one-liner { font-size: 21px; font-weight: 650; line-height: 1.5; max-width: 900px; margin-bottom: 14px; }
+  .one-liner em { font-style: normal; background: var(--accent-soft); padding: 0 4px; border-radius: 4px; }
+  .stat-row { display: flex; gap: 34px; flex-wrap: wrap; }
+  .stat { min-width: 120px; }
+  .stat .num { font-size: 24px; font-weight: 700; }
+  .stat .lbl { font-size: 12px; color: var(--ink-3); }
+  .maturity { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fact); }
+  /* ---------- confidence badges ---------- */
+  .badge {
+    display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px;
+    font-weight: 600; vertical-align: 1px; white-space: nowrap;
+  }
+  .b-fact { background: var(--fact-bg); color: var(--fact); }
+  .b-infer { background: var(--infer-bg); color: var(--infer); }
+  .b-unknown { background: var(--unknown-bg); color: var(--unknown); }
+  /* ---------- main grid ---------- */
+  .grid { display: grid; grid-template-columns: 5fr 7fr; gap: 18px; }
+  .panel {
+    background: var(--card); border: 1px solid var(--line); border-radius: 14px;
+    padding: 20px 22px;
+  }
+  .panel-title { font-size: 15px; font-weight: 700; margin-bottom: 4px; }
+  .panel-sub { font-size: 12px; color: var(--ink-3); margin-bottom: 14px; }
+  /* ---------- feature map ---------- */
+  .cap { border-left: 2px solid var(--line); padding: 6px 0 6px 14px; margin-left: 4px; }
+  .cap-name { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 8px; }
+  .cap-name .chev { color: var(--ink-3); font-size: 11px; width: 12px; }
+  .cap-desc { color: var(--ink-2); font-size: 12.5px; margin: 2px 0 6px 20px; }
+  .cap.open { border-left-color: var(--accent); }
+  .drill { margin: 4px 0 10px 20px; background: #faf7f0; border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .drill-chain { font-size: 12px; color: var(--ink-3); margin-bottom: 8px; }
+  .drill-chain b { color: var(--ink); font-weight: 600; }
+  .evi { display: flex; align-items: center; gap: 8px; font-size: 12.5px; padding: 3px 0; color: var(--ink-2); }
+  .evi code {
+    font-family: "SF Mono", Menlo, monospace; font-size: 11.5px;
+    background: #f0ece1; padding: 1px 6px; border-radius: 4px; color: var(--ink);
+  }
+  .evi .kind { color: var(--ink-3); font-size: 11px; min-width: 30px; }
+  /* ---------- flow player ---------- */
+  .flow-steps { display: flex; gap: 6px; margin-bottom: 14px; }
+  .step {
+    flex: 1; text-align: center; font-size: 11.5px; padding: 7px 4px;
+    border-radius: 8px; background: #f0ece1; color: var(--ink-3); font-weight: 600;
+  }
+  .step.done { background: var(--fact-bg); color: var(--fact); }
+  .step.now { background: var(--ink); color: #fff; }
+  .step.todo { opacity: .65; }
+  .flow-body { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+  .flow-say { font-size: 14px; font-weight: 600; margin-bottom: 6px; }
+  .flow-io { font-size: 12.5px; color: var(--ink-2); margin-bottom: 10px; }
+  .flow-io b { color: var(--ink); }
+  .flow-unknown {
+    font-size: 12px; color: var(--unknown); background: var(--unknown-bg);
+    border-radius: 8px; padding: 8px 10px; margin-top: 10px;
+  }
+  .minigraph { background: #fbf9f4; border: 1px solid var(--line); border-radius: 10px; padding: 8px; }
+  .minigraph .mg-cap { font-size: 11px; color: var(--ink-3); padding: 2px 4px 0; }
+  .flow-nav { display: flex; justify-content: space-between; margin-top: 14px; }
+  .flow-nav button {
+    border: 1px solid var(--line); background: var(--card); border-radius: 8px;
+    padding: 6px 16px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; font-family: inherit;
+  }
+  .flow-nav button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  /* ---------- Q&A ---------- */
+  .qa { margin-top: 18px; }
+  .qa-question {
+    display: flex; gap: 10px; align-items: center; border: 1px solid var(--line);
+    background: #faf7f0; border-radius: 10px; padding: 10px 14px; margin-bottom: 12px;
+    font-size: 13.5px; font-weight: 600;
+  }
+  .qa-question .q-ico { color: var(--accent); font-weight: 700; }
+  .qa-answer { display: grid; grid-template-columns: 7fr 5fr; gap: 16px; }
+  .qa-text { font-size: 13px; color: var(--ink-2); }
+  .qa-text p { margin-bottom: 8px; }
+  .qa-hl { background: var(--accent-soft); border-radius: 4px; padding: 0 3px; color: var(--ink); font-weight: 600; }
+  .qa-nodes { display: flex; flex-direction: column; gap: 6px; }
+  .qa-node {
+    display: flex; align-items: center; gap: 8px; font-size: 12px;
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; background: #fff;
+  }
+  .qa-node code { font-family: "SF Mono", Menlo, monospace; font-size: 11.5px; }
+  .qa-node .glow { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+  .qa-node .loc { margin-left: auto; color: var(--ink-3); font-size: 11px; }
+  /* ---------- legend ---------- */
+  .legend { margin-top: 20px; display: flex; gap: 18px; align-items: center; font-size: 12px; color: var(--ink-3); }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">CodeLattice <span>· 项目护照</span></div>
+  <div class="top-meta">由 snapshot <b>codelattice-2026-08-05</b> 生成 · 证据基准 commit <b>9f3c21a</b> · 静态分析</div>
+</div>
+
+<!-- ============ 项目护照 ============ -->
+<section class="passport">
+  <div class="passport-head">
+    <div class="passport-title">这个项目是什么</div>
+    <div class="tier-toggle">
+      <button>小白</button>
+      <button class="active">产品</button>
+      <button>开发者</button>
+    </div>
+  </div>
+  <div class="one-liner">
+    CodeLattice 是一个本地代码图谱分析工具：它读取你的项目源码，<em>不执行代码</em>，就能告诉你项目里有什么、谁调用谁、一次改动会影响哪里。
+  </div>
+  <div class="stat-row">
+    <div class="stat"><div class="num">8</div><div class="lbl">支持语言 <span class="badge b-fact">事实</span></div></div>
+    <div class="stat"><div class="num">3,557</div><div class="lbl">调用边（自分析） <span class="badge b-fact">事实</span></div></div>
+    <div class="stat"><div class="num">65.7%</div><div class="lbl">调用解析率 <span class="badge b-fact">事实</span></div></div>
+    <div class="stat"><div class="num">6</div><div class="lbl">核心能力 <span class="badge b-infer">推断</span></div></div>
+    <div class="stat"><div class="maturity"><span class="dot"></span>MVP 阶段 · 非生产替代</div><div class="lbl" style="margin-top:4px">成熟度 <span class="badge b-fact">事实</span></div></div>
+  </div>
+</section>
+
+<div class="grid">
+  <!-- ============ 功能地图 ============ -->
+  <section class="panel">
+    <div class="panel-title">功能地图</div>
+    <div class="panel-sub">从「它能做什么」逐层下钻到「它是怎么实现的」</div>
+
+    <div class="cap">
+      <div class="cap-name"><span class="chev">▸</span>项目发现 <span class="badge b-fact">事实</span></div>
+      <div class="cap-desc">从 manifest 推导项目结构，不执行 cargo metadata</div>
+    </div>
+    <div class="cap">
+      <div class="cap-name"><span class="chev">▸</span>符号提取 <span class="badge b-fact">事实</span></div>
+      <div class="cap-desc">从源码中提取函数、结构体、模块等符号</div>
+    </div>
+    <div class="cap">
+      <div class="cap-name"><span class="chev">▸</span>调用解析 <span class="badge b-fact">事实</span></div>
+      <div class="cap-desc">解析函数调用关系，生成 CALLS 边</div>
+    </div>
+
+    <div class="cap open">
+      <div class="cap-name"><span class="chev">▾</span>缓存与增量分析 <span class="badge b-infer">推断</span></div>
+      <div class="cap-desc">避免对未变化的项目重复全量分析</div>
+      <div class="drill">
+        <div class="drill-chain">产品能力 → 核心流程 → 模块 → <b>文件 / 符号</b></div>
+        <div class="evi"><span class="kind">文件</span><code>crates/project-model/src/cache.rs</code><span class="badge b-fact">事实</span></div>
+        <div class="evi"><span class="kind">符号</span><code>CacheEntry</code><span class="badge b-fact">事实</span></div>
+        <div class="evi"><span class="kind">符号</span><code>load_or_rebuild()</code><span class="badge b-fact">事实</span></div>
+        <div class="evi"><span class="kind">边</span><code>analyze → cache_write (×14)</code><span class="badge b-fact">事实</span></div>
+        <div class="evi"><span class="kind">文档</span><code>docs/architecture/cache.md</code><span class="badge b-infer">推断关联</span></div>
+      </div>
+    </div>
+
+    <div class="cap">
+      <div class="cap-name"><span class="chev">▸</span>MCP 服务 <span class="badge b-fact">事实</span></div>
+      <div class="cap-desc">以 sidecar 方式向 AI 工具暴露查询接口</div>
+    </div>
+    <div class="cap">
+      <div class="cap-name"><span class="chev">▸</span>Web 工作台 <span class="badge b-fact">事实</span></div>
+      <div class="cap-desc">只读可视化 snapshot 浏览器</div>
+    </div>
+  </section>
+
+  <!-- ============ 流程播放器 ============ -->
+  <section class="panel">
+    <div class="panel-title">核心流程：分析一个项目</div>
+    <div class="panel-sub">共 6 步 · 第 3 步 · 每步都可查看代码证据</div>
+
+    <div class="flow-steps">
+      <div class="step done">1 发现项目</div>
+      <div class="step done">2 提取符号</div>
+      <div class="step now">3 解析调用</div>
+      <div class="step todo">4 组装图谱</div>
+      <div class="step todo">5 写入缓存</div>
+      <div class="step todo">6 输出结果</div>
+    </div>
+
+    <div class="flow-body">
+      <div>
+        <div class="flow-say">第 3 步：找出「谁在调用谁」</div>
+        <div class="flow-io"><b>输入：</b>上一步的符号表 + import 关系<br><b>输出：</b>带置信度的调用边（CALLS edges）</div>
+        <div class="evi"><span class="kind">模块</span><code>project-model::calls</code></div>
+        <div class="evi"><span class="kind">符号</span><code>resolve_calls()</code></div>
+        <div class="evi"><span class="kind">符号</span><code>CalleeIndex</code></div>
+        <div class="flow-unknown">⚠ 无法确认：宏展开产生的调用（foo!()）不在本步解析范围内 —— 这是明确的边界，不是遗漏。</div>
+      </div>
+      <div class="minigraph">
+        <svg viewBox="0 0 320 170" width="100%" height="150">
+          <defs><marker id="ar" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto"><path d="M0,0 L7,3 L0,6" fill="none" stroke="#b3541e" stroke-width="1.4"/></marker></defs>
+          <rect x="14" y="18" rx="8" width="88" height="30" fill="#fffdf8" stroke="#e3ded2"/>
+          <text x="58" y="37" text-anchor="middle" font-size="11" fill="#1c1a16">analyze.rs</text>
+          <rect x="116" y="70" rx="8" width="96" height="30" fill="#f7e8dd" stroke="#b3541e" stroke-width="1.4"/>
+          <text x="164" y="89" text-anchor="middle" font-size="11" font-weight="700" fill="#1c1a16">calls.rs</text>
+          <rect x="228" y="18" rx="8" width="80" height="30" fill="#fffdf8" stroke="#e3ded2"/>
+          <text x="268" y="37" text-anchor="middle" font-size="11" fill="#1c1a16">index.rs</text>
+          <rect x="228" y="122" rx="8" width="80" height="30" fill="#fffdf8" stroke="#e3ded2"/>
+          <text x="268" y="141" text-anchor="middle" font-size="11" fill="#1c1a16">output.rs</text>
+          <rect x="14" y="122" rx="8" width="88" height="30" fill="#fffdf8" stroke="#e3ded2"/>
+          <text x="58" y="141" text-anchor="middle" font-size="11" fill="#1c1a16">stdlib 表</text>
+          <line x1="70" y1="48" x2="130" y2="70" stroke="#b3541e" stroke-width="1.4" marker-end="url(#ar)"/>
+          <line x1="212" y1="78" x2="240" y2="48" stroke="#b3541e" stroke-width="1.4" marker-end="url(#ar)"/>
+          <line x1="212" y1="92" x2="240" y2="122" stroke="#b3541e" stroke-width="1.4" marker-end="url(#ar)"/>
+          <line x1="70" y1="122" x2="120" y2="100" stroke="#b3541e" stroke-width="1.4" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+        </svg>
+        <div class="mg-cap">局部关系图 · 实线 = 已确认调用 · 虚线 = 低置信启发式</div>
+      </div>
+    </div>
+
+    <div class="flow-nav">
+      <button>← 上一步</button>
+      <button class="primary">下一步 →</button>
+    </div>
+  </section>
+</div>
+
+<!-- ============ 和项目对话 ============ -->
+<section class="panel qa">
+  <div class="panel-title">和项目对话</div>
+  <div class="panel-sub">对话负责导航 · 图负责定位 · 源码负责验证</div>
+  <div class="qa-question"><span class="q-ico">Q</span>缓存为什么会占这么多磁盘空间？</div>
+  <div class="qa-answer">
+    <div class="qa-text">
+      <p>缓存里保存的是每个项目的<span class="qa-hl">完整图谱序列化结果</span>（<span class="qa-hl">CacheEntry</span>），而不是增量 diff。项目越大，单个缓存条目越大。</p>
+      <p>当前实现按「项目 × snapshot 版本」各保留一份，<span class="badge b-infer">推断</span> 没有主动清理策略；snapshot-viewer 的 Runner 模式会进一步保留历史快照库。</p>
+      <p style="color:var(--unknown)">⚠ 未知：缓存上限与淘汰行为无法在静态代码中确认，需要运行时证据。</p>
+    </div>
+    <div class="qa-nodes">
+      <div class="qa-node"><span class="glow"></span><code>CacheEntry</code><span class="loc">cache.rs:42</span></div>
+      <div class="qa-node"><span class="glow"></span><code>serialize_graph()</code><span class="loc">cache.rs:118</span></div>
+      <div class="qa-node"><span class="glow"></span><code>snapshot_store.rs</code><span class="loc">runner</span></div>
+      <div class="qa-node" style="opacity:.6"><span class="glow" style="background:var(--unknown)"></span><code>eviction policy</code><span class="loc">未找到</span></div>
+    </div>
+  </div>
+</section>
+
+<div class="legend">
+  <span>证据等级：</span>
+  <span class="badge b-fact">事实 · 有代码证据</span>
+  <span class="badge b-infer">推断 · 大模型归纳，待确认</span>
+  <span class="badge b-unknown">未知 · 静态分析无法确认</span>
+  <span style="margin-left:auto">所有结论可点击下钻到文件与符号</span>
+</div>
+
+</body>
+</html>

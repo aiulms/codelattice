@@ -1,0 +1,951 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeLattice Workbench — Mockup v2</title>
+<style>
+  :root {
+    --bg: #101114;
+    --panel: #17191d;
+    --panel-2: #1d2025;
+    --line: #272b32;
+    --line-2: #33383f;
+    --ink: #e9e7e2;
+    --ink-2: #a8a49b;
+    --ink-3: #6b6862;
+    --accent: #e8823c;
+    --accent-soft: rgba(232,130,60,.14);
+    --fact: #4cbb7f;
+    --infer: #d9a53a;
+    --unknown: #7d7a72;
+    --danger: #d95757;
+    --mono: "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { height:100%; }
+  body {
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--ink); font-size: 13px;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* ============ top bar ============ */
+  .topbar {
+    height: 46px; display:flex; align-items:center; gap:14px; padding:0 14px;
+    background: var(--panel); border-bottom:1px solid var(--line); flex:none;
+  }
+  .logo { font-weight:700; font-size:14px; }
+  .logo span { color:var(--accent); }
+  .proj {
+    display:flex; align-items:center; gap:7px; background:var(--panel-2);
+    border:1px solid var(--line-2); border-radius:7px; padding:4px 10px; font-size:12px;
+  }
+  .proj .dot { width:7px;height:7px;border-radius:50%;background:var(--fact); }
+  .proj small { color:var(--ink-3); font-family:var(--mono); font-size:11px; }
+  .search {
+    flex:1; max-width:420px; display:flex; align-items:center; gap:8px;
+    background:var(--panel-2); border:1px solid var(--line-2); border-radius:7px; padding:5px 12px;
+  }
+  .search input { flex:1; background:none; border:0; outline:0; color:var(--ink); font-size:12.5px; font-family:inherit; }
+  .search input::placeholder { color:var(--ink-3); }
+  .search kbd { font-family:var(--mono); font-size:10px; color:var(--ink-3); border:1px solid var(--line-2); border-radius:4px; padding:1px 5px; }
+  .views { display:flex; gap:2px; background:var(--panel-2); border:1px solid var(--line-2); border-radius:8px; padding:2px; }
+  .views button {
+    border:0; background:none; color:var(--ink-2); font-size:12px; padding:4px 13px;
+    border-radius:6px; cursor:pointer; font-family:inherit;
+  }
+  .views button.active { background:var(--accent); color:#16130f; font-weight:600; }
+  .top-right { margin-left:auto; display:flex; align-items:center; gap:10px; color:var(--ink-3); font-size:11.5px; }
+  .pill { border:1px solid var(--line-2); border-radius:999px; padding:2px 10px; }
+  /* ============ layout ============ */
+  .main { flex:1; display:flex; min-height:0; }
+  /* ---- left sidebar ---- */
+  .side {
+    width:225px; flex:none; background:var(--panel); border-right:1px solid var(--line);
+    display:flex; flex-direction:column; overflow-y:auto;
+  }
+  .side-h { padding:12px 14px 6px; font-size:10.5px; letter-spacing:.14em; color:var(--ink-3); }
+  .tree { padding:0 8px; }
+  .tnode { border-radius:7px; padding:5px 8px; margin-bottom:1px; cursor:pointer; }
+  .tnode:hover { background:var(--panel-2); }
+  .tnode.sel { background:var(--accent-soft); }
+  .tnode.sel .t-name { color:var(--accent); }
+  .t-name { font-size:12.5px; font-weight:600; display:flex; align-items:center; gap:6px; }
+  .t-name .chev { font-size:9px; color:var(--ink-3); width:10px; }
+  .t-sub { margin:2px 0 3px 16px; }
+  .t-item {
+    font-size:12px; color:var(--ink-2); padding:3px 7px; border-radius:6px; cursor:pointer;
+    display:flex; align-items:center; gap:6px; font-family:var(--mono);
+  }
+  .t-item:hover { background:var(--panel-2); color:var(--ink); }
+  .t-item.sel { color:var(--accent); background:var(--accent-soft); }
+  .t-item .k { font-size:9.5px; color:var(--ink-3); font-family:inherit; min-width:26px; }
+  .side-foot { margin-top:auto; padding:10px 14px; border-top:1px solid var(--line); font-size:11px; color:var(--ink-3); line-height:1.7; }
+  .side-foot b { color:var(--ink-2); }
+  /* ---- canvas ---- */
+  .canvas-wrap { flex:1; position:relative; min-width:0; background:
+      radial-gradient(circle at 30% 20%, rgba(232,130,60,.04), transparent 55%), var(--bg); }
+  .canvas-tools {
+    position:absolute; top:12px; left:14px; display:flex; gap:6px; z-index:5;
+  }
+  .ctbtn {
+    background:var(--panel); border:1px solid var(--line-2); color:var(--ink-2);
+    border-radius:7px; padding:5px 11px; font-size:11.5px; cursor:pointer; font-family:inherit;
+  }
+  .ctbtn.active { color:var(--accent); border-color:var(--accent); }
+  .crumb {
+    position:absolute; top:12px; right:14px; z-index:5; font-size:11.5px; color:var(--ink-3);
+    background:var(--panel); border:1px solid var(--line-2); border-radius:7px; padding:5px 12px;
+    font-family:var(--mono);
+  }
+  .crumb b { color:var(--ink); font-weight:600; }
+  svg#graph { width:100%; height:100%; display:block; }
+  .gnode { cursor:pointer; }
+  .gnode rect { fill:var(--panel-2); stroke:var(--line-2); stroke-width:1; rx:8; }
+  .gnode text { fill:var(--ink); font-size:11.5px; font-family:var(--mono); }
+  .gnode .kind { fill:var(--ink-3); font-size:9px; }
+  .gnode.sel rect { stroke:var(--accent); stroke-width:1.6; fill:#241d15; }
+  .gnode.rel rect { stroke:#5c4a33; }
+  .gnode.dim { opacity:.22; }
+  g.edge { cursor:pointer; }
+  g.edge path.hit { stroke:transparent; stroke-width:14; fill:none; }
+  g.edge path.line { fill:none; stroke:#3d434c; stroke-width:1.4; }
+  g.edge path.line.dashed { stroke-dasharray:5 4; }
+  g.edge text { fill:var(--ink-3); font-size:9.5px; font-family:var(--mono); }
+  g.edge.sel path.line { stroke:var(--accent); stroke-width:2.2; }
+  g.edge.sel text { fill:var(--accent); }
+  g.edge.rel path.line { stroke:#8a6a44; stroke-width:1.8; }
+  g.edge.dim { opacity:.14; }
+  .legend {
+    position:absolute; bottom:12px; left:14px; z-index:5; display:flex; gap:12px; align-items:center;
+    background:var(--panel); border:1px solid var(--line-2); border-radius:7px; padding:6px 12px;
+    font-size:10.5px; color:var(--ink-3);
+  }
+  .lg { display:flex; align-items:center; gap:5px; }
+  .lg i { width:14px; height:2px; display:inline-block; }
+  /* ---- right inspector ---- */
+  .insp {
+    width:335px; flex:none; background:var(--panel); border-left:1px solid var(--line);
+    display:flex; flex-direction:column; min-height:0;
+  }
+  .insp-head { padding:13px 16px 11px; border-bottom:1px solid var(--line); }
+  .insp-kicker { font-size:10px; letter-spacing:.14em; color:var(--ink-3); margin-bottom:6px; }
+  .insp-title { font-family:var(--mono); font-size:13px; font-weight:600; line-height:1.6; word-break:break-all; }
+  .insp-title .arrow { color:var(--accent); }
+  .conf { display:inline-block; font-size:10px; padding:1px 7px; border-radius:999px; font-weight:600; vertical-align:2px; margin-left:6px; }
+  .c-high { background:rgba(75,187,127,.15); color:var(--fact); }
+  .c-low { background:rgba(217,165,58,.15); color:var(--infer); }
+  .ai-box {
+    margin:12px 14px 0; background:var(--panel-2); border:1px solid var(--line-2);
+    border-radius:10px; padding:11px 13px;
+  }
+  .ai-tag { display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--accent); font-weight:600; margin-bottom:6px; }
+  .ai-tag .src { margin-left:auto; color:var(--ink-3); font-weight:400; }
+  .ai-say { font-size:12.5px; line-height:1.65; color:var(--ink); }
+  .ai-say code { font-family:var(--mono); font-size:11px; background:#262a30; padding:0 4px; border-radius:4px; }
+  .ai-unk { margin-top:8px; font-size:11px; color:var(--unknown); border-top:1px dashed var(--line-2); padding-top:7px; }
+  .tabs { display:flex; gap:2px; padding:12px 14px 0; }
+  .tabs button {
+    flex:1; border:0; background:none; color:var(--ink-3); font-size:12px; padding:7px 4px 8px;
+    cursor:pointer; border-bottom:2px solid transparent; font-family:inherit;
+  }
+  .tabs button.active { color:var(--ink); border-bottom-color:var(--accent); font-weight:600; }
+  .tabs button .n { font-family:var(--mono); font-size:10px; color:var(--ink-3); margin-left:3px; }
+  .insp-body { flex:1; overflow-y:auto; padding:12px 14px 16px; }
+  .sec-h { font-size:10.5px; letter-spacing:.1em; color:var(--ink-3); margin:10px 0 6px; }
+  .sec-h:first-child { margin-top:0; }
+  .chain-item {
+    display:flex; align-items:center; gap:8px; padding:6px 9px; border-radius:8px;
+    cursor:pointer; margin-bottom:2px;
+  }
+  .chain-item:hover { background:var(--panel-2); }
+  .chain-item .cn { font-family:var(--mono); font-size:11.5px; }
+  .chain-item .cl { margin-left:auto; font-size:10px; color:var(--ink-3); font-family:var(--mono); }
+  .chain-item.here { background:var(--accent-soft); }
+  .chain-item.here .cn { color:var(--accent); font-weight:700; }
+  .chain-arrow { text-align:center; color:var(--ink-3); font-size:10px; line-height:1.2; }
+  .risk { font-size:9.5px; padding:1px 7px; border-radius:999px; font-weight:700; }
+  .r-high { background:rgba(217,87,87,.16); color:var(--danger); }
+  .r-med { background:rgba(217,165,58,.15); color:var(--infer); }
+  .r-low { background:rgba(75,187,127,.14); color:var(--fact); }
+  .evi-file {
+    font-family:var(--mono); font-size:11px; color:var(--ink-2); margin-bottom:8px;
+    display:flex; gap:8px; align-items:center;
+  }
+  .snippet {
+    background:#121316; border:1px solid var(--line); border-radius:9px; padding:10px 12px;
+    font-family:var(--mono); font-size:11px; line-height:1.75; color:#c9c5bb; overflow-x:auto;
+  }
+  .snippet .hl { background:rgba(232,130,60,.22); color:#f4c69a; border-radius:3px; padding:0 2px; }
+  .snippet .kw { color:#7fb6d9; }
+  .snippet .cm { color:var(--ink-3); }
+  .flag-row { display:flex; gap:6px; flex-wrap:wrap; margin-top:10px; }
+  .flag { font-size:10px; border:1px solid var(--line-2); border-radius:999px; padding:2px 9px; color:var(--ink-3); }
+  .flag.on { color:var(--fact); border-color:rgba(75,187,127,.4); }
+  .flag.off { color:var(--danger); border-color:rgba(217,87,87,.4); }
+  .tabpage { display:none; }
+  .tabpage.active { display:block; }
+  /* ---- status bar ---- */
+  .status {
+    height:26px; flex:none; background:var(--panel); border-top:1px solid var(--line);
+    display:flex; align-items:center; gap:16px; padding:0 14px;
+    font-size:10.5px; color:var(--ink-3); font-family:var(--mono);
+  }
+  .status b { color:var(--ink-2); font-weight:600; }
+  .status .right { margin-left:auto; display:flex; gap:14px; }
+  .bd { display:inline-block; font-size:9.5px; padding:0 6px; border-radius:99px; font-weight:700; }
+  .bd-f { background:rgba(75,187,127,.15); color:var(--fact); }
+  .bd-i { background:rgba(217,165,58,.15); color:var(--infer); }
+  .bd-u { background:rgba(125,122,114,.18); color:var(--unknown); }
+  /* ============ on-demand translate ============ */
+  .insp-actions { display:flex; gap:8px; padding:11px 14px 0; }
+  .btn-ai {
+    flex:1; display:flex; align-items:center; justify-content:center; gap:7px;
+    border:1px solid var(--accent); background:var(--accent-soft); color:var(--accent);
+    border-radius:8px; padding:7px 10px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit;
+  }
+  .btn-ai:hover { background:rgba(232,130,60,.22); }
+  .btn-ai.done { border-color:var(--line-2); background:var(--panel-2); color:var(--ink-3); }
+  .btn-chat2 {
+    display:flex; align-items:center; gap:6px; border:1px solid var(--line-2); background:var(--panel-2);
+    color:var(--ink-2); border-radius:8px; padding:7px 12px; font-size:12px; cursor:pointer; font-family:inherit;
+  }
+  .btn-chat2:hover { color:var(--ink); border-color:var(--ink-3); }
+  #aiBox { display:none; }
+  #aiBox.loading { display:block; }
+  .ai-loading { display:flex; align-items:center; gap:8px; color:var(--ink-3); font-size:12px; }
+  .ai-loading .pulse { width:8px; height:8px; border-radius:50%; background:var(--accent); animation:pl 1s infinite alternate; }
+  @keyframes pl { from{opacity:.25} to{opacity:1} }
+  .ai-cached { font-size:10px; color:var(--ink-3); margin-left:auto; }
+  /* ============ chat drawer ============ */
+  .fab {
+    position:fixed; right:352px; bottom:40px; z-index:40;
+    display:flex; align-items:center; gap:8px;
+    background:var(--accent); color:#16130f; border:0; border-radius:999px;
+    padding:10px 18px; font-size:13px; font-weight:700; cursor:pointer; font-family:inherit;
+    box-shadow:0 6px 24px rgba(232,130,60,.35);
+  }
+  .drawer {
+    position:fixed; top:46px; right:0; bottom:26px; width:400px; z-index:50;
+    background:var(--panel); border-left:1px solid var(--line);
+    display:none; flex-direction:column;
+    box-shadow:-12px 0 40px rgba(0,0,0,.45);
+  }
+  .drawer.open { display:flex; }
+  .chat-head { display:flex; align-items:center; gap:8px; padding:11px 14px; border-bottom:1px solid var(--line); }
+  .chat-head .t { font-size:13px; font-weight:700; }
+  .chat-head .ctx { font-size:10.5px; color:var(--ink-3); font-family:var(--mono); margin-left:2px; }
+  .model-sel {
+    margin-left:auto; background:var(--panel-2); border:1px solid var(--line-2); color:var(--ink);
+    border-radius:7px; font-size:11.5px; padding:4px 8px; font-family:inherit; cursor:pointer; max-width:150px;
+  }
+  .icon-btn { background:none; border:0; color:var(--ink-3); font-size:15px; cursor:pointer; padding:2px 6px; }
+  .icon-btn:hover { color:var(--ink); }
+  .chat-body { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
+  .msg { max-width:92%; font-size:12.5px; line-height:1.65; }
+  .msg.user { align-self:flex-end; background:var(--accent-soft); border:1px solid rgba(232,130,60,.35); border-radius:12px 12px 4px 12px; padding:8px 12px; }
+  .msg.bot { align-self:flex-start; background:var(--panel-2); border:1px solid var(--line-2); border-radius:12px 12px 12px 4px; padding:10px 12px; }
+  .msg.bot code { font-family:var(--mono); font-size:11px; background:#262a30; padding:0 4px; border-radius:4px; }
+  .msg .m-meta { font-size:10px; color:var(--ink-3); margin-bottom:5px; }
+  .msg .m-meta b { color:var(--accent); font-weight:600; }
+  .evi-chips { display:flex; flex-wrap:wrap; gap:5px; margin-top:8px; }
+  .chip {
+    font-family:var(--mono); font-size:10.5px; color:var(--ink-2);
+    border:1px solid var(--line-2); border-radius:999px; padding:2px 9px; cursor:pointer; background:none;
+  }
+  .chip:hover { color:var(--accent); border-color:var(--accent); }
+  .chat-input { display:flex; gap:8px; padding:11px 14px; border-top:1px solid var(--line); }
+  .chat-input input {
+    flex:1; background:var(--panel-2); border:1px solid var(--line-2); border-radius:8px;
+    padding:8px 12px; color:var(--ink); font-size:12.5px; outline:0; font-family:inherit;
+  }
+  .chat-input button {
+    background:var(--accent); border:0; color:#16130f; font-weight:700; border-radius:8px;
+    padding:8px 16px; cursor:pointer; font-family:inherit; font-size:12.5px;
+  }
+  /* ============ model pool modal ============ */
+  .modal-mask {
+    position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.55);
+    display:none; align-items:center; justify-content:center;
+  }
+  .modal-mask.open { display:flex; }
+  .modal {
+    width:520px; max-height:78vh; overflow-y:auto; background:var(--panel);
+    border:1px solid var(--line-2); border-radius:14px; padding:20px 22px;
+  }
+  .modal h3 { font-size:15px; margin-bottom:3px; }
+  .modal .m-sub { font-size:11.5px; color:var(--ink-3); margin-bottom:14px; }
+  .mp-item {
+    display:flex; align-items:center; gap:10px; border:1px solid var(--line);
+    border-radius:10px; padding:10px 13px; margin-bottom:8px;
+  }
+  .mp-item.def { border-color:rgba(232,130,60,.5); }
+  .mp-item .mp-name { font-size:13px; font-weight:600; }
+  .mp-item .mp-meta { font-size:10.5px; color:var(--ink-3); font-family:var(--mono); margin-top:2px; }
+  .mp-tag { font-size:9.5px; padding:1px 7px; border-radius:99px; background:var(--panel-2); border:1px solid var(--line-2); color:var(--ink-2); }
+  .mp-tag.local { color:var(--fact); border-color:rgba(75,187,127,.4); }
+  .mp-def-btn { margin-left:auto; font-size:10.5px; color:var(--ink-3); background:none; border:1px solid var(--line-2); border-radius:99px; padding:3px 10px; cursor:pointer; }
+  .mp-def-btn.on { color:var(--accent); border-color:var(--accent); }
+  .mp-form { border-top:1px dashed var(--line-2); margin-top:14px; padding-top:14px; }
+  .mp-form .f-row { display:flex; gap:8px; margin-bottom:8px; }
+  .mp-form input, .mp-form select {
+    flex:1; background:var(--panel-2); border:1px solid var(--line-2); border-radius:7px;
+    padding:7px 10px; color:var(--ink); font-size:12px; outline:0; font-family:inherit;
+  }
+  .mp-form .f-note { font-size:10.5px; color:var(--ink-3); margin:6px 0 10px; line-height:1.6; }
+  .btn-add {
+    background:var(--accent); border:0; color:#16130f; font-weight:700; border-radius:8px;
+    padding:8px 18px; cursor:pointer; font-family:inherit; font-size:12.5px;
+  }
+  .btn-ghost { background:none; border:1px solid var(--line-2); color:var(--ink-2); border-radius:8px; padding:8px 14px; cursor:pointer; font-family:inherit; font-size:12px; margin-left:8px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo">CodeLattice<span>·</span>Workbench</div>
+  <div class="proj"><span class="dot"></span>codelattice <small>@ 9f3c21a</small></div>
+  <div class="search">
+    <span style="color:var(--ink-3)">⌕</span>
+    <input id="searchBox" placeholder="搜索符号 / 文件 / 能力…">
+    <kbd>⌘K</kbd>
+  </div>
+  <div class="views">
+    <button class="active">图谱</button>
+    <button>流程</button>
+    <button>变更</button>
+    <button>对话</button>
+  </div>
+  <div class="top-right">
+    <span class="pill">静态分析</span>
+    <span>snapshot 2026-08-05 11:20</span>
+  </div>
+</div>
+
+<div class="main">
+  <!-- ============ left: capability tree ============ -->
+  <aside class="side">
+    <div class="side-h">功能地图</div>
+    <div class="tree">
+      <div class="tnode">
+        <div class="t-name"><span class="chev">▾</span>代码分析 <span class="bd bd-f">事实</span></div>
+        <div class="t-sub">
+          <div class="t-item" data-goto="n-cli"><span class="k">入口</span>cli / main</div>
+          <div class="t-item" data-goto="n-analyze"><span class="k">mod</span>analyze</div>
+          <div class="t-item" data-goto="n-calls"><span class="k">mod</span>calls</div>
+          <div class="t-item" data-goto="n-index"><span class="k">mod</span>calls_index</div>
+          <div class="t-item" data-goto="n-stdlib"><span class="k">表</span>stdlib_tables</div>
+          <div class="t-item" data-goto="n-graph"><span class="k">mod</span>graph</div>
+          <div class="t-item" data-goto="n-output"><span class="k">mod</span>output</div>
+        </div>
+      </div>
+      <div class="tnode">
+        <div class="t-name"><span class="chev">▾</span>缓存与增量 <span class="bd bd-i">推断</span></div>
+        <div class="t-sub">
+          <div class="t-item" data-goto="n-cache"><span class="k">mod</span>cache</div>
+        </div>
+      </div>
+      <div class="tnode">
+        <div class="t-name"><span class="chev">▾</span>MCP 服务 <span class="bd bd-f">事实</span></div>
+        <div class="t-sub">
+          <div class="t-item" data-goto="n-mcp"><span class="k">svc</span>mcp-sidecar</div>
+        </div>
+      </div>
+      <div class="tnode">
+        <div class="t-name"><span class="chev">▾</span>Web 工作台 <span class="bd bd-f">事实</span></div>
+        <div class="t-sub">
+          <div class="t-item" data-goto="n-viewer"><span class="k">ui</span>snapshot-viewer</div>
+        </div>
+      </div>
+      <div class="tnode">
+        <div class="t-name"><span class="chev">▸</span>变更审查 <span class="bd bd-f">事实</span></div>
+      </div>
+    </div>
+    <div class="side-foot">
+      节点 <b>11</b> · 调用边 <b>13</b><br>
+      置信：<b style="color:var(--fact)">高 9</b> / <b style="color:var(--infer)">低 4</b><br>
+      宏调用、cfg 分支：<b>不解析</b>（边界）
+    </div>
+  </aside>
+
+  <!-- ============ center: graph canvas ============ -->
+  <div class="canvas-wrap">
+    <div class="canvas-tools">
+      <button class="ctbtn active" id="btnChain">链路模式</button>
+      <button class="ctbtn">模块星团</button>
+      <button class="ctbtn">蓝图架构</button>
+      <button class="ctbtn">＋</button><button class="ctbtn">－</button>
+    </div>
+    <div class="crumb" id="crumb">选中边：<b>analyze() → resolve_calls()</b></div>
+    <svg id="graph" viewBox="0 0 900 620" preserveAspectRatio="xMidYMid meet"></svg>
+    <div class="legend">
+      <span class="lg"><i style="background:#3d434c"></i>已确认调用</span>
+      <span class="lg"><i style="background:#3d434c;background-image:linear-gradient(90deg,#3d434c 55%,transparent 0);background-size:7px 2px"></i>低置信启发式</span>
+      <span class="lg"><i style="background:var(--accent)"></i>当前选中</span>
+      <span class="lg"><span class="bd bd-f">事实</span><span class="bd bd-i">推断</span><span class="bd bd-u">未知</span></span>
+    </div>
+  </div>
+
+  <!-- ============ right: inspector ============ -->
+  <aside class="insp">
+    <div class="insp-head">
+      <div class="insp-kicker">选中的调用边</div>
+      <div class="insp-title" id="inspTitle">analyze() <span class="arrow">→</span> resolve_calls()<span class="conf c-high">高置信</span></div>
+    </div>
+
+    <div class="insp-actions">
+      <button class="btn-ai" id="btnTranslate">✦ 翻译这条链路</button>
+      <button class="btn-chat2" id="btnAsk">💬 提问</button>
+    </div>
+
+    <div class="ai-box" id="aiBox">
+      <div class="ai-tag">✦ 模型翻译 <span class="ai-cached" id="aiCached"></span><span class="src" id="aiModel">qwen3-14b-local</span></div>
+      <div class="ai-loading" id="aiLoading"><span class="pulse"></span>正在基于图谱证据生成…</div>
+      <div id="aiContent" style="display:none">
+        <div class="ai-say" id="aiSay"></div>
+        <div class="ai-unk" id="aiUnk"></div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="active" data-tab="t-chain">调用链<span class="n" id="nChain">4</span></button>
+      <button data-tab="t-impact">影响链<span class="n" id="nImpact">3</span></button>
+      <button data-tab="t-evi">证据</button>
+    </div>
+
+    <div class="insp-body">
+      <!-- 调用链 -->
+      <div class="tabpage active" id="t-chain">
+        <div class="sec-h">上游 · 谁调用了它</div>
+        <div id="upList"></div>
+        <div class="sec-h" style="margin-top:14px">下游 · 它调用了谁</div>
+        <div id="downList"></div>
+      </div>
+      <!-- 影响链 -->
+      <div class="tabpage" id="t-impact">
+        <div class="sec-h">如果改这里，可能影响</div>
+        <div id="impactList"></div>
+        <div class="sec-h" style="margin-top:14px">风险结论</div>
+        <div id="impactSay" style="font-size:12px;color:var(--ink-2);line-height:1.7"></div>
+      </div>
+      <!-- 证据 -->
+      <div class="tabpage" id="t-evi">
+        <div class="sec-h">代码位置</div>
+        <div class="evi-file" id="eviFile"></div>
+        <div class="snippet" id="eviSnippet"></div>
+        <div class="sec-h" style="margin-top:14px">证据来源</div>
+        <div class="flag-row">
+          <span class="flag on">staticAnalysis</span>
+          <span class="flag off">runtimeVerified</span>
+          <span class="flag off">testCoverage</span>
+          <span class="flag off">reviewedByHuman</span>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<div class="status">
+  <span>语言 <b>rust</b></span>
+  <span>文件 <b>212</b></span>
+  <span>符号 <b>4,816</b></span>
+  <span>调用边 <b>3,557</b> · 解析率 <b>65.7%</b></span>
+  <div class="right">
+    <span><span class="bd bd-f">事实</span> 有代码证据</span>
+    <span><span class="bd bd-i">推断</span> 模型归纳</span>
+    <span><span class="bd bd-u">未知</span> 无法确认</span>
+  </div>
+</div>
+
+<!-- ============ chat FAB + drawer ============ -->
+<button class="fab" id="fabChat">💬 和项目对话</button>
+<div class="drawer" id="chatDrawer">
+  <div class="chat-head">
+    <span class="t">和项目对话</span>
+    <span class="ctx" id="chatCtx">上下文：analyze → calls</span>
+    <select class="model-sel" id="modelSel"></select>
+    <button class="icon-btn" id="btnPool" title="模型池管理">⚙</button>
+    <button class="icon-btn" id="btnCloseChat" title="关闭">✕</button>
+  </div>
+  <div class="chat-body" id="chatBody">
+    <div class="msg bot">
+      <div class="m-meta"><b>qwen3-14b-local</b> · 基于当前图谱证据</div>
+      你好，我只根据 CodeLattice 的图谱证据回答，答不了的会直说"未知"。当前选中的调用边已作为上下文带入，你可以直接问，比如：<br>· 这条链路断了会怎样？<br>· 缓存这条边为什么是低置信？<br>· 改 resolve_calls 会影响哪些测试？
+      <div class="evi-chips">
+        <span class="chip" data-edge="e2">analyze → resolve_calls</span>
+        <span class="chip" data-edge="e8">cache → analyze</span>
+      </div>
+    </div>
+  </div>
+  <div class="chat-input">
+    <input id="chatInput" placeholder="就这个项目 / 当前选中的链路提问…">
+    <button id="chatSend">发送</button>
+  </div>
+</div>
+
+<!-- ============ model pool modal ============ -->
+<div class="modal-mask" id="poolModal">
+  <div class="modal">
+    <h3>模型池管理</h3>
+    <div class="m-sub">翻译与对话都从这里取模型 · 配置保存在本地 <span style="font-family:var(--mono)">~/.codelattice/models.json</span> · API Key 不离开本机</div>
+    <div id="poolList"></div>
+    <div class="mp-form">
+      <div class="f-row">
+        <input id="mpName" placeholder="显示名称，如 我的 DeepSeek">
+        <select id="mpType"><option value="api">OpenAI 兼容 API</option><option value="ollama">Ollama 本地</option></select>
+      </div>
+      <div class="f-row">
+        <input id="mpBase" placeholder="API Base，如 http://localhost:11434/v1">
+      </div>
+      <div class="f-row">
+        <input id="mpModel" placeholder="模型 ID，如 deepseek-v3.2">
+        <input id="mpKey" placeholder="API Key（本地模型可留空）" type="password">
+      </div>
+      <div class="f-note">模型只负责「翻译」和「对话」，不参与图谱计算——换掉任何模型，事实层的结论都不变。</div>
+      <button class="btn-add" id="mpAdd">＋ 新增模型</button>
+      <button class="btn-ghost" id="poolClose">完成</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= 数据（演示用，真实版由 snapshot + 模型翻译填充） ================= */
+const NODES = [
+  {id:'n-cli',    x:60,  y:80,  w:110, label:'cli / main',      kind:'entry'},
+  {id:'n-analyze',x:230, y:80,  w:120, label:'analyze',         kind:'mod'},
+  {id:'n-calls',  x:420, y:60,  w:130, label:'calls',           kind:'mod'},
+  {id:'n-index',  x:640, y:40,  w:140, label:'calls_index',     kind:'mod'},
+  {id:'n-stdlib', x:650, y:150, w:140, label:'stdlib_tables',   kind:'table'},
+  {id:'n-graph',  x:420, y:200, w:110, label:'graph',           kind:'mod'},
+  {id:'n-output', x:610, y:280, w:110, label:'output',          kind:'mod'},
+  {id:'n-cache',  x:370, y:340, w:120, label:'cache',           kind:'mod'},
+  {id:'n-mcp',    x:90,  y:300, w:140, label:'mcp-sidecar',     kind:'svc'},
+  {id:'n-viewer', x:90,  y:440, w:160, label:'snapshot-viewer', kind:'ui'},
+  {id:'n-tests',  x:600, y:440, w:150, label:'fixture tests',   kind:'test'},
+];
+const NODE_H = 34;
+
+const EDGES = [
+  {id:'e1', from:'n-cli', to:'n-analyze', label:'run', conf:'high',
+   say:'CLI 入口解析命令行参数后进入分析主流程 <code>analyze()</code>。所有分析命令（analyze / detect-changes）都从这里分叉。',
+   unk:'⚠ 未知：detect-changes 的 scope 参数默认值需要运行时确认。',
+   up:[], down:[
+     {n:'analyze_project()',l:'analyze.rs:88',here:true},
+     {n:'resolve_calls()',l:'calls.rs:402'},
+     {n:'build_graph()',l:'graph.rs:131'}],
+   impact:[{n:'所有分析命令',r:'high',why:'入口签名变更会波及全部 CLI 子命令'}],
+   impactSay:'入口参数结构变更属高风险：13 个调用点，建议 impact_preview 后再改。',
+   file:'crates/cli/src/main.rs:41',
+   snip:'<span class="kw">fn</span> main() {\n  <span class="cm">// 解析子命令并分发</span>\n  <span class="hl">analyze::run(args)</span>\n}'},
+
+  {id:'e2', from:'n-analyze', to:'n-calls', label:'resolve_calls', conf:'high', sel:true,
+   say:'这是一次<span class="bd bd-f">事实</span>调用：分析主流程在完成符号提取后，把符号表交给 <code>resolve_calls()</code> 逐条解析调用点。它是整个 CALLS 链路的<b>咽喉</b>。',
+   unk:'⚠ 未知：解析失败时的降级路径是否记录日志，静态证据不足。',
+   up:[{n:'cli::main()',l:'main.rs:41'}],
+   down:[
+     {n:'resolve_calls()',l:'calls.rs:402',here:true},
+     {n:'CalleeIndex::build()',l:'calls_index.rs:97'},
+     {n:'lookup_stdlib()',l:'stdlib_tables.rs:55'}],
+   impact:[
+     {n:'graph 组装',r:'high',why:'CALLS 边是图谱骨架，解析逻辑变动直接改变图结构'},
+     {n:'变更审查',r:'med',why:'detect-changes 依赖调用边做影响面计算'},
+     {n:'MCP 查询',r:'low',why:'只读查询，签名兼容即可'}],
+   impactSay:'风险 <span class="risk r-high">high</span>：这是 CALLS 链路咽喉。改动需跑全量 fixture（85 tests）+ c1/c10 smoke。',
+   file:'crates/project-model/src/calls.rs:402',
+   snip:'<span class="kw">pub fn</span> <span class="hl">resolve_calls</span>(\n  symbols: &SymbolTable,\n  index: &CalleeIndex,\n) -> Vec&lt;CallEdge&gt; {\n  <span class="cm">// 低置信启发式仅标记，不做类型推断（stop-line）</span>\n  ...\n}'},
+
+  {id:'e3', from:'n-calls', to:'n-index', label:'CalleeIndex', conf:'high',
+   say:'<code>calls.rs</code> 通过 <code>CalleeIndex</code> 反查「同名符号谁最可能是被调者」，是通配符导入消歧的关键索引。',
+   unk:'',
+   up:[{n:'resolve_calls()',l:'calls.rs:402'}],
+   down:[{n:'CalleeIndex::build()',l:'calls_index.rs:97',here:true}],
+   impact:[{n:'解析率指标',r:'med',why:'索引覆盖率直接决定 65.7% 这个数字'}],
+   impactSay:'风险 <span class="risk r-med">med</span>：行为等价性需由 endpoint integrity test 保证。',
+   file:'crates/project-model/src/calls_index.rs:97',
+   snip:'<span class="kw">impl</span> CalleeIndex {\n  <span class="kw">pub fn</span> <span class="hl">build</span>(symbols: &[Symbol]) -> Self {\n    ...\n  }\n}'},
+
+  {id:'e4', from:'n-calls', to:'n-stdlib', label:'stdlib 查表', conf:'low',
+   say:'对 prelude / std 类型的方法调用走<b>有限查表</b>（白名单），不是完整的外部 crate 解析——这是明确的 stop-line 边界。',
+   unk:'⚠ 未知：表外 stdlib 方法一律标记 unknown，不会尝试解析。',
+   up:[{n:'resolve_calls()',l:'calls.rs:402'}],
+   down:[{n:'lookup_stdlib()',l:'stdlib_tables.rs:55',here:true}],
+   impact:[{n:'external-crate stats',r:'low',why:'只影响统计口径，不影响图结构'}],
+   impactSay:'风险 <span class="risk r-low">low</span>：查表是纯数据，扩展条目不改控制流。',
+   file:'crates/project-model/src/stdlib_tables.rs:55',
+   snip:'<span class="cm">// 有限解析：仅 std/core/alloc 直连路径（stop-line）</span>\n<span class="kw">pub fn</span> <span class="hl">lookup_stdlib</span>(path: &str) -> Option&lt;&MethodSig&gt; {\n  STD_METHODS.get(path)\n}'},
+
+  {id:'e5', from:'n-analyze', to:'n-graph', label:'build_graph', conf:'high',
+   say:'解析结果在 <code>graph.rs</code> 组装成节点与边；此处强制 CALLS 边两端必须指向已存在节点（dangling-edge gate）。',
+   unk:'',
+   up:[{n:'analyze_project()',l:'analyze.rs:88'}],
+   down:[{n:'build_graph()',l:'graph.rs:131',here:true},{n:'emit_output()',l:'output.rs:64'}],
+   impact:[{n:'所有下游消费方',r:'high',why:'图结构是 output / cache / MCP / viewer 的共同输入'}],
+   impactSay:'风险 <span class="risk r-high">high</span>：受 Active Bug Gate 保护，改动必须跑 dangling-edge smoke。',
+   file:'crates/project-model/src/graph.rs:131',
+   snip:'<span class="cm">// stop-line: CALLS edge 不允许 dangling</span>\n<span class="kw">for</span> e <span class="kw">in</span> calls {\n  <span class="hl">assert_endpoint_exists(&e)?</span>;\n}'},
+
+  {id:'e6', from:'n-graph', to:'n-output', label:'emit', conf:'high',
+   say:'图谱序列化为 output 契约（含 stats 字段），统计值必须从 call_list 实算，禁止硬编码——这条是 bug gate 防守规则。',
+   unk:'',
+   up:[{n:'build_graph()',l:'graph.rs:131'}],
+   down:[{n:'emit_output()',l:'output.rs:64',here:true}],
+   impact:[{n:'snapshot 消费方',r:'med',why:'viewer / MCP 都按此契约解析'}],
+   impactSay:'风险 <span class="risk r-med">med</span>：契约字段变更需同步 viewer 渲染逻辑。',
+   file:'crates/project-model/src/output.rs:64',
+   snip:'stats.call_external_crate_total =\n  call_list.iter()\n    .filter(|c| c.kind == <span class="hl">ExternalCrate</span>)\n    .count();'},
+
+  {id:'e7', from:'n-output', to:'n-cache', label:'write', conf:'high',
+   say:'分析结果整体序列化写入缓存（<code>CacheEntry</code>），下次未变化时直接命中，避免全量重算。',
+   unk:'⚠ 未知：缓存淘汰策略缺失，磁盘增长无上限（推断）。',
+   up:[{n:'emit_output()',l:'output.rs:64'}],
+   down:[{n:'cache_write()',l:'cache.rs:118',here:true}],
+   impact:[{n:'磁盘占用',r:'low',why:'无淘汰策略，长期增长'}],
+   impactSay:'风险 <span class="risk r-low">low</span>。',
+   file:'crates/project-model/src/cache.rs:118',
+   snip:'<span class="kw">pub fn</span> <span class="hl">cache_write</span>(entry: &CacheEntry) {\n  <span class="cm">// 按 项目×版本 各存一份</span>\n  store.put(key, serialize(entry));\n}'},
+
+  {id:'e8', from:'n-cache', to:'n-analyze', label:'hit / 命中', conf:'high',
+   say:'缓存命中时跳过符号提取与调用解析，直接复用上次的图——这是增量分析的核心收益路径。',
+   unk:'',
+   up:[{n:'analyze_project()',l:'analyze.rs:88'}],
+   down:[{n:'load_or_rebuild()',l:'cache.rs:42',here:true}],
+   impact:[{n:'分析耗时',r:'med',why:'失效判断过严会退化成全量'}],
+   impactSay:'风险 <span class="risk r-med">med</span>。',
+   file:'crates/project-model/src/cache.rs:42',
+   snip:'<span class="kw">pub fn</span> <span class="hl">load_or_rebuild</span>(root: &Path) -> Graph {\n  <span class="kw">if let</span> Some(e) = store.get(&key) { <span class="kw">return</span> e.graph; }\n  rebuild(root)\n}'},
+
+  {id:'e9', from:'n-mcp', to:'n-index', label:'查询', conf:'high',
+   say:'MCP sidecar 以独立进程运行，把 <code>CalleeIndex</code> 等查询能力暴露给外部 agent。<b>桌面端启动分析不会阻塞它</b>——进程级隔离。',
+   unk:'',
+   up:[], down:[{n:'query_symbol()',l:'sidecar.rs:77',here:true}],
+   impact:[{n:'agent 会话',r:'med',why:'sidecar 崩溃只影响查询，不影响正在进行的分析'}],
+   impactSay:'风险 <span class="risk r-med">med</span>：sidecar 与 analyzer 进程隔离是刻意的架构决策。',
+   file:'crates/mcp-sidecar/src/sidecar.rs:77',
+   snip:'<span class="cm">// 独立进程：桌面端分析与 agent 调用互不阻塞</span>\n<span class="kw">async fn</span> <span class="hl">query_symbol</span>(name: &str) -> Json {\n  index.lookup(name)\n}'},
+
+  {id:'e10', from:'n-viewer', to:'n-cache', label:'读 snapshot', conf:'high',
+   say:'viewer 只读加载 snapshot JSON，不执行项目代码；Runner 模式可另起进程生成新快照。',
+   unk:'',
+   up:[], down:[{n:'load_snapshot()',l:'runner.js:103',here:true}],
+   impact:[{n:'无',r:'low',why:'只读路径'}],
+   impactSay:'风险 <span class="risk r-low">low</span>。',
+   file:'webui/snapshot-viewer/runner.js:103',
+   snip:'<span class="kw">function</span> <span class="hl">loadSnapshot</span>(path) {\n  <span class="cm">// 只读；分析由受控 API 另起进程</span>\n  return fetchJson(path);\n}'},
+
+  {id:'e11', from:'n-tests', to:'n-calls', label:'fixture 验证', conf:'high',
+   say:'85 个 fixture 测试锁定解析行为（c1 同模块、c10 external-crate 等），是 CALLS 改动的安全网。',
+   unk:'',
+   up:[], down:[{n:'endpoint_integrity()',l:'tests/calls.rs:12',here:true}],
+   impact:[{n:'重构自由度',r:'low',why:'行为等价拆分由测试兜底'}],
+   impactSay:'风险 <span class="risk r-low">low</span>。',
+   file:'crates/project-model/tests/calls.rs:12',
+   snip:'#[test]\n<span class="kw">fn</span> <span class="hl">endpoint_integrity</span>() {\n  assert_eq!(dangling_edges(&g), 0);\n}'},
+
+  {id:'e12', from:'n-mcp', to:'n-cache', label:'读缓存', conf:'low',
+   say:'sidecar 优先读缓存快照响应查询；缓存未命中时<span class="bd bd-i">推断</span>会触发后台重建。',
+   unk:'⚠ 未知：未命中时的具体行为缺少静态证据。',
+   up:[], down:[{n:'serve_cached()',l:'sidecar.rs:120',here:true}],
+   impact:[{n:'查询延迟',r:'low',why:'冷启动首轮较慢'}],
+   impactSay:'风险 <span class="risk r-low">low</span>。',
+   file:'crates/mcp-sidecar/src/sidecar.rs:120',
+   snip:'<span class="kw">async fn</span> <span class="hl">serve_cached</span>(q: Query) -> Resp {\n  cache.get(q.key).or_rebuild().await\n}'},
+];
+
+/* ================= 渲染 ================= */
+const svg = document.getElementById('graph');
+const NS = 'http://www.w3.org/2000/svg';
+const nodeById = {}; NODES.forEach(n => nodeById[n.id]=n);
+let selected = EDGES.find(e=>e.sel) || EDGES[0];
+
+function el(tag, attrs){ const e=document.createElementNS(NS,tag); for(const k in attrs) e.setAttribute(k,attrs[k]); return e; }
+function center(n){ return {x:n.x+n.w/2, y:n.y+NODE_H/2}; }
+
+function edgePath(a,b){
+  const dx = b.x-a.x, dy = b.y-a.y;
+  const mx = (a.x+b.x)/2;
+  return `M ${a.x} ${a.y} C ${mx} ${a.y}, ${mx} ${b.y}, ${b.x} ${b.y}`;
+}
+
+function draw(){
+  svg.innerHTML = '';
+  const defs = el('defs',{});
+  defs.innerHTML = `<marker id="arw" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+    <path d="M0,0 L8,3.5 L0,7" fill="none" stroke="#3d434c" stroke-width="1.3"/></marker>
+    <marker id="arwSel" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+    <path d="M0,0 L8,3.5 L0,7" fill="none" stroke="#e8823c" stroke-width="1.6"/></marker>
+    <marker id="arwRel" markerWidth="9" markerHeight="9" refX="7" refY="3.5" orient="auto">
+    <path d="M0,0 L8,3.5 L0,7" fill="none" stroke="#8a6a44" stroke-width="1.4"/></marker>`;
+  svg.appendChild(defs);
+
+  EDGES.forEach(e=>{
+    const a = nodeById[e.from], b = nodeById[e.to];
+    // 出点/入点：根据相对位置选边
+    const ac = center(a), bc = center(b);
+    let p1, p2;
+    if (Math.abs(bc.x-ac.x) > Math.abs(bc.y-ac.y)) {
+      p1 = {x: bc.x>ac.x ? a.x+a.w : a.x, y: ac.y};
+      p2 = {x: bc.x>ac.x ? b.x : b.x+b.w, y: bc.y};
+    } else {
+      p1 = {x: ac.x, y: bc.y>ac.y ? a.y+NODE_H : a.y};
+      p2 = {x: bc.x, y: bc.y>ac.y ? b.y : b.y+NODE_H};
+    }
+    const g = el('g',{class:'edge', 'data-id':e.id});
+    g.appendChild(el('path',{class:'hit', d:edgePath(p1,p2)}));
+    const line = el('path',{class:'line'+(e.conf==='low'?' dashed':''), d:edgePath(p1,p2), 'marker-end':'url(#arw)'});
+    g.appendChild(line);
+    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2 - 6;
+    const t = el('text',{x:mx,y:my,'text-anchor':'middle'}); t.textContent = e.label;
+    g.appendChild(t);
+    g.addEventListener('click',()=>selectEdge(e.id));
+    svg.appendChild(g);
+  });
+
+  NODES.forEach(n=>{
+    const g = el('g',{class:'gnode','data-id':n.id});
+    g.appendChild(el('rect',{x:n.x,y:n.y,width:n.w,height:NODE_H,rx:8}));
+    const t1 = el('text',{x:n.x+10,y:n.y+15}); t1.textContent=n.label;
+    const t2 = el('text',{x:n.x+10,y:n.y+27,class:'kind'}); t2.textContent=n.kind;
+    g.appendChild(t1); g.appendChild(t2);
+    g.addEventListener('click',()=>focusNode(n.id));
+    svg.appendChild(g);
+  });
+  applySelection();
+}
+
+function chainNodeIds(e){
+  // 上游链节点 = from 侧；下游 = to 侧；演示版取 from/to + impact 关联
+  return {from:e.from, to:e.to};
+}
+
+function applySelection(){
+  const e = selected;
+  const {from,to} = chainNodeIds(e);
+  svg.querySelectorAll('g.edge').forEach(g=>{
+    const id = g.dataset.id;
+    const ed = EDGES.find(x=>x.id===id);
+    g.classList.remove('sel','rel','dim');
+    const line = g.querySelector('path.line');
+    if (id===e.id){ g.classList.add('sel'); line.setAttribute('marker-end','url(#arwSel)'); }
+    else if (ed.from===from || ed.to===to || ed.from===to || ed.to===from){ g.classList.add('rel'); line.setAttribute('marker-end','url(#arwRel)'); }
+    else { g.classList.add('dim'); line.setAttribute('marker-end','url(#arw)'); }
+  });
+  svg.querySelectorAll('g.gnode').forEach(g=>{
+    g.classList.remove('sel','rel','dim');
+    if (g.dataset.id===from || g.dataset.id===to) g.classList.add('sel');
+    else {
+      const connected = EDGES.some(ed=>ed.id!==e.id && (ed.from===g.dataset.id||ed.to===g.dataset.id) &&
+        (ed.from===from||ed.to===from||ed.from===to||ed.to===to));
+      if (connected) g.classList.add('rel'); else g.classList.add('dim');
+    }
+  });
+  renderPanel();
+}
+
+function chainHtml(list){
+  if(!list.length) return '<div style="font-size:11.5px;color:var(--ink-3);padding:4px 2px">（端点）</div>';
+  return list.map((c,i)=>{
+    const arrow = i<list.length-1 ? '<div class="chain-arrow">↓</div>' : '';
+    return `<div class="chain-item${c.here?' here':''}">
+      <span class="cn">${c.n}</span><span class="cl">${c.l}</span></div>${arrow}`;
+  }).join('');
+}
+
+function renderPanel(){
+  const e = selected;
+  document.getElementById('inspTitle').innerHTML =
+    `${shortName(e.from)} <span class="arrow">→</span> ${shortName(e.to)}
+     <span class="conf ${e.conf==='high'?'c-high':'c-low'}">${e.conf==='high'?'高置信':'低置信'}</span>`;
+  document.getElementById('crumb').innerHTML =
+    `选中边：<b>${shortName(e.from)} → ${shortName(e.to)}</b>`;
+  document.getElementById('chatCtx').textContent = `上下文：${shortName(e.from)} → ${shortName(e.to)}`;
+  // 翻译区：每条边独立缓存，未生成时只显示按钮
+  const aiBox = document.getElementById('aiBox');
+  const btn = document.getElementById('btnTranslate');
+  aiBox.classList.remove('loading');
+  if (e._cached) {
+    aiBox.style.display = 'block';
+    document.getElementById('aiLoading').style.display = 'none';
+    document.getElementById('aiContent').style.display = 'block';
+    document.getElementById('aiSay').innerHTML = e.say;
+    const unk = document.getElementById('aiUnk');
+    unk.style.display = e.unk ? 'block':'none'; unk.innerHTML = e.unk;
+    document.getElementById('aiCached').textContent = '已缓存 · '+e._model;
+    btn.classList.add('done'); btn.innerHTML = '✦ 已翻译 · 重新生成';
+  } else {
+    aiBox.style.display = 'none';
+    btn.classList.remove('done'); btn.innerHTML = '✦ 翻译这条链路';
+  }
+  document.getElementById('upList').innerHTML = chainHtml(e.up);
+  document.getElementById('downList').innerHTML = chainHtml(e.down);
+  document.getElementById('nChain').textContent = e.up.length + e.down.length;
+  document.getElementById('nImpact').textContent = e.impact.length;
+  document.getElementById('impactList').innerHTML = e.impact.map(i=>
+    `<div class="chain-item"><span class="risk r-${i.r}">${i.r}</span>
+     <span class="cn" style="font-family:inherit;font-size:12px">${i.n}</span></div>
+     <div style="font-size:11px;color:var(--ink-3);margin:-1px 0 7px 9px">${i.why}</div>`
+  ).join('');
+  document.getElementById('impactSay').innerHTML = e.impactSay;
+  document.getElementById('eviFile').innerHTML = `📄 <span>${e.file}</span>`;
+  document.getElementById('eviSnippet').innerHTML = e.snip.replace(/\n/g,'<br>');
+}
+
+function shortName(id){ return nodeById[id].label; }
+function selectEdge(id){ selected = EDGES.find(e=>e.id===id); applySelection(); }
+function focusNode(id){
+  // 点击节点：选中它的第一条出边，没有则入边
+  const out = EDGES.find(e=>e.from===id) || EDGES.find(e=>e.to===id);
+  if (out) selectEdge(out.id);
+}
+
+/* tabs */
+document.querySelectorAll('.tabs button').forEach(b=>{
+  b.addEventListener('click',()=>{
+    document.querySelectorAll('.tabs button').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.tabpage').forEach(x=>x.classList.remove('active'));
+    b.classList.add('active');
+    document.getElementById(b.dataset.tab).classList.add('active');
+  });
+});
+/* sidebar goto */
+document.querySelectorAll('.t-item').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.t-item').forEach(x=>x.classList.remove('sel'));
+    t.classList.add('sel');
+    focusNode(t.dataset.goto);
+  });
+});
+/* search: dim non-matching nodes */
+document.getElementById('searchBox').addEventListener('input',ev=>{
+  const q = ev.target.value.trim().toLowerCase();
+  svg.querySelectorAll('g.gnode').forEach(g=>{
+    if(!q){ applySelection(); return; }
+    const n = nodeById[g.dataset.id];
+    g.classList.toggle('dim', !n.label.toLowerCase().includes(q));
+  });
+});
+
+/* ================= 模型池 ================= */
+const MODELS = [
+  {id:'qwen3-14b-local', name:'Qwen3 14B（本地）', type:'ollama', base:'http://localhost:11434/v1', def:true},
+  {id:'kimi-k2', name:'Kimi K2', type:'api', base:'https://api.moonshot.cn/v1', def:false},
+  {id:'claude-sonnet', name:'Claude Sonnet', type:'api', base:'https://api.anthropic.com/v1', def:false},
+];
+function curModel(){ return MODELS.find(m=>m.def) || MODELS[0]; }
+
+function renderModelSel(){
+  const sel = document.getElementById('modelSel');
+  sel.innerHTML = MODELS.map(m=>`<option value="${m.id}" ${m.def?'selected':''}>${m.name}</option>`).join('');
+  document.getElementById('aiModel').textContent = curModel().id;
+}
+function renderPool(){
+  document.getElementById('poolList').innerHTML = MODELS.map(m=>`
+    <div class="mp-item ${m.def?'def':''}">
+      <div>
+        <div class="mp-name">${m.name} <span class="mp-tag ${m.type==='ollama'?'local':''}">${m.type==='ollama'?'本地':'API'}</span></div>
+        <div class="mp-meta">${m.base}</div>
+      </div>
+      <button class="mp-def-btn ${m.def?'on':''}" data-id="${m.id}">${m.def?'默认':'设为默认'}</button>
+    </div>`).join('');
+  document.querySelectorAll('.mp-def-btn').forEach(b=>{
+    b.addEventListener('click',()=>{
+      MODELS.forEach(m=>m.def = m.id===b.dataset.id);
+      renderPool(); renderModelSel();
+    });
+  });
+}
+document.getElementById('mpAdd').addEventListener('click',()=>{
+  const name = document.getElementById('mpName').value.trim();
+  const base = document.getElementById('mpBase').value.trim();
+  const model = document.getElementById('mpModel').value.trim();
+  if(!name || !model) return;
+  MODELS.push({id:model, name, type:document.getElementById('mpType').value, base:base||'—', def:false});
+  renderPool(); renderModelSel();
+  document.getElementById('mpName').value=''; document.getElementById('mpBase').value=''; document.getElementById('mpModel').value='';
+});
+document.getElementById('modelSel').addEventListener('change',ev=>{
+  MODELS.forEach(m=>m.def = m.id===ev.target.value);
+  renderPool();
+  document.getElementById('aiModel').textContent = curModel().id;
+});
+document.getElementById('btnPool').addEventListener('click',()=>document.getElementById('poolModal').classList.add('open'));
+document.getElementById('poolClose').addEventListener('click',()=>document.getElementById('poolModal').classList.remove('open'));
+document.getElementById('poolModal').addEventListener('click',ev=>{
+  if(ev.target.id==='poolModal') ev.target.classList.remove('open');
+});
+
+/* ================= 按需翻译 ================= */
+document.getElementById('btnTranslate').addEventListener('click',()=>{
+  const e = selected;
+  const aiBox = document.getElementById('aiBox');
+  aiBox.style.display = 'block';
+  aiBox.classList.add('loading');
+  document.getElementById('aiLoading').style.display = 'flex';
+  document.getElementById('aiContent').style.display = 'none';
+  document.getElementById('aiCached').textContent = '';
+  // 演示：模拟一次模型调用；真实实现 = snapshot 证据包 → 当前默认模型 → 结构化翻译
+  setTimeout(()=>{
+    e._cached = true; e._model = curModel().id;
+    renderPanel();
+  }, 800);
+});
+
+/* ================= 对话 ================= */
+const drawer = document.getElementById('chatDrawer');
+function openChat(){ drawer.classList.add('open'); document.getElementById('fabChat').style.display='none'; }
+function closeChat(){ drawer.classList.remove('open'); document.getElementById('fabChat').style.display='flex'; }
+document.getElementById('fabChat').addEventListener('click',openChat);
+document.getElementById('btnAsk').addEventListener('click',openChat);
+document.getElementById('btnCloseChat').addEventListener('click',closeChat);
+
+function botReply(q){
+  const e = selected;
+  const m = curModel();
+  const body = document.getElementById('chatBody');
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.innerHTML = `
+    <div class="m-meta"><b>${m.id}</b> · 基于当前图谱证据</div>
+    围绕 <code>${shortName(e.from)} → ${shortName(e.to)}</code>：${e.say.replace(/<[^>]+>/g,'').slice(0,90)}…<br>
+    上游 ${e.up.length} 个调用方，下游 ${e.down.length} 个被调方；影响面最高风险
+    <b>${(e.impact[0]||{}).r || 'low'}</b>（${(e.impact[0]||{}).n || '无'}）。
+    ${e.unk ? '<br>⚠ '+e.unk.replace(/<[^>]+>/g,'') : ''}
+    <div class="evi-chips">
+      <span class="chip" data-edge="${e.id}">高亮这条边</span>
+      ${e.down.slice(0,2).map(d=>`<span class="chip">${d.n}</span>`).join('')}
+    </div>`;
+  body.appendChild(div);
+  div.querySelectorAll('.chip[data-edge]').forEach(c=>c.addEventListener('click',()=>selectEdge(c.dataset.edge)));
+  body.scrollTop = body.scrollHeight;
+}
+function sendChat(){
+  const input = document.getElementById('chatInput');
+  const q = input.value.trim(); if(!q) return;
+  const body = document.getElementById('chatBody');
+  const u = document.createElement('div'); u.className='msg user'; u.textContent=q;
+  body.appendChild(u); input.value='';
+  setTimeout(()=>botReply(q), 500);
+}
+document.getElementById('chatSend').addEventListener('click',sendChat);
+document.getElementById('chatInput').addEventListener('keydown',ev=>{ if(ev.key==='Enter') sendChat(); });
+document.querySelectorAll('.chip[data-edge]').forEach(c=>c.addEventListener('click',()=>selectEdge(c.dataset.edge)));
+
+renderModelSel(); renderPool();
+
+/* demo 模式：截图用，自动打开对话 + 翻译 */
+if (location.search.includes('demo=chat')) {
+  selectEdge('e2');
+  document.getElementById('btnTranslate').click();
+  openChat();
+  setTimeout(()=>{
+    const body = document.getElementById('chatBody');
+    const u = document.createElement('div'); u.className='msg user';
+    u.textContent = '这条链路断了会怎样？';
+    body.appendChild(u);
+    botReply(u.textContent);
+  }, 900);
+}
+
+draw();
+</script>
+</body>
+</html>
