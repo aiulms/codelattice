@@ -260,6 +260,36 @@ fn typescript_analyze_json_valid_output() {
         json["summary"]["symbolCount"].as_u64().unwrap() > 0,
         "expected symbolCount > 0"
     );
+
+    // 门集合与 Rust 路径对齐：dangling_target / duplicate_edges /
+    // calls_endpoint_integrity 必须存在且通过，防止 dangling 边静默逃逸。
+    let gates = json["qualityGates"]
+        .as_array()
+        .expect("qualityGates is array");
+    let gate_names: Vec<&str> = gates
+        .iter()
+        .filter_map(|g| g["gateName"].as_str())
+        .collect();
+    for expected in [
+        "duplicate_nodes",
+        "duplicate_edges",
+        "dangling_source",
+        "dangling_target",
+        "calls_endpoint_integrity",
+    ] {
+        assert!(
+            gate_names.contains(&expected),
+            "typescript quality gates should include {expected}, got: {gate_names:?}"
+        );
+    }
+    for gate in gates {
+        assert!(
+            gate["passed"].as_bool().unwrap_or(false),
+            "typescript quality gate '{}' failed: {}",
+            gate["gateName"],
+            gate["detail"]
+        );
+    }
 }
 
 // ============================================================

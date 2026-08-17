@@ -6280,6 +6280,40 @@ fn compute_quality_metrics(gv: &GraphView) -> Value {
         0.0
     };
 
+    // 解析边口径：结构边（DEFINES/OWNS_SOURCE/CONTAINS_PACKAGE/HAS_PARENT 等）
+    // 是语法层确定性事实，按跨分析器惯例不携带 confidence；unknown-confidence
+    // 只对解析型边（CALLS/IMPORTS/TYPE_USE/ACCESSES/DESIGNATION/REFERENCES）
+    // 有语义。全边口径会把结构边误计为 unknown，夸大图谱不确定性。
+    let resolution_edge_kinds = [
+        "CALLS",
+        "IMPORTS",
+        "TYPE_USE",
+        "ACCESSES",
+        "DESIGNATION",
+        "REFERENCES",
+    ];
+    fn edge_kind_of(e: &Value) -> &str {
+        e.get("type")
+            .and_then(|v| v.as_str())
+            .or_else(|| e.get("kind").and_then(|v| v.as_str()))
+            .unwrap_or("")
+    }
+    let resolution_edge_count = all_edges
+        .iter()
+        .filter(|e| resolution_edge_kinds.contains(&edge_kind_of(e)))
+        .count();
+    let structural_edge_count = total_edge_count - resolution_edge_count;
+    let unknown_confidence_resolution_edge_count = resolution_edge_count
+        - edges_with_confidence
+            .iter()
+            .filter(|(e, c)| c.is_some() && resolution_edge_kinds.contains(&edge_kind_of(e)))
+            .count();
+    let unknown_confidence_resolution_edge_rate = if resolution_edge_count > 0 {
+        unknown_confidence_resolution_edge_count as f64 / resolution_edge_count as f64
+    } else {
+        0.0
+    };
+
     // callQuality
     let call_edges: Vec<&Value> = all_edges
         .iter()
@@ -6422,6 +6456,10 @@ fn compute_quality_metrics(gv: &GraphView) -> Value {
             "unknownConfidenceEdgeCount": unknown_confidence_edge_count,
             "lowConfidenceEdgeRate": low_confidence_edge_rate,
             "unknownConfidenceEdgeRate": unknown_confidence_edge_rate,
+            "structuralEdgeCount": structural_edge_count,
+            "resolutionEdgeCount": resolution_edge_count,
+            "unknownConfidenceResolutionEdgeCount": unknown_confidence_resolution_edge_count,
+            "unknownConfidenceResolutionEdgeRate": unknown_confidence_resolution_edge_rate,
         },
         "callQuality": {
             "callEdgeCount": call_edge_count,
@@ -9959,10 +9997,12 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     let low_conf_call_rate = quality_metrics["callQuality"]["lowConfidenceCallRate"]
         .as_f64()
         .unwrap_or(0.0);
-    let unknown_conf_edge_rate = quality_metrics["edgeConfidence"]["unknownConfidenceEdgeRate"]
+    let unknown_conf_edge_rate = quality_metrics["edgeConfidence"]
+        ["unknownConfidenceResolutionEdgeRate"]
         .as_f64()
         .unwrap_or(0.0);
-    let unknown_conf_edge_count = quality_metrics["edgeConfidence"]["unknownConfidenceEdgeCount"]
+    let unknown_conf_edge_count = quality_metrics["edgeConfidence"]
+        ["unknownConfidenceResolutionEdgeCount"]
         .as_u64()
         .unwrap_or(0);
     if dangling_count > 0 {
@@ -9987,7 +10027,7 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
     }
     if unknown_conf_edge_rate > 0.3 {
         review_checklist.push(format!(
-            "Review graph confidence before acting: {:.1}% of graph edges have unknown confidence",
+            "Review graph confidence before acting: {:.1}% of resolution edges (CALLS/IMPORTS/TYPE_USE/ACCESSES/DESIGNATION/REFERENCES) have unknown confidence; structural edges are excluded",
             unknown_conf_edge_rate * 100.0
         ));
         if changed_symbols_info.is_empty()
@@ -9996,7 +10036,7 @@ fn handle_production_assist(cache: &mut McpCache, params: &Value) -> Result<Valu
                 .any(|reason| reason.contains("unknown-confidence edge rate"))
         {
             overall_risk_reasons.push(format!(
-                "unknown-confidence edge rate is {:.1}% ({} edge(s)) — static graph quality limits certainty",
+                "unknown-confidence resolution edge rate is {:.1}% ({} edge(s)) — static graph quality limits certainty",
                 unknown_conf_edge_rate * 100.0,
                 unknown_conf_edge_count
             ));

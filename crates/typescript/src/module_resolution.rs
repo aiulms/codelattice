@@ -172,13 +172,16 @@ impl TsModuleResolver {
         let base = importer.parent().unwrap_or(Path::new("."));
         let target_dir = base.join(specifier);
 
-        // Try extensions
-        let extensions = [".ts", ".tsx", ".d.ts"];
+        // Try extensions（.ets 供 ArkTS 相对导入使用）
+        let extensions = [".ts", ".tsx", ".d.ts", ".ets"];
         for ext in &extensions {
             let candidate = target_dir.with_extension(&ext[1..]); // strip leading dot
             if candidate.extension().is_none() {
                 // specifier already has extension — try as-is too
-                let with_ext = if specifier.ends_with(".ts") || specifier.ends_with(".tsx") {
+                let with_ext = if specifier.ends_with(".ts")
+                    || specifier.ends_with(".tsx")
+                    || specifier.ends_with(".ets")
+                {
                     base.join(specifier)
                 } else {
                     let mut c = target_dir.as_path().to_path_buf();
@@ -211,7 +214,7 @@ impl TsModuleResolver {
         }
 
         // Try as directory with index
-        let index_files = ["index.ts", "index.tsx", "index.d.ts"];
+        let index_files = ["index.ts", "index.tsx", "index.d.ts", "index.ets"];
         for idx in &index_files {
             let candidate = target_dir.join(idx);
             if self.known_files.contains_key(&candidate) || candidate.is_file() {
@@ -321,8 +324,8 @@ impl TsModuleResolver {
                 return Some(candidate);
             }
 
-            // Try extensions
-            for ext in &[".ts", ".tsx", ".d.ts"] {
+            // Try extensions（.ets 供 ArkTS tsconfig 目标使用）
+            for ext in &[".ts", ".tsx", ".d.ts", ".ets"] {
                 let mut with_ext = candidate.clone();
                 with_ext.set_extension(&ext[1..]);
                 if self.known_files.contains_key(&with_ext) || with_ext.is_file() {
@@ -331,7 +334,7 @@ impl TsModuleResolver {
             }
 
             // Try as directory with index
-            for idx in &["index.ts", "index.tsx", "index.d.ts"] {
+            for idx in &["index.ts", "index.tsx", "index.d.ts", "index.ets"] {
                 let index = candidate.join(idx);
                 if self.known_files.contains_key(&index) || index.is_file() {
                     return Some(index);

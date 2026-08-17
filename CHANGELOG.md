@@ -8,6 +8,13 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ### Fixed
 
+- **TypeScript/ArkTS 图谱质量债清理**：消除 TS 静态图的 dangling edge 与重复边，补齐质量门与置信度口径。
+  - TYPE_USE 边不再指向 `ref:TypeUse:<name>` 合成目标：经 import 绑定/同文件符号表两级解析到真实类型符号（带 confidence/reason/useCount），未解析按 no-edge policy 记诊断。apps/desktop 实测 dangling 526→0。
+  - TS/ArkTS 质量门从 3 门补齐为 6 门（新增 duplicate_edges/dangling_target/calls_endpoint_integrity）；新门暴露并修复 CALLS/IMPORTS 重复三元组（按符号对聚合，lines/callCount/names 合并，对齐 Rust 形态）。
+  - ArkTS 分析接入 TsModuleResolver（新增 `.ets` 扩展探测），相对导入解析到真实文件；无 resolver 兼容分支不再产出 `module:` dangling 目标；`@kit.*` 按 External 诊断。
+  - `unknown-confidence` 指标新增解析边口径（resolutionEdgeCount/unknownConfidenceResolutionEdgeRate 等 additive 字段），风险引导不再把确定性结构边（DEFINES/OWNS_SOURCE 等）误计为 unknown。
+  - TS/ArkTS/JS/C/Cpp/Python/Shell 的 `summary.diagnosticCount` 从硬编码 0 改为 graph.diagnostics 真实计数。
+
 - **Workbench 图谱与模型设置可用性**：G6 生产图启用带碰撞防护的 force layout、viewport auto-fit 和可读标签背景，修复无坐标 snapshot 的节点全部堆在原点；默认 Dashboard 与 Inspector 复用单一右栏，Graph 保持主画布。模型池重做为“供应商 → 连接 → 已配置模型”设置工作台，将通用 OpenAI-compatible 提升为显式一级入口，支持自定义 API Base URL、API Key、模型 ID、连接测试与默认模型；同时修复前端 camelCase 与 Rust `ModelConfig` snake_case 之间的真实 IPC 契约错位，Key 仍只写系统安全存储。
 - **Workbench P0 最终返工闭环**：修复独立复核发现的 Analyzer、Chat、Stream、SecretStore、原生 UI、snapshot 身份和内存基准阻断项。
   - **Analyzer / Stream**：运行中 job 保持可观察且可取消；stdout 先写临时文件再原子发布；前端保存 active stream handle，Stop 会取消后端、终止 iterator 并解绑 listener。

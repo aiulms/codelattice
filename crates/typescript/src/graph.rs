@@ -154,8 +154,8 @@ pub fn build_ts_graph(
     let mut symbol_ids_by_file_name: BTreeMap<(PathBuf, String), Vec<TsSymbolCandidate>> =
         BTreeMap::new();
     let mut symbol_ranges_by_file: BTreeMap<PathBuf, Vec<(usize, usize, String)>> = BTreeMap::new();
-    let mut emitted_call_edges: std::collections::BTreeSet<(String, String, usize)> =
-        std::collections::BTreeSet::new();
+    // CALLS 按 (caller, callee) 聚合后出边，调用点行号聚合进 lines/callCount。
+    let mut resolved_calls: BTreeMap<(String, String), TsCallEdgeAgg> = BTreeMap::new();
 
     // Source file nodes
     for file in &project.source_files {
@@ -240,6 +240,10 @@ pub fn build_ts_graph(
     // Build import alias map (source file + local name -> resolved target file) for call resolution.
     let mut import_target_by_file_name: BTreeMap<(PathBuf, String), PathBuf> = BTreeMap::new();
 
+    // IMPORTS 按 (file, target) 聚合后出边：同文件多条 import 语句指向同一模块时
+    // 合并 names/lines，避免重复三元组触发 duplicate_edges 门。
+    let mut import_edge_agg: BTreeMap<(String, String), TsImportAgg> = BTreeMap::new();
+
     // Import edges — use resolver if available
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
@@ -289,20 +293,16 @@ pub fn build_ts_graph(
 
                                 // Only create edge if target is an existing node
                                 if file_ids.contains(&target_id) {
-                                    let mut props = serde_json::json!({
-                                        "names": imp.imported_names,
-                                        "line": imp.line,
-                                    });
-                                    if let Some(confidence) = resolved.confidence {
-                                        props["confidence"] = serde_json::json!(confidence);
-                                    }
-                                    props["reason"] = serde_json::json!(resolved.reason);
-                                    edges.push(TsGraphEdge {
-                                        kind: TsEdgeKind::Imports,
-                                        source: Some(file_id.clone()),
-                                        target: target_id,
-                                        properties: Some(props),
-                                    });
+                                    let agg = import_edge_agg
+                                        .entry((file_id.clone(), target_id))
+                                        .or_insert(TsImportAgg {
+                                            names: std::collections::BTreeSet::new(),
+                                            lines: vec![],
+                                            confidence: resolved.confidence,
+                                            reason: Some(resolved.reason.to_string()),
+                                        });
+                                    agg.names.extend(imp.imported_names.iter().cloned());
+                                    agg.lines.push(imp.line);
 
                                     // Track aliases for call resolution
                                     for name in &imp.imported_names {
@@ -331,22 +331,48 @@ pub fn build_ts_graph(
                         }
                     }
                 } else {
-                    // Backward-compatible: no resolver, use module: specifier
-                    edges.push(TsGraphEdge {
-                        kind: TsEdgeKind::Imports,
-                        source: Some(file_id.clone()),
-                        target: format!("module:{}", imp.module_path),
-                        properties: Some(serde_json::json!({
-                            "names": imp.imported_names,
-                            "line": imp.line,
-                        })),
-                    });
+                    // 无 resolver 时（如 ArkTS CLI 路径）不再产出 module:<specifier>
+                    // 合成目标 —— 该目标从无对应节点，必然形成 dangling edge。
+                    // 与 resolver 路径的 External/Unresolved 处理一致：不出边，记诊断。
+                    diagnostics.push(serde_json::json!({
+                        "kind": "typescript-import-unresolved",
+                        "severity": "info",
+                        "source": file_id,
+                        "specifier": imp.module_path,
+                        "line": imp.line,
+                        "reason": "no-module-resolver",
+                    }));
                 }
             }
         }
     }
 
+    // 发出聚合后的 IMPORTS 边（file → file，端点均为真实节点）
+    for ((source_id, target_id), agg) in import_edge_agg {
+        let mut props = serde_json::json!({
+            "names": agg.names.into_iter().collect::<Vec<_>>(),
+            "line": agg.lines.first().copied().unwrap_or(0),
+            "lines": agg.lines,
+        });
+        if let Some(confidence) = agg.confidence {
+            props["confidence"] = serde_json::json!(confidence);
+        }
+        if let Some(reason) = agg.reason {
+            props["reason"] = serde_json::json!(reason);
+        }
+        edges.push(TsGraphEdge {
+            kind: TsEdgeKind::Imports,
+            source: Some(source_id),
+            target: target_id,
+            properties: Some(props),
+        });
+    }
+
     // Reference edges
+    // TYPE_USE 先聚合后出边：同一 (file, symbol) 只出一条边并计入 useCount；
+    // 未解析的按 (file, name) 去重记诊断，避免大文件刷屏。
+    let mut resolved_type_uses: BTreeMap<(String, String), TsTypeUseAgg> = BTreeMap::new();
+    let mut unresolved_type_uses: BTreeMap<(PathBuf, String), (usize, usize)> = BTreeMap::new();
     for file in &project.source_files {
         let file_id = format!("file:{}", file.display());
         if let Some(refs) = references.get(file) {
@@ -370,24 +396,21 @@ pub fn build_ts_graph(
                                 confidence,
                                 reason,
                             } => {
-                                if emitted_call_edges.insert((
-                                    source_id.clone(),
-                                    target_id.clone(),
-                                    rf.line,
-                                )) {
-                                    edges.push(TsGraphEdge {
-                                        kind: TsEdgeKind::Calls,
-                                        source: Some(source_id),
-                                        target: target_id,
-                                        properties: Some(serde_json::json!({
-                                            "line": rf.line,
-                                            "callee": rf.name,
-                                            "fullText": rf.full_text,
-                                            "confidence": confidence,
-                                            "reason": reason,
-                                        })),
-                                    });
-                                }
+                                // 同一 (caller, callee) 的多个调用点聚合为一条边；
+                                // 首次解析结果的 confidence/reason 代表该调用对。
+                                let agg = resolved_calls.entry((source_id, target_id)).or_insert(
+                                    TsCallEdgeAgg {
+                                        first_line: rf.line,
+                                        callee: rf.name.clone(),
+                                        first_full_text: rf.full_text.clone(),
+                                        confidence,
+                                        reason,
+                                        call_count: 0,
+                                        lines: vec![],
+                                    },
+                                );
+                                agg.call_count += 1;
+                                agg.lines.push(rf.line);
                             }
                             TsCallTargetResolution::Ambiguous { candidates } => {
                                 diagnostics.push(serde_json::json!({
@@ -404,20 +427,84 @@ pub fn build_ts_graph(
                         }
                     }
                     TsReferenceKind::TypeUse => {
-                        edges.push(TsGraphEdge {
-                            kind: TsEdgeKind::TypeUse,
-                            source: Some(file_id.clone()),
-                            target: format!("ref:{:?}:{}", rf.kind, rf.name),
-                            properties: Some(serde_json::json!({
-                                "line": rf.line,
-                                "fullText": rf.full_text,
-                            })),
-                        });
+                        // 类型引用必须解析到真实符号节点；旧实现的 ref:TypeUse:<name>
+                        // 合成 target 从无对应节点，是 dangling edge 的根因。
+                        // 解析失败不出边，循环结束后统一记诊断。
+                        match resolve_type_use_target(
+                            file,
+                            &rf.name,
+                            &import_target_by_file_name,
+                            &symbol_ids_by_file_name,
+                        ) {
+                            Some((target_id, confidence, reason)) => {
+                                let key = (file_id.clone(), target_id);
+                                let agg = resolved_type_uses.entry(key).or_insert(TsTypeUseAgg {
+                                    first_line: rf.line,
+                                    first_full_text: rf.full_text.clone(),
+                                    confidence,
+                                    reason,
+                                    use_count: 0,
+                                });
+                                agg.use_count += 1;
+                            }
+                            None => {
+                                let (_, count) = unresolved_type_uses
+                                    .entry((file.clone(), rf.name.clone()))
+                                    .or_insert((rf.line, 0usize));
+                                *count += 1;
+                            }
+                        }
                     }
                     TsReferenceKind::MemberAccess => {}
                 }
             }
         }
+    }
+
+    // 发出聚合后的 CALLS 边（caller → callee，三元组唯一，调用点聚合在 lines/callCount）
+    for ((source_id, target_id), agg) in resolved_calls {
+        edges.push(TsGraphEdge {
+            kind: TsEdgeKind::Calls,
+            source: Some(source_id),
+            target: target_id,
+            properties: Some(serde_json::json!({
+                "line": agg.first_line,
+                "lines": agg.lines,
+                "callCount": agg.call_count,
+                "callee": agg.callee,
+                "fullText": agg.first_full_text,
+                "confidence": agg.confidence,
+                "reason": agg.reason,
+            })),
+        });
+    }
+
+    // 发出解析成功的 TYPE_USE 边（file → symbol，端点均有真实节点）
+    for ((source_id, target_id), agg) in resolved_type_uses {
+        edges.push(TsGraphEdge {
+            kind: TsEdgeKind::TypeUse,
+            source: Some(source_id),
+            target: target_id,
+            properties: Some(serde_json::json!({
+                "line": agg.first_line,
+                "fullText": agg.first_full_text,
+                "useCount": agg.use_count,
+                "confidence": agg.confidence,
+                "reason": agg.reason,
+            })),
+        });
+    }
+    // 未解析的类型引用不出边（no-edge policy），仅记诊断
+    for ((file, name), (line, count)) in unresolved_type_uses {
+        diagnostics.push(serde_json::json!({
+            "kind": "typescript-type-use-unresolved",
+            "severity": "info",
+            "source": format!("file:{}", file.display()),
+            "name": name,
+            "line": line,
+            "useCount": count,
+            "reason": "no-import-binding-or-type-symbol",
+        }));
     }
 
     TsGraphOutput {
@@ -443,6 +530,90 @@ enum TsCallTargetResolution {
         candidates: usize,
     },
     Unresolved,
+}
+
+/// 聚合同一 file → symbol 的多条 TYPE_USE 引用：保留首次出现位置与总次数。
+struct TsTypeUseAgg {
+    first_line: usize,
+    first_full_text: Option<String>,
+    confidence: f64,
+    reason: &'static str,
+    use_count: usize,
+}
+
+/// 聚合同一 caller → callee 的多个调用点：schema 要求 (source, type, target)
+/// 三元组唯一，调用点行号聚合进 lines/callCount。
+struct TsCallEdgeAgg {
+    first_line: usize,
+    callee: String,
+    first_full_text: Option<String>,
+    confidence: f64,
+    reason: &'static str,
+    call_count: usize,
+    lines: Vec<usize>,
+}
+
+/// 聚合同一 file → target 的多条 import 语句：合并 names 与 lines，
+/// 保证 IMPORTS 三元组唯一。
+struct TsImportAgg {
+    names: std::collections::BTreeSet<String>,
+    lines: Vec<usize>,
+    confidence: Option<f64>,
+    reason: Option<String>,
+}
+
+/// 类型类符号白名单：TypeUse 只允许解析到类型声明，不指向普通值符号。
+fn is_type_like_kind(kind: TsSymbolKind) -> bool {
+    matches!(
+        kind,
+        TsSymbolKind::Class
+            | TsSymbolKind::Interface
+            | TsSymbolKind::Enum
+            | TsSymbolKind::TypeAlias
+            | TsSymbolKind::Namespace
+            | TsSymbolKind::Component
+    )
+}
+
+/// 解析 TypeUse 引用目标（两级名称匹配，不做完整类型推断）：
+/// 1) 显式 import 绑定 → 导出文件内同名类型符号；
+/// 2) 同文件同名类型符号。
+/// 命中零或多个候选都不出边（歧义与 CALLS 的 Ambiguous 处理一致，
+/// 符合 no-edge policy：宁可少边，不可 dangling 边）。
+fn resolve_type_use_target(
+    file: &PathBuf,
+    name: &str,
+    import_target_by_file_name: &BTreeMap<(PathBuf, String), PathBuf>,
+    symbol_ids_by_file_name: &BTreeMap<(PathBuf, String), Vec<TsSymbolCandidate>>,
+) -> Option<(String, f64, &'static str)> {
+    // 1) import 绑定：import 语句已明确来源文件，目标唯一类型符号置信度高
+    if let Some(target_file) = import_target_by_file_name.get(&(file.clone(), name.to_string())) {
+        let candidates = symbol_ids_by_file_name
+            .get(&(target_file.clone(), name.to_string()))
+            .map(|c| {
+                c.iter()
+                    .filter(|c| is_type_like_kind(c.kind))
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        if candidates.len() == 1 {
+            return Some((candidates[0].id.clone(), 0.9, "imported-type"));
+        }
+        return None;
+    }
+    // 2) 同文件定义即使用，语法上确定性最高
+    let candidates = symbol_ids_by_file_name
+        .get(&(file.clone(), name.to_string()))
+        .map(|c| {
+            c.iter()
+                .filter(|c| is_type_like_kind(c.kind))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if candidates.len() == 1 {
+        return Some((candidates[0].id.clone(), 0.95, "same-file-type"));
+    }
+    None
 }
 
 fn source_symbol_for_call(

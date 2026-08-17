@@ -2686,12 +2686,16 @@ fn run_arkts_analysis_with_trace(
     let project_model_ms = elapsed_ms(stage_start);
 
     let stage_start = std::time::Instant::now();
+    // ArkTS 相对导入（./Second、../utils/Logger）经 TsModuleResolver 解析到
+    // 真实 .ets 文件；@kit.* 系统包按 External 处理（诊断，不出边）。
+    // 不再走无 resolver 兼容分支产出 module:<specifier> dangling 目标。
+    let resolver = gitnexus_typescript::TsModuleResolver::build(&project, &source_files);
     let mut graph = gitnexus_arkts::build_ts_graph(
         &ts_project,
         &symbols_by_file,
         &imports_by_file,
         &references_by_file,
-        None,
+        Some(&resolver),
     );
     let graph_build_ms = elapsed_ms(stage_start);
 
@@ -4046,7 +4050,29 @@ fn compute_arkts_quality_gates(
         },
     });
 
-    // 2. dangling_source
+    // 2. duplicate_edges
+    let edge_triples: Vec<(&str, &str, &str)> = edges
+        .iter()
+        .filter_map(|e| {
+            let src = e.get("source").and_then(|v| v.as_str())?;
+            let tgt = e.get("target").and_then(|v| v.as_str())?;
+            let typ = e.get("type").and_then(|v| v.as_str())?;
+            Some((src, tgt, typ))
+        })
+        .collect();
+    let unique_edge_triples: HashSet<_> = edge_triples.iter().copied().collect();
+    let dup_edges = edge_triples.len() - unique_edge_triples.len();
+    gates.push(QualityGateResult {
+        gate_name: "duplicate_edges".to_string(),
+        passed: dup_edges == 0,
+        detail: if dup_edges == 0 {
+            "0 duplicate edge triples found".to_string()
+        } else {
+            format!("{dup_edges} duplicate edge triples found")
+        },
+    });
+
+    // 3. dangling_source
     let node_id_set: HashSet<&str> = node_ids.iter().copied().collect();
     let dangling_sources: Vec<&str> = edges
         .iter()
@@ -4066,18 +4092,75 @@ fn compute_arkts_quality_gates(
         },
     });
 
-    // 3. deterministic
+    // 4. dangling_target
+    let dangling_targets: Vec<&str> = edges
+        .iter()
+        .filter_map(|e| e.get("target").and_then(|v| v.as_str()))
+        .filter(|t| !node_id_set.contains(t))
+        .collect();
+    gates.push(QualityGateResult {
+        gate_name: "dangling_target".to_string(),
+        passed: dangling_targets.is_empty(),
+        detail: if dangling_targets.is_empty() {
+            "0 dangling target references found".to_string()
+        } else {
+            format!(
+                "{} dangling target references found",
+                dangling_targets.len()
+            )
+        },
+    });
+
+    // 5. deterministic
     gates.push(QualityGateResult {
         gate_name: "deterministic".to_string(),
         passed: true,
         detail: "not verified from single CLI run; verified by test suite".to_string(),
     });
 
+    // 6. calls_endpoint_integrity
+    let calls_dangling = edges
+        .iter()
+        .filter(|e| {
+            e.get("type")
+                .and_then(|v| v.as_str())
+                .map_or(false, |t| t == "CALLS")
+        })
+        .filter(|e| {
+            let src_ok = e
+                .get("source")
+                .and_then(|v| v.as_str())
+                .map_or(false, |s| node_id_set.contains(s));
+            let tgt_ok = e
+                .get("target")
+                .and_then(|v| v.as_str())
+                .map_or(false, |t| node_id_set.contains(t));
+            !(src_ok && tgt_ok)
+        })
+        .count();
+    gates.push(QualityGateResult {
+        gate_name: "calls_endpoint_integrity".to_string(),
+        passed: calls_dangling == 0,
+        detail: if calls_dangling == 0 {
+            "All CALLS edge endpoints exist in nodes".to_string()
+        } else {
+            format!("{calls_dangling} CALLS edges have missing endpoints")
+        },
+    });
+
     gates
 }
 
-/// 构建 ArkTS GraphSummary
-fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value]) -> GraphSummary {
+/// 构建 ArkTS/TypeScript/JavaScript GraphSummary。
+///
+/// 这些分析器会把 unresolved import / ambiguous call / unresolved type-use
+/// 等信息放进 graph.diagnostics；summary 必须从真实诊断源计数，
+/// 避免 WebUI/CLI 把图谱缺口误显示为 0（stats 不允许硬编码默认值）。
+fn build_arkts_summary(
+    graph: &serde_json::Value,
+    nodes: &[serde_json::Value],
+    edges: &[serde_json::Value],
+) -> GraphSummary {
     let symbol_count = nodes
         .iter()
         .filter(|n| {
@@ -4100,6 +4183,11 @@ fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value])
             k == "calls" || k == "Calls" || t == "CALLS"
         })
         .count();
+    let diagnostic_count = graph
+        .get("diagnostics")
+        .and_then(|v| v.as_array())
+        .map(|items| items.len() as u32)
+        .unwrap_or(0);
 
     GraphSummary {
         node_count: nodes.len() as u32,
@@ -4107,27 +4195,9 @@ fn build_arkts_summary(nodes: &[serde_json::Value], edges: &[serde_json::Value])
         symbol_count: symbol_count as u32,
         source_file_count: source_file_count as u32,
         package_count: 1,
-        diagnostic_count: 0,
+        diagnostic_count,
         call_edge_count: call_edge_count as u32,
     }
-}
-
-/// 构建 Shell GraphSummary。
-///
-/// Shell 分析会把 `rm -rf`、`curl | sh` 等静态风险放进 graph.diagnostics；
-/// summary 必须从真实诊断源计数，避免 WebUI/CLI 把脚本风险误显示为 0。
-fn build_shell_summary(
-    graph: &serde_json::Value,
-    nodes: &[serde_json::Value],
-    edges: &[serde_json::Value],
-) -> GraphSummary {
-    let mut summary = build_arkts_summary(nodes, edges);
-    summary.diagnostic_count = graph
-        .get("diagnostics")
-        .and_then(|v| v.as_array())
-        .map(|items| items.len() as u32)
-        .unwrap_or(0);
-    summary
 }
 
 /// 计算 Cangjie 质量门
@@ -4683,7 +4753,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_arkts_summary(&nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -4743,7 +4813,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_arkts_summary(&nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -4803,7 +4873,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_arkts_summary(&nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -4863,7 +4933,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_arkts_summary(&nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -4923,7 +4993,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_arkts_summary(&nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -4983,7 +5053,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_arkts_summary(&nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -5043,7 +5113,7 @@ pub fn run() {
                         });
                         println!("{json}");
                     } else {
-                        let summary = build_shell_summary(&json_val, &nodes, &edges);
+                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
                         let result = LanguageAnalysisResult {
                             language: lang,
                             root: root_path.to_string_lossy().to_string(),
@@ -5140,7 +5210,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "arkts" => {
-                    let (_json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_arkts_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5153,7 +5223,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "typescript" => {
-                    let (_json_val, nodes, edges) = match run_typescript_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_typescript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5166,7 +5236,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "javascript" => {
-                    let (_json_val, nodes, edges) = match run_javascript_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_javascript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5179,7 +5249,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "c" => {
-                    let (_json_val, nodes, edges) = match run_c_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_c_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5192,7 +5262,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "cpp" => {
-                    let (_json_val, nodes, edges) = match run_cpp_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_cpp_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5205,7 +5275,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "python" => {
-                    let (_json_val, nodes, edges) = match run_python_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_python_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5218,7 +5288,7 @@ pub fn run() {
                     (gates, overall)
                 }
                 "shell" => {
-                    let (_json_val, nodes, edges) = match run_shell_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_shell_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
@@ -5323,14 +5393,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "arkts" => {
-                    let (_json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_arkts_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_arkts_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
@@ -5343,14 +5413,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "typescript" => {
-                    let (_json_val, nodes, edges) = match run_typescript_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_typescript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_arkts_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
@@ -5363,14 +5433,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "javascript" => {
-                    let (_json_val, nodes, edges) = match run_javascript_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_javascript_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_arkts_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
@@ -5383,14 +5453,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "c" => {
-                    let (_json_val, nodes, edges) = match run_c_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_c_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_c_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
@@ -5403,14 +5473,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "cpp" => {
-                    let (_json_val, nodes, edges) = match run_cpp_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_cpp_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_cpp_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
@@ -5423,14 +5493,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "python" => {
-                    let (_json_val, nodes, edges) = match run_python_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_python_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_python_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
@@ -5443,14 +5513,14 @@ pub fn run() {
                     (gs, qs)
                 }
                 "shell" => {
-                    let (_json_val, nodes, edges) = match run_shell_analysis(root_path) {
+                    let (json_val, nodes, edges) = match run_shell_analysis(root_path) {
                         Ok(v) => v,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
-                    let gs = build_arkts_summary(&nodes, &edges);
+                    let gs = build_arkts_summary(&json_val, &nodes, &edges);
                     let gates = compute_shell_quality_gates(&nodes, &edges);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
