@@ -82,7 +82,8 @@
       "External crate symbols are resolved only for std/core/alloc direct imports.",
       "Trait resolution and type inference are NOT performed.",
       "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting."
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
     ]
   },
   "explore": {
@@ -737,5 +738,16 @@
       "Call edges are heuristic with confidence scores — not compiler-verified.",
       "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
+  },
+  "moduleGraph": {
+    "modules": [
+      {
+        "id": "src",
+        "files": 2,
+        "symbols": 9
+      }
+    ],
+    "edges": [],
+    "truncated": false
   }
 }

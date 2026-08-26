@@ -62,7 +62,8 @@
       "External crate symbols are resolved only for std/core/alloc direct imports.",
       "Trait resolution and type inference are NOT performed.",
       "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting."
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
     ]
   },
   "explore": {
@@ -936,5 +937,67 @@
       "Call edges are heuristic with confidence scores — not compiler-verified.",
       "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
+  },
+  "moduleGraph": {
+    "modules": [
+      {
+        "id": "scripts",
+        "files": 4,
+        "symbols": 8
+      },
+      {
+        "id": "(root)",
+        "files": 1,
+        "symbols": 3
+      },
+      {
+        "id": "(unknown)",
+        "files": 0,
+        "symbols": 0
+      }
+    ],
+    "edges": [
+      {
+        "source": "(root)",
+        "target": "(unknown)",
+        "count": 8,
+        "kinds": [
+          "calls",
+          "related"
+        ],
+        "reasons": [
+          "external-command-invocation"
+        ],
+        "minConfidence": 0.55
+      },
+      {
+        "source": "(root)",
+        "target": "scripts",
+        "count": 3,
+        "kinds": [
+          "calls",
+          "related"
+        ],
+        "reasons": [
+          "shell-function-name-match",
+          "external-command-invocation"
+        ],
+        "minConfidence": 0.55
+      },
+      {
+        "source": "scripts",
+        "target": "(unknown)",
+        "count": 6,
+        "kinds": [
+          "calls",
+          "related"
+        ],
+        "reasons": [
+          "external-command-invocation"
+        ],
+        "minConfidence": 0.55
+      }
+    ],
+    "truncated": false
   }
 }

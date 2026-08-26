@@ -676,6 +676,56 @@ Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
 }
 ```
 
+### 3.11 moduleGraph — 模块级聚合图（optional）
+
+**来源:** `scripts/codelattice-snapshot-gen.py` 对已生成 `graph` 段做向上归并。不改 CALLS 提取。
+
+**稳定性:** preview（缺省兼容旧 snapshot；新生成 snapshot 应包含此段）
+
+```json
+"moduleGraph": {
+  "modules": [{ "id": "src/api", "files": 4, "symbols": 89 }],
+  "edges": [{
+    "source": "src/components",
+    "target": "src/api",
+    "count": 35,
+    "kinds": ["imports"],
+    "minConfidence": 0.9,
+    "reasons": ["typescript-relative-import-resolved"]
+  }],
+  "truncated": false
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `modules[].id` | 模块身份。文件相对路径前两级目录；根目录文件为 `(root)`；无路径为 `(unknown)`。Rust 有文件时同样走目录规则（对齐 crates / src 子目录）；仅当文件缺失时回退 `modulePath` 前两级 `::`。 |
+| `modules[].languages` | **optional**。模块内节点语言并集（字母序去重）。全未知时字段缺席——禁止 `[]`。来源见 3.12；共享扩展名表，含不可分析语言（身份 ≠ 可分析性）。 |
+| `count` | 归并的底层边数。不新造边。 |
+| `minConfidence` | 聚合边中最低置信度（最弱链路），不是平均值。无置信度时省略。 |
+| `reasons` | 去重后至多 2 条。 |
+| `truncated` | 模块数超过 200 时为 true。 |
+
+**Invariant：** 模块边 `count` 之和等于底层可聚合边数（两端都能归到模块且模块不同）。同模块边不进入模块图。扁平项目可退化成 1 个模块 0 条边，并在 `limitations.notes` 说明。
+
+### 3.12 graph.nodes[].language — 节点语言身份（optional）
+
+**来源:** CLI 转换器（`--format webui-snapshot`）为 webui 快照节点附加的语言身份字段。只进 webui.snapshot.v1，**不写进 0.3.0 analyze 图节点**（MCP 读取面）。
+
+**稳定性:** preview（纯加法可选字段；旧快照缺省兼容）
+
+| 节点类型 | 规则 |
+|------|------|
+| file 节点 | 优先 `properties.language`，否则共享扩展名表（`workspace-model::SOURCE_EXTENSIONS`）按路径扩展名推导 |
+| symbol 节点 | 跟随所属文件：按节点 `file` 字段查扩展名表；`file` 为空则省略字段 |
+| package 节点 | 不带 `language`（容器跨语言） |
+
+**缺席语义（契约级）:** 缺席即未知。**禁止 `""`，禁止 `null`**（TS 中 null ≠ 缺席）；无法判定时整个字段省略。
+
+**已知误伤:** `.h` 按扩展名表标为 `c`，在 C++ 项目中是已知误伤；生成器必须在 `limitations.notes` 追加说明，不在转换器里猜测归属（判定 .h 归属需要编译器级 include 上下文）。
+
+**前端消费边界:** 徽标/角标属展示层；文件夹级语言 = 子孙去重属**展示聚合**，检查器/Chat 不得把"这个文件夹是 X 语言"当事实陈述（那是推断；要当事实需预聚合进快照）。
+
 ---
 
 ## 四、最小样例 (Minimal Example)
@@ -785,7 +835,8 @@ Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
   },
   "docsTestsConfig": { "/* 见 3.8 */ },
   "workflowPresets": { "/* 见 3.9 */ },
-  "limitations": [ "/* 见 3.10 */" ]
+  "limitations": [ "/* 见 3.10 */" ],
+  "moduleGraph": { "/* 见 3.11 */ }
 }
 ```
 
@@ -807,6 +858,7 @@ Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
 | `docsTestsConfig` | **preview** | 结构可能根据反馈调整 |
 | `workflowPresets` | **stable** | preset 定义只在新增 scenario 时扩展 |
 | `limitations` | **stable** | 只增不减 |
+| `moduleGraph` | **preview** | optional；新 snapshot 应产出；缺省兼容旧文件 |
 
 ---
 

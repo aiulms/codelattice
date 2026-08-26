@@ -62,7 +62,8 @@
       "External crate symbols are resolved only for std/core/alloc direct imports.",
       "Trait resolution and type inference are NOT performed.",
       "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting."
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
     ]
   },
   "explore": {
@@ -1500,5 +1501,62 @@
       "Call edges are heuristic with confidence scores — not compiler-verified.",
       "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
+  },
+  "moduleGraph": {
+    "modules": [
+      {
+        "id": "(unknown)",
+        "files": 0,
+        "symbols": 33
+      },
+      {
+        "id": "include",
+        "files": 2,
+        "symbols": 0
+      },
+      {
+        "id": "src",
+        "files": 3,
+        "symbols": 0
+      }
+    ],
+    "edges": [
+      {
+        "source": "include",
+        "target": "(unknown)",
+        "count": 18,
+        "kinds": [
+          "defines"
+        ],
+        "reasons": []
+      },
+      {
+        "source": "src",
+        "target": "(unknown)",
+        "count": 27,
+        "kinds": [
+          "calls",
+          "defines"
+        ],
+        "reasons": [
+          "direct-same-file-function-call",
+          "qualified-project-function-call"
+        ],
+        "minConfidence": 0.75
+      },
+      {
+        "source": "src",
+        "target": "include",
+        "count": 5,
+        "kinds": [
+          "related"
+        ],
+        "reasons": [
+          "cpp-filename-unique-fallback"
+        ],
+        "minConfidence": 0.6
+      }
+    ],
+    "truncated": false
   }
 }

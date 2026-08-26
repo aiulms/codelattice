@@ -171,3 +171,51 @@ test("insights/cleanup heuristic sections keep stable envelope", () => {
     assert.ok(Array.isArray(snap.insights.hotspots));
   }
 });
+
+test("moduleGraph is present and count-sum equals aggregatable edges", () => {
+  const snap = loadFixture();
+  assert.ok(snap.moduleGraph && typeof snap.moduleGraph === "object");
+  assert.ok(Array.isArray(snap.moduleGraph.modules));
+  assert.ok(Array.isArray(snap.moduleGraph.edges));
+  assert.equal(typeof snap.moduleGraph.truncated, "boolean");
+  const ids = new Set();
+  for (const m of snap.moduleGraph.modules) {
+    assert.equal(typeof m.id, "string");
+    assert.ok(m.id.length > 0);
+    assert.ok(!ids.has(m.id), `duplicate module id: ${m.id}`);
+    ids.add(m.id);
+    assert.equal(typeof m.files, "number");
+    assert.equal(typeof m.symbols, "number");
+  }
+  let countSum = 0;
+  for (const e of snap.moduleGraph.edges) {
+    assert.ok(ids.has(e.source), `module edge source missing: ${e.source}`);
+    assert.ok(ids.has(e.target), `module edge target missing: ${e.target}`);
+    assert.notEqual(e.source, e.target);
+    assert.equal(typeof e.count, "number");
+    assert.ok(e.count >= 1);
+    assert.ok(Array.isArray(e.kinds));
+    if ("minConfidence" in e) assert.equal(typeof e.minConfidence, "number");
+    countSum += e.count;
+  }
+  const expected = Number(execFileSync("python3", ["-c", `
+import importlib.util, json, pathlib, sys
+p = pathlib.Path(sys.argv[1])
+spec = importlib.util.spec_from_file_location("snapshot_gen", p)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+snap = json.load(sys.stdin)
+lang = snap.get("summary", {}).get("language") or "rust"
+node_mod = {n["id"]: mod.module_id_for_node(n, lang) for n in snap["graph"]["nodes"]}
+n = 0
+for e in snap["graph"]["edges"]:
+    s, t = node_mod.get(e.get("source")), node_mod.get(e.get("target"))
+    if s and t and s != t:
+        n += 1
+print(n)
+`, path.join(WS, "scripts/codelattice-snapshot-gen.py")], {
+    input: JSON.stringify(snap),
+    encoding: "utf8",
+  }).trim());
+  assert.equal(countSum, expected, "module edge counts must equal aggregatable base edges");
+});

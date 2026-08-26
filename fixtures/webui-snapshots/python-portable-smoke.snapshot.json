@@ -1168,5 +1168,34 @@
       "Call edges are heuristic with confidence scores — not compiler-verified.",
       "Dynamic dispatch / reflection / plugins may hide actual callers."
     ]
+  },
+  "moduleGraph": {
+    "modules": [
+      {
+        "id": "src/sample_app",
+        "files": 4,
+        "symbols": 19
+      },
+      {
+        "id": "tests",
+        "files": 1,
+        "symbols": 4
+      }
+    ],
+    "edges": [
+      {
+        "source": "tests",
+        "target": "src/sample_app",
+        "count": 6,
+        "kinds": [
+          "calls"
+        ],
+        "reasons": [
+          "direct-same-file-or-imported-function-call"
+        ],
+        "minConfidence": 0.9
+      }
+    ],
+    "truncated": false
   }
 }

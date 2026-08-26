@@ -610,6 +610,163 @@ def build_generated_from(version: str) -> dict:
 
 # ── Insights (optional enrichment) ───────────────────────────────────────────
 
+MODULE_GRAPH_MAX_MODULES = 200
+_PATH_PLACEHOLDERS = {"<redacted-root>", "<redacted-user>", ".", ".."}
+
+
+def _looks_like_filename(part: str) -> bool:
+    """最后一段带扩展名则视为文件名，不计入目录层级。"""
+    return "." in part
+
+
+def module_id_from_file(file_path: str | None) -> str | None:
+    """相对路径的前两级目录；根目录文件归 (root)。无路径返回 None。"""
+    if not file_path:
+        return None
+    parts = [p for p in str(file_path).replace("\\", "/").split("/") if p and p not in _PATH_PLACEHOLDERS]
+    if not parts:
+        return None
+    dirs = parts[:-1] if _looks_like_filename(parts[-1]) else parts
+    if not dirs:
+        return "(root)"
+    return "/".join(dirs[:2])
+
+
+def module_id_from_rust_module_path(module_path: str | None) -> str | None:
+    """crate 内模块路径取前两级（:: 分段）。无路径返回 None。"""
+    if not module_path:
+        return None
+    segs = [s for s in str(module_path).split("::") if s]
+    if not segs:
+        return None
+    return "::".join(segs[:2])
+
+
+def module_id_for_node(node: dict, language: str) -> str | None:
+    """模块归属：文件路径优先（对齐 crates/ + src/ 架构图）；无路径才回退。
+
+    符号无路径时归 (unknown)，不做猜测（stop-line）。
+    package/file 容器没有路径则不参与模块图，避免造出一个空的 (unknown) 块。
+    """
+    mid = module_id_from_file(node.get("file") or "")
+    if mid:
+        return mid
+    if language == "rust":
+        mid = module_id_from_rust_module_path(node.get("modulePath") or "")
+        if mid:
+            return mid
+    kind = str(node.get("kind") or "")
+    if kind in {"package", "file", ""}:
+        return None
+    return "(unknown)"
+
+
+def build_module_graph(graph: dict, language: str, max_modules: int = MODULE_GRAPH_MAX_MODULES) -> dict:
+    """把已有 graph 边向上归并为模块图。不新造任何符号级边。
+
+    可聚合边 = 两端都能归到模块且模块不同。模块边 count 之和必须等于可聚合边数。
+    minConfidence 取最弱链路，不取平均。
+    """
+    nodes = [n for n in (graph.get("nodes") or []) if isinstance(n, dict) and n.get("id")]
+    edges = [e for e in (graph.get("edges") or []) if isinstance(e, dict)]
+    node_mod: dict[str, str] = {}
+    for n in nodes:
+        mid = module_id_for_node(n, language)
+        if mid:
+            node_mod[n["id"]] = mid
+
+    modules: dict[str, dict] = {}
+    for n in nodes:
+        mid = node_mod.get(n["id"])
+        if not mid:
+            continue
+        rec = modules.setdefault(mid, {"id": mid, "files": set(), "symbols": 0})
+        if n.get("kind") == "symbol":
+            rec["symbols"] += 1
+        file_path = n.get("file") or ""
+        if file_path:
+            rec["files"].add(file_path)
+
+    agg: dict[tuple[str, str], dict] = {}
+    for e in edges:
+        src = node_mod.get(e.get("source", ""))
+        tgt = node_mod.get(e.get("target", ""))
+        # 缺端点或不跨模块：不是可聚合边，直接跳过，不发明模块边
+        if not src or not tgt or src == tgt:
+            continue
+        key = (src, tgt)
+        rec = agg.setdefault(key, {
+            "source": src,
+            "target": tgt,
+            "count": 0,
+            "kinds": set(),
+            "minConfidence": None,
+            "reasons": [],
+        })
+        rec["count"] += 1
+        rec["kinds"].add(e.get("kind") or "related")
+        conf = e.get("confidence")
+        if isinstance(conf, (int, float)):
+            rec["minConfidence"] = conf if rec["minConfidence"] is None else min(rec["minConfidence"], float(conf))
+        reason = e.get("reason")
+        if reason and reason not in rec["reasons"] and len(rec["reasons"]) < 2:
+            rec["reasons"].append(str(reason)[:100])
+
+    module_list = sorted(modules.values(), key=lambda m: (-m["symbols"], m["id"]))
+    truncated = len(module_list) > max_modules
+    if truncated:
+        keep = {m["id"] for m in module_list[:max_modules]}
+        module_list = [m for m in module_list if m["id"] in keep]
+        agg = {k: v for k, v in agg.items() if k[0] in keep and k[1] in keep}
+
+    edge_list = []
+    for key in sorted(agg.keys()):
+        rec = agg[key]
+        item = {
+            "source": rec["source"],
+            "target": rec["target"],
+            "count": rec["count"],
+            "kinds": sorted(rec["kinds"]),
+            "reasons": rec["reasons"],
+        }
+        if rec["minConfidence"] is not None:
+            item["minConfidence"] = rec["minConfidence"]
+        edge_list.append(item)
+
+    return {
+        "modules": [
+            {"id": m["id"], "files": len(m["files"]), "symbols": m["symbols"]}
+            for m in module_list
+        ],
+        "edges": edge_list,
+        "truncated": truncated,
+    }
+
+
+def _append_module_graph_limitations(snapshot: dict, module_graph: dict) -> None:
+    """扁平项目或未知归属写入 limitations，避免前端当成推断。"""
+    limitations = snapshot.get("limitations")
+    if not isinstance(limitations, dict):
+        return
+    notes = limitations.setdefault("notes", [])
+    if not isinstance(notes, list):
+        return
+    extras = []
+    if len(module_graph.get("modules") or []) <= 1:
+        extras.append(
+            "Module graph collapsed to a single module because the project is flat "
+            "(one directory / one crate); directory-prefix aggregation is the intended fallback."
+        )
+    if any(m.get("id") == "(unknown)" for m in module_graph.get("modules") or []):
+        extras.append(
+            "Some nodes have no file/modulePath and were assigned module '(unknown)'; "
+            "no module membership was inferred."
+        )
+    for note in extras:
+        if note not in notes:
+            notes.append(note)
+
+
 def _relation_key(source: str, kind: str, target: str) -> str:
     """§6.1 初始规则：relationKey = sha256(source + kind + target)。
 
@@ -700,6 +857,9 @@ def build_graph_section(analyze: dict, max_nodes: int = 150, max_edges: int = 30
         visibility = props.get("visibility")
         if visibility:
             gn["visibility"] = visibility
+        module_path = props.get("modulePath")
+        if module_path:
+            gn["modulePath"] = str(module_path)
         graph_nodes.append(gn)
 
     # Build graph edges (filtered to selected node IDs)
@@ -960,6 +1120,12 @@ def main():
             e["relationKey"] = _relation_key(
                 e.get("source", ""), e.get("kind", "related"), e.get("target", "")
             )
+
+    # 模块图必须在路径 redact / relationKey 重算之后，基于最终 graph 段归并
+    if "graph" in snapshot:
+        lang = snapshot.get("summary", {}).get("language") or language
+        snapshot["moduleGraph"] = build_module_graph(snapshot["graph"], lang)
+        _append_module_graph_limitations(snapshot, snapshot["moduleGraph"])
 
     # Output
     indent = None if compact else 2
