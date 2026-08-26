@@ -1887,18 +1887,30 @@ fn compute_enhanced_risk_reasons(
 }
 
 /// 计算增强版风险等级（三层叠加）
+/// docs-only diff 判定：所有变更文件都是 .md 且无符号影响。
+/// 供 pick_enhanced_risk（summary.riskLevel 封顶）与最终 report 组装
+/// （risk.overallRisk / crossProjectRisk 口径统一）共用，避免同一输出
+/// 三个风险字段口径打架（2026-08-26 复核收尾）。
+fn is_docs_only_diff(changed: &Value) -> bool {
+    changed["changedFiles"]
+        .as_array()
+        .is_some_and(|files| {
+            !files.is_empty()
+                && files
+                    .iter()
+                    .all(|f| f["path"].as_str().map_or(false, |p| p.ends_with(".md")))
+        })
+        && changed["summary"]["changedSymbolCount"]
+            .as_u64()
+            .unwrap_or(0)
+            == 0
+}
+
 fn pick_enhanced_risk(changed: &Value, assist: &Value, workspace_impact: &Value) -> String {
     // 第零层：docs-only 快速通道（2026-08-26 修复）。
     // 所有变更文件都是 .md（changedSymbolCount=0）时，diff 没有符号影响，
     // 按 hunk 数升到 high 是噪声：封顶 low，unknownHunks 照实保留。
-    let changed_files = changed["changedFiles"].as_array();
-    let docs_only = changed_files.is_some_and(|files| {
-        !files.is_empty()
-            && files
-                .iter()
-                .all(|f| f["path"].as_str().map_or(false, |p| p.ends_with(".md")))
-    }) && changed["summary"]["changedSymbolCount"].as_u64().unwrap_or(0) == 0;
-    if docs_only {
+    if is_docs_only_diff(changed) {
         return "low".to_string();
     }
 
@@ -2018,6 +2030,7 @@ fn build_detect_changes_report(
         })
         .unwrap_or(0);
     let overall_risk = pick_enhanced_risk(&changed, &assist, &workspace_impact);
+    let docs_only_for_output = is_docs_only_diff(&changed);
     let untracked_file_count = untracked_files.len() as u64;
     let total_file_change_count = changed_file_count + untracked_file_count;
     let enhanced_risk_reasons = compute_enhanced_risk_reasons(&changed, &assist, &workspace_impact);
@@ -2048,9 +2061,21 @@ fn build_detect_changes_report(
         "renamedFiles": changed.get("renamedFiles").cloned().unwrap_or_else(|| json!([])),
         "untrackedFiles": untracked_files,
         "risk": {
-            "overallRisk": assist.get("overallRisk").cloned().unwrap_or_else(|| json!(null)),
+            // docs-only 口径统一（2026-08-26 复核收尾）：第零层封顶 low 只
+            // 作用 summary.riskLevel 时，assist 继承的 overallRisk 与
+            // workspace 层 crossProjectRisk 仍可能报 HIGH/critical，同一
+            // 输出三个风险字段口径打架。docs_only 判定统一压齐。
+            "overallRisk": if docs_only_for_output {
+                json!("LOW")
+            } else {
+                assist.get("overallRisk").cloned().unwrap_or_else(|| json!(null))
+            },
             "overallRiskReasons": enhanced_risk_reasons,
-            "highestRiskSymbols": assist.get("highestRiskSymbols").cloned().unwrap_or_else(|| json!([]))
+            "highestRiskSymbols": if docs_only_for_output {
+                json!([])
+            } else {
+                assist.get("highestRiskSymbols").cloned().unwrap_or_else(|| json!([]))
+            }
         },
         "reviewChecklist": assist.get("reviewChecklist").cloned().unwrap_or_else(|| json!([])),
         "workspaceContext": workspace_impact.get("workspaceContext").cloned().unwrap_or_else(|| json!(null)),
@@ -2060,7 +2085,11 @@ fn build_detect_changes_report(
         "affectedWorkspaceEdges": workspace_impact.get("affectedWorkspaceEdges").cloned().unwrap_or_else(|| json!([])),
         "suppressedWorkspaceEdges": workspace_impact.get("suppressedWorkspaceEdges").cloned().unwrap_or_else(|| json!([])),
         "unsupportedBoundaryHits": workspace_impact.get("unsupportedBoundaryHits").cloned().unwrap_or_else(|| json!([])),
-        "crossProjectRisk": workspace_impact.get("crossProjectRisk").cloned().unwrap_or_else(|| json!(null)),
+        "crossProjectRisk": if docs_only_for_output {
+            json!("low")
+        } else {
+            workspace_impact.get("crossProjectRisk").cloned().unwrap_or_else(|| json!(null))
+        },
         "workspaceImpactSummary": workspace_impact.get("workspaceImpactSummary").cloned().unwrap_or_else(|| json!(null)),
         "recommendedFollowups": recommended_followups,
         "quality": {

@@ -6,8 +6,6 @@
 //! 因多 target AmbiguousTarget 无 package 归属 → crate-wide 搜索失联 →
 //! CALLS 边为 0。
 
-use gitnexus_project_model::output::inspect_project_model_with_options;
-
 fn write_fixture(dir: &std::path::Path) {
     std::fs::create_dir_all(dir.join("src")).unwrap();
     std::fs::write(
@@ -42,7 +40,6 @@ fn bin_to_lib_reexport_call_edge_exists() {
         gitnexus_project_model::output::inspect_project_model_with_options(&tmp, true, true, false, true);
 
     let target_id = "binlib::crate::instance::discover_existing";
-    let main_id_prefix = "binlib::crate::main";
 
     let calls: Vec<_> = output
         .calls

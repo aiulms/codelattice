@@ -1,6 +1,14 @@
 # 执行卡 P0：bin→lib 调用边缺失修复 + 外部评审毛刺清偿
 
-- 日期：2026-08-26 · 状态：已修复，待 promote 验证
+- 日期：2026-08-26 · 状态：已修复并 promote（beta.2）
+- 复核收尾（同日，外部复核 pass 后的增量）：① docs-only 口径统一 ——
+  `risk.overallRisk` 与 `crossProjectRisk` 此前不受第零层封顶约束，同一
+  输出三字段打架（summary=low / overallRisk=HIGH / crossProject=critical），
+  已用 `is_docs_only_diff` 公共判定统一压齐；② 根因表述修正 —— 单独的
+  `HEAD~5...` 本机 git 可接受，报 usage 的是旧实现组合出的
+  `git diff HEAD HEAD~5...`；③ 补齐 base-ref 与 workspace auto 两个修复
+  的自动化回归（`crates/cli/tests/detect_changes_regressions.rs`，
+  CLI 端到端走 git 子进程）；④ 清理测试 unused 警告。
 - 触发事实一（调用边）：外部评审（Codex）与 dsh agent 复测双源确认，
   `apps/stock-core`（bin+lib 同包结构）CALLS 边 30 条，`main.rs::run →
   instance.rs::discover_existing` 这类包内跨文件调用零边；GitNexus 对同一
