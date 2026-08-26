@@ -191,17 +191,20 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
         }
     }
 
-    // Python: check for Python markers
+    // Python: 散 .py 文件（无 pyproject/setup/requirements manifest）在
+    // 有其他强项目语言 marker 的仓库里只是工具脚本，不参与 auto 竞争；
+    // 只有 manifest 证明这是 Python 项目、或没有任何更强 marker 时才检出。
+    // 2026-08-26 修复：open-nwe 这类根目录带 update_index.py 工具脚本的
+    // 多语言仓库，此前被单独检出 Python 并 fail-fast（not compiled）。
     let has_pyproject = root.join("pyproject.toml").is_file();
     let has_setup_py = root.join("setup.py").is_file();
     let has_setup_cfg = root.join("setup.cfg").is_file();
     let has_requirements = root.join("requirements.txt").is_file();
-    let has_python_markers = has_pyproject
-        || has_setup_py
-        || has_setup_cfg
-        || has_requirements
-        || has_python_files(root);
-    if has_python_markers {
+    let has_python_manifest = has_pyproject || has_setup_py || has_setup_cfg || has_requirements;
+    let has_stronger_project_language = detected
+        .iter()
+        .any(|d| !matches!(d, DetectedLanguage::Python | DetectedLanguage::Shell));
+    if has_python_manifest || (!has_stronger_project_language && has_python_files(root)) {
         detected.push(DetectedLanguage::Python);
     }
     // Shell 是低优先级 glue 语言：只有没有更强项目语言时才自动识别，
@@ -212,9 +215,65 @@ pub fn detect_language(root: &Path) -> DetectedLanguage {
 
     match detected.len() {
         0 => DetectedLanguage::Unknown,
-        1 => detected[0],
+        1 => {
+            // workspace 防误判（2026-08-26）：唯一检出是散脚本语言
+            // （Python/Shell 无 manifest 佐证）而根下存在子目录级项目
+            // marker（如 backend/Cargo.toml、frontend/tsconfig.json）时，
+            // 该根是 multi-project workspace 而非单语言项目 —— 报
+            // Ambiguous 引导用户用 workspace 工具或显式子项目 root，
+            // 不要让工具脚本垄断 auto 探测。
+            let only_loose_script = matches!(
+                detected[0],
+                DetectedLanguage::Python | DetectedLanguage::Shell
+            ) && !has_python_manifest;
+            if only_loose_script && has_nested_project_markers(root) {
+                return DetectedLanguage::Ambiguous;
+            }
+            detected[0]
+        }
         _ => DetectedLanguage::Ambiguous,
     }
+}
+
+/// 根的一级/二级子目录里是否有项目 manifest marker。
+/// 只看 Cargo.toml / cjpm.toml / oh-package.json5 / tsconfig.json /
+/// package.json —— 与 detect_language 的强 marker 同集合。
+fn has_nested_project_markers(root: &Path) -> bool {
+    const MARKERS: [&str; 5] = [
+        "Cargo.toml",
+        "cjpm.toml",
+        "oh-package.json5",
+        "tsconfig.json",
+        "package.json",
+    ];
+    // 两层 BFS：root 的直接子目录（第 1 层）与其子目录（第 2 层）
+    let mut current = vec![root.to_path_buf()];
+    for _depth in 0..2 {
+        let mut next = Vec::new();
+        for dir in &current {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    if !name.starts_with('.')
+                        && !["target", "node_modules", "dist", "build", ".gitnexus"]
+                            .contains(&name)
+                    {
+                        next.push(path);
+                    }
+                } else if let Some(fname) = path.file_name().and_then(|n| n.to_str()) {
+                    if MARKERS.contains(&fname) && path.parent() != Some(root) {
+                        return true;
+                    }
+                }
+            }
+        }
+        current = next;
+    }
+    false
 }
 
 #[cfg(test)]

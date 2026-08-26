@@ -9447,14 +9447,23 @@ fn detect_changed_symbols(
     let mut args: Vec<String> = vec!["diff".to_string()];
 
     match diff_mode {
-        "staged" => args.push("--staged".to_string()),
+        "staged" if base_ref.is_none() => args.push("--staged".to_string()),
         "unstaged" => { /* default git diff is unstaged */ }
-        "head" => args.extend(["HEAD"].iter().map(|s| s.to_string())),
+        // base-ref 存在时 diffMode 的 ref 选择被 base 替代（下方
+        // --merge-base <base>），此处不再 push HEAD —— `git diff HEAD
+        // --merge-base <base>` 会被 git 解释为 HEAD 与 base 的共同
+        // 祖先对比 HEAD，恒为空 diff（2026-08-26 修复）。
+        "head" if base_ref.is_none() => args.extend(["HEAD"].iter().map(|s| s.to_string())),
         _ => { /* working-tree = staged + unstaged, default git diff */ }
     }
 
     if let Some(base) = base_ref {
-        args.push(format!("{}...", base));
+        // `git diff <base>`：与 base 对比工作树。原来的 `{base}...`（三点）
+        // 需要 base...HEAD 两个 ref 才合法，单独 `HEAD~1...` 会触发 git
+        // usage 错误（2026-08-26 外部评审实测）。--merge-base 与 base...HEAD
+        // 语义等价且单 ref 合法。
+        args.push("--merge-base".to_string());
+        args.push(base.to_string());
     }
 
     if let Ok(relative_root) = analysis_root.strip_prefix(git_root) {
