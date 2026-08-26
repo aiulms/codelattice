@@ -1888,6 +1888,20 @@ fn compute_enhanced_risk_reasons(
 
 /// 计算增强版风险等级（三层叠加）
 fn pick_enhanced_risk(changed: &Value, assist: &Value, workspace_impact: &Value) -> String {
+    // 第零层：docs-only 快速通道（2026-08-26 修复）。
+    // 所有变更文件都是 .md（changedSymbolCount=0）时，diff 没有符号影响，
+    // 按 hunk 数升到 high 是噪声：封顶 low，unknownHunks 照实保留。
+    let changed_files = changed["changedFiles"].as_array();
+    let docs_only = changed_files.is_some_and(|files| {
+        !files.is_empty()
+            && files
+                .iter()
+                .all(|f| f["path"].as_str().map_or(false, |p| p.ends_with(".md")))
+    }) && changed["summary"]["changedSymbolCount"].as_u64().unwrap_or(0) == 0;
+    if docs_only {
+        return "low".to_string();
+    }
+
     // 第一层：现有 risk（production_assist + changed_symbols）
     let base_risk = pick_detect_changes_risk(changed, assist);
 

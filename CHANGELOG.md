@@ -6,6 +6,22 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Fixed（0.17.0-beta.2）
+
+- **Rust bin→lib 调用边缺失（四层修复）**：bin+lib 同包结构（每个 Rust 应用都有）的跨文件 CALLS 边系统性丢失。
+  - bin+lib 双 target 包内非 target-root 文件不再 `package: None`（默认归 lib target，confidence 0.80），符号重新进入 crate-wide 调用索引。
+  - `use <own-package>::x` 不再误判 external crate：按 Cargo.toml 包名对照后走 lib crate root 解析；末段是符号（pub use re-export）时 symbol 级 crate-wide 唯一名兜底（`use-reexport-resolved`）。
+  - 调用点遍历白名单加入 field/reference/parenthesized/await/closure/try 包裹节点——`&fn(..).map_err(..)?` 形态的内层调用不再整棵丢失。
+  - calls 提取迁入 16MB 局部 rayon 池（与 symbol 提取同口径）：遍历加深后全局池默认 2MB 栈在 open-nwe/backend 实测击穿。
+  - 实测：stock-core CALLS 30→9,357（`run→discover_existing` 边恢复）；open-nwe/backend CALLS 4,475→62,452；质量门全绿。
+- **detect-changes `--base-ref`（三层修复）**：`{base}...` 三点拼接非法 git 命令 → `--merge-base <base>`；`--merge-base` 与 diffMode=head 的 `HEAD` 组合成恒空 diff → base-ref 存在时不再 push HEAD；多项目 workspace 根的 auto 探测不再被散脚本 Python 垄断（识别嵌套项目 marker 报 Ambiguous 引导显式指定，而非 not-compiled 崩溃）。
+- **detect-changes docs-only 快速通道**：全部变更为 .md 且无符号影响时 riskLevel 封顶 low（原按 hunk 数可冲到 high 的噪声）。
+- **vendored 依赖诊断噪音**：analyze 的 Rust 文件收集排除点开头目录（.tools/.cargo 等），与 inspect 体检路径语义对齐。股票插件整仓 sourceFiles 5,114→230、诊断 7,773→2,809。**口径变化**：含 vendored registry 的仓库 sourceFileCount/diagnosticCount 将显著下降，这是修正而非回归。
+
+### Changed
+
+- 版本 bump 至 **0.17.0-beta.2**（按 docs/release-versioning.md 清偿 0.17.0-beta.1 期间累积的 TS 质量大修、栈溢出修复、inspect 子命令与本卡修复）。
+
 ### Changed
 
 - **calls.rs 第三刀拆分**：text fallback（extract_calls_text_fallback 等 5 个函数，443 行）迁出为独立模块 `calls_text_fallback.rs`，calls.rs 2119→1694 行（-20.1%）；共享的 `resolve_free_function`/`resolve_associated_function` 提升为 `pub(crate)` 留在原处，无逻辑复制。行为等价：self-analysis CALLS 边数一致（3222），仅 4 条边 confidence 因文件跨模块从 0.90 调整为 0.85。
