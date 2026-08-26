@@ -22,6 +22,7 @@ export type DashboardFacts = {
   hotspots: Array<{ id: string; label: string; callCount: number }>;
   structureSkeleton: Array<{ layer: string; count: number }>;
   suggestions: string[];
+  moduleCount: number;
 };
 
 interface SnapshotSummary {
@@ -36,7 +37,7 @@ function safeSummary(data: Pick<SnapshotData, "summary">): SnapshotSummary {
 }
 
 export function computeDashboardFacts(
-  data: Pick<SnapshotData, "graph" | "summary" | "limitations" | "insights">,
+  data: Pick<SnapshotData, "graph" | "summary" | "limitations" | "insights" | "moduleGraph">,
   index: SnapshotIndex,
 ): DashboardFacts {
   const g = data.graph;
@@ -61,9 +62,11 @@ export function computeDashboardFacts(
   const entryPoints: Array<{ id: string; label: string }> = [];
   if (data.insights?.entryPoints && Array.isArray(data.insights.entryPoints)) {
     for (const ep of data.insights.entryPoints) {
-      if (typeof ep === "object" && ep !== null && "id" in ep && "label" in ep) {
-        entryPoints.push({ id: String(ep.id), label: String(ep.label) });
-      }
+      if (typeof ep !== "object" || ep === null || !("id" in ep)) continue;
+      const rec = ep as { id: unknown; label?: unknown; name?: unknown };
+      const label = rec.label ?? rec.name;
+      if (label == null) continue;
+      entryPoints.push({ id: String(rec.id), label: String(label) });
     }
   }
   if (entryPoints.length === 0) {
@@ -88,12 +91,14 @@ export function computeDashboardFacts(
       return { id, label: node?.label ?? id, callCount };
     });
 
-  // 三层结构骨架
-  const fileCount = g.nodes.filter((n) => n.kind === "file").length;
+  // 三层结构骨架：模块数只读 snapshot.moduleGraph，不在前端重算边界
+  const uniqueFiles = new Set(g.nodes.map((n) => n.file).filter((f): f is string => !!f));
+  const fileCount = g.nodes.filter((n) => n.kind === "file").length || uniqueFiles.size;
   const symbolCount = g.nodes.filter((n) => n.kind === "symbol").length;
   const packageCount = g.nodes.filter((n) => n.kind === "package").length;
+  const moduleCount = data.moduleGraph?.modules.length ?? packageCount;
   const structureSkeleton = [
-    { layer: "Package / Module", count: packageCount },
+    { layer: "Package / Module", count: moduleCount },
     { layer: "File", count: fileCount },
     { layer: "Symbol", count: symbolCount },
   ];
@@ -129,10 +134,17 @@ export function computeDashboardFacts(
     hotspots,
     structureSkeleton,
     suggestions,
+    moduleCount,
   };
 }
 
-export function DashboardPanel(props: { facts: DashboardFacts | null; error?: string }) {
+export function DashboardPanel(props: {
+  facts: DashboardFacts | null;
+  error?: string;
+  hasModuleGraph?: boolean;
+  onJumpLevel?: (level: "module" | "file" | "symbol") => void;
+  onJumpNode?: (nodeId: string) => void;
+}) {
   const f = props.facts;
   if (props.error) {
     return (
@@ -150,82 +162,88 @@ export function DashboardPanel(props: { facts: DashboardFacts | null; error?: st
       </section>
     );
   }
-  const rows: Array<[string, string | number]> = [
-    ["快照", f.snapshotId.slice(0, 24)],
-    ["节点 / 边", `${f.nodeCount} / ${f.edgeCount}`],
-    ["符号节点", f.symbolNodeCount],
-    ["文件节点", f.fileNodeCount],
-    ["CALLS 边", f.callEdgeCount],
-  ];
-  // 覆盖率：totalCalls 未知时不显示 0%，改为 N/A
-  if (f.totalCalls > 0) {
-    rows.push(["CALLS 覆盖率", `${Math.round(f.resolutionRate * 100)}%`]);
-  }
-  rows.push(
-    ["图谱截断", f.truncated ? "是（preview）" : "否"],
-    ["静态限制", f.limitationsCount],
-  );
+  const coverage = f.totalCalls > 0 ? `${Math.round(f.resolutionRate * 100)}%` : "N/A";
+  const layerToLevel = (layer: string): "module" | "file" | "symbol" | null => {
+    if (layer.startsWith("Package") || layer.startsWith("Module")) return "module";
+    if (layer === "File") return "file";
+    if (layer === "Symbol") return "symbol";
+    return null;
+  };
   return (
-    <section className="panel dashboard" data-testid="dashboard">
-      <h2>项目事实</h2>
-      <table className="fact-table">
-        <tbody>
-          {rows.map(([k, v]) => (
-            <tr key={k}>
-              <td>{k}</td>
-              <td>{v}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {f.entryPoints.length > 0 && (
-        <div className="dashboard-section" data-testid="dashboard-entry-points">
-          <h3>入口点（{f.entryPoints.length}）</h3>
-          <ul>
-            {f.entryPoints.slice(0, 5).map((ep) => (
-              <li key={ep.id}>{ep.label}</li>
-            ))}
-          </ul>
-        </div>
-      )}
+    <section className="panel dashboard dashboard-compact" data-testid="dashboard">
+      <h2>从这里开始</h2>
+      <div className="metric-row" data-testid="dashboard-metrics">
+        <span className="metric-chip"><b>{f.nodeCount}</b> 节点</span>
+        <span className="metric-chip"><b>{f.edgeCount}</b> 边</span>
+        {f.moduleCount > 0 && <span className="metric-chip"><b>{f.moduleCount}</b> 模块</span>}
+        <span className="metric-chip"><b>{f.callEdgeCount}</b> CALLS</span>
+        <span className="metric-chip"><b>{coverage}</b> 覆盖</span>
+      </div>
 
       {f.hotspots.length > 0 && (
         <div className="dashboard-section" data-testid="dashboard-hotspots">
           <h3>热点符号</h3>
-          <ul>
+          <div className="chip-list">
             {f.hotspots.map((h) => (
-              <li key={h.id}>{h.label}（{h.callCount} 次调用）</li>
+              <button
+                key={h.id}
+                type="button"
+                className="jump-chip"
+                onClick={() => props.onJumpNode?.(h.id)}
+              >
+                {h.label}
+                <small>{h.callCount}</small>
+              </button>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
       {f.structureSkeleton.length > 0 && (
         <div className="dashboard-section" data-testid="dashboard-structure">
-          <h3>结构骨架</h3>
-          <ul>
-            {f.structureSkeleton.map((s) => (
-              <li key={s.layer}>{s.layer}：{s.count}</li>
-            ))}
-          </ul>
+          <h3>看哪一层</h3>
+          <div className="chip-list">
+            {f.structureSkeleton.map((s) => {
+              const level = layerToLevel(s.layer);
+              const blocked = !level || (level === "module" && !props.hasModuleGraph);
+              return (
+                <button
+                  key={s.layer}
+                  type="button"
+                  className="jump-chip"
+                  disabled={blocked}
+                  onClick={() => level && props.onJumpLevel?.(level)}
+                >
+                  {s.layer}
+                  <small>{s.count}</small>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {f.limitations.length > 0 && (
-        <div className="dashboard-section" data-testid="dashboard-limitations">
-          <h3>静态限制（{f.limitations.length}）</h3>
-          <ul>
-            {f.limitations.slice(0, 5).map((l) => (
-              <li key={l.id}>{l.text}</li>
+      {f.entryPoints.length > 0 && (
+        <div className="dashboard-section" data-testid="dashboard-entry-points">
+          <h3>入口点</h3>
+          <div className="chip-list">
+            {f.entryPoints.slice(0, 5).map((ep) => (
+              <button
+                key={ep.id}
+                type="button"
+                className="jump-chip"
+                onClick={() => props.onJumpNode?.(ep.id)}
+              >
+                {ep.label}
+              </button>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
       {f.suggestions.length > 0 && (
         <div className="dashboard-section" data-testid="dashboard-suggestions">
-          <h3>建议起点</h3>
+          <h3>建议</h3>
           <ol>
             {f.suggestions.map((s, i) => (
               <li key={i}>{s}</li>
@@ -234,7 +252,18 @@ export function DashboardPanel(props: { facts: DashboardFacts | null; error?: st
         </div>
       )}
 
-      <p className="hint">以上均为静态事实，不依赖模型服务。</p>
+      {f.limitations.length > 0 && (
+        <details className="dashboard-section" data-testid="dashboard-limitations">
+          <summary>分析边界（{f.limitations.length}）</summary>
+          <ul>
+            {f.limitations.slice(0, 8).map((l) => (
+              <li key={l.id}>{l.text}</li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <p className="hint">静态事实，不依赖模型。</p>
     </section>
   );
 }

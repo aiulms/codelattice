@@ -81,6 +81,40 @@ describe("ModelPoolPanel", () => {
     });
   });
 
+  it("exposes light and dark appearance controls in settings", async () => {
+    const tx = transport();
+    const seen: string[] = [];
+    render(
+      <ModelPoolPanel
+        transport={tx}
+        open
+        onClose={() => {}}
+        theme="light"
+        onThemeChange={(next) => seen.push(next)}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("theme-dark"));
+    expect(seen).toEqual(["dark"]);
+  });
+
+  it("lets the user pick an answer style in settings", async () => {
+    const tx = transport();
+    const seen: string[] = [];
+    render(
+      <ModelPoolPanel
+        transport={tx}
+        open
+        onClose={() => {}}
+        explainStyle="balanced"
+        onExplainStyleChange={(next) => seen.push(next)}
+      />,
+    );
+    expect(await screen.findByText("设置")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("explain-style-plain"));
+    expect(seen).toEqual(["plain"]);
+  });
+
   it("normalizes the Rust snake_case wire format before rendering configured models", async () => {
     const base = transport();
     const tx = new ExistingModelTransport(

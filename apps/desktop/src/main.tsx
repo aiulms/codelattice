@@ -6,7 +6,10 @@ import { TauriDesktopTransport } from "./transport/desktop-transport";
 import { HttpDesktopTransport } from "./transport/http-transport";
 import type { DesktopTransport } from "./types";
 import { maybeRunSelftest } from "./smoke/selftest";
+import { applyTheme, readTheme } from "./theme";
 import "./styles.css";
+
+applyTheme(readTheme());
 
 function createTransport(): DesktopTransport {
   const isTauri = "__TAURI_INTERNALS__" in window;

@@ -114,7 +114,7 @@ impl AnalyzerSupervisor {
             .arg(&codelattice_bin)
             .args(["analyze", "--root"])
             .arg(&project_root)
-            .args(["--language", &language, "--format", "json"])
+            .args(["--language", &language, "--format", "webui-snapshot"])
             .stdout(Stdio::from(stdout))
             .stderr(Stdio::null());
 
@@ -231,6 +231,39 @@ impl AnalyzerSupervisor {
             });
         }
 
+        // 发布前守卫：工作台只认 webui.snapshot.v1。auto 语言命中多项目工作区时 CLI
+        // 会产出 workspaceAutoEntry 清单而不是快照，必须 Failed 并写明下一步；
+        // 其它未知 schema 同样拒绝发布，避免前端拿到读不了的文件。
+        let raw = std::fs::read_to_string(&job.temp_output).unwrap_or_default();
+        let schema = serde_json::from_str::<serde_json::Value>(&raw)
+            .ok()
+            .and_then(|v| {
+                v.get("schemaVersion")
+                    .and_then(|s| s.as_str())
+                    .map(str::to_string)
+            });
+        let schema_problem = match schema.as_deref() {
+            Some("webui.snapshot.v1") => None,
+            Some("codelattice.workspaceAutoEntry.v1") => Some(
+                "该目录是多项目工作区：需要先选择一个子项目再分析（界面挑选流程尚未支持）"
+                    .to_string(),
+            ),
+            other => Some(format!(
+                "analyze 产物不是 webui.snapshot.v1（实际: {}）",
+                other.unwrap_or("无法解析")
+            )),
+        };
+        if let Some(reason) = schema_problem {
+            let _ = std::fs::remove_file(&job.temp_output);
+            return self.finish(AnalyzerResult {
+                job_id: job.job_id.clone(),
+                state: AnalyzerState::Failed,
+                published_snapshot_id: None,
+                published_path: None,
+                error: Some(reason),
+            });
+        }
+
         // 原子发布
         let final_path = job.publish_dir.join(format!("{}.json", job.job_id));
         let tmp_path = job.publish_dir.join(format!(".{}.tmp", job.job_id));
@@ -322,5 +355,80 @@ mod tests {
         assert!(cancel_latency < Duration::from_millis(100));
         assert_eq!(result.state, AnalyzerState::Cancelled);
         assert!(result.published_snapshot_id.is_none());
+    }
+
+    /// 写一个假 CLI：忽略参数，把给定 JSON 原文吐到 stdout。
+    fn fake_cli(dir: &std::path::Path, label: &str, body: &str) -> PathBuf {
+        let payload = dir.join(format!("{label}.json"));
+        fs::write(&payload, body).unwrap();
+        let script = dir.join(format!("{label}.sh"));
+        fs::write(
+            &script,
+            format!("#!/bin/sh\ncat \"{}\"\n", payload.display()),
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+        script
+    }
+
+    #[test]
+    fn publish_accepts_webui_snapshot_output() {
+        let dir = test_dir("webui-snapshot");
+        let script = fake_cli(
+            &dir,
+            "v1",
+            r#"{"schemaVersion":"webui.snapshot.v1","generatedAt":"2026-08-24T00:00:00Z","root":"/x/proj","summary":{"language":"rust"},"graph":{"nodes":[],"edges":[],"summary":{}}}"#,
+        );
+        let supervisor = AnalyzerSupervisor::default();
+        let job_id = supervisor
+            .start(dir.clone(), "rust".into(), script, dir.clone())
+            .unwrap();
+        let result = supervisor.wait_and_publish();
+        assert_eq!(result.state, AnalyzerState::Completed);
+        assert!(dir.join(format!("{job_id}.json")).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn publish_fails_with_reason_for_workspace_auto_entry() {
+        let dir = test_dir("auto-entry");
+        let script = fake_cli(
+            &dir,
+            "auto-entry",
+            r#"{"schemaVersion":"codelattice.workspaceAutoEntry.v1","root":"/x","supportedProjects":[{"name":"frontend"}]}"#,
+        );
+        let supervisor = AnalyzerSupervisor::default();
+        let job_id = supervisor
+            .start(dir.clone(), "auto".into(), script, dir.clone())
+            .unwrap();
+        let result = supervisor.wait_and_publish();
+
+        assert_eq!(result.state, AnalyzerState::Failed);
+        let err = result.error.unwrap_or_default();
+        assert!(err.contains("子项目"), "错误要指引用户下一步: {err}");
+        // 失败不得留下已发布快照
+        assert!(!dir.join(format!("{job_id}.json")).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn publish_fails_for_unexpected_schema() {
+        let dir = test_dir("bad-schema");
+        let script = fake_cli(&dir, "bad", r#"{"schemaVersion":"0.3.0","graph":{}}"#);
+        let supervisor = AnalyzerSupervisor::default();
+        let job_id = supervisor
+            .start(dir.clone(), "rust".into(), script, dir.clone())
+            .unwrap();
+        let result = supervisor.wait_and_publish();
+
+        assert_eq!(result.state, AnalyzerState::Failed);
+        assert!(
+            result.error.unwrap_or_default().contains("0.3.0"),
+            "错误要点名实际 schemaVersion"
+        );
+        assert!(!dir.join(format!("{job_id}.json")).exists());
+        let _ = fs::remove_dir_all(&dir);
     }
 }

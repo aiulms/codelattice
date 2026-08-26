@@ -11,7 +11,208 @@ import type {
   RelationRef,
   SourceRef,
   StaticLimitation,
+  GraphLevel,
+  GraphSelection,
+  ModuleGraph,
 } from "../types";
+
+export type GraphView = {
+  level: GraphLevel;
+  nodes: SnapshotNode[];
+  edges: SnapshotEdge[];
+};
+
+/** 按层级取出可渲染图。模块边界不在前端重算，只消费 snapshot.moduleGraph。 */
+export function graphViewForLevel(data: SnapshotData, level: GraphLevel): GraphView {
+  if (level === "module") {
+    if (!data.moduleGraph) return { level: "symbol", nodes: data.graph.nodes, edges: data.graph.edges };
+    return moduleGraphToView(data.moduleGraph);
+  }
+  if (level === "file") return aggregateByFile(data.graph.nodes, data.graph.edges);
+  return { level: "symbol", nodes: data.graph.nodes, edges: data.graph.edges };
+}
+
+function moduleGraphToView(mg: ModuleGraph): GraphView {
+  const nodes: SnapshotNode[] = mg.modules.map((m) => ({
+    id: `mod:${m.id}`,
+    label: m.id,
+    kind: "package",
+    file: m.id,
+  }));
+  const edges: SnapshotEdge[] = mg.edges.map((e) => ({
+    source: `mod:${e.source}`,
+    target: `mod:${e.target}`,
+    kind: (e.kinds[0] ?? "related") as SnapshotEdge["kind"],
+    confidence: e.minConfidence,
+    reason: e.reasons?.[0],
+    count: e.count,
+    relationKey: `modrel:${e.source}\u0000${e.target}`,
+  }));
+  return { level: "module", nodes, edges };
+}
+
+function fileKeyOf(n: SnapshotNode): string {
+  if (n.kind === "file") return n.file || n.label || n.id;
+  return n.file || "";
+}
+
+/** 文件级同样只归并已有跨文件边，不新造关系。 */
+function aggregateByFile(nodes: SnapshotNode[], edges: SnapshotEdge[]): GraphView {
+  const fileOf = new Map(nodes.map((n) => [n.id, fileKeyOf(n)]));
+  const files = new Map<string, SnapshotNode>();
+  for (const n of nodes) {
+    const key = fileOf.get(n.id) || "";
+    if (!key) continue;
+    if (!files.has(key)) {
+      files.set(key, { id: `file:${key}`, label: key, kind: "file", file: key });
+    }
+  }
+  const agg = new Map<string, SnapshotEdge>();
+  for (const e of edges) {
+    const a = fileOf.get(e.source) || "";
+    const b = fileOf.get(e.target) || "";
+    if (!a || !b || a === b) continue;
+    const id = `${a}\u0000${b}`;
+    const prev = agg.get(id);
+    if (prev) {
+      prev.count = (prev.count ?? 1) + 1;
+      if (typeof e.confidence === "number") {
+        prev.confidence = prev.confidence == null ? e.confidence : Math.min(prev.confidence, e.confidence);
+      }
+    } else {
+      agg.set(id, {
+        source: `file:${a}`,
+        target: `file:${b}`,
+        kind: e.kind,
+        confidence: e.confidence,
+        reason: e.reason,
+        count: 1,
+        relationKey: `filerel:${a}\u0000${b}`,
+      });
+    }
+  }
+  return { level: "file", nodes: [...files.values()], edges: [...agg.values()] };
+}
+
+export type AggregateFacts = {
+  kicker: string;
+  title: string;
+  rows: Array<[string, string]>;
+};
+
+/** 模块/文件视图上的选择 id，符号级 evidence 查不到。 */
+export function isAggregateElementId(id: string): boolean {
+  return id.startsWith("mod:") || id.startsWith("file:") || id.startsWith("modrel:") || id.startsWith("filerel:");
+}
+
+function stripViewPrefix(id: string): string {
+  return id.replace(/^(mod|file):/, "");
+}
+
+/** 聚合选择的检查器事实：只复述 moduleGraph / 文件归并结果，不重算模块边界。 */
+export function aggregateSelectionFacts(
+  data: SnapshotData,
+  level: GraphLevel,
+  selection: GraphSelection,
+): AggregateFacts | null {
+  if (selection.type === "multi") {
+    const view = graphViewForLevel(data, level);
+    const rows: Array<[string, string]> = [];
+    selection.nodeIds.forEach((id, i) => {
+      const n = view.nodes.find((x) => x.id === id);
+      rows.push([`节点 ${i + 1}`, n?.label ?? id]);
+    });
+    selection.relationKeys.forEach((key, i) => {
+      const e = view.edges.find((x) => relationKeyOf(x) === key);
+      const label = e
+        ? `${stripViewPrefix(e.source)} → ${stripViewPrefix(e.target)} · ${e.kind} · 底层 ${e.count ?? 1} · 最弱置信 ${e.confidence ?? "—"}`
+        : key;
+      rows.push([`边 ${i + 1}`, label]);
+    });
+    if (rows.length === 0) return null;
+    return { kicker: "多选", title: `${rows.length} 项`, rows };
+  }
+  if (level === "symbol" || selection.type === "none" || selection.type === "chain") return null;
+  const view = graphViewForLevel(data, level);
+  const kicker = level === "module" ? "模块" : "文件";
+  if (selection.type === "node") {
+    const n = view.nodes.find((x) => x.id === selection.nodeId);
+    if (!n) return null;
+    const outgoing = view.edges.filter((e) => e.source === n.id);
+    const incoming = view.edges.filter((e) => e.target === n.id);
+    const sum = (es: SnapshotEdge[]) => es.reduce((s, e) => s + (e.count ?? 1), 0);
+    const rows: Array<[string, string]> = [];
+    if (level === "module" && data.moduleGraph) {
+      const m = data.moduleGraph.modules.find((x) => x.id === stripViewPrefix(n.id));
+      if (m) {
+        rows.push(["文件数", String(m.files)], ["符号数", String(m.symbols)]);
+      }
+    }
+    rows.push(["出边（底层）", String(sum(outgoing))], ["入边（底层）", String(sum(incoming))]);
+    return { kicker, title: n.label, rows };
+  }
+  const e = view.edges.find((x) => relationKeyOf(x) === selection.relationKey);
+  if (!e) return null;
+  return {
+    kicker: "聚合边",
+    title: `${stripViewPrefix(e.source)} → ${stripViewPrefix(e.target)}`,
+    rows: [
+      ["底层边数", String(e.count ?? 1)],
+      ["类型", e.kind],
+      ["最弱置信", e.confidence != null ? String(e.confidence) : "—"],
+      ["原因", e.reason ?? "—"],
+    ],
+  };
+}
+
+/** 给 Chat 用的可读选择摘要；模型看不到图上的高亮，必须把这项写进消息。 */
+export function formatSelectionForChat(
+  data: SnapshotData,
+  level: GraphLevel,
+  selection: GraphSelection,
+): string | null {
+  if (selection.type === "none") return null;
+  const facts = aggregateSelectionFacts(data, level, selection);
+  if (facts) {
+    return [`${facts.kicker}：${facts.title}`, ...facts.rows.map(([k, v]) => `${k}：${v}`)].join("\n");
+  }
+  if (selection.type === "node") return `节点：${selection.nodeId}`;
+  if (selection.type === "relation") return `关系：${selection.relationKey}`;
+  if (selection.type === "chain") return `链路：${selection.chainId}`;
+  if (selection.type === "multi") {
+    return `多选：${selection.nodeIds.length} 个节点，${selection.relationKeys.length} 条边`;
+  }
+  return null;
+}
+
+export function selectionHeadline(facts: AggregateFacts | null, selection: GraphSelection): string | null {
+  if (selection.type === "none") return null;
+  if (facts) return `${facts.kicker} ${facts.title}`;
+  if (selection.type === "node") return selection.nodeId;
+  if (selection.type === "relation") return "已选中一条边";
+  if (selection.type === "chain") return selection.chainId;
+  if (selection.type === "multi") return `多选 ${selection.nodeIds.length + selection.relationKeys.length} 项`;
+  return null;
+}
+
+/** 自由提问时附带当前选择；解释类 prompt 已经自带事实，不再重复。 */
+export function attachSelectionToChatMessage(userText: string, selectionBlock: string | null): string {
+  if (!selectionBlock) return userText;
+  if (
+    userText.includes("[当前图谱选择]")
+    || userText.startsWith("请解释这条")
+    || userText.startsWith("请分别解释")
+  ) {
+    return userText;
+  }
+  return [
+    userText,
+    "",
+    "[当前图谱选择]",
+    selectionBlock,
+    "用户说的「这根线 / 这个节点」就是上面这一项，不要再索要 relationKey。",
+  ].join("\n");
+}
 
 export interface SnapshotIndex {
   snapshotId: string;

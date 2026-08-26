@@ -73,6 +73,10 @@ export class HttpDesktopTransport implements DesktopTransport {
     throw new Error("not available on legacy runner");
   }
 
+  async inspect(_root: string): Promise<import("../types").WorkspaceInspection> {
+    throw new Error("not available on legacy runner");
+  }
+
   async analyze(_root: string, _language: string): Promise<{ jobId: string }> {
     throw new Error("not available on legacy runner");
   }
@@ -102,6 +106,10 @@ export class HttpDesktopTransport implements DesktopTransport {
   }
 
   async modelsAdd(_config: Record<string, unknown>): Promise<void> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async modelsUpdate(_config: Record<string, unknown>): Promise<void> {
     throw new Error("not available on legacy runner");
   }
 

@@ -4,6 +4,8 @@
 // - evidenceRefs 和 coverage caveats 作为可点击 chips 展示
 // - 清除所有 P0-A/P0-B 占位文案
 import type { Claim, ConversationContext, NavigationAction } from "../types";
+import type { WorkingSetItem } from "../state/working-set";
+import { visibleAssistantText } from "../data/stream-consumer";
 
 export type ChatMessage =
   | { role: "user"; text: string }
@@ -16,6 +18,10 @@ export type ChatMessage =
       error?: string;
     };
 
+function notableCaveats(refs: string[]): string[] {
+  return refs.filter((ref) => ref !== "coverage:project:calls" && !ref.endsWith(":calls"));
+}
+
 const CLASS_LABEL: Record<string, string> = {
   grounded_interpretation: "有依据的解释",
   hypothesis: "假设",
@@ -24,12 +30,16 @@ const CLASS_LABEL: Record<string, string> = {
 
 export function ChatPanel(props: {
   context: ConversationContext;
+  selectionLabel?: string | null;
+  workingSet?: WorkingSetItem[];
+  currentWorkingId?: string | null;
   messages: ChatMessage[];
   streaming: boolean;
   available: boolean;
   onSend(text: string): void;
   onCancel(): void;
   onNavigate(action: NavigationAction): void;
+  onRemoveWorkingSetItem?(id: string): void;
 }) {
   const { context } = props;
   const navigateEvidence = (ref: string) => {
@@ -53,12 +63,41 @@ export function ChatPanel(props: {
       <p className="hint" data-testid="chat-scope">
         {context.stale
           ? "会话已标记 stale：snapshot 已切换，需要显式重新 pin 才能继续。"
-          : context.pinnedScope
-            ? `pinned: ${context.pinnedScope.type}:${context.pinnedScope.id}`
-            : "未 pin 任何范围。选择节点/边后点\u201c加入对话\u201d。"}
+          : props.selectionLabel
+            ? `当前选择：${props.selectionLabel}。发问或点「解释」会记入已讨论清单。`
+            : (props.workingSet?.length ?? 0) > 0
+              ? "已讨论清单会随每轮提问发给模型；换项目会清空。问「两条线的关联」不需要再点回去。"
+              : context.pinnedScope
+                ? `pinned: ${context.pinnedScope.type}:${context.pinnedScope.id}`
+                : "点图上的边或节点后发问或点「解释」，会记入「已讨论」清单。"}
       </p>
+      {(props.workingSet?.length ?? 0) > 0 && (
+        <div className="working-set" data-testid="working-set">
+          <span className="working-set-label">已讨论 · 当前项目</span>
+          {props.workingSet!.map((item) => (
+            <span
+              key={item.id}
+              className={`working-set-chip${item.id === props.currentWorkingId ? " current" : ""}`}
+              data-testid={`working-set-chip-${item.id}`}
+              title={item.block}
+            >
+              <span className="working-set-chip-label">{item.label}</span>
+              {props.onRemoveWorkingSetItem && (
+                <button
+                  type="button"
+                  className="working-set-remove"
+                  aria-label={`从已讨论清单移除 ${item.label}`}
+                  onClick={() => props.onRemoveWorkingSetItem?.(item.id)}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
       {!props.available && (
-        <p className="hint" data-testid="chat-no-model">模型未配置或不可用；事实工作台仍完整可用。点击\u201c模型池\u201d配置。</p>
+        <p className="hint" data-testid="chat-no-model">模型未配置或不可用；事实工作台仍完整可用。点击顶栏「模型」或「设置」配置。</p>
       )}
 
       <div className="chat-messages" data-testid="chat-messages">
@@ -74,7 +113,7 @@ export function ChatPanel(props: {
             </div>
           ) : (
             <div key={i} className="chat-msg assistant" data-testid="chat-msg-assistant">
-              <div className="chat-msg-text">{m.text}</div>
+              <div className="chat-msg-text">{visibleAssistantText(m.text)}</div>
               {m.error && <p className="error-text">{m.error}</p>}
               {m.claims && m.claims.length > 0 && (
                 <ul className="claim-list" data-testid="claim-list">
@@ -103,9 +142,9 @@ export function ChatPanel(props: {
                           ))}
                         </span>
                       )}
-                      {c.coverageCaveatRefs.length > 0 && (
+                      {notableCaveats(c.coverageCaveatRefs).length > 0 && (
                         <span className="coverage-caveats">
-                          {c.coverageCaveatRefs.map((ref, j) => (
+                          {notableCaveats(c.coverageCaveatRefs).map((ref, j) => (
                             <span key={j} className="chip caveat-chip" title={ref}>coverage: {ref.split(":").pop()?.slice(0, 12)}</span>
                           ))}
                         </span>

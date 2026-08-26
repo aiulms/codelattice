@@ -9,7 +9,41 @@ export type SelectionAction =
   | { type: "select-node"; nodeId: string; snapshotId: string }
   | { type: "select-relation"; relationKey: string; occurrenceKey?: string; snapshotId: string }
   | { type: "select-chain"; chainId: string; snapshotId: string }
+  | { type: "toggle-node"; nodeId: string; snapshotId: string }
+  | { type: "toggle-relation"; relationKey: string; snapshotId: string }
   | { type: "clear" };
+
+const MULTI_CAP = 24;
+
+export function selectionItems(state: GraphSelection): { nodeIds: string[]; relationKeys: string[] } {
+  switch (state.type) {
+    case "node":
+      return { nodeIds: [state.nodeId], relationKeys: [] };
+    case "relation":
+      return { nodeIds: [], relationKeys: [state.relationKey] };
+    case "multi":
+      return { nodeIds: [...state.nodeIds], relationKeys: [...state.relationKeys] };
+    default:
+      return { nodeIds: [], relationKeys: [] };
+  }
+}
+
+function packSelection(
+  snapshotId: string,
+  nodeIds: string[],
+  relationKeys: string[],
+): GraphSelection {
+  const nodes = [...new Set(nodeIds)];
+  const rels = [...new Set(relationKeys)];
+  if (nodes.length === 0 && rels.length === 0) return EMPTY;
+  if (nodes.length === 1 && rels.length === 0) {
+    return { type: "node", nodeId: nodes[0], snapshotId };
+  }
+  if (nodes.length === 0 && rels.length === 1) {
+    return { type: "relation", relationKey: rels[0], snapshotId };
+  }
+  return { type: "multi", snapshotId, nodeIds: nodes, relationKeys: rels };
+}
 
 export type NavigationResult =
   | { kind: "applied"; selection: GraphSelection }
@@ -48,6 +82,20 @@ export function selectionReducer(state: GraphSelection, action: SelectionAction)
         return state;
       }
       return { type: "chain", chainId: action.chainId, snapshotId: action.snapshotId };
+    case "toggle-node": {
+      const { nodeIds, relationKeys } = selectionItems(state);
+      const has = nodeIds.includes(action.nodeId);
+      const nextNodes = has ? nodeIds.filter((id) => id !== action.nodeId) : [...nodeIds, action.nodeId];
+      if (!has && nextNodes.length + relationKeys.length > MULTI_CAP) return state;
+      return packSelection(action.snapshotId, nextNodes, relationKeys);
+    }
+    case "toggle-relation": {
+      const { nodeIds, relationKeys } = selectionItems(state);
+      const has = relationKeys.includes(action.relationKey);
+      const nextRels = has ? relationKeys.filter((k) => k !== action.relationKey) : [...relationKeys, action.relationKey];
+      if (!has && nodeIds.length + nextRels.length > MULTI_CAP) return state;
+      return packSelection(action.snapshotId, nodeIds, nextRels);
+    }
     case "clear":
       return EMPTY;
   }
@@ -135,6 +183,15 @@ export class GraphSelectionStore {
         break;
       case "chain":
         this.dispatch({ type: "select-chain", chainId: sel.chainId, snapshotId: sel.snapshotId });
+        break;
+      case "multi":
+        this.dispatch({ type: "clear" });
+        for (const id of sel.nodeIds) {
+          this.dispatch({ type: "toggle-node", nodeId: id, snapshotId: sel.snapshotId });
+        }
+        for (const key of sel.relationKeys) {
+          this.dispatch({ type: "toggle-relation", relationKey: key, snapshotId: sel.snapshotId });
+        }
         break;
       case "none":
         this.dispatch({ type: "clear" });

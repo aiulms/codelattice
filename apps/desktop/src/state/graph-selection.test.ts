@@ -36,6 +36,46 @@ describe("selectionReducer", () => {
     expect((s as { occurrenceKey?: string }).occurrenceKey).toBeUndefined();
   });
 
+  it("toggle-relation accumulates a second edge into multi", () => {
+    const one = selectionReducer(
+      { type: "none" },
+      { type: "toggle-relation", relationKey: "rel:ab", snapshotId: snap },
+    );
+    expect(one).toEqual({ type: "relation", relationKey: "rel:ab", snapshotId: snap });
+    const two = selectionReducer(one, { type: "toggle-relation", relationKey: "rel:bc", snapshotId: snap });
+    expect(two).toEqual({
+      type: "multi",
+      snapshotId: snap,
+      nodeIds: [],
+      relationKeys: ["rel:ab", "rel:bc"],
+    });
+  });
+
+  it("toggle-relation on the same edge removes it", () => {
+    const one = selectionReducer(
+      { type: "relation", relationKey: "rel:ab", snapshotId: snap },
+      { type: "toggle-relation", relationKey: "rel:ab", snapshotId: snap },
+    );
+    expect(one).toEqual({ type: "none" });
+  });
+
+  it("toggle-node plus a relation packs as multi", () => {
+    const node = selectionReducer(
+      { type: "none" },
+      { type: "toggle-node", nodeId: "n:a", snapshotId: snap },
+    );
+    const both = selectionReducer(
+      node,
+      { type: "toggle-relation", relationKey: "rel:ab", snapshotId: snap },
+    );
+    expect(both).toEqual({
+      type: "multi",
+      snapshotId: snap,
+      nodeIds: ["n:a"],
+      relationKeys: ["rel:ab"],
+    });
+  });
+
   it("clears back to none", () => {
     const s = selectionReducer({ type: "node", nodeId: "n:a", snapshotId: snap }, { type: "clear" });
     expect(s).toEqual({ type: "none" });

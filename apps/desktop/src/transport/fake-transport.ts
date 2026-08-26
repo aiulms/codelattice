@@ -11,6 +11,7 @@ import type {
   SnapshotData,
   SnapshotMeta,
   StreamHandle,
+  WorkspaceInspection,
 } from "../types";
 
 export type FakeBehavior = {
@@ -25,6 +26,7 @@ export class FakeDesktopTransport implements DesktopTransport {
   private explainCalls = 0;
   private chatCalls = 0;
   private cancelled: string[] = [];
+  lastChatMessages: string[] = [];
 
   constructor(
     snapshotJson: string,
@@ -121,8 +123,9 @@ export class FakeDesktopTransport implements DesktopTransport {
     return this.stream(["answer-complete"]);
   }
 
-  async chat(_req: ChatRequest): Promise<StreamHandle> {
+  async chat(req: ChatRequest): Promise<StreamHandle> {
     this.chatCalls += 1;
+    this.lastChatMessages.push(req.message);
     if (this.behavior.failModel) throw new Error("model unavailable (fake)");
     return this.stream(["answer-chunk", "answer-complete"]);
   }
@@ -139,6 +142,26 @@ export class FakeDesktopTransport implements DesktopTransport {
 
   async selectProjectDirectory(): Promise<string> {
     return "/fake/project";
+  }
+
+  async inspect(_root: string): Promise<WorkspaceInspection> {
+    // 默认体检信封（执行卡逐字冻结）：恰好一个 analyzable 的 "." rust 行，
+    // 让点「分析项目」的现有用例走单候选直通路径，与引入 inspect 前行为一致。
+    // 多项目/零项目场景由测试 override async inspect() 注入。
+    return {
+      schemaVersion: "codelattice.workspaceInspection.v1",
+      projects: [{
+        name: "project",
+        relativePath: ".",
+        language: "rust",
+        confidence: "certain",
+        evidence: { kind: "manifest", file: "Cargo.toml" },
+        sourceFileCount: 1,
+        analyzable: true,
+      }],
+      sourceOnlyAreas: [],
+      unsupportedAreas: [],
+    };
   }
 
   async analyze(_root: string, _language: string): Promise<{ jobId: string }> {
@@ -168,6 +191,8 @@ export class FakeDesktopTransport implements DesktopTransport {
   }
 
   async modelsAdd(_config: Record<string, unknown>): Promise<void> {}
+
+  async modelsUpdate(_config: Record<string, unknown>): Promise<void> {}
 
   async modelsRemove(_id: string): Promise<void> {}
 

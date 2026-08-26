@@ -8,7 +8,8 @@ export type GraphSelection =
   | { type: "none" }
   | { type: "node"; nodeId: string; snapshotId: string }
   | { type: "relation"; relationKey: string; occurrenceKey?: string; snapshotId: string }
-  | { type: "chain"; chainId: string; snapshotId: string };
+  | { type: "chain"; chainId: string; snapshotId: string }
+  | { type: "multi"; snapshotId: string; nodeIds: string[]; relationKeys: string[] };
 
 export type ConversationScopeType = "project" | "node" | "edge" | "chain";
 
@@ -28,6 +29,8 @@ export type SnapshotNode = {
   file?: string;
   line?: number;
   visibility?: string;
+  /** 节点语言身份（快照生产方标注）。缺席即未知——契约禁止 ""/null。 */
+  language?: string;
 };
 
 export type SnapshotEdge = {
@@ -36,6 +39,8 @@ export type SnapshotEdge = {
   kind: "calls" | "imports" | "defines" | "owns" | "related" | string;
   confidence?: number;
   reason?: string;
+  /** 聚合视图（模块/文件）上的底层边数；符号级图不出现。 */
+  count?: number;
   // P0 identity additions (§6.1): semantic relation identity vs call-site identity.
   // occurrenceKey only exists when the fact layer provides a stable call-site
   // designation; otherwise the UI must stay relation-level.
@@ -65,6 +70,31 @@ export type GraphSummary = {
   callEdgeCount: number;
 };
 
+export type ModuleGraphModule = {
+  id: string;
+  files: number;
+  symbols: number;
+  /** 模块内节点语言并集（字母序去重）。全未知时字段缺席——契约禁止 []。 */
+  languages?: string[];
+};
+
+export type ModuleGraphEdge = {
+  source: string;
+  target: string;
+  count: number;
+  kinds: string[];
+  minConfidence?: number;
+  reasons?: string[];
+};
+
+export type ModuleGraph = {
+  modules: ModuleGraphModule[];
+  edges: ModuleGraphEdge[];
+  truncated: boolean;
+};
+
+export type GraphLevel = "module" | "file" | "symbol";
+
 export type SnapshotData = {
   schemaVersion: string;
   generatedAt: string;
@@ -79,6 +109,7 @@ export type SnapshotData = {
     truncated: boolean;
     cautions: string[];
   };
+  moduleGraph?: ModuleGraph;
   limitations: { notes: string[] } | string[];
   insights?: { entryPoints?: unknown[]; hotspots?: unknown[]; status?: string };
   explore?: { symbols?: unknown[]; sourceFiles?: unknown[]; truncated?: boolean };
@@ -192,6 +223,44 @@ export type ToolTrace = {
   truncated: boolean;
 };
 
+// ── Workspace inspection (codelattice.workspaceInspection.v1, 多语言卡 2/3) ──
+
+export type InspectionEvidence = {
+  kind: "manifest" | "extension-histogram";
+  file?: string;
+  extension?: string;
+  count?: number;
+};
+
+export type InspectionRow = {
+  name?: string;
+  relativePath: string;
+  /** 缺席即未知：unrecognized 行没有 language（契约禁止 ""/null）。 */
+  language?: string;
+  confidence: string;
+  evidence: InspectionEvidence;
+  sourceFileCount: number;
+  analyzable: boolean;
+  reason?: string;
+  recognition?: string;
+};
+
+export type WorkspaceInspection = {
+  schemaVersion: string;
+  root?: string;
+  generatedAt?: string;
+  generatedFrom?: {
+    staticAnalysis: boolean;
+    projectContentRead: boolean;
+    scriptsExecuted: boolean;
+  };
+  projects: InspectionRow[];
+  sourceOnlyAreas: InspectionRow[];
+  unsupportedAreas: InspectionRow[];
+  cautions?: string[];
+  recommendedNextActions?: string[];
+};
+
 // ── Transport (§5.1 / §5.3) ─────────────────────────────────────────────────
 
 export type StreamHandle = {
@@ -236,6 +305,7 @@ export interface DesktopTransport {
   writeSmokeReport(payload: Record<string, unknown>): Promise<void>;
   // 返工新增：Analyzer / session / model pool 类型化方法
   selectProjectDirectory(): Promise<string>;
+  inspect(root: string): Promise<WorkspaceInspection>;
   analyze(root: string, language: string): Promise<{ jobId: string }>;
   analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }>;
   analyzeCancel(): Promise<void>;
@@ -246,6 +316,7 @@ export interface DesktopTransport {
   sessionClose(sessionId: string): Promise<void>;
   modelsList(): Promise<{ default: string; models: unknown[] }>;
   modelsAdd(config: Record<string, unknown>): Promise<void>;
+  modelsUpdate(config: Record<string, unknown>): Promise<void>;
   modelsRemove(id: string): Promise<void>;
   modelsSetDefault(id: string): Promise<void>;
   modelsTest(id: string): Promise<{ ok: boolean; detail: string }>;

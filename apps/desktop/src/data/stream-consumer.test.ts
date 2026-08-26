@@ -3,7 +3,9 @@ import { describe, it, expect } from "vitest";
 import {
   collectStreamEvents,
   createStreamResult,
+  normalizeGatewayEvent,
   reduceStreamEvent,
+  visibleAssistantText,
 } from "./stream-consumer";
 import type { GatewayEvent } from "../types";
 
@@ -42,10 +44,65 @@ describe("reduceStreamEvent", () => {
     expect(acc.budgetLimit).toContain("exhausted");
   });
 
+  it("accepts camelCase kinds emitted by the Rust GatewayEvent serde", () => {
+    let acc = createStreamResult();
+    acc = reduceStreamEvent(acc, normalizeGatewayEvent({
+      kind: "answerChunk",
+      text: "你好",
+      requestId: "req:1",
+    }), 0);
+    expect(acc.text).toBe("你好");
+    acc = reduceStreamEvent(acc, normalizeGatewayEvent({
+      kind: "answerComplete",
+      requestId: "req:1",
+      answer: {
+        schemaVersion: "codelattice.understandingAnswer.v1",
+        scope: { type: "project", id: "p" },
+        answerSummary: "总结",
+        claims: [],
+        navigationActions: [],
+      },
+    }), 1);
+    expect(acc.text).toBe("总结");
+  });
+
+  it("does not throw when kind is unknown", () => {
+    const out = reduceStreamEvent(
+      createStreamResult(),
+      normalizeGatewayEvent({ kind: "mystery", requestId: "req:1" }),
+      0,
+    );
+    expect(out.error).toMatch(/unknown event kind/);
+  });
+
   it("tool-call increments trace counter (B2)", () => {
     let acc = createStreamResult();
     acc = reduceStreamEvent(acc, ev("tool-call", { trace: { tool: "search_nodes", params: {}, returnedBytes: 1, truncated: false } }), 0);
     expect(acc.toolTraces).toBe(1);
+  });
+
+  it("never shows vendor tool-call XML as the assistant answer", () => {
+    const xml = `<longcat_tool_call>get_node_context
+<longcat_arg_key>nodeId</longcat_arg_key>
+<longcat_arg_value>shell:file:build.sh</longcat_arg_value>
+</longcat_tool_call>`;
+    const acc = reduceStreamEvent(
+      createStreamResult(),
+      ev("answer-complete", {
+        answer: {
+          schemaVersion: "codelattice.understandingAnswer.v1",
+          scope: { type: "node", id: "n" },
+          answerSummary: xml,
+          claims: [],
+          navigationActions: [],
+        },
+      }),
+      0,
+    );
+    expect(acc.text).not.toContain("longcat_tool_call");
+    expect(acc.text).not.toContain("get_node_context");
+    expect(acc.text.length).toBeGreaterThan(8);
+    expect(visibleAssistantText(xml)).not.toContain("longcat_tool_call");
   });
 });
 

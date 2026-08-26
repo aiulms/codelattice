@@ -20,12 +20,9 @@ import type {
   SnapshotData,
   SnapshotMeta,
   StreamHandle,
+  WorkspaceInspection,
 } from "../types";
-
-/** 判定事件是否为终止信号。 */
-function isTerminal(ev: GatewayEvent): boolean {
-  return ev.kind === "answer-complete" || ev.kind === "error" || ev.kind === "budget-limit";
-}
+import { isTerminalGatewayEvent, normalizeGatewayEvent } from "../data/stream-consumer";
 
 /** 每请求独立状态。 */
 interface RequestState {
@@ -59,6 +56,9 @@ export class TauriDesktopTransport implements DesktopTransport {
     const selected = await open({ directory: true, multiple: false });
     return typeof selected === "string" ? selected : "";
   }
+  async inspect(root: string): Promise<WorkspaceInspection> {
+    return invoke<WorkspaceInspection>("workbench_inspect", { root });
+  }
   async analyze(root: string, language: string): Promise<{ jobId: string }> {
     return invoke<{ jobId: string }>("workbench_analyze", { root, language });
   }
@@ -79,6 +79,7 @@ export class TauriDesktopTransport implements DesktopTransport {
     return invoke<{ default: string; models: unknown[] }>("workbench_models_list");
   }
   async modelsAdd(config: Record<string, unknown>): Promise<void> { await invoke("workbench_models_add", { config }); }
+  async modelsUpdate(config: Record<string, unknown>): Promise<void> { await invoke("workbench_models_update", { config }); }
   async modelsRemove(id: string): Promise<void> { await invoke("workbench_models_remove", { id }); }
   async modelsSetDefault(id: string): Promise<void> { await invoke("workbench_models_set_default", { id }); }
   async modelsTest(id: string): Promise<{ ok: boolean; detail: string }> {
@@ -121,7 +122,7 @@ export class TauriDesktopTransport implements DesktopTransport {
     };
 
     const unsub = await listen<GatewayEvent>(`gateway:${requestId}`, (evt) => {
-      const e = evt.payload;
+      const e = normalizeGatewayEvent(evt.payload as { kind?: string; [key: string]: unknown });
       if (rs.waiters.length > 0) {
         rs.waiters.shift()!(e);
       } else {
@@ -131,8 +132,9 @@ export class TauriDesktopTransport implements DesktopTransport {
     rs.unsubscribe = unsub;
     this.currentRequest = rs;
 
-    // invoke 可能失败
-    invoke(command, { requestId, ...(payload as Record<string, unknown>) }).catch((err) => {
+    // invoke 可能失败。explain/chat 命令约定统一收一个 payload 对象，
+    // 字段平铺在顶层会被 Tauri 判为 invalid args（missing key payload）。
+    invoke(command, { requestId, payload }).catch((err) => {
       const errorEvent: GatewayEvent = { kind: "error", message: String(err?.message ?? err), requestId };
       if (rs.waiters.length > 0) {
         rs.waiters.shift()!(errorEvent);
@@ -155,7 +157,7 @@ export class TauriDesktopTransport implements DesktopTransport {
             }
             if (ev === null) return; // disposed
             yield ev;
-            if (isTerminal(ev)) return; // terminal event
+            if (isTerminalGatewayEvent(ev)) return; // terminal event
           }
         } finally {
           // 只清理自己对应的请求，不误清理新请求

@@ -124,3 +124,116 @@ pub fn workbench_analyze_status(state: State<AppState>) -> Result<Value, String>
         "error": result.as_ref().and_then(|r| r.error.clone()),
     }))
 }
+
+/// 文件夹体检（多语言卡 3）：同步调 CLI `inspect`，毫秒级扫描——
+/// 不套 analyze 的 `nice -n 10`，不进 AnalyzerSupervisor、不占 analyze
+/// 单任务 gate、不可取消。
+#[tauri::command]
+pub fn workbench_inspect(root: String) -> Result<Value, String> {
+    let bin = common::repo_root().join("target/debug/codelattice");
+    inspect_with_cli(&bin, &root)
+}
+
+/// 校验通过后**原样透传** envelope，不在 Rust 侧重建模字段——
+/// 契约单一事实源在 core CLI（analyzable 也由 CLI 算好，桌面禁止再做 feature 判定）。
+fn inspect_with_cli(bin: &std::path::Path, root: &str) -> Result<Value, String> {
+    if !bin.is_file() {
+        return Err(format!("codelattice binary not found: {}", bin.display()));
+    }
+    let output = std::process::Command::new(bin)
+        .args(["inspect", "--root", root, "--format", "json"])
+        .output()
+        .map_err(|e| format!("spawn inspect failed: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!(
+            "inspect failed: {}",
+            stderr.trim().chars().take(300).collect::<String>()
+        ));
+    }
+    let envelope: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("inspect stdout is not valid JSON: {e}"))?;
+    // 发布前守卫风格：schemaVersion 必须逐字等于 v1，不认识就点名实际值拒绝
+    if envelope["schemaVersion"] != "codelattice.workspaceInspection.v1" {
+        return Err(format!(
+            "unexpected inspect schemaVersion: {} (expected codelattice.workspaceInspection.v1)",
+            envelope["schemaVersion"]
+        ));
+    }
+    Ok(envelope)
+}
+
+#[cfg(test)]
+mod inspect_tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn test_dir(label: &str) -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "codelattice-inspect-cmd-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// 假 CLI：忽略参数，把给定 JSON 原文吐到 stdout。
+    /// 与 analyzer.rs 测试的 fake_cli 同模式，按执行卡不抽共享。
+    fn fake_cli(dir: &std::path::Path, label: &str, body: &str) -> PathBuf {
+        let script = dir.join(format!("{label}.sh"));
+        fs::write(&script, format!("#!/bin/sh\nprintf '%s' '{body}'\n")).unwrap();
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+        script
+    }
+
+    #[test]
+    fn inspect_passes_through_v1_envelope_verbatim() {
+        let dir = test_dir("passthrough");
+        let body = r#"{"schemaVersion":"codelattice.workspaceInspection.v1","root":"x","projects":[{"relativePath":"backend","language":"rust","confidence":"certain","evidence":{"kind":"manifest","file":"Cargo.toml"},"sourceFileCount":2,"analyzable":true}],"sourceOnlyAreas":[],"unsupportedAreas":[]}"#;
+        let script = fake_cli(&dir, "ok", body);
+        let envelope = inspect_with_cli(&script, "/whatever").unwrap();
+        // 原样透传：不做字段增删
+        assert_eq!(envelope, serde_json::from_str::<Value>(body).unwrap());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inspect_rejects_wrong_schema_version_naming_actual_value() {
+        let dir = test_dir("schema");
+        let script = fake_cli(&dir, "bad", r#"{"schemaVersion":"0.3.0","graph":{}}"#);
+        let err = inspect_with_cli(&script, "/whatever").unwrap_err();
+        assert!(
+            err.contains("unexpected inspect schemaVersion"),
+            "err={err}"
+        );
+        assert!(err.contains("0.3.0"), "必须点名实际值: {err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn inspect_reports_nonzero_exit_with_stderr_summary() {
+        let dir = test_dir("exit");
+        let script = dir.join("fail.sh");
+        fs::write(
+            &script,
+            "#!/bin/sh\necho 'boom: root missing' >&2\nexit 3\n",
+        )
+        .unwrap();
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+        let err = inspect_with_cli(&script, "/whatever").unwrap_err();
+        assert!(err.contains("inspect failed"), "err={err}");
+        assert!(err.contains("boom: root missing"), "err={err}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+}

@@ -10,24 +10,30 @@ export class GraphController implements G6AdapterCallbacks {
   constructor(
     private readonly selectionStore: GraphSelectionStore,
     private readonly snapshotId: string,
+    private readonly additive: () => boolean = () => false,
   ) {}
 
-  onSelectNode(nodeId: string): void {
+  onSelectNode(nodeId: string, shift = false): void {
     const snapshotId = this.currentSnapshotId();
+    if (shift || this.additive()) {
+      this.selectionStore.dispatch({ type: "toggle-node", nodeId, snapshotId });
+      return;
+    }
     this.selectionStore.dispatch({ type: "select-node", nodeId, snapshotId });
   }
 
   onFocusNode(nodeId: string): void {
-    // dblclick 聚焦：只更新选择，聚焦画布由 UI 层处理
-    this.onSelectNode(nodeId);
+    this.onSelectNode(nodeId, false);
   }
 
-  onHoverNode(_nodeId: string | null): void {
-    // hover 不改变选择状态（P2：解释显式触发）
-  }
+  onHoverNode(_nodeId: string | null): void {}
 
-  onSelectEdge(relationKey: string): void {
+  onSelectEdge(relationKey: string, shift = false): void {
     const snapshotId = this.currentSnapshotId();
+    if (shift || this.additive()) {
+      this.selectionStore.dispatch({ type: "toggle-relation", relationKey, snapshotId });
+      return;
+    }
     this.selectionStore.dispatch({ type: "select-relation", relationKey, snapshotId });
   }
 

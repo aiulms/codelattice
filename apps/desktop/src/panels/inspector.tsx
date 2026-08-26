@@ -1,11 +1,13 @@
 // InspectorPanel — 事实检查器（P0 §4.1 / P0-A #7）。
 // F1 提供模块边界与事实展示骨架；直接上下游/coverageContext/证据在 P0-A 补全。
 import type { EdgeEvidenceBundle, GraphSelection, NodeContextBundle } from "../types";
+import type { AggregateFacts } from "../data/snapshot-reader";
 
 export function InspectorPanel(props: {
   selection: GraphSelection;
   nodeContext: NodeContextBundle | null;
   edgeEvidence: EdgeEvidenceBundle | null;
+  aggregateFacts?: AggregateFacts | null;
   onExplainClick(): void;
   onJoinConversation(): void;
 }) {
@@ -22,13 +24,34 @@ export function InspectorPanel(props: {
   return (
     <aside className="panel inspector" data-testid="inspector">
       <h2>检查器</h2>
-      <p className="selection-line">
-        {sel.type === "node" && <>节点：{sel.nodeId}</>}
-        {sel.type === "relation" && <>关系：{sel.relationKey}</>}
-        {sel.type === "chain" && <>链路：{sel.chainId}</>}
-      </p>
+      {!props.aggregateFacts && (
+        <p className="selection-line">
+          {sel.type === "node" && <>节点：{sel.nodeId}</>}
+          {sel.type === "relation" && <>关系：{sel.relationKey}</>}
+          {sel.type === "chain" && <>链路：{sel.chainId}</>}
+          {sel.type === "multi" && <>多选：{sel.nodeIds.length + sel.relationKeys.length} 项</>}
+        </p>
+      )}
 
-      {sel.type === "node" && props.nodeContext && (
+      {props.aggregateFacts && (
+        <div className="inspector-facts" data-testid="inspector-aggregate-facts">
+          <p className="inspector-kicker">{props.aggregateFacts.kicker}</p>
+          <p className="inspector-title">{props.aggregateFacts.title}</p>
+          <table className="fact-table">
+            <tbody>
+              {props.aggregateFacts.rows.map(([k, v], i) => (
+                <tr key={`${k}-${i}`}>
+                  <td>{k}</td>
+                  <td>{v}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="hint">已有边向上归并，不是新推断的依赖。</p>
+        </div>
+      )}
+
+      {!props.aggregateFacts && sel.type === "node" && props.nodeContext && (
         <div className="inspector-facts" data-testid="inspector-node-facts">
           <h3>直接调用方（{props.nodeContext.directCallers.length}）</h3>
           <ul>
@@ -50,7 +73,7 @@ export function InspectorPanel(props: {
         </div>
       )}
 
-      {sel.type === "relation" && props.edgeEvidence && (
+      {!props.aggregateFacts && sel.type === "relation" && props.edgeEvidence && (
         <div className="inspector-facts" data-testid="inspector-edge-facts">
           <p>
             {props.edgeEvidence.selection.sourceId} → {props.edgeEvidence.selection.targetId}

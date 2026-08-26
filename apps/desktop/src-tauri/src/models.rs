@@ -79,6 +79,27 @@ pub(crate) fn add_model(config: ModelConfig) -> Result<(), String> {
     write_models(&mf)
 }
 
+/// 更新已配置模型。id 不可改（改名会孤儿化 keychain ref），其余字段整体替换；
+/// 前端编辑表单未换 Key 时应原样带回现有 api_key_ref。
+pub(crate) fn update_model(config: ModelConfig) -> Result<(), String> {
+    if let Some(r) = &config.api_key_ref {
+        if !r.starts_with("keychain:") && !r.starts_with("secret:") {
+            return Err(
+                "apiKeyRef must be a secret reference (keychain:/secret:), plaintext rejected"
+                    .to_string(),
+            );
+        }
+    }
+    let mut mf = load_models()?;
+    let existing = mf
+        .models
+        .iter_mut()
+        .find(|m| m.id == config.id)
+        .ok_or_else(|| format!("model not found: {}", config.id))?;
+    *existing = config;
+    write_models(&mf)
+}
+
 pub(crate) fn remove_model(id: &str) -> Result<(), String> {
     let mut mf = load_models()?;
     let before = mf.models.len();
@@ -138,6 +159,9 @@ mod tests {
     use super::*;
     use understanding_gateway::provider::ProviderKind;
 
+    // HOME 是进程级 env，models 测试必须串行
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn plaintext_key_ref_is_rejected_on_add() {
         // 用不存在的 HOME 隔离测试目录
@@ -153,5 +177,50 @@ mod tests {
             !r.starts_with("keychain:") && !r.starts_with("secret:")
         });
         assert!(rejected, "明文 Key 必须被策略拒绝");
+    }
+
+    #[test]
+    fn update_model_replaces_fields_keeps_id_and_default() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let original_home = std::env::var("HOME").unwrap_or_default();
+        let dir =
+            std::env::temp_dir().join(format!("cls-models-test-{}-update", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        std::env::set_var("HOME", &dir);
+
+        let cfg = ModelConfig {
+            id: "siliconflow".into(),
+            provider: ProviderKind::OpenaiCompatible,
+            base_url: "https://api.siliconflow.cn".into(),
+            model: "m".into(),
+            api_key_ref: Some("keychain:codelattice/siliconflow".into()),
+        };
+        add_model(cfg.clone()).unwrap();
+
+        let mut updated = cfg.clone();
+        // 典型修复场景：补 /v1 后缀 + 换模型 ID
+        updated.base_url = "https://api.siliconflow.cn/v1".into();
+        updated.model = "meituan-longcat/LongCat-2.0".into();
+        update_model(updated.clone()).unwrap();
+
+        let mf = load_models().unwrap();
+        assert_eq!(mf.models.len(), 1, "更新不得新增条目");
+        assert_eq!(mf.models[0].base_url, "https://api.siliconflow.cn/v1");
+        assert_eq!(mf.models[0].model, "meituan-longcat/LongCat-2.0");
+        assert_eq!(mf.default, "siliconflow", "更新不应影响 default 指向");
+
+        // 未知 id 必须报错（防止静默创建）
+        let mut ghost = updated.clone();
+        ghost.id = "ghost".into();
+        assert!(update_model(ghost).is_err());
+
+        // 明文 Key ref 在更新路径同样被拒
+        let mut plaintext = updated;
+        plaintext.api_key_ref = Some("sk-plaintext".into());
+        assert!(update_model(plaintext).is_err());
+
+        let _ = fs::remove_dir_all(&dir);
+        std::env::set_var("HOME", original_home);
     }
 }

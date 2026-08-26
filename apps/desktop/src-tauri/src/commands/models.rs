@@ -46,6 +46,19 @@ pub fn workbench_models_set_default(id: String) -> Result<Value, String> {
     Ok(json!({"ok": true}))
 }
 
+/// 编辑已配置模型：先落盘再同步 gateway 内存池。
+/// unregister + register 而非直接 add —— ModelPool::add 拒绝重复 id，
+/// 且配置变更后旧模型关联缓存应一并失效。
+#[tauri::command]
+pub fn workbench_models_update(state: State<AppState>, config: Value) -> Result<Value, String> {
+    let cfg: ModelConfig = serde_json::from_value(config).map_err(|e| e.to_string())?;
+    models::update_model(cfg.clone())?;
+    let mut gw = state.gateway.lock().unwrap();
+    gw.unregister_model(&cfg.id);
+    gw.register_model(cfg);
+    Ok(json!({"ok": true}))
+}
+
 /// 连接测试：authenticated ping 携带解析后的凭证（§7.2 返工修复）。
 #[tauri::command]
 pub fn workbench_models_test(state: State<AppState>, id: String) -> Result<Value, String> {

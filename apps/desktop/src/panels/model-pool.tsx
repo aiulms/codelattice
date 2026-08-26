@@ -4,6 +4,8 @@
 // “供应商 → 连接 → 模型”的可理解流程。Key 先写系统安全存储，models.json 只收 ref。
 import { useEffect, useMemo, useState } from "react";
 import type { DesktopTransport } from "../types";
+import { applyTheme, type ThemeName } from "../theme";
+import { DEFAULT_EXPLAIN_STYLE, type ExplainStyle } from "../state/explain-style";
 
 export type ModelInfo = {
   id: string;
@@ -20,6 +22,8 @@ type Draft = {
   baseUrl: string;
   model: string;
   apiKey: string;
+  /** 编辑模式：现有 secret ref。留空输入 Key 时原样带回，避免误删凭证。 */
+  apiKeyRef: string | null;
 };
 
 type ModelWireInfo = {
@@ -62,6 +66,7 @@ function newDraft(provider: ProviderKind): Draft {
     baseUrl: PROVIDERS[provider].defaultBaseUrl,
     model: "",
     apiKey: "",
+    apiKeyRef: null,
   };
 }
 
@@ -84,10 +89,15 @@ export function ModelPoolPanel(props: {
   transport: DesktopTransport;
   open: boolean;
   onClose(): void;
+  theme?: ThemeName;
+  onThemeChange?(theme: ThemeName): void;
+  explainStyle?: ExplainStyle;
+  onExplainStyleChange?(style: ExplainStyle): void;
 }) {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [defaultId, setDefaultId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(() => newDraft("openai-compatible"));
   const [status, setStatus] = useState<string>("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -95,6 +105,10 @@ export function ModelPoolPanel(props: {
   const selected = useMemo(
     () => models.find((model) => model.id === selectedId) ?? null,
     [models, selectedId],
+  );
+  const editing = useMemo(
+    () => (editingId ? models.find((model) => model.id === editingId) ?? null : null),
+    [models, editingId],
   );
 
   async function refresh(preferredId?: string) {
@@ -124,7 +138,28 @@ export function ModelPoolPanel(props: {
 
   function beginAdd(provider: ProviderKind) {
     setSelectedId(null);
+    setEditingId(null);
     setDraft(newDraft(provider));
+    setStatus("");
+  }
+
+  function beginEdit(model: ModelInfo) {
+    setSelectedId(model.id);
+    setEditingId(model.id);
+    setDraft({
+      id: model.id,
+      provider: model.provider,
+      baseUrl: model.baseUrl,
+      model: model.model,
+      apiKey: "",
+      apiKeyRef: model.apiKeyRef ?? null,
+    });
+    setStatus("");
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setDraft(newDraft("openai-compatible"));
     setStatus("");
   }
 
@@ -158,6 +193,41 @@ export function ModelPoolPanel(props: {
       // 配置落盘失败时删除本轮刚写入的 secret，避免孤儿 Keychain 条目。
       if (apiKeyRef) await props.transport.secretDelete(apiKeyRef).catch(() => {});
       setStatus(`保存失败：${String(error)}`);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  /// 保存编辑：未填新 Key 时原样带回现有 ref；填了则覆盖写 Keychain（ref 不变）。
+  async function updateModel() {
+    const id = draft.id.trim();
+    const baseUrl = draft.baseUrl.trim().replace(/\/$/, "");
+    const model = draft.model.trim();
+    if (!id || !baseUrl || !model) {
+      setStatus("请填写 API Base URL 和模型 ID。");
+      return;
+    }
+
+    setBusy("saving");
+    try {
+      let apiKeyRef = draft.apiKeyRef;
+      if (draft.provider === "openai-compatible" && draft.apiKey.trim()) {
+        const secret = await props.transport.secretSet("codelattice", id, draft.apiKey.trim());
+        apiKeyRef = secret.secretRef;
+      }
+      await props.transport.modelsUpdate({
+        id,
+        provider: draft.provider,
+        base_url: baseUrl,
+        model,
+        api_key_ref: draft.provider === "ollama" ? null : apiKeyRef,
+      });
+      setStatus(`已更新 ${id}。`);
+      setEditingId(null);
+      setDraft(newDraft("openai-compatible"));
+      await refresh(id);
+    } catch (error) {
+      setStatus(`更新失败：${String(error)}`);
     } finally {
       setBusy(null);
     }
@@ -203,6 +273,12 @@ export function ModelPoolPanel(props: {
   }
 
   const meta = PROVIDERS[draft.provider];
+  const theme = props.theme ?? "light";
+
+  function changeTheme(next: ThemeName) {
+    if (props.onThemeChange) props.onThemeChange(next);
+    else applyTheme(next);
+  }
 
   return (
     <div
@@ -220,9 +296,9 @@ export function ModelPoolPanel(props: {
       >
         <header className="model-settings-header">
           <div>
-            <span className="settings-kicker">UNDERSTANDING LAYER</span>
-            <h2 id="model-settings-title">模型设置</h2>
-            <p>配置用于链路翻译和项目对话的模型；事实图谱不依赖任何模型。</p>
+            <span className="settings-kicker">WORKBENCH</span>
+            <h2 id="model-settings-title">设置</h2>
+            <p>模型、回答口吻和其他偏好。事实图谱不依赖任何模型。</p>
           </div>
           <button
             type="button"
@@ -237,6 +313,50 @@ export function ModelPoolPanel(props: {
 
         <div className="model-settings-body">
           <aside className="provider-rail" aria-label="模型供应商">
+            <div className="rail-section">
+              <span className="rail-label">外观</span>
+              <div className="theme-switch" data-testid="theme-switch">
+                <button
+                  type="button"
+                  className={theme === "light" ? "active" : ""}
+                  data-testid="theme-light"
+                  onClick={() => changeTheme("light")}
+                >
+                  浅色
+                </button>
+                <button
+                  type="button"
+                  className={theme === "dark" ? "active" : ""}
+                  data-testid="theme-dark"
+                  onClick={() => changeTheme("dark")}
+                >
+                  深色
+                </button>
+              </div>
+            </div>
+
+            <div className="rail-section">
+              <span className="rail-label">回答口吻</span>
+              <div className="theme-switch" data-testid="explain-style-switch">
+                {([
+                  ["plain", "人话"],
+                  ["balanced", "适中"],
+                  ["pro", "专业"],
+                ] as const).map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    className={(props.explainStyle ?? DEFAULT_EXPLAIN_STYLE) === id ? "active" : ""}
+                    data-testid={`explain-style-${id}`}
+                    onClick={() => props.onExplainStyleChange?.(id)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="rail-hint">人话最短；适中先说干什么再带名字；专业才用术语。这一句写「讲人话」只覆盖本轮。</p>
+            </div>
+
             <div className="rail-section">
               <span className="rail-label">添加连接</span>
               {(Object.keys(PROVIDERS) as ProviderKind[]).map((provider) => {
@@ -269,8 +389,8 @@ export function ModelPoolPanel(props: {
                 <button
                   type="button"
                   key={model.id}
-                  className={`provider-entry model-entry ${selectedId === model.id ? "active" : ""}`}
-                  onClick={() => setSelectedId(model.id)}
+                  className={`provider-entry model-entry ${selectedId === model.id && !editing ? "active" : ""}`}
+                  onClick={() => { setEditingId(null); setSelectedId(model.id); }}
                 >
                   <span className={`provider-mark ${model.provider === "ollama" ? "local" : "remote"}`}>
                     {PROVIDERS[model.provider].short}
@@ -289,7 +409,36 @@ export function ModelPoolPanel(props: {
           </aside>
 
           <main className="model-settings-content">
-            {selected ? (
+            {editing ? (
+              <div className="connection-editor" data-testid="model-form-edit">
+                <div className="connection-heading">
+                  <span className={`provider-mark large ${draft.provider === "ollama" ? "local" : "remote"}`}>
+                    {meta.short}
+                  </span>
+                  <div>
+                    <span className="settings-kicker">EDIT CONNECTION</span>
+                    <h3>编辑 {meta.title}连接 · {editing.id}</h3>
+                    <p>{meta.description}</p>
+                  </div>
+                </div>
+
+                <ConnectionForm draft={draft} isEdit onChange={setDraft} />
+
+                <div className="settings-actions">
+                  <span className="security-note"><b>LOCAL SECRET</b> Key 只在本机解引用。</span>
+                  <button type="button" onClick={cancelEdit} disabled={busy === "saving"}>取消</button>
+                  <button
+                    type="button"
+                    className="primary-button"
+                    onClick={() => void updateModel()}
+                    disabled={busy === "saving"}
+                    data-testid="model-update"
+                  >
+                    {busy === "saving" ? "正在保存…" : "保存修改"}
+                  </button>
+                </div>
+              </div>
+            ) : selected ? (
               <ModelDetail
                 model={selected}
                 isDefault={selected.id === defaultId}
@@ -297,6 +446,7 @@ export function ModelPoolPanel(props: {
                 onTest={() => void testModel(selected.id)}
                 onDefault={() => void makeDefault(selected.id)}
                 onRemove={() => void removeModel(selected.id)}
+                onEdit={() => beginEdit(selected)}
               />
             ) : (
               <div className="connection-editor" data-testid="model-form">
@@ -311,58 +461,7 @@ export function ModelPoolPanel(props: {
                   </div>
                 </div>
 
-                <div className="form-card">
-                  <label className="field-row">
-                    <span>配置名称</span>
-                    <input
-                      aria-label="配置名称"
-                      value={draft.id}
-                      placeholder={draft.provider === "ollama" ? "ollama-qwen" : "deepseek-main"}
-                      autoComplete="off"
-                      onChange={(event) => setDraft({ ...draft, id: event.target.value })}
-                    />
-                    <small>本机唯一名称，用于 Chat 中选择模型。</small>
-                  </label>
-
-                  <label className="field-row">
-                    <span>API Base URL</span>
-                    <input
-                      aria-label="API Base URL"
-                      value={draft.baseUrl}
-                      placeholder={meta.defaultBaseUrl}
-                      inputMode="url"
-                      onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
-                    />
-                    <small>填写到 `/v1`；应用会调用兼容的 Chat Completions 接口。</small>
-                  </label>
-
-                  {draft.provider === "openai-compatible" && (
-                    <label className="field-row">
-                      <span>API Key</span>
-                      <input
-                        aria-label="API Key"
-                        type="password"
-                        value={draft.apiKey}
-                        placeholder="仅写入 macOS Keychain"
-                        autoComplete="new-password"
-                        onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
-                      />
-                      <small>不会进入 models.json、snapshot、日志或模型提示词。</small>
-                    </label>
-                  )}
-
-                  <label className="field-row">
-                    <span>模型 ID</span>
-                    <input
-                      aria-label="模型 ID"
-                      value={draft.model}
-                      placeholder={meta.modelPlaceholder}
-                      autoComplete="off"
-                      onChange={(event) => setDraft({ ...draft, model: event.target.value })}
-                    />
-                    <small>必须与供应商 API 接受的 model 字段完全一致。</small>
-                  </label>
-                </div>
+                <ConnectionForm draft={draft} isEdit={false} onChange={setDraft} />
 
                 <div className="settings-actions">
                   <span className="security-note"><b>LOCAL SECRET</b> Key 只在本机解引用。</span>
@@ -391,6 +490,75 @@ export function ModelPoolPanel(props: {
   );
 }
 
+/** 新建/编辑共用的连接表单字段。编辑模式下名称锁定、Key 留空表示不变。 */
+function ConnectionForm(props: {
+  draft: Draft;
+  isEdit: boolean;
+  onChange(next: Draft): void;
+}) {
+  const { draft, isEdit } = props;
+  const meta = PROVIDERS[draft.provider];
+  return (
+    <div className="form-card">
+      <label className="field-row">
+        <span>配置名称</span>
+        <input
+          aria-label="配置名称"
+          value={draft.id}
+          placeholder={draft.provider === "ollama" ? "ollama-qwen" : "deepseek-main"}
+          autoComplete="off"
+          disabled={isEdit}
+          onChange={(event) => props.onChange({ ...draft, id: event.target.value })}
+        />
+        <small>{isEdit ? "配置名称创建后不可修改。" : "本机唯一名称，用于 Chat 中选择模型。"}</small>
+      </label>
+
+      <label className="field-row">
+        <span>API Base URL</span>
+        <input
+          aria-label="API Base URL"
+          value={draft.baseUrl}
+          placeholder={meta.defaultBaseUrl}
+          inputMode="url"
+          onChange={(event) => props.onChange({ ...draft, baseUrl: event.target.value })}
+        />
+        <small>填写到 `/v1`（例如 https://api.siliconflow.cn/v1）；应用会调用兼容的 Chat Completions 接口。</small>
+      </label>
+
+      {draft.provider === "openai-compatible" && (
+        <label className="field-row">
+          <span>API Key</span>
+          <input
+            aria-label="API Key"
+            type="password"
+            value={draft.apiKey}
+            placeholder={isEdit && draft.apiKeyRef ? "留空保持现有 Key 不变" : "仅写入 macOS Keychain"}
+            autoComplete="new-password"
+            onChange={(event) => props.onChange({ ...draft, apiKey: event.target.value })}
+          />
+          <small>
+            {isEdit && draft.apiKeyRef
+              ? "留空表示继续使用已保存的 Key；填写则覆盖写入系统安全存储。"
+              : "不会进入 models.json、snapshot、日志或模型提示词。"}
+          </small>
+        </label>
+      )}
+
+      <label className="field-row">
+        <span>模型 ID</span>
+        <input
+          aria-label="模型 ID"
+          value={draft.model}
+          placeholder={meta.modelPlaceholder}
+          autoComplete="off"
+          onChange={(event) => props.onChange({ ...draft, model: event.target.value })}
+        />
+        <small>必须与供应商 API 接受的 model 字段完全一致。</small>
+      </label>
+    </div>
+  );
+}
+
 function ModelDetail(props: {
   model: ModelInfo;
   isDefault: boolean;
@@ -398,6 +566,7 @@ function ModelDetail(props: {
   onTest(): void;
   onDefault(): void;
   onRemove(): void;
+  onEdit(): void;
 }) {
   const meta = PROVIDERS[props.model.provider];
   return (
@@ -427,6 +596,7 @@ function ModelDetail(props: {
         <button type="button" onClick={props.onTest} disabled={props.busy === `test:${props.model.id}`}>
           {props.busy === `test:${props.model.id}` ? "测试中…" : "测试连接"}
         </button>
+        <button type="button" onClick={props.onEdit} data-testid="model-edit">编辑连接</button>
         {!props.isDefault && (
           <button type="button" className="primary-button" onClick={props.onDefault}>设为默认</button>
         )}

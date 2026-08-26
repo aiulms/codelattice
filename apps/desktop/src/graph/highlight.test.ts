@@ -1,6 +1,7 @@
 // highlight 语义测试（F0 字符化基线 → 新 Workbench 行为等价，验收 1/2）。
 import { describe, it, expect } from "vitest";
 import { computeHighlight } from "./highlight";
+import type { HighlightHover } from "./highlight";
 import type { GraphSelection, SnapshotEdge, SnapshotNode } from "../types";
 import { defaultRelationKey } from "../data/snapshot-reader";
 
@@ -54,10 +55,39 @@ describe("computeHighlight (F0 字符化冻结语义)", () => {
     expect(hl2.selected.size).toBe(0);
   });
 
+  it("hover without selection previews a node like a soft selection", () => {
+    const hover: HighlightHover = { type: "node", id: "n:b" };
+    const hl = computeHighlight(nodes, edges, { type: "none" }, hover);
+    expect(hl.hovered.has("n:b")).toBe(true);
+    expect(hl.selected.has(rk("n:a", "n:b"))).toBe(true);
+    expect(hl.neighbor.has("n:a")).toBe(true);
+  });
+
+  it("existing selection is not replaced by hover", () => {
+    const hover: HighlightHover = { type: "node", id: "n:c" };
+    const hl = computeHighlight(nodes, edges, { type: "node", nodeId: "n:a", snapshotId: "s" }, hover);
+    expect(hl.selected.has("n:a")).toBe(true);
+    expect(hl.hovered.has("n:c")).toBe(true);
+    expect(hl.selected.has("n:c")).toBe(false);
+  });
+
   it("is pure: same input → same output", () => {
     const sel: GraphSelection = { type: "node", nodeId: "n:b", snapshotId: "s" };
     const a = computeHighlight(nodes, edges, sel);
     const b = computeHighlight(nodes, edges, sel);
     expect([...a.selected].sort()).toEqual([...b.selected].sort());
+  });
+
+  it("multi node selection does not auto-select incident edges", () => {
+    const onlyAb = rk("n:a", "n:b");
+    const hl = computeHighlight(nodes, edges, {
+      type: "multi",
+      snapshotId: "s",
+      nodeIds: ["n:b"],
+      relationKeys: [onlyAb],
+    });
+    expect(hl.selected.has("n:b")).toBe(true);
+    expect(hl.selected.has(onlyAb)).toBe(true);
+    expect(hl.selected.has(rk("n:b", "n:c"))).toBe(false);
   });
 });

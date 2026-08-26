@@ -57,6 +57,28 @@ pub fn list_snapshots() -> Result<Vec<Value>, String> {
     Ok(metas)
 }
 
+/// 标题要显示项目名。优先用快照自述的 root 目录名；脱敏占位符（`<...>`）
+/// 和空值都不算项目名，此时退回文件名并去掉 `.snapshot` 后缀，避免出现
+/// `shell-portable-smoke.snapshot` 或裸 job id。
+fn root_label_of(data: &Value, path: &Path) -> String {
+    let file_label = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("?")
+        .trim_end_matches(".snapshot");
+    let root = data.get("root").and_then(Value::as_str).unwrap_or("");
+    if !root.is_empty() && !root.starts_with('<') {
+        if let Some(name) = Path::new(root)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+        {
+            return name.to_string();
+        }
+    }
+    file_label.to_string()
+}
+
 fn meta_of(path: &Path) -> Option<Value> {
     let data: Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
     let summary = data.get("summary").cloned().unwrap_or(Value::Null);
@@ -65,10 +87,17 @@ fn meta_of(path: &Path) -> Option<Value> {
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
+    // 语言同样按快照自述取：webui 快照写在 summary.language，CLI 原始产物写在顶层。
+    let language = data
+        .get("summary")
+        .and_then(|s| s.get("language"))
+        .and_then(Value::as_str)
+        .or_else(|| data.get("language").and_then(Value::as_str))
+        .unwrap_or("rust");
     Some(serde_json::json!({
         "id": path.file_stem().and_then(|s| s.to_str()).unwrap_or("?"),
-        "rootLabel": path.file_stem().and_then(|s| s.to_str()).unwrap_or("?"),
-        "language": data.get("summary").and_then(|s| s.get("language")).and_then(Value::as_str).unwrap_or("rust"),
+        "rootLabel": root_label_of(&data, path),
+        "language": language,
         "createdAt": generated_at,
         "summary": summary,
     }))
@@ -178,6 +207,53 @@ mod tests {
             ts
         )
         .into_bytes()
+    }
+
+    #[test]
+    fn root_label_prefers_project_name_over_file_name() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tmp_publish_dir();
+        std::env::set_var("CODELATTICE_PUBLISH_DIR", &dir);
+        let body = br#"{"generatedAt":"2026-08-24T00:00:00+00:00","root":"/Users/me/Desktop/open-nwe","language":"python","graph":{"nodes":[],"edges":[],"summary":{}}}"#;
+        publish_snapshot("job-1756000000", body).unwrap();
+        let metas = list_snapshots().unwrap();
+        let meta = metas
+            .iter()
+            .find(|m| m.get("id").and_then(Value::as_str) == Some("job-1756000000"))
+            .expect("published snapshot must be listed");
+        assert_eq!(
+            meta.get("rootLabel").and_then(Value::as_str),
+            Some("open-nwe"),
+            "标题要显示项目名，不是 job id"
+        );
+        assert_eq!(
+            meta.get("language").and_then(Value::as_str),
+            Some("python"),
+            "语言取快照自述，不硬编码 rust"
+        );
+        let _ = fs::remove_dir_all(&dir);
+        std::env::remove_var("CODELATTICE_PUBLISH_DIR");
+    }
+
+    #[test]
+    fn root_label_falls_back_to_clean_file_name() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let dir = tmp_publish_dir();
+        std::env::set_var("CODELATTICE_PUBLISH_DIR", &dir);
+        // fixtures 基线做过 root 脱敏，只剩占位符；此时退回文件名并去掉 .snapshot 后缀。
+        let body = br#"{"generatedAt":"2026-08-24T00:00:00+00:00","root":"<redacted-root>","summary":{"language":"shell"},"graph":{"nodes":[],"edges":[],"summary":{}}}"#;
+        publish_snapshot("shell-portable-smoke.snapshot", body).unwrap();
+        let metas = list_snapshots().unwrap();
+        let meta = metas
+            .iter()
+            .find(|m| m.get("id").and_then(Value::as_str) == Some("shell-portable-smoke.snapshot"))
+            .expect("published snapshot must be listed");
+        assert_eq!(
+            meta.get("rootLabel").and_then(Value::as_str),
+            Some("shell-portable-smoke")
+        );
+        let _ = fs::remove_dir_all(&dir);
+        std::env::remove_var("CODELATTICE_PUBLISH_DIR");
     }
 
     #[test]

@@ -34,9 +34,11 @@ pub fn workbench_explain(
     let selection: GraphSelection =
         serde_json::from_value(payload.get("selection").cloned().unwrap_or(Value::Null))
             .map_err(|e| format!("invalid selection: {e}"))?;
+    // providerId 为空字符串时视为未指定，回退默认模型（前端选择器默认项）
     let provider_id = payload
         .get("providerId")
         .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
         .map(str::to_string);
     let level = payload
         .get("explanationLevel")
@@ -245,8 +247,9 @@ pub fn workbench_explain(
                     }
                 }
 
-                let mut answer = match UnderstandingService::parse_model_answer(&text) {
+                let mut answer = match UnderstandingService::answer_from_model_text(&text) {
                     Ok(mut a) => {
+                        UnderstandingService::bind_answer_snapshot(&mut a, &snapshot_id);
                         for c in &mut a.claims {
                             if c.coverage_caveat_refs.is_empty() {
                                 c.coverage_caveat_refs
@@ -277,7 +280,7 @@ pub fn workbench_explain(
                     }
                 };
 
-                if answer.claims.is_empty() {
+                if answer.claims.is_empty() && answer.answer_summary.trim().is_empty() {
                     answer.claims.push(Claim {
                         id: "claim:0".to_string(),
                         text: "模型未返回任何 claim".to_string(),
@@ -372,9 +375,11 @@ pub fn workbench_chat(
         payload_snapshot_id.clone()
     };
 
+    // providerId 为空字符串时视为未指定，回退默认模型（前端选择器默认项）
     let provider_id = payload
         .get("providerId")
         .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
         .map(str::to_string);
 
     let cancel = Arc::new(AtomicBool::new(false));
@@ -542,8 +547,9 @@ pub fn workbench_chat(
                 // 最终回答
                 let (valid_refs, vocab, nodes, relations) =
                     common::evidence_vocabulary(&Value::String(evidence_text.clone()), &index_arc);
-                let answer = match UnderstandingService::parse_model_answer(&text) {
+                let answer = match UnderstandingService::answer_from_model_text(&text) {
                     Ok(mut a) => {
+                        UnderstandingService::bind_answer_snapshot(&mut a, &snapshot_id);
                         for c in &mut a.claims {
                             if c.coverage_caveat_refs.is_empty() {
                                 c.coverage_caveat_refs

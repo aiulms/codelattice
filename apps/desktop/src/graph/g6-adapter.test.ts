@@ -16,20 +16,22 @@ const edges: SnapshotEdge[] = [
   { source: "n:b", target: "n:c", kind: "calls" },
 ];
 
-type Handler = (evt: { target?: { id?: string }; originalEvent?: unknown }) => void;
+type Handler = (evt: { target?: { id?: string }; originalEvent?: unknown; targetType?: string }) => void;
 
 function makeFake() {
   const state: {
     config: Record<string, unknown> | null;
     handlers: Map<string, Handler>;
     destroyed: boolean;
-  } = { config: null, handlers: new Map(), destroyed: false };
+    focus: string | string[] | null;
+  } = { config: null, handlers: new Map(), destroyed: false, focus: null };
   class FakeGraph implements G6GraphLike {
     constructor(config: unknown) { state.config = config as Record<string, unknown>; }
     on(event: string, fn: Handler) { state.handlers.set(event, fn); }
     render() { return Promise.resolve(); }
     destroy() { state.destroyed = true; }
     setElementState() { /* noop */ }
+    focusElement(id: string | string[]) { state.focus = id; }
     emit(event: string, evt: unknown) {
       const h = state.handlers.get(event);
       if (h) h(evt as { target?: { id?: string } });
@@ -94,6 +96,24 @@ describe("G6GraphAdapter edge contract (F1 新增，P0-A #2 前置)", () => {
     expect(events).toEqual([key]);
   });
 
+  it("shift-click marks the edge selection as additive", () => {
+    const { FakeGraph, state } = makeFake();
+    const flags: boolean[] = [];
+    const adapter = new G6GraphAdapter(
+      { onSelectNode: () => {}, onFocusNode: () => {}, onHoverNode: () => {},
+        onSelectEdge: (_k, add) => flags.push(!!add), onHoverEdge: () => {}, onCanvasClick: () => {} },
+      FakeGraph,
+      host(),
+    );
+    adapter.render(nodes, edges, {});
+    const key = defaultRelationKey("n:a", "calls", "n:b");
+    (state.handlers.get("edge:click") as Handler)({
+      target: { id: `${key}#0` },
+      originalEvent: { shiftKey: true },
+    });
+    expect(flags).toEqual([true]);
+  });
+
   it("parallel edges (same source/kind/target) render with unique ids and map to one relationKey", () => {
     // G2 关键场景：真实 snapshot（shell/typescript）存在平行边；relationKey 相同但
     // G6 元素 id 必须唯一，否则 WKWebView smoke 报 "Edge already exists"（G1 复现根因）。
@@ -138,6 +158,21 @@ describe("G6GraphAdapter edge contract (F1 新增，P0-A #2 前置)", () => {
     expect(events).toEqual(["node:n:a", "canvas"]);
   });
 
+  it("canvas:click on an edge target does not clear selection", () => {
+    const { FakeGraph, state } = makeFake();
+    const events: string[] = [];
+    const adapter = new G6GraphAdapter(
+      { onSelectNode: () => {}, onFocusNode: () => {}, onHoverNode: () => {},
+        onSelectEdge: () => {}, onHoverEdge: () => {}, onCanvasClick: () => events.push("canvas") },
+      FakeGraph,
+      host(),
+    );
+    adapter.render(nodes, edges, {});
+    (state.handlers.get("canvas:click") as Handler)({ targetType: "edge" });
+    (state.handlers.get("canvas:click") as Handler)({ targetType: "node" });
+    expect(events).toEqual([]);
+  });
+
   it("destroy cleans up and render can remount (F1 #7 重复 mount/unmount)", () => {
     const { FakeGraph, state } = makeFake();
     const adapter = new G6GraphAdapter(
@@ -151,6 +186,22 @@ describe("G6GraphAdapter edge contract (F1 新增，P0-A #2 前置)", () => {
     expect(state.destroyed).toBe(true);
     // remount
     expect(adapter.render(nodes, edges, {})).toBe(true);
+  });
+
+  it("selection update does not remount the graph", () => {
+    const { FakeGraph, state } = makeFake();
+    const adapter = new G6GraphAdapter(
+      { onSelectNode: () => {}, onFocusNode: () => {}, onHoverNode: () => {},
+        onSelectEdge: () => {}, onHoverEdge: () => {}, onCanvasClick: () => {} },
+      FakeGraph,
+      host(),
+    );
+    adapter.render(nodes, edges, {});
+    const firstConfig = state.config;
+    state.destroyed = false;
+    adapter.setSelection({ type: "node", nodeId: "n:b", snapshotId: "s" });
+    expect(state.destroyed).toBe(false);
+    expect(state.config).toBe(firstConfig);
   });
 
   it("selection renders highlight flags into elements", () => {
@@ -167,5 +218,19 @@ describe("G6GraphAdapter edge contract (F1 新增，P0-A #2 前置)", () => {
     const nb = g6Nodes.find((n) => n.id === "n:b");
     expect(nb?.data.selected).toBe(true);
     expect(g6Nodes.find((n) => n.id === "n:a")?.data.neighbor).toBe(true);
+  });
+
+  it("frames the camera on the selected edge endpoints", () => {
+    const { FakeGraph, state } = makeFake();
+    const adapter = new G6GraphAdapter(
+      { onSelectNode: () => {}, onFocusNode: () => {}, onHoverNode: () => {},
+        onSelectEdge: () => {}, onHoverEdge: () => {}, onCanvasClick: () => {} },
+      FakeGraph,
+      host(),
+    );
+    adapter.render(nodes, edges, {});
+    const key = defaultRelationKey("n:a", "calls", "n:b");
+    adapter.setSelection({ type: "relation", relationKey: key, snapshotId: "s" });
+    expect(state.focus).toEqual(["n:a", "n:b"]);
   });
 });
