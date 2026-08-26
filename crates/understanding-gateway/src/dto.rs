@@ -196,16 +196,19 @@ pub struct Claim {
 pub enum NavigationAction {
     FocusNode {
         node_id: String,
+        #[serde(default)]
         snapshot_id: String,
     },
     FocusRelation {
         relation_key: String,
+        #[serde(default)]
         snapshot_id: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         occurrence_key: Option<String>,
     },
     FocusSource {
         source_ref_id: String,
+        #[serde(default)]
         snapshot_id: String,
     },
 }

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use crate::cache::{CacheKey, UnderstandingCache};
-use crate::dto::{Claim, ClaimClassification, GatewayEvent, UnderstandingAnswer};
+use crate::dto::{Claim, ClaimClassification, GatewayEvent, NavigationAction, UnderstandingAnswer};
 use crate::provider::{ModelAdapter, ModelConfig, ModelPool};
 use crate::secret::SecretStore;
 use crate::session::SessionManager;
@@ -45,6 +45,122 @@ pub fn extract_json_object(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// 去掉厂商工具调用 XML，避免把 `<longcat_tool_call>` 原文展示给用户。
+pub fn strip_tool_call_markup(text: &str) -> String {
+    let mut out = text.to_string();
+    for (open, close) in [
+        ("<longcat_tool_call>", "</longcat_tool_call>"),
+        ("<tool_call>", "</tool_call>"),
+    ] {
+        loop {
+            let Some(start) = out.find(open) else { break };
+            if let Some(rel) = out[start..].find(close) {
+                let end = start + rel + close.len();
+                out.replace_range(start..end, "");
+            } else {
+                out.replace_range(start.., "");
+                break;
+            }
+        }
+    }
+    out.split('\n')
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn parse_arg_value(raw: &str) -> serde_json::Value {
+    let trimmed = raw.trim();
+    serde_json::from_str(trimmed).unwrap_or_else(|_| serde_json::Value::String(trimmed.to_string()))
+}
+
+fn take_tagged<'a>(src: &'a str, open: &str, close: &str) -> Option<(&'a str, &'a str)> {
+    let start = src.find(open)?;
+    let after = &src[start + open.len()..];
+    let end = after.find(close)?;
+    Some((after[..end].trim(), &after[end + close.len()..]))
+}
+
+/// 龙猫等模型会把工具调用写成 XML，而不是我们 prompt 里要求的 JSON。
+fn parse_markup_tool_calls(text: &str) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut rest = text;
+    while let Some(start) = rest.find("<longcat_tool_call>") {
+        let after = &rest[start + "<longcat_tool_call>".len()..];
+        // 流式截断时可能没有闭合标签，仍按一次工具调用处理。
+        let end = after.find("</longcat_tool_call>").unwrap_or(after.len());
+        let body = after[..end].trim();
+        rest = if end < after.len() {
+            &after[end + "</longcat_tool_call>".len()..]
+        } else {
+            ""
+        };
+        let name_end = body.find('<').unwrap_or(body.len());
+        let name = body[..name_end].trim();
+        if name.is_empty() {
+            continue;
+        }
+        let mut arguments = serde_json::Map::new();
+        let mut cursor = &body[name_end..];
+        while let Some((key, after_key)) =
+            take_tagged(cursor, "<longcat_arg_key>", "</longcat_arg_key>")
+        {
+            if let Some((value, after_value)) =
+                take_tagged(after_key, "<longcat_arg_value>", "</longcat_arg_value>")
+            {
+                arguments.insert(key.to_string(), parse_arg_value(value));
+                cursor = after_value;
+            } else {
+                break;
+            }
+        }
+        if arguments.is_empty() {
+            cursor = &body[name_end..];
+            while let Some(p0) = cursor.find("<parameter name=\"") {
+                let after_name = &cursor[p0 + "<parameter name=\"".len()..];
+                let Some(q) = after_name.find('"') else { break };
+                let key = &after_name[..q];
+                let after_q = &after_name[q + 1..];
+                let Some(gt) = after_q.find('>') else { break };
+                let after_gt = &after_q[gt + 1..];
+                let Some(close) = after_gt.find("</parameter>") else {
+                    break;
+                };
+                arguments.insert(key.to_string(), parse_arg_value(&after_gt[..close]));
+                cursor = &after_gt[close + "</parameter>".len()..];
+            }
+        }
+        out.push(serde_json::json!({"name": name, "arguments": arguments}));
+    }
+    rest = text;
+    while let Some(start) = rest.find("<tool_call>") {
+        let after = &rest[start + "<tool_call>".len()..];
+        let Some(end) = after.find("</tool_call>") else {
+            break;
+        };
+        let body = after[..end].trim();
+        rest = &after[end + "</tool_call>".len()..];
+        if let Some(obj) = extract_json_object(body) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&obj) {
+                if v.get("name").and_then(serde_json::Value::as_str).is_some() {
+                    out.push(v);
+                    continue;
+                }
+            }
+        }
+        let mut lines = body.lines().map(str::trim).filter(|l| !l.is_empty());
+        if let Some(name) = lines.next() {
+            let rest_body = lines.collect::<Vec<_>>().join("\n");
+            let arguments = extract_json_object(&rest_body)
+                .and_then(|s| serde_json::from_str(&s).ok())
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            out.push(serde_json::json!({"name": name, "arguments": arguments}));
+        }
+    }
+    out
 }
 
 pub struct UnderstandingService {
@@ -210,57 +326,161 @@ impl UnderstandingService {
 
     /// 解析模型输出 JSON 为 UnderstandingAnswer（P0-B1）。
     /// 解析失败返回 Err（调用方按 hypothesis 降级处理）。
+    ///
+    /// 模型 prompt 示例不含 snapshotId / schemaVersion / scope（这些由工作台注入），
+    /// 缺字段不得判整段回答失败。
     pub fn parse_model_answer(text: &str) -> Result<UnderstandingAnswer, String> {
         let cleaned =
             extract_json_object(text).ok_or_else(|| "no JSON object found".to_string())?;
-        let v: serde_json::Value =
+        let mut v: serde_json::Value =
             serde_json::from_str(&cleaned).map_err(|e| format!("invalid model JSON: {e}"))?;
+        if let Some(obj) = v.as_object_mut() {
+            obj.entry("schemaVersion".to_string())
+                .or_insert(serde_json::json!("codelattice.understandingAnswer.v1"));
+            obj.entry("scope".to_string())
+                .or_insert(serde_json::json!({"type": "project", "id": "project"}));
+            obj.entry("claims".to_string())
+                .or_insert(serde_json::json!([]));
+            obj.entry("navigationActions".to_string())
+                .or_insert(serde_json::json!([]));
+            obj.entry("answerSummary".to_string())
+                .or_insert(serde_json::json!(""));
+            // 模型常把单个 action/claim 写成对象而不是数组。
+            if obj
+                .get("navigationActions")
+                .map(|n| n.is_object())
+                .unwrap_or(false)
+            {
+                let one = obj.remove("navigationActions").unwrap();
+                obj.insert("navigationActions".to_string(), serde_json::json!([one]));
+            }
+            if obj.get("claims").map(|n| n.is_object()).unwrap_or(false) {
+                let one = obj.remove("claims").unwrap();
+                obj.insert("claims".to_string(), serde_json::json!([one]));
+            }
+            if let Some(claims) = obj
+                .get_mut("claims")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for (i, item) in claims.iter_mut().enumerate() {
+                    if let Some(o) = item.as_object_mut() {
+                        o.entry("id".to_string())
+                            .or_insert(serde_json::json!(format!("claim:{}", i + 1)));
+                        o.entry("classification".to_string())
+                            .or_insert(serde_json::json!("hypothesis"));
+                        o.entry("evidenceRefs".to_string())
+                            .or_insert(serde_json::json!([]));
+                        o.entry("text".to_string()).or_insert(serde_json::json!(""));
+                    }
+                }
+            }
+            if let Some(nav) = obj
+                .get_mut("navigationActions")
+                .and_then(serde_json::Value::as_array_mut)
+            {
+                for item in nav {
+                    if let Some(o) = item.as_object_mut() {
+                        o.entry("snapshotId".to_string())
+                            .or_insert(serde_json::json!(""));
+                    }
+                }
+            }
+        }
         serde_json::from_value(v).map_err(|e| format!("answer schema mismatch: {e}"))
     }
 
+    /// 优先按 UnderstandingAnswer JSON 解析；模型只回了中文/Markdown 时保留原文，
+    /// 不要把「有内容但不是 JSON」判成服务不可用。
+    pub fn answer_from_model_text(text: &str) -> Result<UnderstandingAnswer, String> {
+        match Self::parse_model_answer(text) {
+            Ok(answer) => {
+                let empty = answer.answer_summary.trim().is_empty() && answer.claims.is_empty();
+                if !empty {
+                    return Ok(answer);
+                }
+            }
+            Err(_) => {}
+        }
+        let trimmed = strip_tool_call_markup(text);
+        if trimmed.is_empty() {
+            return Err("no JSON object found".to_string());
+        }
+        Ok(UnderstandingAnswer {
+            schema_version: "codelattice.understandingAnswer.v1".to_string(),
+            scope: crate::dto::AnswerScope {
+                scope_type: crate::dto::ConversationScopeType::Project,
+                id: "project".to_string(),
+            },
+            answer_summary: trimmed,
+            claims: vec![],
+            navigation_actions: vec![],
+        })
+    }
+
+    /// 把当前 snapshot 填进模型未给出的 navigationActions.snapshotId。
+    pub fn bind_answer_snapshot(answer: &mut UnderstandingAnswer, snapshot_id: &str) {
+        if snapshot_id.is_empty() {
+            return;
+        }
+        for action in &mut answer.navigation_actions {
+            match action {
+                NavigationAction::FocusNode {
+                    snapshot_id: sid, ..
+                }
+                | NavigationAction::FocusRelation {
+                    snapshot_id: sid, ..
+                }
+                | NavigationAction::FocusSource {
+                    snapshot_id: sid, ..
+                } => {
+                    if sid.is_empty() {
+                        *sid = snapshot_id.to_string();
+                    }
+                }
+            }
+        }
+    }
+
     /// 解析模型输出中的工具调用（P0-B2）：支持
-    /// `{"toolCalls":[{"name":"search_nodes","arguments":{...}}]}` 与原生
-    /// OpenAI `choices[0].message.tool_calls` 两种形态。
+    /// `{"toolCalls":[...]}`、原生 OpenAI `tool_calls`，以及龙猫 `<longcat_tool_call>` XML。
     pub fn parse_tool_calls(text: &str) -> Vec<serde_json::Value> {
-        let Some(cleaned) = extract_json_object(text) else {
-            return Vec::new();
-        };
-        let Ok(v) = serde_json::from_str::<serde_json::Value>(&cleaned) else {
-            return Vec::new();
-        };
         let mut out = Vec::new();
-        // 形态 1：{"toolCalls": [...]}
-        if let Some(calls) = v.get("toolCalls").and_then(serde_json::Value::as_array) {
-            for c in calls {
-                let name = c
-                    .get("name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                let arguments = c
-                    .get("arguments")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                out.push(serde_json::json!({"name": name, "arguments": arguments}));
+        if let Some(cleaned) = extract_json_object(text) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&cleaned) {
+                if let Some(calls) = v.get("toolCalls").and_then(serde_json::Value::as_array) {
+                    for c in calls {
+                        let name = c
+                            .get("name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        let arguments = c
+                            .get("arguments")
+                            .cloned()
+                            .unwrap_or(serde_json::Value::Null);
+                        out.push(serde_json::json!({"name": name, "arguments": arguments}));
+                    }
+                }
+                if let Some(calls) = v
+                    .pointer("/choices/0/message/tool_calls")
+                    .and_then(serde_json::Value::as_array)
+                {
+                    for c in calls {
+                        let name = c
+                            .pointer("/function/name")
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("");
+                        let args = c
+                            .pointer("/function/arguments")
+                            .and_then(serde_json::Value::as_str)
+                            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                            .or_else(|| c.pointer("/function/arguments").cloned())
+                            .unwrap_or(serde_json::Value::Null);
+                        out.push(serde_json::json!({"name": name, "arguments": args}));
+                    }
+                }
             }
         }
-        // 形态 2：原生 tool_calls（模型直接以 OpenAI 格式回复）
-        if let Some(calls) = v
-            .pointer("/choices/0/message/tool_calls")
-            .and_then(serde_json::Value::as_array)
-        {
-            for c in calls {
-                let name = c
-                    .pointer("/function/name")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                let args = c
-                    .pointer("/function/arguments")
-                    .and_then(serde_json::Value::as_str)
-                    .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
-                    .unwrap_or(serde_json::Value::Null);
-                out.push(serde_json::json!({"name": name, "arguments": args}));
-            }
-        }
+        out.extend(parse_markup_tool_calls(text));
         out
     }
 
@@ -273,12 +493,14 @@ impl UnderstandingService {
 {tools}
 
 输出规则：
-1. 需要取证时输出：{{"toolCalls":[{{"name":"<工具名>","arguments":{{...}}}}]}}
-2. 完成取证后输出最终回答 JSON：
+1. 用户消息里已经带了「[已讨论的图元素]」「[当前图谱选择]」或「请解释这条 / 请分别解释 / 请解释这个」时：不要调用工具，不要输出任何 XML 或 tool_call 标签，直接根据这些事实用中文作答。
+2. 需要取证时只输出 JSON：{{"toolCalls":[{{"name":"<工具名>","arguments":{{...}}}}]}}；不要输出 <longcat_tool_call> 或其他 XML。
+3. 完成取证后优先输出最终回答 JSON：
 {{"answerSummary":"一句话总结","claims":[{{"id":"claim:1","text":"断言","classification":"grounded_interpretation|hypothesis|unknown","evidenceRefs":["rel:..."]}}],"navigationActions":[{{"type":"focusRelation","relationKey":"rel:..."}}]}}
-3. claims 的 evidenceRefs 只能引用工具返回中真实出现的 rel:/src:/limit: id；
-4. 提到的代码标识用反引号包裹；
-5. 工具返回的字节数有限，先搜索定位再取上下文，不要一次读全部。
+4. 若无法稳定输出 JSON，直接用中文段落作答，不要只回复无法解析或服务不可用，也不要把工具调用原文写进回答。
+5. claims 的 evidenceRefs 只能引用工具返回中真实出现的 rel:/src:/limit: id；
+6. 提到的代码标识用反引号包裹；
+7. 工具返回的字节数有限，先搜索定位再取上下文，不要一次读全部。
 "#
         )
     }
@@ -421,9 +643,50 @@ mod tests {
     }
 
     #[test]
+    fn parse_model_answer_accepts_prompt_shaped_json_without_snapshot_id() {
+        let text = r#"{"answerSummary":"scripts 调用了未知命令","claims":[{"id":"claim:1","text":"external-command-invocation","classification":"hypothesis","evidenceRefs":[]}],"navigationActions":[{"type":"focusRelation","relationKey":"rel:abc"}]}"#;
+        let mut answer = UnderstandingService::parse_model_answer(text).unwrap();
+        assert_eq!(answer.answer_summary, "scripts 调用了未知命令");
+        UnderstandingService::bind_answer_snapshot(&mut answer, "snap:1");
+        match &answer.navigation_actions[0] {
+            crate::dto::NavigationAction::FocusRelation { snapshot_id, .. } => {
+                assert_eq!(snapshot_id, "snap:1");
+            }
+            other => panic!("unexpected {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_model_answer_fills_missing_claim_fields() {
+        let text = r#"{"answerSummary":"ok","claims":{"text":"hello"},"navigationActions":{"type":"focusRelation","relationKey":"rel:abc"}}"#;
+        let answer = UnderstandingService::parse_model_answer(text).unwrap();
+        assert_eq!(answer.claims[0].id, "claim:1");
+        assert_eq!(answer.claims[0].text, "hello");
+        assert_eq!(answer.navigation_actions.len(), 1);
+    }
+
+    #[test]
     fn parse_model_answer_rejects_non_json() {
         assert!(UnderstandingService::parse_model_answer("抱歉我无法回答").is_err());
         assert!(UnderstandingService::parse_model_answer("").is_err());
+    }
+
+    #[test]
+    fn answer_from_model_text_keeps_plain_prose() {
+        let text =
+            "这条聚合边是 scripts 里已有的外部命令调用向上归并到 (unknown)，不是新推断的依赖。";
+        let answer = UnderstandingService::answer_from_model_text(text).unwrap();
+        assert_eq!(answer.answer_summary, text);
+        assert!(answer.claims.is_empty());
+        assert!(UnderstandingService::answer_from_model_text("").is_err());
+        assert!(UnderstandingService::answer_from_model_text("   ").is_err());
+    }
+
+    #[test]
+    fn answer_from_model_text_still_prefers_valid_json() {
+        let text = r#"{"answerSummary":"json-ok","claims":[]}"#;
+        let answer = UnderstandingService::answer_from_model_text(text).unwrap();
+        assert_eq!(answer.answer_summary, "json-ok");
     }
 
     #[test]
@@ -454,10 +717,55 @@ mod tests {
     }
 
     #[test]
+    fn parse_tool_calls_reads_longcat_xml() {
+        let text = "\
+这条边是外部命令调用。
+<longcat_tool_call>search_nodes
+<longcat_arg_key>query</longcat_arg_key><longcat_arg_value>scripts</longcat_arg_value>
+<longcat_arg_key>limit</longcat_arg_key><longcat_arg_value>10</longcat_arg_value>
+</longcat_tool_call>";
+        let calls = UnderstandingService::parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["name"], "search_nodes");
+        assert_eq!(calls[0]["arguments"]["query"], "scripts");
+        assert_eq!(calls[0]["arguments"]["limit"], 10);
+    }
+
+    #[test]
+    fn parse_tool_calls_reads_longcat_get_node_context() {
+        let text = "<longcat_tool_call>get_node_context\n<longcat_arg_key>nodeId</longcat_arg_key>\n<longcat_arg_value>shell:file:build.sh</longcat_arg_value>\n</longcat_tool_call>";
+        let calls = UnderstandingService::parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["name"], "get_node_context");
+        assert_eq!(calls[0]["arguments"]["nodeId"], "shell:file:build.sh");
+    }
+
+    #[test]
+    fn parse_tool_calls_reads_unclosed_longcat_xml() {
+        let text = "<longcat_tool_call>get_node_context\n<longcat_arg_key>nodeId</longcat_arg_key>\n<longcat_arg_value>shell:file:build.sh</longcat_arg_value>";
+        let calls = UnderstandingService::parse_tool_calls(text);
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0]["name"], "get_node_context");
+        assert_eq!(calls[0]["arguments"]["nodeId"], "shell:file:build.sh");
+    }
+
+    #[test]
+    fn strip_tool_call_markup_hides_vendor_xml_from_the_user() {
+        let text = "先给结论。\n<longcat_tool_call>search_nodes\n<longcat_arg_key>query</longcat_arg_key><longcat_arg_value>scripts</longcat_arg_value>\n</longcat_tool_call>\n";
+        let cleaned = strip_tool_call_markup(text);
+        assert!(cleaned.contains("先给结论"));
+        assert!(!cleaned.contains("longcat_tool_call"));
+        assert!(!cleaned.contains("search_nodes"));
+        let answer = UnderstandingService::answer_from_model_text(text).unwrap();
+        assert_eq!(answer.answer_summary, "先给结论。");
+    }
+
+    #[test]
     fn chat_system_prompt_embeds_tool_schema() {
         let tools = json!([{"name": "project_summary", "description": "项目概览"}]);
         let prompt = UnderstandingService::chat_system_prompt(&tools);
         assert!(prompt.contains("project_summary"));
+        assert!(prompt.contains("不要输出 <longcat_tool_call>"));
         assert!(prompt.contains("toolCalls"));
         assert!(prompt.contains("grounded_interpretation"));
     }
