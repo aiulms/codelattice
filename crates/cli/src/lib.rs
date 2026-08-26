@@ -30,6 +30,9 @@ mod python_bridge;
 mod rust_bridge;
 mod shell_bridge;
 mod unified_types;
+mod webui_snapshot;
+// pub 供集成测试复用 language_analyzable 做 feature 自适应断言（与 bin 同份编译）
+pub mod workspace_inspect;
 
 use clap::{Parser, Subcommand};
 use serde_json::{json, Value};
@@ -160,6 +163,15 @@ enum Commands {
         /// 严格 workspace 模式：保留所有 workspace graph 影响，包括低置信度 adjacency-only 边
         #[arg(long, default_value_t = false)]
         strict_workspace: bool,
+    },
+    /// 文件夹体检：盘点目录内项目/语言/文件数与可分析性（workspaceInspection.v1）
+    Inspect {
+        /// 项目根目录路径
+        #[arg(long)]
+        root: String,
+        /// 输出格式（MVP 仅支持 json）
+        #[arg(long, default_value = "json")]
+        format: String,
     },
     /// Start MCP stdio server (JSON-RPC over stdin/stdout)
     Mcp,
@@ -664,11 +676,28 @@ fn print_analyze_result(
     result: &LanguageAnalysisResult,
     profile: &str,
     options: AnalyzeProfileOptions,
+    format: &str,
 ) {
     let full_value = serde_json::to_value(result).unwrap_or_else(|e| {
         eprintln!("错误：JSON 序列化失败: {e}");
         std::process::exit(1);
     });
+    // webui-snapshot 是独立的输出契约（graph/moduleGraph/insights 齐全），
+    // profile 过滤档位对它没有意义；非 full 直接报错，不做静默忽略。
+    if format == "webui-snapshot" {
+        if profile != "full" {
+            eprintln!("错误：--format webui-snapshot 只支持 --profile full");
+            std::process::exit(1);
+        }
+        let snapshot =
+            webui_snapshot::convert_analyze_result(&full_value, env!("CARGO_PKG_VERSION"));
+        let json = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|e| {
+            eprintln!("错误：webui-snapshot JSON 序列化失败: {e}");
+            std::process::exit(1);
+        });
+        println!("{json}");
+        return;
+    }
     let filtered = filter_analyze_profile(&full_value, profile, options);
     let json = serde_json::to_string_pretty(&filtered).unwrap_or_else(|e| {
         eprintln!("错误：JSON 序列化失败: {e}");
@@ -4496,653 +4525,713 @@ pub fn run() {
             profile_page_size,
             public_only,
         } => {
-            if format != "json" && format != "gitnexus-rc" {
-                eprintln!("错误：支持的格式：json, gitnexus-rc");
-                std::process::exit(1);
-            }
-
-            if let Err(e) = validate_profile(&profile) {
-                eprintln!("错误：{e}");
-                std::process::exit(1);
-            }
-            let profile_options =
-                AnalyzeProfileOptions::new(profile_page, profile_page_size, public_only);
-
-            let is_bridge = format == "gitnexus-rc";
-            let root_path = match check_root(&root) {
-                Ok(p) => p,
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            };
-
-            if language == "auto" && !is_bridge {
-                if let Some(workspace) =
-                    build_workspace_auto_entry(root_path, "auto-language-multi-project-root")
-                {
-                    let json = serde_json::to_string_pretty(&workspace).unwrap_or_else(|e| {
-                        eprintln!("错误：Workspace JSON 序列化失败: {e}");
-                        std::process::exit(1);
-                    });
-                    println!("{json}");
-                    return;
-                }
-            }
-
-            // ═══ Analysis Engine 1.3 path (--engine serial|parallel|parity) ═══
-            if engine != "off" {
-                let result = match engine.as_str() {
-                    "serial" | "parallel" | "parity" => crate::engine_bridge::run_engine_analysis(
-                        root_path,
-                        &language,
-                        engine == "parallel",
-                    ),
-                    _ => {
-                        eprintln!(
-                            "Unknown engine mode: {}. Use serial, parallel, or off.",
-                            engine
-                        );
+            // 分支 A（执行卡）：CLI analyze 主路径包进大栈独立线程，对齐 mcp_job.rs 的
+            // stack_size 模式。serial 提取路径（inputs<8 走 output.rs 串行分支）与序列化
+            // 都跑在主线程 8MB 栈上，真实项目深 CST（walk_node 562 层）会击穿；16MB 起步
+            // 与 rayon 池（item.rs）同档。panic 经 join 原样 resume_unwind，stdout/stderr/
+            // exit code 语义不变；闭包内 return 等价于原分支 return（match 是 run() 末语句）。
+            let analyze_handle = std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(move || {
+                    if format != "json" && format != "gitnexus-rc" && format != "webui-snapshot" {
+                        eprintln!("错误：支持的格式：json, gitnexus-rc, webui-snapshot");
                         std::process::exit(1);
                     }
-                };
-                match result {
-                    Ok(output) => {
-                        let json = serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
-                            eprintln!("Engine serialization error: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Engine analysis error: {e}");
+
+                    if let Err(e) = validate_profile(&profile) {
+                        eprintln!("错误：{e}");
                         std::process::exit(1);
                     }
-                }
-            }
+                    let profile_options =
+                        AnalyzeProfileOptions::new(profile_page, profile_page_size, public_only);
 
-            let lang = match resolve_language(&language, root_path) {
-                Ok(l) => l,
-                Err(e) => {
-                    eprintln!("{e}");
-                    std::process::exit(1);
-                }
-            };
-
-            if engine != "off" {
-                let parallel = engine == "parallel";
-                match engine_bridge::run_engine_analysis(root_path, &lang, parallel) {
-                    Ok(result) => {
-                        let filtered = filter_analyze_profile(&result, &profile, profile_options);
-                        println!(
-                            "{}",
-                            serde_json::to_string_pretty(&filtered).unwrap_or_default()
-                        );
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Engine analysis failed: {e}, falling back to standard path");
-                    }
-                }
-            }
-
-            #[cfg(debug_assertions)]
-            eprintln!("分析中... language={lang}, root={root}");
-
-            match lang.as_str() {
-                "rust" => {
-                    let (json_val, nodes, edges, trace) = match run_rust_analysis(root_path) {
-                        Ok(v) => v,
+                    let is_bridge = format == "gitnexus-rc";
+                    let root_path = match check_root(&root) {
+                        Ok(p) => p,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
 
-                    // 计算 quality gates（bridge 和 json 格式都需要用于 --strict）
-                    let quality_gates = compute_rust_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.3")
-                        .to_string();
-
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = bridge_format::convert_rust_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_rust_summary(&json_val, &nodes, &edges);
-
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: trace,
-                        };
-
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    // --strict 检查：质量门失败时 exit non-zero
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
-                            }
-                            std::process::exit(1);
+                    if language == "auto" && !is_bridge {
+                        if let Some(workspace) = build_workspace_auto_entry(
+                            root_path,
+                            "auto-language-multi-project-root",
+                        ) {
+                            let json =
+                                serde_json::to_string_pretty(&workspace).unwrap_or_else(|e| {
+                                    eprintln!("错误：Workspace JSON 序列化失败: {e}");
+                                    std::process::exit(1);
+                                });
+                            println!("{json}");
+                            return;
                         }
                     }
-                }
-                "cangjie" => {
-                    let (json_val, nodes, edges) = match run_cangjie_analysis(root_path) {
-                        Ok(v) => v,
+
+                    // ═══ Analysis Engine 1.3 path (--engine serial|parallel|parity) ═══
+                    if engine != "off" {
+                        let result = match engine.as_str() {
+                            "serial" | "parallel" | "parity" => {
+                                crate::engine_bridge::run_engine_analysis(
+                                    root_path,
+                                    &language,
+                                    engine == "parallel",
+                                )
+                            }
+                            _ => {
+                                eprintln!(
+                                    "Unknown engine mode: {}. Use serial, parallel, or off.",
+                                    engine
+                                );
+                                std::process::exit(1);
+                            }
+                        };
+                        match result {
+                            Ok(output) => {
+                                let json =
+                                    serde_json::to_string_pretty(&output).unwrap_or_else(|e| {
+                                        eprintln!("Engine serialization error: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                                return;
+                            }
+                            Err(e) => {
+                                eprintln!("Engine analysis error: {e}");
+                                std::process::exit(1);
+                            }
+                        }
+                    }
+
+                    let lang = match resolve_language(&language, root_path) {
+                        Ok(l) => l,
                         Err(e) => {
                             eprintln!("{e}");
                             std::process::exit(1);
                         }
                     };
 
-                    // 计算 quality gates（bridge 和 json 格式都需要用于 --strict）
-                    let quality_gates = compute_cangjie_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v1.0.0")
-                        .to_string();
-
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = bridge_format::convert_cangjie_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_cangjie_summary(&nodes, &edges);
-
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    // --strict 检查：质量门失败时 exit non-zero
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                    if engine != "off" {
+                        let parallel = engine == "parallel";
+                        match engine_bridge::run_engine_analysis(root_path, &lang, parallel) {
+                            Ok(result) => {
+                                let filtered =
+                                    filter_analyze_profile(&result, &profile, profile_options);
+                                println!(
+                                    "{}",
+                                    serde_json::to_string_pretty(&filtered).unwrap_or_default()
+                                );
+                                return;
                             }
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                "arkts" => {
-                    let (json_val, nodes, edges) = match run_arkts_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
-
-                    let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.1.0")
-                        .to_string();
-
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = bridge_format::convert_arkts_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            Err(e) => {
+                                eprintln!(
+                                    "Engine analysis failed: {e}, falling back to standard path"
+                                );
                             }
-                            std::process::exit(1);
                         }
                     }
-                }
-                "typescript" => {
-                    let (json_val, nodes, edges) = match run_typescript_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
 
-                    let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.1.0")
-                        .to_string();
+                    #[cfg(debug_assertions)]
+                    eprintln!("分析中... language={lang}, root={root}");
 
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = bridge_format::convert_arkts_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
+                    match lang.as_str() {
+                        "rust" => {
+                            let (json_val, nodes, edges, trace) = match run_rust_analysis(root_path)
+                            {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
 
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            // 计算 quality gates（bridge 和 json 格式都需要用于 --strict）
+                            let quality_gates = compute_rust_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.3")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = bridge_format::convert_rust_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_rust_summary(&json_val, &nodes, &edges);
+
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: trace,
+                                };
+
+                                print_analyze_result(&result, &profile, profile_options, &format);
                             }
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                "javascript" => {
-                    let (json_val, nodes, edges) = match run_javascript_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
 
-                    let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.1.0")
-                        .to_string();
-
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = bridge_format::convert_arkts_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            // --strict 检查：质量门失败时 exit non-zero
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
                             }
-                            std::process::exit(1);
                         }
-                    }
-                }
-                "c" => {
-                    let (json_val, nodes, edges) = match run_c_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
+                        "cangjie" => {
+                            let (json_val, nodes, edges) = match run_cangjie_analysis(root_path) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
 
-                    let quality_gates = compute_c_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.1.0")
-                        .to_string();
+                            // 计算 quality gates（bridge 和 json 格式都需要用于 --strict）
+                            let quality_gates = compute_cangjie_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v1.0.0")
+                                .to_string();
 
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = bridge_format::convert_c_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = bridge_format::convert_cangjie_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_cangjie_summary(&nodes, &edges);
 
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+
+                                print_analyze_result(&result, &profile, profile_options, &format);
                             }
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                "cpp" => {
-                    let (json_val, nodes, edges) = match run_cpp_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
 
-                    let quality_gates = compute_cpp_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.1.0")
-                        .to_string();
-
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = cpp_bridge::convert_cpp_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            // --strict 检查：质量门失败时 exit non-zero
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
                             }
-                            std::process::exit(1);
                         }
-                    }
-                }
-                "python" => {
-                    let (json_val, nodes, edges) = match run_python_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
+                        "arkts" => {
+                            let (json_val, nodes, edges) = match run_arkts_analysis(root_path) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
 
-                    let quality_gates = compute_python_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("v0.1.0")
-                        .to_string();
+                            let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.1.0")
+                                .to_string();
 
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = python_bridge::convert_python_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = bridge_format::convert_arkts_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
                             }
-                            std::process::exit(1);
-                        }
-                    }
-                }
-                "shell" => {
-                    let (json_val, nodes, edges) = match run_shell_analysis(root_path) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            eprintln!("{e}");
-                            std::process::exit(1);
-                        }
-                    };
 
-                    let quality_gates = compute_shell_quality_gates(&nodes, &edges);
-                    let schema_version = json_val
-                        .get("schemaVersion")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("shell-v0.1")
-                        .to_string();
-
-                    if is_bridge {
-                        let analyzed_at = now_iso8601();
-                        let bridge = shell_bridge::convert_shell_graph(
-                            &json_val,
-                            &lang,
-                            &root_path.to_string_lossy(),
-                            &analyzed_at,
-                        )
-                        .unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge 格式转换失败: {e}");
-                            std::process::exit(1);
-                        });
-                        let json = serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
-                            eprintln!("错误：Bridge JSON 序列化失败: {e}");
-                            std::process::exit(1);
-                        });
-                        println!("{json}");
-                    } else {
-                        let summary = build_arkts_summary(&json_val, &nodes, &edges);
-                        let result = LanguageAnalysisResult {
-                            language: lang,
-                            root: root_path.to_string_lossy().to_string(),
-                            analyzed_at: now_iso8601(),
-                            schema_version,
-                            summary,
-                            quality_gates: quality_gates.clone(),
-                            graph: json_val,
-                            analysis_trace: None,
-                        };
-                        print_analyze_result(&result, &profile, profile_options);
-                    }
-
-                    if strict {
-                        let failed: Vec<&QualityGateResult> =
-                            quality_gates.iter().filter(|g| !g.passed).collect();
-                        if !failed.is_empty() {
-                            eprintln!("strict mode: {} quality gate(s) failed", failed.len());
-                            for g in &failed {
-                                eprintln!("  - {}: {}", g.gate_name, g.detail);
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
                             }
+                        }
+                        "typescript" => {
+                            let (json_val, nodes, edges) = match run_typescript_analysis(root_path)
+                            {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
+
+                            let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.1.0")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = bridge_format::convert_arkts_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
+                            }
+
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        "javascript" => {
+                            let (json_val, nodes, edges) = match run_javascript_analysis(root_path)
+                            {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
+
+                            let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.1.0")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = bridge_format::convert_arkts_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
+                            }
+
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        "c" => {
+                            let (json_val, nodes, edges) = match run_c_analysis(root_path) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
+
+                            let quality_gates = compute_c_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.1.0")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = bridge_format::convert_c_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
+                            }
+
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        "cpp" => {
+                            let (json_val, nodes, edges) = match run_cpp_analysis(root_path) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
+
+                            let quality_gates = compute_cpp_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.1.0")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = cpp_bridge::convert_cpp_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
+                            }
+
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        "python" => {
+                            let (json_val, nodes, edges) = match run_python_analysis(root_path) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
+
+                            let quality_gates = compute_python_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("v0.1.0")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = python_bridge::convert_python_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
+                            }
+
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        "shell" => {
+                            let (json_val, nodes, edges) = match run_shell_analysis(root_path) {
+                                Ok(v) => v,
+                                Err(e) => {
+                                    eprintln!("{e}");
+                                    std::process::exit(1);
+                                }
+                            };
+
+                            let quality_gates = compute_shell_quality_gates(&nodes, &edges);
+                            let schema_version = json_val
+                                .get("schemaVersion")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("shell-v0.1")
+                                .to_string();
+
+                            if is_bridge {
+                                let analyzed_at = now_iso8601();
+                                let bridge = shell_bridge::convert_shell_graph(
+                                    &json_val,
+                                    &lang,
+                                    &root_path.to_string_lossy(),
+                                    &analyzed_at,
+                                )
+                                .unwrap_or_else(|e| {
+                                    eprintln!("错误：Bridge 格式转换失败: {e}");
+                                    std::process::exit(1);
+                                });
+                                let json =
+                                    serde_json::to_string_pretty(&bridge).unwrap_or_else(|e| {
+                                        eprintln!("错误：Bridge JSON 序列化失败: {e}");
+                                        std::process::exit(1);
+                                    });
+                                println!("{json}");
+                            } else {
+                                let summary = build_arkts_summary(&json_val, &nodes, &edges);
+                                let result = LanguageAnalysisResult {
+                                    language: lang,
+                                    root: root_path.to_string_lossy().to_string(),
+                                    analyzed_at: now_iso8601(),
+                                    schema_version,
+                                    summary,
+                                    quality_gates: quality_gates.clone(),
+                                    graph: json_val,
+                                    analysis_trace: None,
+                                };
+                                print_analyze_result(&result, &profile, profile_options, &format);
+                            }
+
+                            if strict {
+                                let failed: Vec<&QualityGateResult> =
+                                    quality_gates.iter().filter(|g| !g.passed).collect();
+                                if !failed.is_empty() {
+                                    eprintln!(
+                                        "strict mode: {} quality gate(s) failed",
+                                        failed.len()
+                                    );
+                                    for g in &failed {
+                                        eprintln!("  - {}: {}", g.gate_name, g.detail);
+                                    }
+                                    std::process::exit(1);
+                                }
+                            }
+                        }
+                        other => {
+                            eprintln!("错误：不支持的语言: {other}");
                             std::process::exit(1);
                         }
                     }
-                }
-                other => {
-                    eprintln!("错误：不支持的语言: {other}");
-                    std::process::exit(1);
-                }
+                })
+                .expect("spawn analyze big-stack thread");
+            if let Err(payload) = analyze_handle.join() {
+                std::panic::resume_unwind(payload);
             }
         }
 
@@ -5693,10 +5782,27 @@ pub fn run() {
         }
 
         // ===== MCP stdio server =====
+        Commands::Inspect { root, format } => {
+            workspace_inspect::run_inspect_command(&root, &format);
+        }
         Commands::Mcp => {
-            if let Err(e) = mcp_server::run_mcp_server() {
-                eprintln!("MCP server error: {e}");
-                std::process::exit(1);
+            // 大栈线程包装（执行卡偏差项，见 closure）：precommit 的 native
+            // detect-changes 经 MCP 子进程调 changed_symbols，tools/call 直通
+            // 处理跑在 server 主线程 8MB 栈上，深 CST 串行提取同样会击穿
+            // （mcp_job.rs 的 16MB 只覆盖 job 路径）。与 analyze 分发同模式、
+            // 同根因。注意：mcp_server.rs 的每请求 worker spawn 也已按同卡
+            // 偏差项补 16MB（那里才是直通分析的 actual 执行线程）。
+            let mcp_handle = std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(|| {
+                    if let Err(e) = mcp_server::run_mcp_server() {
+                        eprintln!("MCP server error: {e}");
+                        std::process::exit(1);
+                    }
+                })
+                .expect("spawn mcp big-stack thread");
+            if let Err(payload) = mcp_handle.join() {
+                std::panic::resume_unwind(payload);
             }
         }
     }

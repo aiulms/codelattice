@@ -1,7 +1,7 @@
 pub mod impact;
 
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -124,8 +124,12 @@ const SKIP_DIRS: &[&str] = &[
     "bazel-bin",
 ];
 
-/// 源文件扩展名 → 语言（用于无 manifest 目录的语言检测）
-const SOURCE_EXTENSIONS: &[(&str, &str)] = &[
+/// 源文件扩展名 → 语言（用于无 manifest 目录的语言检测）。
+///
+/// 已导出供跨 crate 复用：webui_snapshot 用它做节点语言身份标注。
+/// 表内含当前不可分析语言（csharp/go/java/…）是有意的——身份标注 ≠ 可分析性；
+/// 消费方不得在本表之外另建映射副本，两份表必漂。
+pub const SOURCE_EXTENSIONS: &[(&str, &str)] = &[
     (".rs", "rust"),
     (".ts", "typescript"),
     (".tsx", "typescript"),
@@ -381,6 +385,331 @@ fn detect_by_extensions(dir: &Path, root: &Path, redact_root: bool) -> Option<Pr
         manifest_file: String::new(),
         is_manifest_backed: false,
     })
+}
+
+// ── inspect_workspace_inventory（多语言卡 2）──────────────────────────────
+// 独立体检入口：与 scan_workspace_inventory 并行，不复用其"单目录单语言"摘要语义。
+// 隔离约束：autoEntry / MCP 共享 scan_workspace_inventory 与 detect_by_extensions，
+// 二者行为语义零改动；本节只新增类型与新函数，遍历防护复用既有常量。
+
+/// 体检行：一行 = (relativePath, language)。unrecognized 行 language 为 None（缺席）。
+/// 结构只在进程内传给 CLI 组装 JSON，不落盘不走网络，不 derive serde。
+#[derive(Debug, Clone)]
+pub struct InspectionArea {
+    pub relative_path: String,
+    pub name: Option<String>,
+    pub language: Option<String>,
+    pub confidence: &'static str,
+    pub evidence: InspectionEvidence,
+    pub source_file_count: u64,
+    /// None = 可分析行；known-unsupported（认得出、不会做）/ unrecognized（自定义扩展名）
+    pub recognition: Option<&'static str>,
+}
+
+#[derive(Debug, Clone)]
+pub enum InspectionEvidence {
+    Manifest { file: String },
+    ExtensionHistogram { extension: String, count: u64 },
+}
+
+/// 体检结果三桶；桶归属按静态语言支持表，analyzable（这台二进制能不能跑）
+/// 由 CLI 层按 feature 判定，本层只产语言与证据。
+#[derive(Debug, Clone, Default)]
+pub struct WorkspaceInspection {
+    pub projects: Vec<InspectionArea>,
+    pub source_only_areas: Vec<InspectionArea>,
+    pub unsupported_areas: Vec<InspectionArea>,
+}
+
+/// 单目录体检中间结果：直方图只按当前目录文件计，不递归子目录。
+struct InspectionDirHist {
+    /// 表内语言 → 当前目录文件数
+    langs: std::collections::BTreeMap<String, u64>,
+    /// 表外扩展名 → 当前目录文件数（unrecognized）
+    unknown_exts: std::collections::BTreeMap<String, u64>,
+    /// L1 manifest 命中（文件名、语言、静态可分析性）
+    manifest: Option<(String, &'static str, bool)>,
+}
+
+/// 文件夹体检：逐目录产出多语言行，回答"这里有什么项目/语言/多少文件"。
+pub fn inspect_workspace_inventory(root: &Path) -> Result<WorkspaceInspection, String> {
+    if !root.is_dir() {
+        return Err(format!("root is not a directory: {}", root.display()));
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("cannot canonicalize root: {e}"))?;
+
+    let mut dir_rows: BTreeMap<String, InspectionDirHist> = BTreeMap::new();
+    let mut entry_count = 0usize;
+    inspect_walk(&root, &root, 0, &mut dir_rows, &mut entry_count);
+
+    let mut insp = WorkspaceInspection::default();
+    // (manifest 目录, 语言)：嵌套压制与 sourceFileCount 树内求和的锚点
+    let mut manifest_rows: Vec<(String, String)> = Vec::new();
+
+    for (rel, hist) in &dir_rows {
+        if let Some((file, lang, supported)) = &hist.manifest {
+            // manifest 行 name 与 detect_project_at 同口径（目录名，根目录为 unknown）
+            let name = Path::new(rel)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            let area = InspectionArea {
+                relative_path: rel.clone(),
+                name: Some(name),
+                language: Some(lang.to_string()),
+                confidence: "certain",
+                evidence: InspectionEvidence::Manifest { file: file.clone() },
+                // 先占 0，行生成后按树内直方图求和回填
+                source_file_count: 0,
+                recognition: if *supported {
+                    None
+                } else {
+                    Some("known-unsupported")
+                },
+            };
+            if *supported {
+                insp.projects.push(area);
+            } else {
+                insp.unsupported_areas.push(area);
+            }
+            manifest_rows.push((rel.clone(), lang.to_string()));
+        }
+
+        for (lang, count) in &hist.langs {
+            if is_language_supported(lang) {
+                // L3 可分析区 ≥2 才报（对齐现有扫描器阈值；1 个 .py 不报）
+                if *count >= 2 {
+                    insp.source_only_areas.push(InspectionArea {
+                        relative_path: rel.clone(),
+                        name: None,
+                        language: Some(lang.clone()),
+                        confidence: "medium",
+                        evidence: InspectionEvidence::ExtensionHistogram {
+                            extension: extension_of_language(lang),
+                            count: *count,
+                        },
+                        source_file_count: *count,
+                        recognition: None,
+                    });
+                }
+            } else {
+                // unsupported 表内语言 ≥1 就报（1 个 .java 也要看见）
+                insp.unsupported_areas.push(InspectionArea {
+                    relative_path: rel.clone(),
+                    name: None,
+                    language: Some(lang.clone()),
+                    confidence: "medium",
+                    evidence: InspectionEvidence::ExtensionHistogram {
+                        extension: extension_of_language(lang),
+                        count: *count,
+                    },
+                    source_file_count: *count,
+                    recognition: Some("known-unsupported"),
+                });
+            }
+        }
+
+        for (ext, count) in &hist.unknown_exts {
+            // unrecognized：自定义扩展名，可能是生成物；language 省略，≥1 就报
+            insp.unsupported_areas.push(InspectionArea {
+                relative_path: rel.clone(),
+                name: None,
+                language: None,
+                confidence: "low",
+                evidence: InspectionEvidence::ExtensionHistogram {
+                    extension: ext.clone(),
+                    count: *count,
+                },
+                source_file_count: *count,
+                recognition: Some("unrecognized"),
+            });
+        }
+    }
+
+    // manifest 行 sourceFileCount = 项目树内该语言直方图求和（不读内容，只汇总已扫计数）
+    let manifest_count = insp
+        .projects
+        .iter_mut()
+        .chain(insp.unsupported_areas.iter_mut())
+        .filter(|a| matches!(a.evidence, InspectionEvidence::Manifest { .. }))
+        .map(|a| {
+            (
+                a.relative_path.clone(),
+                a.language.clone().unwrap_or_default(),
+            )
+        })
+        .collect::<Vec<_>>();
+    for (mpath, mlang) in &manifest_count {
+        let total: u64 = dir_rows
+            .iter()
+            .filter(|(d, _)| path_within(d, mpath))
+            .filter_map(|(_, h)| h.langs.get(mlang))
+            .sum();
+        let target = insp
+            .projects
+            .iter_mut()
+            .chain(insp.unsupported_areas.iter_mut())
+            .find(|a| {
+                a.relative_path == *mpath
+                    && matches!(a.evidence, InspectionEvidence::Manifest { .. })
+                    && a.language.as_deref() == Some(mlang.as_str())
+            });
+        if let Some(area) = target {
+            area.source_file_count = total;
+        }
+    }
+
+    // 嵌套压制：manifest 项目只压同语言的直方图重复上报（backend 是 rust →
+    // 不再报 backend/src 为 rust sourceOnly）；不同语言、尤其 unsupported /
+    // unrecognized，即使罩在 manifest 树里也单独成行（unrecognized 行 language
+    // 为 None，天然不会被压）。只压直方图行，不动其他 manifest 行。
+    let suppress = |area: &InspectionArea| -> bool {
+        let Some(lang) = area.language.as_deref() else {
+            return false;
+        };
+        if !matches!(area.evidence, InspectionEvidence::ExtensionHistogram { .. }) {
+            return false;
+        }
+        manifest_rows
+            .iter()
+            .any(|(mpath, mlang)| mlang == lang && path_within(&area.relative_path, mpath))
+    };
+    insp.source_only_areas.retain(|a| !suppress(a));
+    insp.unsupported_areas.retain(|a| !suppress(a));
+
+    Ok(insp)
+}
+
+/// 体检遍历：复用 SKIP_DIRS / MAX_WALK_DEPTH / MAX_ENTRIES 与点目录跳过，
+// 与 walk_dir_for_projects 同防护但互不影响（共享扫描器语义零改动）。
+fn inspect_walk(
+    root: &Path,
+    dir: &Path,
+    depth: usize,
+    dir_rows: &mut BTreeMap<String, InspectionDirHist>,
+    entry_count: &mut usize,
+) {
+    if depth > MAX_WALK_DEPTH || *entry_count >= MAX_ENTRIES {
+        return;
+    }
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    let entries: Vec<_> = entries.flatten().collect();
+
+    let rel = pathdiff_or_fallback(dir, root);
+    let hist = inspect_dir_histogram(dir, &entries);
+    dir_rows.insert(rel, hist);
+
+    for entry in &entries {
+        *entry_count += 1;
+        if *entry_count > MAX_ENTRIES {
+            return;
+        }
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if SKIP_DIRS.contains(&name) || name.starts_with('.') {
+                continue;
+            }
+        }
+        inspect_walk(root, &path, depth + 1, dir_rows, entry_count);
+    }
+}
+
+/// 当前目录 manifest 检测 + 扩展名直方图。
+/// manifest 匹配迭代 SUPPORTED/UNSUPPORTED_MANIFESTS 同表同优先序，
+/// 不复用 detect_by_extensions 的"≥2 才报 + 只报最多语言"旧语义（那是共享面）。
+fn inspect_dir_histogram(dir: &Path, entries: &[fs::DirEntry]) -> InspectionDirHist {
+    let mut hist = InspectionDirHist {
+        langs: BTreeMap::new(),
+        unknown_exts: BTreeMap::new(),
+        manifest: None,
+    };
+
+    'outer: for (table, supported_table) in
+        [(SUPPORTED_MANIFESTS, true), (UNSUPPORTED_MANIFESTS, false)]
+    {
+        for (manifest_name, language) in table {
+            let hit = if manifest_name.starts_with('.') {
+                // .csproj/.sln —— 目录内有同名扩展名的文件即命中（对齐 detect_project_at）
+                entries.iter().any(|e| {
+                    e.path()
+                        .extension()
+                        .and_then(|x| x.to_str())
+                        .map_or(false, |ext| {
+                            manifest_name
+                                .trim_start_matches('.')
+                                .eq_ignore_ascii_case(&ext)
+                        })
+                })
+            } else {
+                dir.join(manifest_name).exists()
+            };
+            if hit {
+                hist.manifest = Some((
+                    manifest_name.to_string(),
+                    *language,
+                    supported_table && is_language_supported(language),
+                ));
+                break 'outer;
+            }
+        }
+    }
+
+    let manifest_names: HashSet<&str> = SUPPORTED_MANIFESTS
+        .iter()
+        .chain(UNSUPPORTED_MANIFESTS)
+        .map(|(n, _)| *n)
+        .collect();
+
+    for entry in entries {
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        // manifest 文件已被 L1 消费，不进直方图（防止 Cargo.toml 被报成 unrecognized .toml）
+        if manifest_names.contains(name) {
+            continue;
+        }
+        // 无扩展名文件没有扩展名证据，跳过（不发明）
+        let Some(ext) = path.extension().and_then(|x| x.to_str()) else {
+            continue;
+        };
+        let dotted = format!(".{}", ext.to_lowercase());
+        match SOURCE_EXTENSIONS
+            .iter()
+            .find(|(suffix, _)| *suffix == dotted)
+        {
+            Some((_, lang)) => *hist.langs.entry(lang.to_string()).or_insert(0) += 1,
+            None => *hist.unknown_exts.entry(dotted).or_insert(0) += 1,
+        }
+    }
+    hist
+}
+
+/// 语言 → 代表扩展名（直方图 evidence 用；扩展名表内该语言任一扩展名均可，
+/// 取首个命中，保证与共享表一致而不是另写一份）。
+fn extension_of_language(lang: &str) -> String {
+    SOURCE_EXTENSIONS
+        .iter()
+        .find(|(_, l)| *l == lang)
+        .map(|(ext, _)| ext.to_string())
+        .unwrap_or_default()
+}
+
+/// child 是否位于 parent 的目录树内（路径段边界匹配；"." 罩全部）。
+fn path_within(child: &str, parent: &str) -> bool {
+    if parent == "." || parent == child {
+        return true;
+    }
+    child.starts_with(&format!("{parent}/"))
 }
 
 // ── build_workspace_graph ────────────────────────────────────────────────
@@ -1412,6 +1741,7 @@ fn pathdiff_or_fallback(dir: &Path, root: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
     fn test_is_language_supported() {
@@ -1453,5 +1783,218 @@ mod tests {
         assert!(refs.contains(&"./scripts/build.sh".to_string()));
         assert!(refs.contains(&"scripts/build-core.sh".to_string()));
         assert!(refs.contains(&"rust-core".to_string()));
+    }
+
+    // ── inspect_workspace_inventory 单元测试（多语言卡 2）──────────────────
+    // 手工 tempdir（本 crate 无 tempfile dev-dep，Cargo.toml 不在 write set）
+
+    static INSPECT_COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    fn inspect_tmp_root(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "cls-inspect-{}-{}-{}",
+            std::process::id(),
+            tag,
+            INSPECT_COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
+        let _ = fs::remove_dir_all(&d);
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn write_file(root: &Path, rel: &str, content: &str) {
+        let p = root.join(rel);
+        fs::create_dir_all(p.parent().unwrap()).unwrap();
+        fs::write(p, content).unwrap();
+    }
+
+    fn touch(root: &Path, rel: &str) {
+        write_file(root, rel, "");
+    }
+
+    /// 卡 2 TDD 基准树：与 fixtures/mixed/inspect-smoke 同构。
+    fn build_inspect_tree(root: &Path) {
+        write_file(
+            root,
+            "backend/Cargo.toml",
+            "[package]\nname = \"backend\"\n",
+        );
+        touch(root, "backend/src/main.rs");
+        touch(root, "backend/src/lib.rs");
+        touch(root, "backend/legacy/Foo.java");
+        touch(root, "scripts/tools/a.py");
+        touch(root, "scripts/tools/b.py");
+        touch(root, "scripts/tools/c.py");
+        touch(root, "scripts/tools/run.sh");
+        touch(root, "scripts/tools/util.sh");
+        touch(root, "legacy/Gadget.java");
+        touch(root, "legacy/Helper.java");
+        touch(root, "gen/out.xyzfoo");
+        touch(root, "gen/data.xyzfoo");
+        touch(root, "solo/only.py");
+    }
+
+    #[test]
+    fn inspect_one_row_per_language_in_same_directory() {
+        let root = inspect_tmp_root("rows");
+        build_inspect_tree(&root);
+        let insp = inspect_workspace_inventory(&root).unwrap();
+
+        // 同目录多语言 → 两行，count 各自正确（一行 = (relativePath, language)）
+        let py = insp
+            .source_only_areas
+            .iter()
+            .find(|a| a.relative_path == "scripts/tools" && a.language.as_deref() == Some("python"))
+            .expect("python 行必须在场");
+        assert_eq!(py.source_file_count, 3);
+        assert_eq!(py.confidence, "medium");
+        match &py.evidence {
+            InspectionEvidence::ExtensionHistogram { extension, count } => {
+                assert_eq!(extension, ".py");
+                assert_eq!(*count, 3);
+            }
+            other => panic!("evidence 应为直方图: {other:?}"),
+        }
+        let sh = insp
+            .source_only_areas
+            .iter()
+            .find(|a| a.relative_path == "scripts/tools" && a.language.as_deref() == Some("shell"))
+            .expect("shell 行必须在场");
+        assert_eq!(sh.source_file_count, 2);
+
+        // 1 个 .py 不报（L3 ≥2，别和 java ≥1 混淆）
+        assert!(!insp
+            .source_only_areas
+            .iter()
+            .any(|a| a.relative_path == "solo"));
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn inspect_manifest_project_row_and_nested_suppression() {
+        let root = inspect_tmp_root("nest");
+        build_inspect_tree(&root);
+        let insp = inspect_workspace_inventory(&root).unwrap();
+
+        // L1 manifest 行：certain + manifest evidence + name
+        let backend = insp
+            .projects
+            .iter()
+            .find(|a| a.relative_path == "backend")
+            .expect("backend manifest 行必须在场");
+        assert_eq!(backend.language.as_deref(), Some("rust"));
+        assert_eq!(backend.confidence, "certain");
+        assert_eq!(backend.name.as_deref(), Some("backend"));
+        match &backend.evidence {
+            InspectionEvidence::Manifest { file } => assert_eq!(file, "Cargo.toml"),
+            other => panic!("evidence 应为 manifest: {other:?}"),
+        }
+        // sourceFileCount = 项目树内该语言直方图求和（src 两个 .rs）
+        assert_eq!(backend.source_file_count, 2);
+
+        // 嵌套压制：只压同语言 L3 —— backend/src 的 rust sourceOnly 行不报
+        assert!(!insp
+            .source_only_areas
+            .iter()
+            .any(|a| a.relative_path == "backend/src"));
+        // 不同语言不被吞：manifest 树内嵌 1 个 .java 也必须单独成行
+        let nested_java = insp
+            .unsupported_areas
+            .iter()
+            .find(|a| a.relative_path == "backend/legacy")
+            .expect("manifest 树内 java 行必须在场");
+        assert_eq!(nested_java.language.as_deref(), Some("java"));
+        assert_eq!(nested_java.source_file_count, 1);
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn inspect_unsupported_thresholds_and_recognition_tiers() {
+        let root = inspect_tmp_root("unsup");
+        build_inspect_tree(&root);
+        let insp = inspect_workspace_inventory(&root).unwrap();
+
+        // known-unsupported：≥1 就报（legacy 两个 .java）
+        let java = insp
+            .unsupported_areas
+            .iter()
+            .find(|a| a.relative_path == "legacy")
+            .expect("java 区行必须在场");
+        assert_eq!(java.language.as_deref(), Some("java"));
+        assert_eq!(java.confidence, "medium");
+        assert_eq!(java.recognition, Some("known-unsupported"));
+        assert_eq!(java.source_file_count, 2);
+
+        // unrecognized：language 省略（None）、confidence low、recognition 必有
+        let gen = insp
+            .unsupported_areas
+            .iter()
+            .find(|a| a.relative_path == "gen")
+            .expect("unrecognized 区行必须在场");
+        assert_eq!(gen.language, None, "unrecognized 行必须省略 language");
+        assert_eq!(gen.confidence, "low");
+        assert_eq!(gen.recognition, Some("unrecognized"));
+        match &gen.evidence {
+            InspectionEvidence::ExtensionHistogram { extension, count } => {
+                assert_eq!(extension, ".xyzfoo");
+                assert_eq!(*count, 2);
+            }
+            other => panic!("evidence 应为直方图: {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn inspect_reuses_skip_dirs_protection() {
+        let root = inspect_tmp_root("skip");
+        // 若不复用 SKIP_DIRS，node_modules 会被扫成 typescript 区（扫描爆炸）
+        touch(&root, "web/node_modules/pkg/index.ts");
+        touch(&root, "web/node_modules/pkg/util.ts");
+        let insp = inspect_workspace_inventory(&root).unwrap();
+        assert!(
+            !insp
+                .source_only_areas
+                .iter()
+                .any(|a| a.relative_path.contains("node_modules")),
+            "node_modules 必须被跳过: {:?}",
+            insp.source_only_areas
+        );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn inspect_unsupported_manifest_lands_in_unsupported_bucket() {
+        let root = inspect_tmp_root("gomanifest");
+        // go.mod 是 manifest 背书但语言不可分析 → certain 行进 unsupported 桶；
+        // 树内 .go 直方图行同语言被压，不重复上报
+        write_file(&root, "svc/go.mod", "module svc\n");
+        touch(&root, "svc/main.go");
+        touch(&root, "svc/util.go");
+        let insp = inspect_workspace_inventory(&root).unwrap();
+
+        let go = insp
+            .unsupported_areas
+            .iter()
+            .find(|a| a.relative_path == "svc")
+            .expect("go manifest 行必须在场");
+        assert_eq!(go.language.as_deref(), Some("go"));
+        assert_eq!(go.confidence, "certain", "manifest 背书恒 certain");
+        assert_eq!(go.recognition, Some("known-unsupported"));
+        assert_eq!(go.source_file_count, 2);
+        match &go.evidence {
+            InspectionEvidence::Manifest { file } => assert_eq!(file, "go.mod"),
+            other => panic!("evidence 应为 manifest: {other:?}"),
+        }
+        // 不可能出现 svc 的 go sourceOnly 行（可分析桶永远不会有 go）
+        assert!(!insp
+            .source_only_areas
+            .iter()
+            .any(|a| a.relative_path == "svc"));
+
+        let _ = fs::remove_dir_all(&root);
     }
 }
