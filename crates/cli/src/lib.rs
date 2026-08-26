@@ -173,6 +173,19 @@ enum Commands {
         #[arg(long, default_value = "json")]
         format: String,
     },
+    /// 工作区图：多项目 workspace 的项目/依赖结构（workspaceGraph.v1，
+    /// 与 MCP codelattice_workspace_graph 同一实现）
+    Workspace {
+        /// 工作区根目录路径
+        #[arg(long)]
+        root: String,
+        /// compact：只输出 summary，不带 nodes/edges
+        #[arg(long, default_value_t = false)]
+        compact: bool,
+        /// 保留绝对路径（默认 redact 为相对路径）
+        #[arg(long, default_value_t = false)]
+        no_redact: bool,
+    },
     /// Start MCP stdio server (JSON-RPC over stdin/stdout)
     Mcp,
 }
@@ -4555,6 +4568,44 @@ pub fn run() {
                 }
             }
         },
+
+        // ===== workspace：多项目工作区图（与 MCP codelattice_workspace_graph 同一实现）=====
+        Commands::Workspace {
+            root,
+            compact,
+            no_redact,
+        } => {
+            let root_path = match check_root(&root) {
+                Ok(p) => p,
+                Err(e) => {
+                    eprintln!("{e}");
+                    std::process::exit(1);
+                }
+            };
+            match gitnexus_workspace_model::build_workspace_graph(&root_path, !no_redact) {
+                Ok(graph) => {
+                    let mut value = serde_json::to_value(&graph).unwrap_or_else(|e| {
+                        eprintln!("错误：Workspace JSON 序列化失败: {e}");
+                        std::process::exit(1);
+                    });
+                    if compact {
+                        if let Some(obj) = value.as_object_mut() {
+                            obj.remove("nodes");
+                            obj.remove("edges");
+                        }
+                    }
+                    let json = serde_json::to_string_pretty(&value).unwrap_or_else(|e| {
+                        eprintln!("错误：JSON 序列化失败: {e}");
+                        std::process::exit(1);
+                    });
+                    println!("{json}");
+                }
+                Err(e) => {
+                    eprintln!("错误：工作区扫描失败: {e}");
+                    std::process::exit(1);
+                }
+            }
+        }
 
         // ===== 保留现有 cangjie inspect/graph =====
         Commands::Cangjie { sub } => match sub {
