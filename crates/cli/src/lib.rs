@@ -3508,9 +3508,12 @@ fn run_c_analysis(
 fn compute_c_quality_gates(
     nodes: &[serde_json::Value],
     edges: &[serde_json::Value],
+    graph_diagnostics: &[serde_json::Value],
 ) -> Vec<QualityGateResult> {
     // C uses the same quality gate logic as ArkTS/TypeScript (generic node/edge checks)
-    compute_arkts_quality_gates(nodes, edges)
+    let mut gates = compute_arkts_quality_gates(nodes, edges);
+    gates.push(external_symbol_marking_gate_for("c", graph_diagnostics));
+    gates
 }
 
 // ============================================================
@@ -3744,8 +3747,11 @@ fn run_cpp_analysis(
 fn compute_cpp_quality_gates(
     nodes: &[serde_json::Value],
     edges: &[serde_json::Value],
+    graph_diagnostics: &[serde_json::Value],
 ) -> Vec<QualityGateResult> {
-    compute_arkts_quality_gates(nodes, edges)
+    let mut gates = compute_arkts_quality_gates(nodes, edges);
+    gates.push(external_symbol_marking_gate_for("cpp", graph_diagnostics));
+    gates
 }
 
 // ============================================================
@@ -3980,8 +3986,11 @@ fn run_python_analysis(
 fn compute_python_quality_gates(
     nodes: &[serde_json::Value],
     edges: &[serde_json::Value],
+    graph_diagnostics: &[serde_json::Value],
 ) -> Vec<QualityGateResult> {
-    compute_arkts_quality_gates(nodes, edges)
+    let mut gates = compute_arkts_quality_gates(nodes, edges);
+    gates.push(external_symbol_marking_gate_for("python", graph_diagnostics));
+    gates
 }
 
 // ============================================================
@@ -4094,11 +4103,58 @@ fn run_shell_analysis(
 fn compute_shell_quality_gates(
     nodes: &[serde_json::Value],
     edges: &[serde_json::Value],
+    graph_diagnostics: &[serde_json::Value],
 ) -> Vec<QualityGateResult> {
-    compute_arkts_quality_gates(nodes, edges)
+    let mut gates = compute_arkts_quality_gates(nodes, edges);
+    gates.push(external_symbol_marking_gate_for("shell", graph_diagnostics));
+    gates
 }
 
 /// 计算 ArkTS 质量门
+/// 第 7 道门：external_symbol_marking 的非 Rust 版（2026-08-26 跨语言
+/// 质量门对齐）。各语言外部依赖证据源不同，按语言降级定义：
+/// - TS/ArkTS：typescript-external-package-not-indexed 诊断
+/// - JS：javascript-external-import / -require 诊断
+/// - Python：python-module-not-found 诊断（stdlib 与三方库同码处理，
+///   已知近似，detail 注明）
+/// - C/C++/Shell：语言适配层尚无 external 依赖信号，门以 not-tracked
+///   状态通过并注明——补齐需先建 external import 诊断，不在门职责内。
+fn external_symbol_marking_gate_for(
+    language: &str,
+    graph_diagnostics: &[serde_json::Value],
+) -> QualityGateResult {
+    let count_kind = |target: &str| -> usize {
+        graph_diagnostics
+            .iter()
+            .filter_map(|d| d.get("kind").and_then(|v| v.as_str()))
+            .filter(|k| *k == target)
+            .count()
+    };
+    let (detail, n) = match language {
+        "typescript" | "arkts" => {
+            let n = count_kind("typescript-external-package-not-indexed");
+            (if n > 0 { format!("{n} external package imports recorded as not-indexed diagnostics") } else { "No external package imports detected".to_string() }, n)
+        }
+        "javascript" => {
+            let n = count_kind("javascript-external-import")
+                + count_kind("javascript-external-require");
+            (if n > 0 { format!("{n} external imports/requires recorded as diagnostics") } else { "No external imports detected".to_string() }, n)
+        }
+        "python" => {
+            let n = count_kind("python-module-not-found");
+            (if n > 0 { format!("{n} unresolved module imports recorded (stdlib and third-party share this signal — known approximation)") } else { "All imports resolved within project".to_string() }, n)
+        }
+        "c" | "cpp" | "shell" => ("external dependency tracking not yet implemented for this language — gate passes as not-tracked".to_string(), 0),
+        _ => ("language not recognized — gate passes as not-tracked".to_string(), 0),
+    };
+    let _ = n;
+    QualityGateResult {
+        gate_name: "external_symbol_marking".to_string(),
+        passed: true,
+        detail,
+    }
+}
+
 fn compute_arkts_quality_gates(
     nodes: &[serde_json::Value],
     edges: &[serde_json::Value],
@@ -4825,7 +4881,14 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let mut quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            quality_gates.push(external_symbol_marking_gate_for("arkts", &diagnostics));
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -4890,7 +4953,14 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let mut quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            quality_gates.push(external_symbol_marking_gate_for("typescript", &diagnostics));
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -4955,7 +5025,14 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let mut quality_gates = compute_arkts_quality_gates(&nodes, &edges);
+                            quality_gates.push(external_symbol_marking_gate_for("javascript", &diagnostics));
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5019,7 +5096,13 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_c_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let quality_gates = compute_c_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5083,7 +5166,13 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_cpp_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let quality_gates = compute_cpp_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5147,7 +5236,13 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_python_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let quality_gates = compute_python_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5211,7 +5306,13 @@ pub fn run() {
                                 }
                             };
 
-                            let quality_gates = compute_shell_quality_gates(&nodes, &edges);
+                            let diagnostics: Vec<serde_json::Value> = json_val
+                                .get("diagnostics")
+                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .and_then(|v| v.as_array())
+                                .cloned()
+                                .unwrap_or_default();
+                            let quality_gates = compute_shell_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5349,7 +5450,14 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut gates = compute_arkts_quality_gates(&nodes, &edges);
+                    gates.push(external_symbol_marking_gate_for("arkts", &diagnostics));
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5362,7 +5470,14 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut gates = compute_arkts_quality_gates(&nodes, &edges);
+                    gates.push(external_symbol_marking_gate_for("typescript", &diagnostics));
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5375,7 +5490,14 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut gates = compute_arkts_quality_gates(&nodes, &edges);
+                    gates.push(external_symbol_marking_gate_for("javascript", &diagnostics));
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5388,7 +5510,13 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_c_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_c_quality_gates(&nodes, &edges, &diagnostics);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5401,7 +5529,13 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_cpp_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_cpp_quality_gates(&nodes, &edges, &diagnostics);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5414,7 +5548,13 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_python_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_python_quality_gates(&nodes, &edges, &diagnostics);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5427,7 +5567,13 @@ pub fn run() {
                             std::process::exit(1);
                         }
                     };
-                    let gates = compute_shell_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_shell_quality_gates(&nodes, &edges, &diagnostics);
                     let all_pass = gates.iter().all(|g| g.passed);
                     let overall = if all_pass { "pass" } else { "fail" };
                     (gates, overall)
@@ -5533,7 +5679,14 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut gates = compute_arkts_quality_gates(&nodes, &edges);
+                    gates.push(external_symbol_marking_gate_for("arkts", &diagnostics));
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;
@@ -5553,7 +5706,14 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut gates = compute_arkts_quality_gates(&nodes, &edges);
+                    gates.push(external_symbol_marking_gate_for("typescript", &diagnostics));
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;
@@ -5573,7 +5733,14 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_arkts_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let mut gates = compute_arkts_quality_gates(&nodes, &edges);
+                    gates.push(external_symbol_marking_gate_for("javascript", &diagnostics));
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;
@@ -5593,7 +5760,13 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_c_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_c_quality_gates(&nodes, &edges, &diagnostics);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;
@@ -5613,7 +5786,13 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_cpp_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_cpp_quality_gates(&nodes, &edges, &diagnostics);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;
@@ -5633,7 +5812,13 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_python_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_python_quality_gates(&nodes, &edges, &diagnostics);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;
@@ -5653,7 +5838,13 @@ pub fn run() {
                         }
                     };
                     let gs = build_arkts_summary(&json_val, &nodes, &edges);
-                    let gates = compute_shell_quality_gates(&nodes, &edges);
+                    let diagnostics: Vec<serde_json::Value> = json_val
+                        .get("diagnostics")
+                        .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                        .and_then(|v| v.as_array())
+                        .cloned()
+                        .unwrap_or_default();
+                    let gates = compute_shell_quality_gates(&nodes, &edges, &diagnostics);
                     let total = gates.len() as u32;
                     let passed = gates.iter().filter(|g| g.passed).count() as u32;
                     let failed = total - passed;

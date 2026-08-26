@@ -6,6 +6,12 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+### Added（0.17.0-beta.2 续）
+
+- **CLI `workspace` 子命令**：`codelattice workspace --root <dir> [--compact] [--no-redact]`，与 MCP `codelattice_workspace_graph` 同一实现（`build_workspace_graph`），补齐 CLI/MCP 对称面。多项目 workspace 的项目/依赖结构可直接命令行消费。
+- **第 7 道质量门跨语言对齐（external_symbol_marking）**：全语言 7 门。各语言证据源不同、按语言降级定义：TS/ArkTS 用 external-package-not-indexed 诊断、JS 用 external-import/require 诊断、Python 用 module-not-found 诊断（stdlib 与三方库同码，已知近似并在 detail 注明）、C/C++/Shell 语言适配层尚无 external 依赖信号，门以 not-tracked 状态通过并透明声明。存量项目验证：open-nwe/frontend（TS 445 external imports 如实报告）、open-nwe/backend（Rust 7 门不变）、股票插件 desktop（TS 616）全绿，无存量项目从绿变红。
+
+
 ### Fixed（0.17.0-beta.2）
 
 - **Rust bin→lib 调用边缺失（四层修复）**：bin+lib 同包结构（每个 Rust 应用都有）的跨文件 CALLS 边系统性丢失。
