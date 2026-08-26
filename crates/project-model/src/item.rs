@@ -86,7 +86,13 @@ where
     use rayon::prelude::*;
 
     let pool = rayon::ThreadPoolBuilder::new()
-        .stack_size(8 * 1024 * 1024)
+        // 栈尺寸定量依据（2026-08-24，analyze 栈溢出执行卡 分支 B）：
+        // open-nwe/backend 实测 walk_node CST 递归 562 层（crash report
+        // originalLength=666、recursion depth=562），debug 构建每帧约
+        // 14.6KB（8MB/562），8MB 恰好被击穿。16MB ≈ 2× 深度余量
+        // （~1146 帧），实测 exit 0。递归本身有界（每棵 CST 子树恰好
+        // 访问一次、树无环），加栈是正确修法而非推迟崩溃。
+        .stack_size(16 * 1024 * 1024)
         .num_threads(std::cmp::min(
             8,
             std::thread::available_parallelism()

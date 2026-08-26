@@ -30486,10 +30486,15 @@ pub fn run_mcp_server() -> Result<(), String> {
             let cache_for_worker = Arc::clone(&cache);
             let response_tx_for_worker = response_tx.clone();
             let active_for_worker = Arc::clone(&active_tool_calls);
-            thread::spawn(move || {
-                let response =
-                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(
-                        || match cache_for_worker.lock() {
+            // 大栈（analyze 栈溢出执行卡偏差项，详见该卡 closure）：本线程执行
+            // tools/call 直通分析（McpCache::get_or_analyze → 串行 extract →
+            // walk_node 深递归），默认 2MB 栈被实测 ~138 层击穿（precommit 的
+            // native detect-changes 崩溃）。16MB 与 analyze 分发 / rayon 池同档。
+            let _ = thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(move || {
+                    let response = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        match cache_for_worker.lock() {
                             Ok(mut cache) => handle_request(&request_for_worker, &mut cache),
                             Err(_) => {
                                 let id =
@@ -30500,8 +30505,8 @@ pub fn run_mcp_server() -> Result<(), String> {
                                     "Internal MCP cache lock is poisoned",
                                 ))
                             }
-                        },
-                    ))
+                        }
+                    }))
                     .unwrap_or_else(|_| {
                         let id = request_for_worker.get("id").cloned().unwrap_or(Value::Null);
                         Some(make_error_response(
@@ -30510,11 +30515,11 @@ pub fn run_mcp_server() -> Result<(), String> {
                             "Internal MCP tool call panicked",
                         ))
                     });
-                if let Some(response) = response {
-                    let _ = response_tx_for_worker.send(response);
-                }
-                active_for_worker.fetch_sub(1, Ordering::SeqCst);
-            });
+                    if let Some(response) = response {
+                        let _ = response_tx_for_worker.send(response);
+                    }
+                    active_for_worker.fetch_sub(1, Ordering::SeqCst);
+                });
             continue;
         }
 
