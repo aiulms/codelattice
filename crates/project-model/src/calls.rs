@@ -66,11 +66,26 @@ pub fn extract_and_resolve_calls(
 
     // 并行 per-file 提取：CalleeIndex / ImportBindingTable / CallerIndex 均为只读索引
     // （Send+Sync 的纯 HashMap），逐文件提取相互独立，最后统一排序保证输出稳定。
+    // 栈尺寸（2026-08-26 调用边修复）：遍历白名单加入 field_expression/
+    // reference_expression 等包裹节点透传后，collect_call_expressions 的
+    // 递归深度随方法链/CST 深度增长，rayon 全局池默认 2MB 栈会击穿
+    // （open-nwe/backend 实测溢出）。与 item.rs 同口径建 16MB 局部池。
+    let pool = rayon::ThreadPoolBuilder::new()
+        .stack_size(16 * 1024 * 1024)
+        .num_threads(std::cmp::min(
+            8,
+            std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(4),
+        ))
+        .build()
+        .unwrap();
     all_calls.extend(
-        source_ownership
-            .par_iter()
-            .filter(|so| so.package.is_some())
-            .flat_map(|so| {
+        pool.install(|| {
+            source_ownership
+                .par_iter()
+                .filter(|so| so.package.is_some())
+                .flat_map(|so| {
                 let file_start = if trace_timings {
                     Some(std::time::Instant::now())
                 } else {
@@ -121,7 +136,8 @@ pub fn extract_and_resolve_calls(
                 }
                 calls
             })
-            .collect::<Vec<_>>(),
+            .collect::<Vec<_>>()
+        }),
     );
 
     if trace_timings {
@@ -403,9 +419,20 @@ fn collect_call_expressions<'a>(
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let inner_kind = child.kind();
+            // 包裹节点透传（2026-08-26 调用边修复）：`&fn(..).method()`、
+            // `(fn(..)).await`、闭包体内调用等形态下，内层 call_expression
+            // 外面套着 reference_expression / parenthesized_expression /
+            // await_expression / closure_expression。只下钻三种直接子节点
+            // 会把这些内层调用点整个丢掉（stock-core main.rs:43 实测）。
             if inner_kind == "call_expression"
                 || inner_kind == "method_call_expression"
                 || inner_kind == "arguments"
+                || inner_kind == "reference_expression"
+                || inner_kind == "parenthesized_expression"
+                || inner_kind == "await_expression"
+                || inner_kind == "closure_expression"
+                || inner_kind == "try_expression"
+                || inner_kind == "field_expression"
             {
                 collect_call_expressions(
                     &child,
@@ -444,9 +471,20 @@ fn collect_call_expressions<'a>(
         let mut cursor = node.walk();
         for child in node.children(&mut cursor) {
             let inner_kind = child.kind();
+            // 包裹节点透传（2026-08-26 调用边修复）：`&fn(..).method()`、
+            // `(fn(..)).await`、闭包体内调用等形态下，内层 call_expression
+            // 外面套着 reference_expression / parenthesized_expression /
+            // await_expression / closure_expression。只下钻三种直接子节点
+            // 会把这些内层调用点整个丢掉（stock-core main.rs:43 实测）。
             if inner_kind == "call_expression"
                 || inner_kind == "method_call_expression"
                 || inner_kind == "arguments"
+                || inner_kind == "reference_expression"
+                || inner_kind == "parenthesized_expression"
+                || inner_kind == "await_expression"
+                || inner_kind == "closure_expression"
+                || inner_kind == "try_expression"
+                || inner_kind == "field_expression"
             {
                 collect_call_expressions(
                     &child,

@@ -34,6 +34,10 @@ pub fn scan_source_ownership(
     targets: &[TargetModel],
 ) -> SourceScanResult {
     // 收集所有 .rs 文件
+    // 排除表口径（2026-08-26 毛刺修复）：点开头目录整体跳过，与 inspect
+    // 体检路径语义对齐；显式列 .tools / cargo-home 之外的 vendored 场景
+    // （.cargo/registry 等）由点开头通配覆盖。fixtures/target/node_modules
+    // 为历史语义保留。
     let mut rs_files: Vec<PathBuf> = Vec::new();
     let skip_dirs: HashSet<&str> =
         HashSet::from(["target", ".git", "node_modules", "vendor", "fixtures"]);
@@ -250,7 +254,11 @@ fn collect_rs_files(dir: &Path, root: &Path, skip_dirs: &HashSet<&str>, result: 
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name() {
-                    if skip_dirs.contains(name.to_string_lossy().as_ref()) {
+                    let name_str = name.to_string_lossy();
+                    // 点开头目录（.git/.tools/.cargo 等 vendored 与元数据）
+                    // 整体跳过：inspect 体检路径同语义，analyze 不把
+                    // vendored registry 源码当项目源码扫入。
+                    if name_str.starts_with('.') || skip_dirs.contains(name_str.as_ref()) {
                         continue;
                     }
                 }
@@ -373,7 +381,23 @@ fn find_target_for_file(
         };
     }
 
-    // 多 target package，不猜 target（不做 mod graph traversal）
+    // 多 target package：bin+lib 并存时非 target-root 文件默认归 lib target。
+    // Rust 语义：bin target 只含 src/main.rs 与 src/bin/*，其余 src/ 文件
+    // 属于 lib。mod-graph reachability 未实现前，这是最接近正确的默认归属；
+    // 消掉的是 "无 package 归属"（crate-wide 调用索引失联），不是猜测。
+    // 纯多 bin（无 lib）仍走 Ambiguous 不猜。
+    let lib_target = pkg_targets
+        .iter()
+        .find(|t| t.kind == TargetKind::Lib.as_str());
+    if let Some(lib) = lib_target {
+        return TargetMatchResult::SingleTarget {
+            name: lib.name.clone(),
+            reason: "source-owned-by-default-lib-target".to_string(),
+            confidence: 0.80,
+        };
+    }
+
+    // 纯多 bin（无 lib）：不猜 target（不做 mod graph traversal）
     TargetMatchResult::AmbiguousTarget {
         name: None,
         reason: "source-target-ambiguous".to_string(),

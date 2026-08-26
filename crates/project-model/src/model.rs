@@ -543,6 +543,11 @@ pub struct ImportUse {
     pub alias: Option<String>,
     /// 是否 pub use（re-export）
     pub is_re_export: bool,
+    /// Fix B（2026-08-26）：`use <own-package>::...` 命中 bin→lib 同包
+    /// 重写标记。resolve_import_symbol 依赖它在 mod-chain 失败时走
+    /// crate-wide 唯一符号兜底。runtime 字段，不参与 serde 契约。
+    #[serde(skip)]
+    pub own_package_import: bool,
     /// 实际引入的名称（alias 优先，否则路径末段）
     pub target_name: String,
     /// 解析结果（null = 解析失败或 skipped）

@@ -72,6 +72,16 @@ pub fn extract_and_resolve_imports(
                 let crate_root_rel = &target.crate_root_file;
                 let crate_root_abs = repo_root.join(crate_root_rel);
 
+                // Fix B 配套：本包 lib target 的 crate root 与包名（bin 文件里
+                // `use <own-package>::...` 指向 lib 的模块树，不是 bin 自己的）。
+                // 包名以 Cargo.toml（TargetModel.package_name）为准，不从目录名反推。
+                let own_lib = targets
+                    .iter()
+                    .find(|t| t.package_name == *so.package.as_ref().unwrap_or(&String::new())
+                        && t.kind == TargetKind::Lib.as_str());
+                let own_lib_crate_root = own_lib.map(|t| repo_root.join(&t.crate_root_file));
+                let own_package_name: Option<String> = own_lib.map(|t| t.name.clone());
+
                 // 使用 ModulePathMap 查找文件级 modulePath，fallback 到 "crate"
                 let module_path = Some(module_path_map.get(&so.source_path).to_string());
 
@@ -89,7 +99,14 @@ pub fn extract_and_resolve_imports(
 
                 // 解析每条 use 声明
                 for import_use in &mut imports {
-                    resolve_import(import_use, repo_root, &crate_root_abs, &module_path);
+                    resolve_import(
+                        import_use,
+                        repo_root,
+                        &crate_root_abs,
+                        own_lib_crate_root.as_deref(),
+                        own_package_name.as_deref(),
+                        &module_path,
+                    );
                 }
 
                 imports
@@ -208,6 +225,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
         let path_kind = determine_path_kind(segments.first().copied().unwrap_or(""));
 
         return Some(vec![ImportUse {
+            own_package_import: false,
             id: format!("{}::use::{}::0", source_path, line_num),
             source_path: source_path.to_string(),
             module_path: None,
@@ -260,6 +278,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
         let path_kind = determine_path_kind(segments.first().copied().unwrap_or(""));
 
         return Some(vec![ImportUse {
+            own_package_import: false,
             id: format!("{}::use::{}::0", source_path, line_num),
             source_path: source_path.to_string(),
             module_path: None,
@@ -290,6 +309,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
     let original_path = path_part.to_string();
 
     Some(vec![ImportUse {
+            own_package_import: false,
         id: format!("{}::use::{}::0", source_path, line_num),
         source_path: source_path.to_string(),
         module_path: None,
@@ -379,6 +399,7 @@ fn expand_grouped_import(
         let target_name = alias.as_deref().unwrap_or(&member_name).to_string();
 
         results.push(ImportUse {
+            own_package_import: false,
             id: format!("{}::use::{}::{}", source_path, line_num, idx),
             source_path: source_path.to_string(),
             module_path: None,
@@ -414,6 +435,8 @@ fn resolve_import(
     import: &mut ImportUse,
     repo_root: &Path,
     crate_root_abs: &Path,
+    own_lib_crate_root: Option<&Path>,
+    own_package_name: Option<&str>,
     _module_path: &Option<String>,
 ) {
     let path_kind_str = import.path_kind.as_str();
@@ -423,6 +446,55 @@ fn resolve_import(
         "self" => resolve_self_path(import, repo_root, crate_root_abs),
         "super" => resolve_super_path(import, repo_root, crate_root_abs),
         "external" => {
+            // Fix B（2026-08-26 调用边修复）：`use <own-package>::...`——
+            // bin target 通过包名 use 自己 lib 的 re-export。首段与本包
+            // lib target 名一致（归一化 - → _，包名以 Cargo.toml 为准）
+            // 时，这不是 external crate，改按 lib crate root 的 crate::
+            // 路径解析（经 lib.rs pub use 链落到真实符号）。
+            if let (Some(lib_root), Some(pkg_name)) = (own_lib_crate_root, own_package_name) {
+                let normalized_pkg = pkg_name.replace('-', "_");
+                let first_segment = import
+                    .original_path
+                    .split("::")
+                    .next()
+                    .unwrap_or("")
+                    .replace('-', "_");
+                if !first_segment.is_empty() && first_segment == normalized_pkg {
+                    // 标记 own-package import：mod-chain 失败时 symbol 级
+                    // 兜底（resolve_import_symbol）依赖此标记。
+                    import.own_package_import = true;
+                    let rest = import
+                        .original_path
+                        .split_once("::")
+                        .map(|(_, r)| r.to_string())
+                        .unwrap_or_default();
+                    let rewritten = format!("crate::{}", rest);
+                    let original = import.original_path.clone();
+                    import.original_path = rewritten;
+                    resolve_crate_path(import, repo_root, lib_root);
+                    import.original_path = original;
+                    if import.resolved_to.is_some() {
+                        return;
+                    }
+                    // crate 路径解析失败（如 re-export 链过深）→ 回退
+                    // external skip，不产 fake target
+                    import.resolved_to = None;
+                }
+            }
+            // Fix B 补充：lib.rs 的 `pub use instance::discover_existing`
+            // （is_re_export + 裸小写模块首段）被 determine_path_kind 误判
+            // external。re-export 的语义就在本 crate 内，按 crate:: 重写解析。
+            if import.is_re_export && !import.own_package_import {
+                let rewritten = format!("crate::{}", import.original_path);
+                let original = import.original_path.clone();
+                import.original_path = rewritten;
+                resolve_crate_path(import, repo_root, crate_root_abs);
+                import.original_path = original;
+                if import.resolved_to.is_some() {
+                    return;
+                }
+                import.resolved_to = None;
+            }
             // external crate 只标记不解析，stop-line（D5）
             import.confidence = 0.0;
             import.reason = ImportUseResolutionReason::UseExternalSkipped
@@ -883,6 +955,7 @@ fn process_use_argument(
             let target_name = segments.last().unwrap_or(&"").to_string();
 
             vec![ImportUse {
+            own_package_import: false,
                 id: format!("{}::use::{}::{}", source_path, line_start, start_index),
                 source_path: source_path.to_string(),
                 module_path: None,
@@ -908,6 +981,7 @@ fn process_use_argument(
 
         "use_wildcard" => {
             vec![ImportUse {
+            own_package_import: false,
                 id: format!("{}::use::{}::{}", source_path, line_start, start_index),
                 source_path: source_path.to_string(),
                 module_path: None,
@@ -970,6 +1044,7 @@ fn process_use_argument(
             };
 
             vec![ImportUse {
+            own_package_import: false,
                 id: format!("{}::use::{}::{}", source_path, line_start, start_index),
                 source_path: source_path.to_string(),
                 module_path: None,
@@ -1027,6 +1102,7 @@ fn process_use_argument(
                                     determine_path_kind(segments.first().copied().unwrap_or(""));
 
                                 results.push(ImportUse {
+            own_package_import: false,
                                     id: format!("{}::use::{}::{}", source_path, line_start, idx),
                                     source_path: source_path.to_string(),
                                     module_path: None,
@@ -1074,6 +1150,7 @@ fn process_use_argument(
                                     determine_path_kind(segments.first().copied().unwrap_or(""));
 
                                 results.push(ImportUse {
+            own_package_import: false,
                                     id: format!("{}::use::{}::{}", source_path, line_start, idx),
                                     source_path: source_path.to_string(),
                                     module_path: None,
@@ -1099,6 +1176,7 @@ fn process_use_argument(
                             }
                             "use_wildcard" => {
                                 results.push(ImportUse {
+            own_package_import: false,
                                     id: format!("{}::use::{}::{}", source_path, line_start, idx),
                                     source_path: source_path.to_string(),
                                     module_path: None,
@@ -1207,6 +1285,16 @@ impl SymbolIndex {
             .map(|v| v.as_slice())
             .unwrap_or(&[])
     }
+
+    /// Fix B 尾环：crate 内按名字唯一查找（own-package re-export 兜底）。
+    /// 返回所有 module 下同名符号；调用方仅在唯一时采用。
+    fn lookup_crate_wide(&self, name: &str) -> Vec<&SymbolMatch> {
+        self.by_module_and_name
+            .iter()
+            .filter(|((_, n), _)| n == name)
+            .flat_map(|(_, v)| v.iter())
+            .collect()
+    }
 }
 
 /// 从 expandedPath 拆分最后一段作为 item name
@@ -1230,6 +1318,52 @@ fn resolve_import_symbol(import: &mut ImportUse, symbol_index: &SymbolIndex) {
     } else {
         "unresolved".to_string()
     };
+
+    // Fix B 尾环（2026-08-26）：`use <own-package>::<name>` 的 symbol 级
+    // 解析。mod-chain 重写对"最后一段是符号而非模块"的 re-export 场景
+    // 必然失败（crate::discover_existing 不是 mod 声明），这里兜底：
+    // 剥掉 own-package 前缀后按 item_name 在 crate 内唯一查找。
+    // resolve_import_symbol 无 ownership 上下文，own-package 判定靠
+    // expanded_path 首段 == "own-package" 标记（resolve_import 已把命中
+    // own-package 重写的 import 标记 path_kind=crate 并留下原始首段）。
+    if import.own_package_import && import.resolved_to.is_none() {
+        let item_name = import.target_name.clone();
+        // re-export 后符号在 crate 内通常唯一（pub use 不复制符号）；
+        // 多个同名时保持 unresolved（no-edge 策略）。
+        let candidates = symbol_index.lookup_crate_wide(&item_name);
+        match candidates.as_slice() {
+            [single] => {
+                import.resolved_to = Some(ImportUseTarget {
+                    resolved_path: None,
+                    resolved_kind: None,
+                    target_module_path: Some(single.module_path.clone()),
+                    target_file_path: None,
+                    resolved_symbol_id: Some(single.id.clone()),
+                    resolved_symbol_kind: Some(single.symbol_kind.clone()),
+                    resolved_symbol_name: Some(single.name.clone()),
+                    resolved_symbol_source_path: Some(single.source_path.clone()),
+                });
+                import.resolution_level = "symbol".to_string();
+                import.reason = ImportUseResolutionReason::UseReexportResolved
+                    .as_str()
+                    .to_string();
+                import.confidence = 0.80;
+                return;
+            }
+            _ => {
+                import.diagnostics.push(ImportUseDiagnostic {
+                    code: "use-symbol-unresolved".to_string(),
+                    severity: "warning".to_string(),
+                    message: format!(
+                        "own-package re-export {} 非唯一（{} 候选），保持 unresolved",
+                        item_name,
+                        candidates.len()
+                    ),
+                    target_name: Some(item_name),
+                });
+            }
+        }
+    }
 
     // skipped: glob / external / unknown
     let pk = import.path_kind.as_str();
