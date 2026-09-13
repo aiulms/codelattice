@@ -23,6 +23,29 @@
     "diagnostics": []
   },
   {
+    "id": "src/lib.rs::call::9::iter",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 9,
+      "lineEnd": 9,
+      "byteStart": 489,
+      "byteEnd": 497
+    },
+    "rawText": "v.iter()",
+    "knownCrate": null,
+    "calleePath": "v.iter",
+    "calleeName": "iter",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-unresolved",
+    "diagnostics": []
+  },
+  {
     "id": "src/lib.rs::call::11::any",
     "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
     "callerName": "iterator_unique_methods",
@@ -43,6 +66,29 @@
     "resolvedSymbolKind": null,
     "confidence": 0.55,
     "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::11::iter",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 11,
+      "lineEnd": 11,
+      "byteStart": 566,
+      "byteEnd": 574
+    },
+    "rawText": "v.iter()",
+    "knownCrate": null,
+    "calleePath": "v.iter",
+    "calleeName": "iter",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-unresolved",
     "diagnostics": []
   },
   {
@@ -69,6 +115,52 @@
     "diagnostics": []
   },
   {
+    "id": "src/lib.rs::call::13::iter",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 13,
+      "lineEnd": 13,
+      "byteStart": 654,
+      "byteEnd": 662
+    },
+    "rawText": "v.iter()",
+    "knownCrate": null,
+    "calleePath": "v.iter",
+    "calleeName": "iter",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-unresolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::15::cloned",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 15,
+      "lineEnd": 15,
+      "byteStart": 758,
+      "byteEnd": 775
+    },
+    "rawText": "v.iter().cloned()",
+    "knownCrate": null,
+    "calleePath": "v.iter().cloned",
+    "calleeName": "cloned",
+    "callKind": "method-call",
+    "resolvedSymbolId": "std::iter::Iterator::cloned",
+    "resolvedSymbolKind": null,
+    "confidence": 0.55,
+    "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
     "id": "src/lib.rs::call::15::collect",
     "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
     "callerName": "iterator_unique_methods",
@@ -89,6 +181,29 @@
     "resolvedSymbolKind": null,
     "confidence": 0.55,
     "reason": "call-stdlib-trait-method-resolved",
+    "diagnostics": []
+  },
+  {
+    "id": "src/lib.rs::call::15::iter",
+    "callerSymbolId": "c17-stdlib-trait-method::crate::iterator_unique_methods",
+    "callerName": "iterator_unique_methods",
+    "sourcePath": "src/lib.rs",
+    "modulePath": "crate",
+    "span": {
+      "lineStart": 15,
+      "lineEnd": 15,
+      "byteStart": 758,
+      "byteEnd": 766
+    },
+    "rawText": "v.iter()",
+    "knownCrate": null,
+    "calleePath": "v.iter",
+    "calleeName": "iter",
+    "callKind": "method-call",
+    "resolvedSymbolId": null,
+    "resolvedSymbolKind": null,
+    "confidence": 0.0,
+    "reason": "call-target-unresolved",
     "diagnostics": []
   },
   {
