@@ -12,7 +12,7 @@ CodeLattice 是一个面向 **AI 编程工作流** 的本地代码图谱引擎�
 
 CodeLattice 用 Rust 编写，当前 beta 支持 Rust、Cangjie / 仓颉、ArkTS、TypeScript、JavaScript、C、C++、Python、Shell 等本地图谱分析路径。默认 MCP `ai` 模式只暴露 6 个 facade-first 入口，让 AI 从 workflow、project、symbol、change review、workspace、cache 这些稳定入口开始；`full` 模式保留 50 个工具，用于调试、回归和底层图谱查询。能力已经从“图谱查询”扩展到影响面分析、风险热点、架构偏移、可达性、公开 API 风险、框架入口提示、文档/测试/配置一致性审查、AI 工作流预设、跨项目影响分析、证据驱动根因分析，以及面向增量分析的底层调度器基础。
 
-**当前状态：外部 Beta / daily-use candidate（最新 GitCode Release 为 `v0.17.0-beta.1`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
+**当前状态：外部 Beta / daily-use candidate（最新 GitCode Release 为 `v0.17.0-beta.2`）**。本地生产试用与 release smoke 已通过，但还不是 GA。CLI 输出、MCP contract、诊断结论和质量门在 beta 阶段仍可能以兼容优先的方式演进。完整变更见 [CHANGELOG](CHANGELOG.md)，验证矩阵见 [Smoke Matrix](docs/release/smoke-matrix.md)。
 
 英文参考页：[docs/README.en.md](docs/README.en.md)
 
@@ -110,14 +110,14 @@ scripts/package-release.sh
 GitCode Release 页面发布后，也可以用安装器下载 tarball：
 
 ```bash
-scripts/install-release.sh --version v0.17.0-beta.1 --install-dir /path/to/CodeLattice-Tool
+scripts/install-release.sh --version v0.17.0-beta.2 --install-dir /path/to/CodeLattice-Tool
 ```
 
 ### 3. 自检
 
 ```bash
 scripts/codelattice-mcp.sh --self-test
-scripts/release-smoke.sh --tarball dist/codelattice-0.17.0-beta.1-darwin-arm64.tar.gz
+scripts/release-smoke.sh --tarball dist/codelattice-0.17.0-beta.2-darwin-arm64.tar.gz
 ```
 
 外部 fresh clone 路径：
@@ -593,7 +593,7 @@ CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
 
 ## 项目状态与路线图
 
-**外部 Beta / daily-use candidate（最新 GitCode Release 为 `v0.17.0-beta.1`）**：本地生产试用与 release smoke 已通过，但不是 GA。
+**外部 Beta / daily-use candidate（最新 GitCode Release 为 `v0.17.0-beta.2`）**：本地生产试用与 release smoke 已通过，但不是 GA。
 
 当前相对可靠：
 

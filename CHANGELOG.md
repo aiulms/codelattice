@@ -6,6 +6,8 @@ This project follows the release policy in `docs/release-versioning.md`. The pro
 
 ## [Unreleased]
 
+## [0.17.0-beta.2] - 2026-09-13
+
 ### Added（0.17.0-beta.2 续）
 
 - **CLI `workspace` 子命令**：`codelattice workspace --root <dir> [--compact] [--no-redact]`，与 MCP `codelattice_workspace_graph` 同一实现（`build_workspace_graph`），补齐 CLI/MCP 对称面。多项目 workspace 的项目/依赖结构可直接命令行消费。
