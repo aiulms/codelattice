@@ -24714,3 +24714,185 @@ fn ts_delta_overlay_impact_query_uses_delta_symbols() {
         "impact query on delta symbol must not error, got: {text}"
     );
 }
+// ── P4：workspace mode=inspect + project mode=snapshot（MCP 对齐加法）────────
+
+/// inspect 必须返回与 CLI `codelattice inspect` 同一份 v1 信封（在 facade 信封的
+/// result 内原样透传），analyzable/reason 由 CLI/model 计算，MCP 不做 feature 判定。
+#[test]
+fn mcp_workspace_inspect_returns_v1_inspection_envelope() {
+    let fixture = create_multi_project_workspace();
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let resp = call_tool_json(
+        &mut session,
+        21001,
+        "codelattice_workspace",
+        serde_json::json!({
+            "root": fixture.path().to_string_lossy(),
+            "mode": "inspect"
+        }),
+    );
+    assert_eq!(resp["schemaVersion"], "facade.v1", "facade 信封形状不变: {resp:?}");
+    assert_eq!(resp["tool"], "codelattice_workspace");
+    assert_eq!(resp["mode"], "inspect");
+
+    let inspection = &resp["result"];
+    assert_eq!(
+        inspection["schemaVersion"],
+        "codelattice.workspaceInspection.v1",
+        "result 必须是 CLI inspect 同一份 v1 信封: {inspection:?}"
+    );
+    // 三桶都在
+    assert!(inspection["projects"].is_array());
+    assert!(inspection["sourceOnlyAreas"].is_array());
+    assert!(inspection["unsupportedAreas"].is_array());
+    // rust-app 是 manifest 项目 → analyzable=true 由 CLI 算好透传
+    let rust_row = inspection["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["relativePath"] == "rust-app")
+        .expect("rust-app 应在 projects 桶");
+    assert_eq!(rust_row["language"], "rust");
+    assert_eq!(rust_row["analyzable"], true);
+    // facade summary 带三桶计数
+    assert_eq!(resp["summary"]["projectsTotal"], 2);
+    assert!(resp["summary"]["sourceOnlyAreasTotal"].is_u64());
+    assert!(resp["summary"]["unsupportedAreasTotal"].is_u64());
+}
+
+/// compact=true：保留 schemaVersion/三桶计数/行的 path/language/analyzable/reason；
+/// 超大 unsupported 列表裁剪到前 20 行但保留 totalCount + truncated + 说明，
+/// 禁止假装没有 unsupported。
+#[test]
+fn mcp_workspace_inspect_compact_trims_unsupported_but_keeps_count() {
+    let dir = tempfile::tempdir().expect("temp workspace");
+    let root = dir.path();
+    // 1 个可分析 rust 项目 + 25 个 unsupported .java（触发裁剪）
+    let rust_src = root.join("rust-app/src");
+    std::fs::create_dir_all(&rust_src).unwrap();
+    std::fs::write(
+        root.join("rust-app/Cargo.toml"),
+        "[package]\nname = \"rust-app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+    )
+    .unwrap();
+    std::fs::write(rust_src.join("main.rs"), "fn main() {}\n").unwrap();
+    // inventory 按目录计行：25 个目录各 1 个 .java → 25 行 unsupported
+    for i in 0..25 {
+        let java_dir = root.join(format!("legacy-java-{i:02}"));
+        std::fs::create_dir_all(&java_dir).unwrap();
+        std::fs::write(java_dir.join(format!("Legacy{i}.java")), "class X {}\n").unwrap();
+    }
+
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let compact_resp = call_tool_json(
+        &mut session,
+        21002,
+        "codelattice_workspace",
+        serde_json::json!({
+            "root": root.to_string_lossy(),
+            "mode": "inspect",
+            "compact": true
+        }),
+    );
+    let inspection = &compact_resp["result"];
+    assert_eq!(inspection["schemaVersion"], "codelattice.workspaceInspection.v1");
+    // 计数必须如实（25 行裁剪后仍报 25）
+    assert_eq!(inspection["unsupportedAreasTotal"], 25);
+    assert_eq!(inspection["unsupportedAreasTruncated"], true);
+    let shown = inspection["unsupportedAreas"].as_array().unwrap().len();
+    assert!(shown <= 20, "unsupported 应裁剪到 ≤20 行，实际 {shown}");
+    assert!(
+        inspection["cautions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|c| c.as_str().unwrap_or("").contains("truncated")),
+        "裁剪必须留说明: {inspection:?}"
+    );
+    // 可分析行保留 path/language/analyzable 形状
+    let rust_row = inspection["projects"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|r| r["relativePath"] == "rust-app")
+        .expect("compact 仍要保留 projects 行");
+    assert_eq!(rust_row["language"], "rust");
+    assert_eq!(rust_row["analyzable"], true);
+    assert_eq!(compact_resp["summary"]["unsupportedAreasTotal"], 25);
+
+    // 非 compact 路径不裁剪：25 行全在（facade 惯例默认 compact=true，全量需显式关闭）
+    let full_resp = call_tool_json(
+        &mut session,
+        21003,
+        "codelattice_workspace",
+        serde_json::json!({
+            "root": root.to_string_lossy(),
+            "mode": "inspect",
+            "compact": false
+        }),
+    );
+    assert_eq!(
+        full_resp["result"]["unsupportedAreas"]
+            .as_array()
+            .unwrap()
+            .len(),
+        25,
+        "非 compact 必须原样透传，不裁剪"
+    );
+}
+
+/// mode=snapshot：显式 opt-in 的 webui.snapshot.v1 出口，复用与桌面/CLI 同一
+/// 转换器（单一事实源）；language=auto 走既有 resolve 链。
+#[test]
+fn mcp_project_snapshot_mode_returns_webui_snapshot_v1() {
+    let mut session = McpSession::start_default_toolset();
+    session.initialize();
+    session.send_notification_initialized();
+
+    let resp = call_tool_json(
+        &mut session,
+        21004,
+        "codelattice_project",
+        serde_json::json!({
+            "root": portable_smoke_dir().to_string_lossy(),
+            "language": "rust",
+            "mode": "snapshot"
+        }),
+    );
+    assert_eq!(resp["schemaVersion"], "facade.v1");
+    assert_eq!(resp["mode"], "snapshot");
+    let snap = &resp["result"];
+    assert_eq!(
+        snap["schemaVersion"],
+        "webui.snapshot.v1",
+        "result 必须是 webui.snapshot.v1: {snap:?}"
+    );
+    // P3 起转换器产全量契约段
+    for key in ["summary", "quality", "explore", "cleanup", "releaseReview",
+                "insights", "workflowPresets", "graph", "moduleGraph", "limitations"] {
+        assert!(snap.get(key).is_some(), "snapshot 缺顶层键 {key}");
+    }
+    // 预览有界（150/300）
+    assert!(snap["graph"]["nodes"].as_array().unwrap().len() <= 150);
+    // facade summary 带核心计数
+    assert_eq!(resp["summary"]["nodeCount"], snap["summary"]["nodeCount"]);
+
+    // language=auto 同样可走（既有 auto 解析链）
+    let auto = call_tool_json(
+        &mut session,
+        21005,
+        "codelattice_project",
+        serde_json::json!({
+            "root": portable_smoke_dir().to_string_lossy(),
+            "mode": "snapshot"
+        }),
+    );
+    assert_eq!(auto["result"]["schemaVersion"], "webui.snapshot.v1");
+    assert_eq!(auto["result"]["language"], "rust");
+}

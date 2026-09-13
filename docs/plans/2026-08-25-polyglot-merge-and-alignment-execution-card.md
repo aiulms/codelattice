@@ -320,3 +320,72 @@ quality 输入无需外部 JSON：`analyze.qualityGates` 与 `codelattice qualit
    键名与 v1 fixture 一致），未做键名归一
 2. explore 的 symbol `line/endLine` 沿用 Python 行为恒输出（缺省 null），未按
    "缺席即未知"省略——保持信封形状一致优先
+
+## Closure —— 第三段 P4（2026-09-13，执行者自报；三段全部完成）
+
+### 转换器探查结论（先探后改）
+
+grep `mcp_server.rs` / `mcp_job.rs`：**无自建 relationKey / moduleGraph / 150-300
+截断 / explore / cleanup / workflowPresets，无平行 snapshot 组装**——MCP 从未
+自拼 webui 快照，无需删重复实现。出现的 `deadCodeCandidateCount`
+（mcp_server.rs:27307）属于 codelattice_delete_code review 域自己的
+`summary.candidateCount` 转写，与 snapshot cleanup 段不同源、无漂移——
+**查过，无转抄**。因此按卡面预案加显式 opt-in 出口而非删除。
+
+### 实际改动文件清单
+
+- `crates/cli/src/mcp_server.rs`：
+  - `codelattice_workspace` 加 `mode=inspect`：复用
+    `workspace_inspect::build_inspection`（与 CLI inspect 同一份
+    `codelattice.workspaceInspection.v1` 信封，analyzable/reason 由 CLI/model
+    计算，MCP 零 feature 判定；未触碰未提交的
+    `build_inspection_excluding`/`--exclude` WIP）；毫秒级同步，不套 job；
+    `compact_workspace_inspection` 助手实现 compact 契约——保留
+    schemaVersion/三桶计数/行的 path+language+analyzable+reason，unsupported
+    裁剪到前 20 行但必须留 totalCount + truncated 标记 + 说明（非 compact
+    原样透传；facade 惯例缺省 compact=true）
+  - `codelattice_project` 加 `mode=snapshot`：显式 opt-in 出
+    `webui.snapshot.v1`——复用 `cache.get_or_analyze` 的进程内 analyze 结果 +
+    `webui_snapshot::convert_analyze_result`（P3 后的唯一事实源），零新拼图；
+    多语言合并不在 MCP 实现（走 CLI analyze-workspace / 桌面）；默认
+    graph/overview/impact/full/job 路径与 schema 不变（N2）
+  - tools/list：两个工具的 mode enum 同步加 `inspect` / `snapshot`
+  - 引导文案加法：workspace 根的 recommendedNextAction 与 rootDiagnosis
+    cautions 增加「mode=inspect 先盘点可分析项目」推荐；现有 graph 默认路径
+    不变
+- `crates/cli/tests/mcp_server.rs`：3 个新契约测试（inspect v1 信封 +
+  analyzable 透传 / compact 裁剪留 count+说明且非 compact 原样 / snapshot 出
+  webui.snapshot.v1 全量段且 auto 语言走既有 resolve 链）
+- `docs/mcp/ai-usage-guide.md`：workspace 表加 inspect、project 表加
+  snapshot、Monorepo 段补 inspect 用法
+- `crates/cli/src/mcp_job.rs`：**零改动**（inspect 同步毫秒级，无需 job 化）
+
+### 测试命令真实通过数字
+
+- `cargo test -p gitnexus-rust-core-cli --test mcp_server`：**342 passed; 0
+  failed**（此前基线 339 + 新增 3，与卡面 339 对账一致）
+- P2/P3 回归：analyze_workspace 4/4、workspace_analyze lib 4/4、
+  webui_snapshot lib 22/22、project-picker vitest 6/6、src-tauri（上轮 24/24
+  未受本轮影响）、`git diff --check` 干净、mcp_server.rs fmt 干净
+- 真实 stdio 实测（非测试桩）：对仓库根本身调
+  `codelattice_workspace mode=inspect compact=true` → facade.v1 + result=
+  workspaceInspection.v1，三桶 140/24/134，unsupported 裁剪 20 行 +
+  truncated=true，root 字段保留
+
+### 与卡的偏差
+
+1. mode=inspect 的信封放在 facade 信封的 `result` 字段内（facade.v1 +
+   result=workspaceInspection.v1）——与全部 facade mode 的输出惯例一致；
+   v1 信封本身原样透传、可按 `result.schemaVersion` 识别。若调用方要裸信封，
+   CLI `codelattice inspect` 保持可用
+2. inspect 缺省 compact=true（facade 全家惯例 `facade_compact_default`），
+   全量信封需显式 `compact:false`——测试锁定了两种形态
+3. mode=snapshot 落在 `codelattice_project`（单项目）而非 workspace——多项目
+   合并按卡面走 CLI analyze-workspace，MCP 不另编合并
+
+### 已知小问题
+
+1. compact 裁剪行保留 name 字段（存在时），未严格只留四字段——name 对 agent
+   选项目有用，属超集
+2. mode=snapshot 每次调用走 cache（analyze 一次的成本），无进度反馈——大项目
+   建议仍走 job 类模式，snapshot 定位是「点名单份快照」

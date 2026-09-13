@@ -34,10 +34,10 @@ Do NOT set `CODELATTICE_MCP_TOOLSET=full` in daily usage. The default 6 facade t
 | Tool | Modes | Purpose |
 |------|-------|---------|
 | `codelattice_workflow` | ask / onboarding / explore / before_edit / after_edit / delete_code / release_check / legacy_cleanup / workspace_review / cross_project_impact / diagnose_issue / explain_symbol / root_cause / docs_tests_sync / config_examples_sync / public_api_change / framework_route_change | Natural language routing and multi-step orchestration |
-| `codelattice_project` | quick / standard / deep / insights / job | Project-level analysis at varying depth |
+| `codelattice_project` | quick / standard / deep / insights / snapshot / job | Project-level analysis at varying depth; `snapshot` opt-in returns a full `webui.snapshot.v1` from the same converter as CLI `--format webui-snapshot` |
 | `codelattice_symbol` | search / context / call_chains / job | Symbol lookup, context, and call chain tracing |
 | `codelattice_change_review` | before_edit / after_edit / impact / breaking_change / job | Pre/post edit risk assessment |
-| `codelattice_workspace` | overview / graph / job | Monorepo/multi-project workspace analysis |
+| `codelattice_workspace` | overview / graph / inspect / job | Monorepo/multi-project workspace analysis; `inspect` returns the same `codelattice.workspaceInspection.v1` envelope as CLI `codelattice inspect` (bucket counts + per-row analyzable flags, milliseconds) |
 | `codelattice_cache` | status / clear / explain | Cache management and explanation |
 
 > 上表列出常用模式子集；每个工具的完整 mode 枚举以 MCP `tools/list` 返回的 schema 为准（与 `docs/guides/ai-mcp-tool-guide.md` 一致）。
@@ -100,6 +100,10 @@ codelattice_project(mode=quick)
 
 ### Large Project / Monorepo
 
+```
+codelattice_workspace(mode=inspect)
+```
+Returns the per-row analyzable inventory (same envelope as CLI `codelattice inspect`). Then:
 ```
 codelattice_workspace(mode=overview)
 ```

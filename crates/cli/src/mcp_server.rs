@@ -779,7 +779,7 @@ fn build_workspace_auto_entry(root: &str, protected: bool, compact: bool) -> Opt
         .and_then(|p| p["path"].as_str())
         .map(|p| format!("Start with codelattice_project mode=quick on {p}."))
         .unwrap_or_else(|| {
-            "Use codelattice_workspace mode=graph, then choose a concrete project root.".to_string()
+            "Use codelattice_workspace mode=inspect to inventory analyzable projects (milliseconds), then mode=graph for boundaries, then choose a concrete project root.".to_string()
         });
 
     Some(json!({
@@ -13347,7 +13347,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to project root. Required for overview/quick/standard/deep/quality/insights/diagnose/ai_context/full/job; not needed for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "overview", "description": "Analysis mode. quick = orientation/read-first/top risks; standard = component and review-first map; deep = full static detail; diagnose = issue localization from symptom/error/query; job = non-blocking large project analysis." },
+                        "mode": { "type": "string", "enum": ["overview", "quick", "standard", "deep", "quality", "insights", "diagnose", "ai_context", "snapshot", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "overview", "description": "Analysis mode. quick = orientation/read-first/top risks; standard = component and review-first map; deep = full static detail; diagnose = issue localization from symptom/error/query; job = non-blocking large project analysis." },
                         "language": { "type": "string", "enum": ["rust", "cangjie", "arkts", "typescript", "javascript", "c", "cpp", "python", "shell", "auto"], "default": "auto" },
                         "compact": { "type": "boolean", "default": false },
                         "detail": { "type": "string", "enum": ["compact", "medium", "full"], "default": "compact", "description": "Output detail tier for compact project responses. medium adds bounded dependency/framework digest and top navigation hints without returning the full graph." },
@@ -13429,7 +13429,7 @@ fn tools_list() -> Value {
                     "type": "object",
                     "properties": {
                         "root": { "type": "string", "description": "Absolute path to workspace root. Required except for job_status/job_detail." },
-                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "graph", "description": "Analysis mode. Use job for large workspaces, then job_status/job_detail with jobId." },
+                        "mode": { "type": "string", "enum": ["graph", "impact", "overview", "inspect", "full", "job", "job_status", "job_detail", "job_cancel"], "default": "graph", "description": "Analysis mode. inspect = workspace inventory (codelattice.workspaceInspection.v1, same envelope as CLI inspect, milliseconds). Use job for large workspaces, then job_status/job_detail with jobId." },
                         "compact": { "type": "boolean", "default": false },
                         "jobId": { "type": "string", "description": "Required for job_status and job_detail; root is not required for these modes" },
                         "page": { "type": "integer", "default": 0, "minimum": 0, "description": "job_detail page index" },
@@ -23500,7 +23500,7 @@ fn diagnose_root_with_source_only_limit(
     if kind == "workspace" || kind == "unsupported_or_mixed_workspace" {
         cautions.push(json!("Do not pass workspace root to codelattice_symbol or codelattice_project — use a specific project root from recommendedProjectRoots."));
         cautions.push(json!(
-            "Use codelattice_workspace for cross-project analysis and graph overview."
+            "Use codelattice_workspace for cross-project analysis and graph overview; mode=inspect inventories analyzable projects first (milliseconds)."
         ));
     }
     if !unsupported.is_empty() {
@@ -25257,6 +25257,7 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
             "insights",
             "diagnose",
             "ai_context",
+            "snapshot",
             "full",
             "job",
             "job_status",
@@ -25294,6 +25295,38 @@ fn handle_project(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
     effective_params["language"] = json!(language);
     effective_params["compact"] = json!(compact);
     let analysis_params = &effective_params;
+
+    // ═══ P4：显式 opt-in 的 webui.snapshot.v1 出口。与桌面/CLI 共用
+    // webui_snapshot.rs 转换器（单一事实源），分析结果复用 cache 的进程内
+    // analyze；默认路径（graph/overview/…）不经过这里，输出 schema 不变（N2）。
+    // 多语言合并不在此实现——合并图走 CLI analyze-workspace / 桌面合并。═══
+    if mode == "snapshot" {
+        let (_gv, analyze_result, _cache_meta) =
+            cache.get_or_analyze(&validated_root, language, false)?;
+        let snapshot = crate::webui_snapshot::convert_analyze_result(
+            &analyze_result,
+            env!("CARGO_PKG_VERSION"),
+        );
+        let summary = json!({
+            "riskLevel": "low",
+            "mode": "snapshot",
+            "nodeCount": snapshot["summary"]["nodeCount"],
+            "edgeCount": snapshot["summary"]["edgeCount"],
+            "symbolCount": snapshot["summary"]["symbolCount"],
+        });
+        return Ok(tool_result(&wrap_facade_output(
+            snapshot,
+            "codelattice_project",
+            "snapshot",
+            language,
+            root,
+            summary,
+            vec!["graph section is a bounded 150-node/300-edge preview; full graph via mode=full"],
+            vec![],
+            compact,
+            facade_minimal_default(params),
+        )));
+    }
 
     // 分析面 mode 的自动 job 化：cache miss/stale + 大项目 → 异步 job
     if matches!(
@@ -27467,6 +27500,83 @@ fn handle_cleanup(cache: &mut McpCache, params: &Value) -> Result<Value, Value> 
 
 // ── codelattice_workspace ────────────────────────────────────────────
 
+/// P4：workspaceInspection.v1 的 compact 形状——保留 schemaVersion、三桶计数、
+/// 可分析行的 path/language/analyzable/reason；超大 unsupported 列表裁剪到前
+/// 20 行但必须留 totalCount + truncated 标记（open-nwe 有 300+，禁止假装没有）。
+/// 非 compact 路径不经过本函数，信封原样透传。
+fn compact_workspace_inspection(mut inspection: Value) -> Value {
+    const MAX_UNSUPPORTED_ROWS: usize = 20;
+    let row = |r: &Value| {
+        let mut compact_row = json!({
+            "relativePath": r.get("relativePath").cloned().unwrap_or(Value::Null),
+            "analyzable": r.get("analyzable").cloned().unwrap_or(Value::Null),
+        });
+        if let Some(obj) = compact_row.as_object_mut() {
+            for key in ["name", "language", "reason"] {
+                if let Some(v) = r.get(key) {
+                    if !v.is_null() {
+                        obj.insert(key.to_string(), v.clone());
+                    }
+                }
+            }
+        }
+        compact_row
+    };
+
+    let projects = inspection
+        .get("projects")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let source_only = inspection
+        .get("sourceOnlyAreas")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let unsupported = inspection
+        .get("unsupportedAreas")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let unsupported_total = unsupported.len();
+    let truncated = unsupported_total > MAX_UNSUPPORTED_ROWS;
+
+    let mut out = json!({
+        "projectsTotal": projects.len(),
+        "sourceOnlyAreasTotal": source_only.len(),
+        "unsupportedAreasTotal": unsupported_total,
+        "unsupportedAreasTruncated": truncated,
+        "projects": projects.iter().map(&row).collect::<Vec<_>>(),
+        "sourceOnlyAreas": source_only.iter().map(&row).collect::<Vec<_>>(),
+        "unsupportedAreas": unsupported
+            .iter()
+            .take(MAX_UNSUPPORTED_ROWS)
+            .map(&row)
+            .collect::<Vec<_>>(),
+    });
+    if truncated {
+        if let Some(obj) = out.as_object_mut() {
+            obj.insert(
+                "cautions".to_string(),
+                json!([format!(
+                    "unsupportedAreas truncated to first {MAX_UNSUPPORTED_ROWS} of {unsupported_total} rows; full list via CLI `codelattice inspect --root <root>`."
+                )]),
+            );
+        }
+    }
+    // schemaVersion/root/generatedAt/generatedFrom 原样保留，供消费方按 v1 识别
+    if let Some(src) = inspection.as_object_mut() {
+        if let Some(obj) = out.as_object_mut() {
+            for key in ["schemaVersion", "root", "generatedAt", "generatedFrom"] {
+                if let Some(v) = src.remove(key) {
+                    obj.insert(key.to_string(), v);
+                }
+            }
+        }
+    }
+    out
+}
+
 fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value> {
     let mode = params["mode"].as_str().unwrap_or("graph");
     let compact = facade_compact_default(params);
@@ -27477,6 +27587,7 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
             "graph",
             "impact",
             "overview",
+            "inspect",
             "full",
             "job",
             "job_status",
@@ -27485,6 +27596,47 @@ fn handle_workspace(cache: &mut McpCache, params: &Value) -> Result<Value, Value
         ],
         "codelattice_workspace",
     )?;
+
+    // ═══ P4：workspace 体检（与 CLI `codelattice inspect` 同一份
+    // codelattice.workspaceInspection.v1 信封；毫秒级同步扫描，不套 job）═══
+    if mode == "inspect" {
+        let root = params["root"]
+            .as_str()
+            .ok_or_else(|| mcp_error("missing_parameter", "Missing required parameter: root"))?;
+        let inspection = crate::workspace_inspect::build_inspection(Path::new(root))
+            .map_err(|e| mcp_error("inspect_failed", &e))?;
+        let inner = if compact {
+            compact_workspace_inspection(inspection)
+        } else {
+            inspection
+        };
+        let summary = json!({
+            "riskLevel": "low",
+            "mode": "inspect",
+            "projectsTotal": inner["projects"].as_array().map(|a| a.len()).unwrap_or(0),
+            "sourceOnlyAreasTotal": inner["sourceOnlyAreas"].as_array().map(|a| a.len()).unwrap_or(0),
+            "unsupportedAreasTotal": inner["unsupportedAreasTotal"]
+                .as_u64()
+                .map(|v| v as usize)
+                .or_else(|| inner["unsupportedAreas"].as_array().map(|a| a.len()))
+                .unwrap_or(0),
+        });
+        return Ok(tool_result(&wrap_facade_output(
+            inner,
+            "codelattice_workspace",
+            "inspect",
+            language,
+            root,
+            summary,
+            vec![
+                "Pick a manifest-backed project row, then use codelattice_project on that root",
+                "Use mode=graph for cross-project boundaries after selecting a project",
+            ],
+            vec![],
+            compact,
+            facade_minimal_default(params),
+        )));
+    }
 
     // ═══ Engine 1.3 job runtime ═══
     if matches!(mode, "job_status" | "job_detail" | "job_cancel") {
