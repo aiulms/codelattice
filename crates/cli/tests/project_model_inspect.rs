@@ -316,7 +316,7 @@ fn so_single_target_shared归属lib() {
 }
 
 #[test]
-fn so_lib_and_bin_shared_ambiguous() {
+fn so_lib_and_bin_shared_defaults_to_lib() {
     let (_, parsed) = inspect_source("lib-and-bin-shared");
 
     let so = parsed["sourceOwnership"].as_array().unwrap();
@@ -325,21 +325,24 @@ fn so_lib_and_bin_shared_ambiguous() {
         .find(|s| s["sourcePath"].as_str() == Some("src/common.rs"))
         .unwrap();
     assert_eq!(common["package"].as_str(), Some("app"));
-    // 多 target package，common.rs target 不确定
-    assert_eq!(common["target"].as_str(), None);
+    // 0.17.0-beta.2 bin→lib 修复后：lib+bin 双 target 包内非 target-root 文件
+    // 默认归 lib target，不再以 target=None + source-target-ambiguous 诊断跳过
+    // （旧契约：target None / confidence 0.50 + diagnostic）。
+    // confidence 0.80：默认归属是回退档，低于单 target 的确定性 0.90。
+    assert_eq!(common["target"].as_str(), Some("app"));
     assert_eq!(
         common["ownershipReason"].as_str(),
-        Some("source-target-ambiguous")
+        Some("source-owned-by-default-lib-target")
     );
-    assert_eq!(common["confidence"].as_f64(), Some(0.50));
+    assert_eq!(common["confidence"].as_f64(), Some(0.8));
 
-    // 应有 source-target-ambiguous diagnostic
+    // 默认归属后不再产生 source-target-ambiguous 诊断
     let diagnostics = parsed["diagnostics"].as_array().unwrap();
     assert!(
-        diagnostics
+        !diagnostics
             .iter()
             .any(|d| d["code"].as_str() == Some("source-target-ambiguous")),
-        "应有 source-target-ambiguous diagnostic"
+        "默认归属后不应再报 source-target-ambiguous diagnostic"
     );
 }
 
@@ -608,17 +611,21 @@ fn rr_ambiguous_module_file() {
 }
 
 #[test]
-fn rr_source_target_ambiguous_skipped() {
+fn rr_source_target_defaulted_resolves() {
     let (_, parsed) = inspect_root("source-target-ambiguous");
     let rr = parsed["rootResolution"].as_array().unwrap();
     assert_eq!(rr.len(), 1);
-    assert_eq!(rr[0]["resolvedPath"].as_str(), None);
+    // 0.17.0-beta.2 bin→lib 修复后：歧义归属默认落到 lib target，
+    // root 解析因此可以正常完成（旧契约：root-resolution-skipped + resolvedPath None）。
+    // confidence 0.85：经默认归属的 module 声明解析（crate::common → src/common.rs）。
+    assert_eq!(rr[0]["resolvedPath"].as_str(), Some("src/common.rs"));
+    assert_eq!(rr[0]["targetKind"].as_str(), Some("lib"));
     assert_eq!(
         rr[0]["rootReason"].as_str(),
-        Some("root-resolution-skipped")
+        Some("module-declaration-resolved")
     );
     let diagnostics = parsed["diagnostics"].as_array().unwrap();
-    assert!(diagnostics
+    assert!(!diagnostics
         .iter()
         .any(|d| d["code"].as_str() == Some("root-resolution-skipped")));
 }
