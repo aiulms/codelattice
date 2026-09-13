@@ -259,8 +259,7 @@ fn has_nested_project_markers(root: &Path) -> bool {
                 if path.is_dir() {
                     let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                     if !name.starts_with('.')
-                        && !["target", "node_modules", "dist", "build", ".gitnexus"]
-                            .contains(&name)
+                        && !["target", "node_modules", "dist", "build", ".gitnexus"].contains(&name)
                     {
                         next.push(path);
                     }

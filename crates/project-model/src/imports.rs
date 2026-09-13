@@ -75,10 +75,10 @@ pub fn extract_and_resolve_imports(
                 // Fix B 配套：本包 lib target 的 crate root 与包名（bin 文件里
                 // `use <own-package>::...` 指向 lib 的模块树，不是 bin 自己的）。
                 // 包名以 Cargo.toml（TargetModel.package_name）为准，不从目录名反推。
-                let own_lib = targets
-                    .iter()
-                    .find(|t| t.package_name == *so.package.as_ref().unwrap_or(&String::new())
-                        && t.kind == TargetKind::Lib.as_str());
+                let own_lib = targets.iter().find(|t| {
+                    t.package_name == *so.package.as_ref().unwrap_or(&String::new())
+                        && t.kind == TargetKind::Lib.as_str()
+                });
                 let own_lib_crate_root = own_lib.map(|t| repo_root.join(&t.crate_root_file));
                 let own_package_name: Option<String> = own_lib.map(|t| t.name.clone());
 
@@ -309,7 +309,7 @@ fn parse_text_use_decl(trimmed: &str, source_path: &str, line_num: u32) -> Optio
     let original_path = path_part.to_string();
 
     Some(vec![ImportUse {
-            own_package_import: false,
+        own_package_import: false,
         id: format!("{}::use::{}::0", source_path, line_num),
         source_path: source_path.to_string(),
         module_path: None,
@@ -955,7 +955,7 @@ fn process_use_argument(
             let target_name = segments.last().unwrap_or(&"").to_string();
 
             vec![ImportUse {
-            own_package_import: false,
+                own_package_import: false,
                 id: format!("{}::use::{}::{}", source_path, line_start, start_index),
                 source_path: source_path.to_string(),
                 module_path: None,
@@ -981,7 +981,7 @@ fn process_use_argument(
 
         "use_wildcard" => {
             vec![ImportUse {
-            own_package_import: false,
+                own_package_import: false,
                 id: format!("{}::use::{}::{}", source_path, line_start, start_index),
                 source_path: source_path.to_string(),
                 module_path: None,
@@ -1044,7 +1044,7 @@ fn process_use_argument(
             };
 
             vec![ImportUse {
-            own_package_import: false,
+                own_package_import: false,
                 id: format!("{}::use::{}::{}", source_path, line_start, start_index),
                 source_path: source_path.to_string(),
                 module_path: None,
@@ -1102,7 +1102,7 @@ fn process_use_argument(
                                     determine_path_kind(segments.first().copied().unwrap_or(""));
 
                                 results.push(ImportUse {
-            own_package_import: false,
+                                    own_package_import: false,
                                     id: format!("{}::use::{}::{}", source_path, line_start, idx),
                                     source_path: source_path.to_string(),
                                     module_path: None,
@@ -1150,7 +1150,7 @@ fn process_use_argument(
                                     determine_path_kind(segments.first().copied().unwrap_or(""));
 
                                 results.push(ImportUse {
-            own_package_import: false,
+                                    own_package_import: false,
                                     id: format!("{}::use::{}::{}", source_path, line_start, idx),
                                     source_path: source_path.to_string(),
                                     module_path: None,
@@ -1176,7 +1176,7 @@ fn process_use_argument(
                             }
                             "use_wildcard" => {
                                 results.push(ImportUse {
-            own_package_import: false,
+                                    own_package_import: false,
                                     id: format!("{}::use::{}::{}", source_path, line_start, idx),
                                     source_path: source_path.to_string(),
                                     module_path: None,

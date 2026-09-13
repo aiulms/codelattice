@@ -36,8 +36,9 @@ fn bin_to_lib_reexport_call_edge_exists() {
     let _ = std::fs::remove_dir_all(&tmp);
     write_fixture(&tmp);
 
-    let output =
-        gitnexus_project_model::output::inspect_project_model_with_options(&tmp, true, true, false, true);
+    let output = gitnexus_project_model::output::inspect_project_model_with_options(
+        &tmp, true, true, false, true,
+    );
 
     let target_id = "binlib::crate::instance::discover_existing";
 
@@ -75,8 +76,9 @@ fn lib_module_symbols_have_package_for_crate_wide_search() {
     let _ = std::fs::remove_dir_all(&tmp);
     write_fixture(&tmp);
 
-    let output =
-        gitnexus_project_model::output::inspect_project_model_with_options(&tmp, true, false, false, false);
+    let output = gitnexus_project_model::output::inspect_project_model_with_options(
+        &tmp, true, false, false, false,
+    );
 
     // instance.rs（非 target-root 文件）修复前 package=None → 失联
     let inst = output

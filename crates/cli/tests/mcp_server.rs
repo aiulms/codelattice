@@ -24734,14 +24734,16 @@ fn mcp_workspace_inspect_returns_v1_inspection_envelope() {
             "mode": "inspect"
         }),
     );
-    assert_eq!(resp["schemaVersion"], "facade.v1", "facade 信封形状不变: {resp:?}");
+    assert_eq!(
+        resp["schemaVersion"], "facade.v1",
+        "facade 信封形状不变: {resp:?}"
+    );
     assert_eq!(resp["tool"], "codelattice_workspace");
     assert_eq!(resp["mode"], "inspect");
 
     let inspection = &resp["result"];
     assert_eq!(
-        inspection["schemaVersion"],
-        "codelattice.workspaceInspection.v1",
+        inspection["schemaVersion"], "codelattice.workspaceInspection.v1",
         "result 必须是 CLI inspect 同一份 v1 信封: {inspection:?}"
     );
     // 三桶都在
@@ -24801,7 +24803,10 @@ fn mcp_workspace_inspect_compact_trims_unsupported_but_keeps_count() {
         }),
     );
     let inspection = &compact_resp["result"];
-    assert_eq!(inspection["schemaVersion"], "codelattice.workspaceInspection.v1");
+    assert_eq!(
+        inspection["schemaVersion"],
+        "codelattice.workspaceInspection.v1"
+    );
     // 计数必须如实（25 行裁剪后仍报 25）
     assert_eq!(inspection["unsupportedAreasTotal"], 25);
     assert_eq!(inspection["unsupportedAreasTruncated"], true);
@@ -24869,13 +24874,22 @@ fn mcp_project_snapshot_mode_returns_webui_snapshot_v1() {
     assert_eq!(resp["mode"], "snapshot");
     let snap = &resp["result"];
     assert_eq!(
-        snap["schemaVersion"],
-        "webui.snapshot.v1",
+        snap["schemaVersion"], "webui.snapshot.v1",
         "result 必须是 webui.snapshot.v1: {snap:?}"
     );
     // P3 起转换器产全量契约段
-    for key in ["summary", "quality", "explore", "cleanup", "releaseReview",
-                "insights", "workflowPresets", "graph", "moduleGraph", "limitations"] {
+    for key in [
+        "summary",
+        "quality",
+        "explore",
+        "cleanup",
+        "releaseReview",
+        "insights",
+        "workflowPresets",
+        "graph",
+        "moduleGraph",
+        "limitations",
+    ] {
         assert!(snap.get(key).is_some(), "snapshot 缺顶层键 {key}");
     }
     // 预览有界（150/300）

@@ -1929,18 +1929,15 @@ fn compute_enhanced_risk_reasons(
 /// （risk.overallRisk / crossProjectRisk 口径统一）共用，避免同一输出
 /// 三个风险字段口径打架（2026-08-26 复核收尾）。
 fn is_docs_only_diff(changed: &Value) -> bool {
-    changed["changedFiles"]
-        .as_array()
-        .is_some_and(|files| {
-            !files.is_empty()
-                && files
-                    .iter()
-                    .all(|f| f["path"].as_str().map_or(false, |p| p.ends_with(".md")))
-        })
-        && changed["summary"]["changedSymbolCount"]
-            .as_u64()
-            .unwrap_or(0)
-            == 0
+    changed["changedFiles"].as_array().is_some_and(|files| {
+        !files.is_empty()
+            && files
+                .iter()
+                .all(|f| f["path"].as_str().map_or(false, |p| p.ends_with(".md")))
+    }) && changed["summary"]["changedSymbolCount"]
+        .as_u64()
+        .unwrap_or(0)
+        == 0
 }
 
 fn pick_enhanced_risk(changed: &Value, assist: &Value, workspace_impact: &Value) -> String {
@@ -4026,7 +4023,10 @@ fn compute_python_quality_gates(
     graph_diagnostics: &[serde_json::Value],
 ) -> Vec<QualityGateResult> {
     let mut gates = compute_arkts_quality_gates(nodes, edges);
-    gates.push(external_symbol_marking_gate_for("python", graph_diagnostics));
+    gates.push(external_symbol_marking_gate_for(
+        "python",
+        graph_diagnostics,
+    ));
     gates
 }
 
@@ -4861,7 +4861,13 @@ pub fn run() {
                                     analysis_trace: trace,
                                 };
 
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             // --strict 检查：质量门失败时 exit non-zero
@@ -4929,7 +4935,13 @@ pub fn run() {
                                     analysis_trace: None,
                                 };
 
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             // --strict 检查：质量门失败时 exit non-zero
@@ -4959,12 +4971,15 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
                             let mut quality_gates = compute_arkts_quality_gates(&nodes, &edges);
-                            quality_gates.push(external_symbol_marking_gate_for("arkts", &diagnostics));
+                            quality_gates
+                                .push(external_symbol_marking_gate_for("arkts", &diagnostics));
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5001,7 +5016,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {
@@ -5031,12 +5052,15 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
                             let mut quality_gates = compute_arkts_quality_gates(&nodes, &edges);
-                            quality_gates.push(external_symbol_marking_gate_for("typescript", &diagnostics));
+                            quality_gates
+                                .push(external_symbol_marking_gate_for("typescript", &diagnostics));
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5073,7 +5097,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {
@@ -5103,12 +5133,15 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
                             let mut quality_gates = compute_arkts_quality_gates(&nodes, &edges);
-                            quality_gates.push(external_symbol_marking_gate_for("javascript", &diagnostics));
+                            quality_gates
+                                .push(external_symbol_marking_gate_for("javascript", &diagnostics));
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5145,7 +5178,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {
@@ -5174,11 +5213,14 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
-                            let quality_gates = compute_c_quality_gates(&nodes, &edges, &diagnostics);
+                            let quality_gates =
+                                compute_c_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5215,7 +5257,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {
@@ -5244,11 +5292,14 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
-                            let quality_gates = compute_cpp_quality_gates(&nodes, &edges, &diagnostics);
+                            let quality_gates =
+                                compute_cpp_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5285,7 +5336,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {
@@ -5314,11 +5371,14 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
-                            let quality_gates = compute_python_quality_gates(&nodes, &edges, &diagnostics);
+                            let quality_gates =
+                                compute_python_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5355,7 +5415,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {
@@ -5384,11 +5450,14 @@ pub fn run() {
 
                             let diagnostics: Vec<serde_json::Value> = json_val
                                 .get("diagnostics")
-                                .or_else(|| json_val.get("graph").and_then(|g| g.get("diagnostics")))
+                                .or_else(|| {
+                                    json_val.get("graph").and_then(|g| g.get("diagnostics"))
+                                })
                                 .and_then(|v| v.as_array())
                                 .cloned()
                                 .unwrap_or_default();
-                            let quality_gates = compute_shell_quality_gates(&nodes, &edges, &diagnostics);
+                            let quality_gates =
+                                compute_shell_quality_gates(&nodes, &edges, &diagnostics);
                             let schema_version = json_val
                                 .get("schemaVersion")
                                 .and_then(|v| v.as_str())
@@ -5425,7 +5494,13 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
+                                print_analyze_result(
+                                    &result,
+                                    &profile,
+                                    profile_options,
+                                    &format,
+                                    redact_root,
+                                );
                             }
 
                             if strict {

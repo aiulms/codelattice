@@ -80,12 +80,11 @@ pub fn extract_and_resolve_calls(
         ))
         .build()
         .unwrap();
-    all_calls.extend(
-        pool.install(|| {
-            source_ownership
-                .par_iter()
-                .filter(|so| so.package.is_some())
-                .flat_map(|so| {
+    all_calls.extend(pool.install(|| {
+        source_ownership
+            .par_iter()
+            .filter(|so| so.package.is_some())
+            .flat_map(|so| {
                 let file_start = if trace_timings {
                     Some(std::time::Instant::now())
                 } else {
@@ -137,8 +136,7 @@ pub fn extract_and_resolve_calls(
                 calls
             })
             .collect::<Vec<_>>()
-        }),
-    );
+    }));
 
     if trace_timings {
         eprintln!(

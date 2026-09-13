@@ -55,7 +55,15 @@ fn make_repo(dir: &Path) {
     };
     git(&["init", "-q"]);
     git(&["add", "-A"]);
-    git(&["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"]);
+    git(&[
+        "-c",
+        "user.email=t@t",
+        "-c",
+        "user.name=t",
+        "commit",
+        "-qm",
+        "one",
+    ]);
     std::fs::write(
         dir.join("src/lib.rs"),
         "pub fn one() -> u32 { 1 }\npub fn two() -> u32 { 2 }\n",
@@ -72,15 +80,22 @@ fn base_ref_diff_matches_git_merge_base() {
 
     // 提交 staged 作为第二 commit，HEAD~1 与 HEAD 有真实差异
     Command::new("git")
-        .args(["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "two"])
+        .args([
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qm",
+            "two",
+        ])
         .current_dir(&tmp)
         .output()
         .expect("git commit");
 
     let (ok, stdout) = run_detect_changes(&tmp, &["--base-ref", "HEAD~1", "--language", "rust"]);
     assert!(ok, "base-ref 调用失败: {stdout}");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&stdout).expect("输出应为 JSON");
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).expect("输出应为 JSON");
     let files = parsed["summary"]["changedFileCount"].as_u64().unwrap_or(0);
     assert!(
         files > 0,
