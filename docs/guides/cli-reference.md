@@ -1,0 +1,638 @@
+# CodeLattice CLI 与工程参考
+
+[返回项目首页](../../README.md) · [快速入门](../getting-started.md) · [MCP 使用指南](ai-mcp-tool-guide.md)
+
+这里保留完整命令、语言细节、输出契约、WebUI 和开发验证说明。以下 shell 命令均从仓库根目录运行；工具模式和参数以当前版本帮助及 MCP schema 为准。
+
+## CLI 使用
+
+### 分析 Rust 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/rust/project \
+  --language rust \
+  --format json
+```
+
+启用严格质量 gate：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/rust/project \
+  --language rust \
+  --format json \
+  --strict
+```
+
+### 分析 Cangjie / 仓颉项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/cangjie/project \
+  --language cangjie \
+  --format json \
+  --strict
+```
+
+### 分析 C 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/c/project \
+  --language c \
+  --format json
+```
+
+导出 GitNexus-RC bridge 格式：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/c/project \
+  --language c \
+  --format gitnexus-rc
+```
+
+### 分析 C++ 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/cpp-project \
+  --language cpp \
+  --format json
+```
+
+导出 GitNexus-RC bridge 格式：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/cpp-project \
+  --language cpp \
+  --format gitnexus-rc
+```
+
+### 分析 ArkTS / HarmonyOS 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/arkts/project \
+  --language arkts \
+  --format json
+```
+
+### 分析 Python 项目
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/python-project \
+  --language python \
+  --format json
+```
+
+导出 GitNexus-RC bridge 格式：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/python-project \
+  --language python \
+  --format gitnexus-rc
+```
+
+### 分析 Shell 脚本目录
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/scripts \
+  --language shell \
+  --format json
+```
+
+Shell 分析只做静态扫描：识别 `.sh/.bash/.zsh/.ksh/.bats` 和 shebang 脚本，抽取函数、`source` / `.` 引用、外部命令、环境变量读写，以及 `rm -rf`、`curl | sh` 等需要人工复核的风险模式。
+
+导出 GitNexus-RC bridge 格式：
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/scripts \
+  --language shell \
+  --format gitnexus-rc
+```
+
+### 自动识别语言
+
+```bash
+target/release/codelattice analyze \
+  --root /path/to/project \
+  --language auto \
+  --format json
+```
+
+自动识别规则：
+
+- 找到 `Cargo.toml`：Rust
+- 找到 `cjpm.toml`：Cangjie / 仓颉
+- 找到 `oh-package.json5`：ArkTS
+- 找到 `.c`/`.h` 文件且无 C++ 文件：无 C++ 的 C 项目
+- 找到 `.cpp`/`.hpp`/`.cc`/`.cxx` 文件：C++ 项目
+- 找到 `pyproject.toml`/`setup.py`/`setup.cfg`/`requirements.txt` 或 `.py` 文件：Python 项目
+- 找到 `.sh`/`.bash`/`.zsh`/`.ksh`/`.bats` 或 shell shebang 脚本，且没有更强语言清单：Shell 脚本项目
+- 同时检测到多个语言：需要显式传入 `--language`
+
+### 提交前变化审查
+
+`detect-changes` 是 CodeLattice 自己的提交前变化审查入口，用来替代日常依赖外部 GitNexus-Tool 的 `detect-changes` 流程。它会基于 git diff 自动识别变更文件、变更符号、unknown hunks，并复用本地 `changed_symbols` / `production_assist` 能力生成风险摘要和 review checklist。同时自动检测 workspace 结构，提供文件归属映射、跨项目影响分析和不支持语言边界检测。
+
+```bash
+target/release/codelattice detect-changes \
+  --root /path/to/git/repo \
+  --language rust \
+  --scope all
+```
+
+常用范围：
+
+- `--scope all`：对比 `HEAD`，覆盖 staged + unstaged 变化
+- `--scope staged`：只看已暂存变化
+- `--scope unstaged`：只看未暂存变化
+- `--base-ref <ref>`：与指定 git ref 对比
+
+输出为 `codelattice.detectChanges.v1` JSON，包含 `changedFiles`、`changedSymbols`、`unknownHunks`、`risk`、`reviewChecklist`、`generatedFrom`，以及 workspace 相关字段：`workspaceContext`（workspace 检测结果）、`fileOwners`（每个变更文件的子项目归属）、`affectedProjects`（受影响的跨项目节点）、`affectedWorkspaceEdges`（受影响的 workspace 边）、`unsupportedBoundaryHits`（不支持语言边界命中）、`crossProjectRisk`（跨项目风险等级）、`recommendedFollowups`（推荐跟进项）。风险等级使用三层叠加：max(production_assist_risk, changed_symbol_risk, workspace_risk)。
+
+为避免提交前漏掉新文件，`--scope all` 还会额外读取 `git ls-files --others --exclude-standard`，在 `untrackedFiles` 和 `summary.untrackedFileCount` 中报告未跟踪文件。
+
+如果你在 CodeLattice 本仓开发，推荐直接运行原生 precommit bundle：
+
+```bash
+scripts/codelattice-precommit-check.sh
+```
+
+它会按顺序运行格式检查、diff whitespace 检查、productization/MCP regression、`codelattice-detect-changes` smoke，并最后输出本仓 `detect-changes` 摘要。默认不调用 GitNexus-Tool；旧 Tool 只作为过渡期 fallback 或对照检查。
+
+### 质量检查
+
+```bash
+target/release/codelattice quality \
+  --root fixtures/rust/portable-smoke \
+  --language rust
+```
+
+退出码：
+
+- `0`：质量 gate 通过
+- `1`：质量 gate 失败
+- `2`：项目语言或结构不明确
+
+## MCP Sidecar
+
+CodeLattice 提供基于 stdio JSON-RPC 的 MCP server，可被 Codex、opencode、Claude Desktop 等 MCP client 调用。
+
+开发调试可以直接使用 checkout wrapper：
+
+```bash
+bash scripts/codelattice-mcp.sh --self-test
+```
+
+日常 AI client 使用建议先 promote：
+
+```bash
+export CODELATTICE_TOOL_DIR="$HOME/.local/share/codelattice-tool"
+bash scripts/promote-to-local-tool.sh --install-dir "$CODELATTICE_TOOL_DIR"
+"$CODELATTICE_TOOL_DIR/codelattice-mcp.sh" --self-test
+```
+
+AI 客户端日常配置不要设置 `CODELATTICE_MCP_TOOLSET=full`。推荐直接指向稳定 wrapper：
+
+```json
+{
+  "mcpServers": {
+    "codelattice": {
+      "command": "/Users/jiangxuanyang/Desktop/CodeLattice-Tool/codelattice-mcp.sh"
+    }
+  }
+}
+```
+
+默认 MCP 工具面：
+
+| 工具 | 什么时候用 |
+|------|------------|
+| `codelattice_workflow` | 不确定该用哪个工具时先用它；它会把意图路由成下一步可调用动作 |
+| `codelattice_project` | 项目概览、质量门、热点、阅读路径、AI 上下文 |
+| `codelattice_symbol` | 找符号、看上下文、查 callers/callees、局部图 |
+| `codelattice_change_review` | 改动前后影响、删代码、发布检查、文档/测试/配置一致性、根因分析 |
+| `codelattice_workspace` | 多项目/大仓根目录、跨项目图、跨项目影响 |
+| `codelattice_cache` | 查看、解释、清理 CodeLattice 缓存 |
+
+### AI 工作流指南
+
+CodeLattice MCP 默认使用 `ai` toolset，只暴露上面 6 个入口工具。底层 50 个工具没有删除，只在显式调试模式中开放：
+
+```bash
+CODELATTICE_MCP_TOOLSET=core   # 常用底层工具 + facade
+CODELATTICE_MCP_TOOLSET=full   # 全部 50 个工具，适合调试/回归 smoke
+```
+
+如果 Claude / OpenCode / TRAE 等日常 AI 客户端配置了 `CODELATTICE_MCP_TOOLSET=full`，模型会看到旧底层工具，容易绕开 facade/job/paging 保护。大项目和 monorepo 应优先使用 `codelattice_workspace mode=job → job_status → job_detail`。
+
+外部用户和执行 AI 可以直接使用这些指南：
+
+- [AI MCP Tool Guide](../../docs/guides/ai-mcp-tool-guide.md)：默认 6 个 MCP 的选择规则、模式表和示例调用。
+- [AI Prompt Cookbook](../../docs/guides/ai-prompt-cookbook.md)：接手项目、改代码前后、删代码前、发布前、遗留代码清理等可复制提示词。
+- [Workflow Presets](../../docs/guides/workflow-presets.md)：10 个场景对应的 MCP 工具链、关注字段和 stop-line。
+
+这些工作流只组织静态分析工具，不会执行项目代码，也不会证明运行时行为、外部真实使用、测试覆盖率或删除安全性。
+
+AI 编程助手推荐先调用 `codelattice_workflow`。它现在是意图路由器，会返回 `ai.workflow.v1` envelope：`situation`、`riskLevel`、`missingInputs`、`nextActions`、`cautions` 和 `safeToProceed`。`nextActions` 中的每一项都可以直接转成下一次 MCP `tools/call` 参数，减少 AI 猜工具和猜参数。
+
+如果执行 AI 想要“一次调用先跑完常规检查”，可以传 `execute=true`。此时 workflow 会执行非递归的 nextActions，并返回 `execution`、`completedActions`、`failedActions`、`evidence` 和 `answerSummary`。如果缺少 `symbol` / `target` 等必要输入，执行会停在 `execution.status=needs_input`，不会盲目分析错误对象。
+
+常见意图：
+
+```json
+{"mode":"onboarding","root":"/path/to/project","language":"auto"}
+{"mode":"before_edit","root":"/path/to/project","language":"rust","symbol":"helper"}
+{"mode":"before_edit","root":"/path/to/project","language":"rust","symbol":"helper","execute":true}
+{"mode":"delete_code","root":"/path/to/project","language":"typescript","symbol":"oldApi"}
+{"mode":"root_cause","root":"/path/to/project","language":"auto","issue":"dragging an object shows stale bounds after layout recompute","availableCapabilities":["read_code","read_git_diff","read_logs","local_http","edit_code"]}
+{"mode":"cross_project_impact","root":"/path/to/workspace","target":{"path":"Dockerfile"}}
+```
+
+根因分析模式不会替 AI 修改代码或安装探针；它会先说明 AI 已经能看见什么，再给出当前最可能的根因假设、还缺什么证据、如果已有权限应优先自动读取什么，以及没有运行时入口时应加在哪些最小位置的临时探针。
+
+如果缺少 `symbol` / `target` 等关键参数，`codelattice_workflow` 不会只返回失败，而是会在 `missingInputs` 中说明缺什么，并在 `nextActions` 里给出发现步骤，例如 `codelattice_symbol mode=search` 或 `codelattice_workspace mode=graph`。
+
+AI 编程助手也可以使用这条 facade-first 链路完成“接手项目 → 改代码 → 看影响 → 审查 → 提交”的闭环：
+
+1. `codelattice_workflow(mode=onboarding)`：选择接手项目的阅读路径和 stop-line
+2. `codelattice_project(mode=overview|insights|ai_context|full, root=...)`：快速理解项目规模、热点、质量信号和 AI 编辑上下文
+3. `codelattice_symbol(mode=search|context|callers|callees, root=..., name=...)`：定位符号、上下文和调用关系
+4. `codelattice_change_review(mode=native_review|impact|full_review|safe_cleanup_review|release_check|root_cause, root=...)`：改动前后、删除、发布和根因路径统一走这个审查入口
+5. `codelattice_workspace(mode=graph|impact, root=...)`：多项目仓库看跨项目关系和影响
+6. `codelattice_cache(mode=status|explain, root=...)`：需要判断缓存复用或清理时使用
+
+## Rust 支持范围
+
+已支持：
+
+- Cargo package / workspace / target 识别
+- Source file ownership 识别
+- 函数、方法、struct、enum、trait、impl、const、static、macro definition、enum variant 抽取
+- `use` import resolution
+- `crate::`、`self::`、`super::` path resolution
+- 部分 same-file、same-module、cross-file same-crate call resolution
+- enum constructor / enum variant constructor resolution
+- 保守 associated function resolution
+- 有限 receiver type method call heuristic
+- 常见 std / core / alloc external symbol completion
+- Graph endpoint integrity quality gate
+
+代表性 Rust 调用解析形式：
+
+| 调用形式 | 示例 | 置信度 |
+|----------|------|--------|
+| 同模块函数 | `helper()` | 0.90 |
+| 导入绑定 | `use crate::math::add; add()` | 0.85 |
+| `crate::` 路径 | `crate::math::add()` | 0.90 |
+| `self::` 路径 | `self::inner_helper()` | 0.80 |
+| `super::` 路径 | `super::parent_fn()` | 0.80 |
+| 关联函数 | `Config::new()` | 0.75 |
+| 枚举构造 | `Some(42)`、`Ok(value)`、`Err(error)` | 0.80 |
+| 枚举变体构造 | `Event::Click(x)` | 0.80 |
+| 跨文件同 crate 函数 | `split_last_segment()` | 0.80 |
+| wildcard import 消歧 | `helper_func()` via `use calculations::*` | 0.80 |
+| 有限 receiver method | `v.push(1)` where `let v: Vec<i32>` | 0.65 |
+
+明确不支持：
+
+- 完整类型推断
+- trait solving
+- proc-macro / build.rs 执行
+- 宏展开
+- 完整 cfg evaluator
+- 任意第三方 crate API 深度解析
+
+## Cangjie / 仓颉支持范围
+
+已支持：
+
+- `cjpm.toml` package / workspace 扫描
+- source file collection
+- Function / Class / Struct / Enum / Interface / TypeAlias / Macro / Init 符号抽取
+- named import / alias import / wildcard import / path dependency resolution
+- same-file 和 cross-file reference extraction
+- function call reference extraction
+- `cjc` / `cjlint` diagnostics runner integration
+- graph output
+- `cangjie inspect` / `cangjie graph`
+- `--strict` quality gate
+
+启用 Cangjie feature：
+
+```bash
+cargo build --features tree-sitter-cangjie -p gitnexus-rust-core-cli --bins
+```
+
+明确不支持：
+
+- 完整 method dispatch
+- 类型推断
+- trait / interface solving
+- 宏展开
+- 完整 cfg evaluator
+
+## 缓存与性能
+
+CodeLattice 提供两层分析缓存，用于加速重复 MCP 调用：
+
+1. **Memory Layer**：默认启用，进程内 LRU cache，最多 16 个 entry。同一进程内重复调用可直接命中。
+2. **Persistent Layer**：默认使用 `~/.cache/codelattice` 跨进程复用；可用 `CODELATTICE_CACHE_DIR` 覆盖目录。目录不可写时回退为 memory-only。
+
+缓存查找顺序：memory -> persistent -> re-analysis。
+
+| 环境变量 | 说明 |
+|----------|------|
+| `CODELATTICE_CACHE_DIR` | 覆盖默认持久化缓存目录 |
+| `CODELATTICE_CACHE` | 设置为 `off` 可完全关闭 memory 和 persistent cache |
+
+缓存会在源码文件、构建配置、CodeLattice 版本或缓存文件损坏时自动失效，并返回结构化 `staleReasons`，方便 AI client 理解缓存行为。
+
+## 输出内容
+
+`analyze --format json` 输出统一分析结果，主要包含：
+
+- project summary
+- quality gate results
+- language information
+- graph nodes and edges
+- diagnostics
+- stats
+
+常见图节点：
+
+- Repository
+- Package
+- Target
+- SourceFile
+- Symbol
+- Diagnostic
+
+常见关系：
+
+- CONTAINS_PACKAGE
+- HAS_TARGET
+- OWNS_SOURCE
+- DEFINES
+- CALLS
+- ACCESSES
+- DESIGNATION
+- HAS_PARENT
+- ANNOTATES
+
+## 已知边界
+
+- CodeLattice 不是编译器、IDE 或语言服务器；不做完整类型推断、trait solving 或宏展开
+- 调用边是带 confidence / reason 的启发式分析结果，不是编译器证明
+- **TypeScript**：支持 tsconfig path alias 与 workspace package import 的静态解析，但不运行 `tsc`，不提供类型系统保证
+- **ArkTS**：`struct` 关键字由 tree-sitter-typescript 解析为 ERROR node，当前通过 pattern matching 恢复；暂不支持 `@Builder` / `@Extend`
+- **C++**：Phase A 支持，可读取 compile_commands.json 做 include path resolution，但不做完整预处理、模板实例化、完整重载解析或虚函数派发解析；不是 clangd 的替代
+- **Python**：Phase A 支持，不执行 Python 代码、不安装依赖、不读取虚拟环境、不做动态类型推断、不解析 eval/getattr/importlib 等动态调用、不替代 pyright/pylance/mypy
+- **Shell**：Phase A 支持，只做静态脚本图谱和风险候选识别，不执行 shell，不解析复杂参数展开/条件执行/运行时 source 路径，不替代 shellcheck 或 CI 真实运行
+- 不执行用户项目脚本
+- 暂无 per-symbol incremental recompute，目前仍以项目级重新分析为主
+
+## 安全模型
+
+以下描述针对分析引擎和 MCP sidecar；远程模型解释的数据边界见 [Workbench 指南](../webui/workbench-user-guide.md#4-模型池)。
+
+- 分析引擎默认本地运行，不上传项目代码
+- MCP `tools/list` 会为每个工具声明 `annotations` 与 `x-codelattice-permissionProfile`，方便 AI 客户端区分只读、cache 写入、`/tmp` artifact 写入和 smoke/debug 工具
+- MCP sidecar 不写用户源码；`rename_preview` 只预览，不写文件
+- `export_bridge` 只写入 `/tmp`
+- `install-mcp.sh --print-config` 只打印配置模板，不修改 Codex / opencode / Claude 配置
+- `fresh-clone-smoke.sh` 默认使用 `/tmp` 临时目录，并在结束后清理
+
+## 项目状态与路线图
+
+**外部 Beta / daily-use candidate**：版本与验证范围见 [发行说明](../release/0.17.0-beta.2-notes.md) 和 [验证矩阵](../release/smoke-matrix.md)，不能将某条 smoke 的通过推及所有平台与入口。
+
+当前相对可靠：
+
+- Rust / Cangjie CLI 分析（Stable）
+- ArkTS CLI 分析（Production Trial）
+- TypeScript CLI 分析（path alias / monorepo import hardened）
+- C CLI 分析（Phase A hardened）
+- C++ CLI 分析（Phase A hardened）
+- Python CLI 分析（Phase A hardened）
+- JavaScript CLI 分析（Phase A hardened）
+- Shell CLI 分析（Phase A hardened）
+- MCP sidecar 默认 AI toolset 只暴露 6 个入口工具；`CODELATTICE_MCP_TOOLSET=full` 暴露 50 个底层/专家工具，覆盖图谱查询、诊断、审查、自动化图谱、AI 工作流预设、工作区图谱、跨项目影响分析和证据驱动根因分析
+- 两层持久化缓存
+- stable runtime promote
+- release tarball packaging + release smoke
+- fresh clone smoke
+- 本地 AI client 集成模板
+
+正在改进：
+
+- Linux、Windows 等多平台 release 包
+- Linux / openEuler native smoke certification
+- 自动化 release CI
+- diagnostics report / dashboard 形态
+- 更深的 per-symbol incremental recompute
+
+长期方向：
+
+- 成为可嵌入、可验证、可扩展的多语言代码智能核心
+- 为本地代码理解、影响分析、重构辅助和 AI agent 工作流提供基础设施
+
+## 文档
+
+- [CHANGELOG](../../CHANGELOG.md)：版本变更记录
+- [MCP Contract](../../docs/architecture/mcp-v0-contract.md)：MCP 工具输入输出契约
+- [Unified Output Contract](../../docs/architecture/unified-output-contract.md)：CLI 输出格式
+- [Release Versioning](../../docs/release-versioning.md)：版本规则
+- [Install Guide](../../docs/release-install.md)：tarball 安装说明
+- [Linux / openEuler Source Build](../../docs/platforms/linux-openeuler.md)：源码构建兼容指南
+- [Upgrade Guide](../../docs/release/upgrade.md)：升级、回滚和缓存清理
+- [Smoke Matrix](../../docs/release/smoke-matrix.md)：验证矩阵
+- [Getting Started](../../docs/getting-started.md)：详细入门指南
+- [English Reference](../../docs/README.en.md)：英文参考说明
+
+## 开发与验证
+
+构建：
+
+```bash
+./scripts/build.sh
+```
+
+快速 smoke：
+
+```bash
+./scripts/smoke.sh --quick
+```
+
+完整本地验证：
+
+```bash
+cargo fmt --check
+cargo test
+cargo test --features tree-sitter-cangjie
+bash scripts/install-mcp.sh --doctor
+bash scripts/codelattice-mcp.sh --self-test
+bash scripts/package-release.sh
+bash scripts/release-smoke.sh
+bash scripts/fresh-clone-smoke.sh --skip-tests
+```
+
+更完整的 MCP 验证：
+
+```bash
+bash scripts/mcp-dogfood.sh
+bash scripts/mcp-real-client-dry-run.sh
+bash scripts/mcp-local-client-smoke.sh
+```
+
+## 项目结构
+
+```text
+codelattice/
+  Cargo.toml
+  crates/
+    project-model/       Rust project model, symbols, imports, calls, graph output
+    cangjie/             Cangjie project model, symbols, diagnostics, graph output
+    cli/                 CLI entry, unified output, MCP server, language detection
+  fixtures/
+    rust/                Rust graph contract fixture
+    cangjie/             Cangjie fixture
+    call-resolution/     Rust call resolution fixture
+    import-use/          Rust import fixture
+    item-extraction/     Rust symbol extraction fixture
+  docs/
+    architecture/        架构和输出格式文档
+    decisions/           设计决策
+    fixtures/            fixture 索引
+    plans/               preflight / execution / closure 文档
+  scripts/
+    build.sh
+    smoke.sh
+    codelattice-mcp.sh
+    install-mcp.sh
+    promote-to-local-tool.sh
+    package-release.sh
+    release-smoke.sh
+    fresh-clone-smoke.sh
+```
+
+## WebUI — Snapshot Viewer
+
+> **状态：** Phase I — Project Picker · One-Click Analyze · 中文/English
+
+CodeLattice 提供了一个**纯静态本地 Web 页面**——Snapshot Viewer。它加载 `webui-snapshot.sh` 生成的 enriched JSON snapshot 并渲染为人类可浏览的 6 视图界面。
+
+**Phase A 亮点：**
+- 从 CLI analyze 输出中提取 **真实符号列表 + 源文件索引**
+- Heuristic **cleanup 摘要**（死代码候选、不可达符号、外部 API surface）
+- **10 个 workflow preset** 推荐（onboarding/before_edit/release_check 等）
+- 多语言 fixture snapshot 矩阵：Rust / TypeScript / C / C++ / Python / Shell
+
+### 快速开始
+
+**Step 1: 生成 Enriched Snapshot（默认启用 --full）**
+
+```bash
+bash scripts/webui-snapshot.sh \
+  --root fixtures/rust/portable-smoke \
+  --language rust \
+  --output /tmp/codelattice-snapshot.json
+```
+
+**Step 2: 打开 Viewer**
+
+```bash
+open webui/snapshot-viewer/index.html
+```
+
+然后在页面中点击 **Load Snapshot** 按钮选择生成的 JSON 文件。
+
+### 新增参数（Phase A）
+
+```bash
+--full                 # 启用全部 enrichment [默认]
+--include-explore      # 提取符号/源文件数据
+--include-review       # 提取 cleanup/release 摘要
+--include-workflows    # 嵌入 workflow preset 推荐
+--redact-root          # 脱敏绝对路径（用于 fixture）
+--no-enrichment        # 回退到 MVP 最小 snapshot
+```
+
+### Smoke 验证
+
+```bash
+bash scripts/webui-snapshot-smoke.sh --full     # 生成并验证 6 语言 matrix
+bash scripts/webui-viewer-smoke.sh              # viewer 结构验证 (35+ checks)
+```
+
+### WebUI Snapshot Viewer 功能
+
+| 视图 | 内容 | 数据来源 |
+|------|------|----------|
+| **Dashboard** | 项目统计、Quality Gates (passed/failed)、Limitations | summary + quality + limitations |
+| **Explore** | Source Files 列表、Symbols 搜索/过滤/排序、详情面板 | explore.symbols[] + sourceFiles[] |
+| **Graph** | AntV G6/SVG 图谱、布局模板、下探、海报模式 | graph.* |
+| **Cleanup** | Dead Code / Reachability / External API / Framework Hints + cautions | cleanup.* (heuristic) |
+| **Release Review** | Breaking Change Risk / Doc Stale / Config Issues / Automation Graph + release cautions | releaseReview.* + automationGraph |
+| **Workflows** | 10 个场景预设（工具推荐 + stop-lines）和自动化图谱审查 | workflowPresets + automationGraph |
+| **🆕 Workspace** | 工作区发现：多项目扫描、语言分布、支持/暂不支持模块识别、批量分析、聚合摘要 | `/api/workspace/inventory` + `/api/workspace/analyze` |
+
+### Runner 模式（本地分析工作台）
+
+```bash
+bash scripts/webui-runner.sh --open
+```
+
+启动后浏览器可：
+- 直接分析单个项目
+- **直接选择大目录 / workspace 根目录**：如果 `auto` 检测到多个可分析子项目，Runner 会自动进入 Workspace 模式并分析推荐项目，不再要求用户先猜具体子目录
+- 分析推荐项目（一键）或勾选子项目批量分析；完成后停留在 Workspace 总览，不会自动把你带走
+- 查看 Workspace 分析历史、每个子项目状态和 snapshot；洞察推荐项可一键打开对应子项目快照
+- 暂不支持的语言（C#、Java、Go、Swift、Kotlin）会标注为「暂不支持模块」，并汇总为未来语言支持 backlog
+- 复制一段适合发给 AI 的工作区摘要，用于下一步审查/清理规划
+
+**Workspace 扫描规则**：只读取目录结构和 manifest 文件名，不读取文件内容、不执行任何项目代码。上限 depth=5、entries=5000，超出后标记 `truncated=true`。
+
+**Protected live root 规则**：对 live repo 根目录，低层单项目 `analyze` 仍保持保护性拒绝；但 `auto` 入口、workspace graph 和 cross-project impact 可以把根目录当作只读工作区入口，输出会标注 `liveRootProtected=true`、`runtimeVerified=false`、`scriptsExecuted=false`。
+
+CLI / MCP 中也遵循同一规则：
+
+```bash
+# 多项目根目录会返回 codelattice.workspaceAutoEntry.v1
+target/debug/codelattice analyze --root /path/to/workspace --language auto --format json
+
+# AI 推荐入口：language=auto 时自动判断单项目 vs workspace
+codelattice_project(mode=overview, root=/path/to/workspace, language=auto)
+```
+
+### Multi-Language Fixture Snapshot Matrix
+
+| 语言 | Snapshot | Symbols | Source Files | Status |
+|------|----------|---------|-------------|--------|
+| Rust | ✓ | 9 | 2 | PASS |
+| TypeScript | ✓ | 20 | 4 | PASS |
+| C | ✓ | 22 | 3 | PASS |
+| C++ | ✓ | 33 | 3 | PASS |
+| Python | ✓ | 23 | 5 | PASS |
+| Shell | ✓ | 11 | 4 | PASS |
+
+### 文档
+
+| 文档 | 内容 |
+|------|------|
+| [docs/webui/README.md](../../docs/webui/README.md) | WebUI 总览、Phase A 架构 |
+| [docs/webui/webui-mvp.md](../../docs/webui/webui-mvp.md) | MVP/Phase A 视图规格 |
+| [docs/webui/webui-snapshot-contract.md](../../docs/webui/webui-snapshot-contract.md) | `CodeLatticeWebSnapshotV1` JSON contract |
+| [webui/snapshot-viewer/README.md](../../webui/snapshot-viewer/README.md) | Viewer 使用指南 |
+
+### Viewer 与桌面工作台的区别
+
+这里的 Snapshot Viewer 是本地 Web 入口。Tauri 桌面 Workbench 是独立的 P0 开发构建入口，包含模型解释与证据导航，见 [Workbench 用户指南](../webui/workbench-user-guide.md)。桌面安装器、签名和自动更新需独立发布验证。
