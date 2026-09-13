@@ -31,6 +31,7 @@ mod rust_bridge;
 mod shell_bridge;
 mod unified_types;
 mod webui_snapshot;
+mod workspace_analyze;
 // pub 供集成测试复用 language_analyzable 做 feature 自适应断言（与 bin 同份编译）
 pub mod workspace_inspect;
 
@@ -185,6 +186,16 @@ enum Commands {
         /// 保留绝对路径（默认 redact 为相对路径）
         #[arg(long, default_value_t = false)]
         no_redact: bool,
+    },
+    /// 多语言合并分析：对多项目根目录一次操作，产出一张覆盖全部可分析语言的
+    /// 合并 webui.snapshot.v1 快照（节点 id 加项目命名空间，file 路径改仓库相对）
+    AnalyzeWorkspace {
+        /// 工作区根目录路径
+        #[arg(long)]
+        root: String,
+        /// 输出格式（当前仅支持 webui-snapshot）
+        #[arg(long, default_value = "webui-snapshot")]
+        format: String,
     },
     /// Start MCP stdio server (JSON-RPC over stdin/stdout)
     Mcp,
@@ -6069,6 +6080,20 @@ pub fn run() {
         // ===== MCP stdio server =====
         Commands::Inspect { root, format } => {
             workspace_inspect::run_inspect_command(&root, &format);
+        }
+        // ===== analyze-workspace：多语言合并快照（P2）=====
+        Commands::AnalyzeWorkspace { root, format } => {
+            // 与 analyze 主路径同档的大栈线程：合并会逐项目跑多语言分析，
+            // 深 CST 提取需 16MB 栈防击穿。
+            let handle = std::thread::Builder::new()
+                .stack_size(16 * 1024 * 1024)
+                .spawn(move || {
+                    workspace_analyze::run_analyze_workspace_command(&root, &format);
+                })
+                .expect("failed to spawn analyze-workspace thread");
+            if let Err(e) = handle.join() {
+                std::panic::resume_unwind(e);
+            }
         }
         Commands::Mcp => {
             // 大栈线程包装（执行卡偏差项，见 closure）：precommit 的 native

@@ -46,6 +46,8 @@ function PickerRow(props: { row: InspectionRow; onSelect(row: InspectionRow): vo
 export function ProjectPickerPanel(props: {
   inspection: WorkspaceInspection;
   onSelect(row: InspectionRow): void;
+  /** 多语言合并分析（P2）：对整个对话框根跑 analyze-workspace，语言判定全在 CLI。 */
+  onAnalyzeAll(): void;
   onCancel(): void;
 }) {
   const [unsupportedOpen, setUnsupportedOpen] = useState(false);
@@ -56,11 +58,16 @@ export function ProjectPickerPanel(props: {
         <div>
           <span className="settings-kicker">PICK A PROJECT</span>
           <h3>选择要分析的项目</h3>
-          <p className="picker-hint">检测到多个可分析候选；一次只分析一个项目。</p>
+          <p className="picker-hint">一次分析一个项目，或一键合并全部可分析语言。</p>
         </div>
-        <button type="button" data-testid="picker-cancel" onClick={props.onCancel}>
-          取消
-        </button>
+        <div className="picker-head-actions">
+          <button type="button" className="picker-analyze-all" data-testid="picker-analyze-all" onClick={props.onAnalyzeAll}>
+            全部分析（合并）
+          </button>
+          <button type="button" data-testid="picker-cancel" onClick={props.onCancel}>
+            取消
+          </button>
+        </div>
       </header>
 
       <ul className="picker-list">

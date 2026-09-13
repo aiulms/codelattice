@@ -19,9 +19,26 @@ pub fn workbench_analyze(
     app: tauri::AppHandle,
     state: State<AppState>,
     root: String,
-    language: String,
+    // 单项目必填；合并模式可缺席或传空串。
+    language: Option<String>,
+    // 多语言合并模式（P2）：true 时 root 是对话框选中的工作区根，
+    // supervisor spawn `analyze-workspace --root <root> --format webui-snapshot`，
+    // 不再传 --language。缺省 false 保持单项目语义零回归。
+    merge: Option<bool>,
 ) -> Result<Value, String> {
-    let project_root = if root.is_empty() {
+    let merge = merge.unwrap_or(false);
+    let language = language.unwrap_or_default();
+    if !merge && language.is_empty() {
+        return Err("language is required for single-project analyze".to_string());
+    }
+    let project_root = if merge {
+        // 合并模式：root 为空回退仓库根（默认开发体验），否则原样使用对话框根
+        if root.is_empty() {
+            common::repo_root()
+        } else {
+            PathBuf::from(&root)
+        }
+    } else if root.is_empty() {
         common::repo_root().join("fixtures/rust/portable-smoke")
     } else {
         PathBuf::from(root)
@@ -43,7 +60,7 @@ pub fn workbench_analyze(
     let job_id = {
         state
             .supervisor
-            .start(project_root, language, bin, publish_dir.clone())?
+            .start(project_root, language, bin, publish_dir.clone(), merge)?
     };
 
     // 后台线程：锁外 wait，完成后 emit
@@ -117,11 +134,28 @@ pub fn workbench_analyze_cancel(state: State<AppState>) -> Result<(), String> {
 pub fn workbench_analyze_status(state: State<AppState>) -> Result<Value, String> {
     let analyzer_state = state.supervisor.analyzer_state();
     let result = state.supervisor.last_result();
+    // 运行中附带进度与模式（P2：合并可能数分钟，状态条要能看出没卡死）
+    let running = state.supervisor.running_progress();
+    let (mode, progress) = running
+        .map(|(is_merge, line)| {
+            (
+                if is_merge {
+                    "workspace-merge"
+                } else {
+                    "single"
+                },
+                line,
+            )
+        })
+        .map(|(m, p)| (Some(m), Some(p)))
+        .unwrap_or((None, None));
     Ok(json!({
         "state": format!("{:?}", analyzer_state),
         "jobId": state.supervisor.active_job_id(),
         "publishedSnapshotId": result.as_ref().and_then(|r| r.published_snapshot_id.clone()),
         "error": result.as_ref().and_then(|r| r.error.clone()),
+        "mode": mode,
+        "progress": progress,
     }))
 }
 

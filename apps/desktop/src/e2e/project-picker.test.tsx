@@ -79,6 +79,25 @@ function multiCandidateInspection(): WorkspaceInspection {
   };
 }
 
+/** 合并快照（P2）：顶层 languages[]、无单数 language，图段允许为空。 */
+const mergedSnapshotJson = JSON.stringify({
+  schemaVersion: "webui.snapshot.v1",
+  generatedAt: "2026-09-13T00:00:00Z",
+  generatedFrom: { staticAnalysis: true, runtimeVerified: false },
+  languages: ["rust", "shell"],
+  summary: { languages: ["rust", "shell"], nodeCount: 0, edgeCount: 0 },
+  graph: {
+    status: "collected",
+    stability: "preview",
+    nodes: [],
+    edges: [],
+    summary: { nodeCount: 0, edgeCount: 0, fileNodeCount: 0, symbolNodeCount: 0, callEdgeCount: 0 },
+    truncated: false,
+    cautions: [],
+  },
+  limitations: { notes: [] },
+});
+
 /** 记录 analyze 参数 + 完成态的多候选 transport。 */
 class PickingTransport extends FakeDesktopTransport {
   analyzeCalls: Array<[string, string]> = [];
@@ -166,6 +185,49 @@ describe("project picker (workspace inspection)", () => {
     // snapshotMeta 随所选行更新：rootLabel 是行的 name（backend），不是对话框根（project）
     const label = await screen.findByTestId("snapshot-label");
     await waitFor(() => expect(label.textContent).toBe("backend · rust"), { timeout: 6000 });
+  });
+
+  it("merge button drives analyzeWorkspace with the dialog root and never analyze", async () => {
+    class MergeTransport extends FakeDesktopTransport {
+      analyzeWorkspaceCalls: string[] = [];
+      analyzeCalls: Array<[string, string]> = [];
+      constructor() {
+        // 产物是合并快照：验证 snapshotMeta 从 languages[] 取语言
+        super(mergedSnapshotJson, {
+          id: "snap:merge",
+          rootLabel: "old-project",
+          language: "shell",
+          createdAt: "2026-09-13T00:00:00Z",
+        });
+      }
+      override async inspect(): Promise<WorkspaceInspection> {
+        return multiCandidateInspection();
+      }
+      override async analyze(_root: string, _language: string): Promise<{ jobId: string }> {
+        this.analyzeCalls.push([_root, _language]);
+        throw new Error("merge path must not call single-project analyze");
+      }
+      override async analyzeWorkspace(root: string): Promise<{ jobId: string }> {
+        this.analyzeWorkspaceCalls.push(root);
+        return { jobId: "job-merge" };
+      }
+      override async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null; progress?: string | null; mode?: "workspace-merge" | "single" | null }> {
+        return { state: "Completed", jobId: "job-merge", publishedSnapshotId: "snap:merge", error: null, mode: "workspace-merge", progress: null };
+      }
+    }
+    const transport = new MergeTransport();
+    await openPicker(transport);
+
+    fireEvent.click(screen.getByTestId("picker-analyze-all"));
+
+    // 调 analyzeWorkspace(对话框根)，且从不调单项目 analyze
+    await waitFor(() => expect(transport.analyzeWorkspaceCalls).toEqual(["/fake/project"]));
+    expect(transport.analyzeCalls).toEqual([]);
+    // 挑选器卸载
+    await waitFor(() => expect(screen.queryByTestId("project-picker")).toBeNull());
+    // snapshotMeta：rootLabel 用对话框根目录名，language 是 languages.join(" · ")
+    const label = await screen.findByTestId("snapshot-label");
+    await waitFor(() => expect(label.textContent).toBe("project · rust · shell"), { timeout: 6000 });
   });
 
   it("zero analyzable rows surface the failure banner with unsupported hint", async () => {

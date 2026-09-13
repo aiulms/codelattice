@@ -93,6 +93,8 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
   const [defaultModelId, setDefaultModelId] = useState("");
   const [providerId, setProviderId] = useState("");
   const [analyzeState, setAnalyzeState] = useState("idle");
+  // 运行中 CLI 最后一行 stderr 进度（合并可能数分钟，状态条要能看出没卡死）
+  const [analyzeProgress, setAnalyzeProgress] = useState<string | null>(null);
   const [graphLevel, setGraphLevel] = useState<GraphLevel>("symbol");
   const [theme, setTheme] = useState<ThemeName>(() => readTheme());
   const [explainStyle, setExplainStyle] = useState<ExplainStyle>(() => readExplainStyle());
@@ -119,10 +121,17 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
   const activeStreamRef = useRef<StreamHandle | null>(null);
   const activeSessionIdRef = useRef("");
   const mountedRef = useRef(true);
+  const analyzePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      if (analyzePollRef.current) {
+        clearInterval(analyzePollRef.current);
+        analyzePollRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -499,6 +508,96 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
 
   // ── Analyzer ──────────────────────────────────────────────────────────
 
+  // 轮询共享段（P2 抽出）：analyze / analyzeWorkspace 启动后轮询到终态，
+  // 加载产物快照并切换会话。meta 由调用方给：单项目来自体检行，
+  // 合并来自产物快照的 languages[]（rootLabel 一律由调用方决定）。
+  const pollAnalyzeCompletion = useCallback(async (
+    analyzeRoot: string,
+    buildMeta: (data: SnapshotData) => { language: string; rootLabel: string },
+  ) => {
+    if (analyzePollRef.current) {
+      clearInterval(analyzePollRef.current);
+      analyzePollRef.current = null;
+    }
+    // 终态处理含 loadSnapshot/sessionCreate，可能超过 2s；禁止重叠 tick 双开会话。
+    let tickInFlight = false;
+    const tick = async () => {
+      if (tickInFlight) return;
+      tickInFlight = true;
+      try {
+        const status = await props.transport.analyzeStatus();
+        if (!mountedRef.current) return;
+        setAnalyzeState(status.state);
+        if (status.state === "Running") {
+          // 合并可能数分钟：CLI stderr 最后一行透到状态条，避免用户以为卡死
+          setAnalyzeProgress(status.progress ?? null);
+        }
+        if (["Completed", "Failed", "Cancelled"].includes(status.state)) {
+          if (analyzePollRef.current) {
+            clearInterval(analyzePollRef.current);
+            analyzePollRef.current = null;
+          }
+          setAnalyzeProgress(null);
+          // 失败必须说明原因：后端已经返回 error，之前被整段丢弃，
+          // 用户只看到按钮闪一下、图还停在旧快照。
+          if (status.state === "Failed") {
+            setAnalyzeError(analyzeFailureText(analyzeRoot, status.error));
+            setAnalyzeState("idle");
+            return;
+          }
+          if (status.state === "Cancelled") {
+            setAnalyzeState("idle");
+            return;
+          }
+          if (status.state === "Completed" && !status.publishedSnapshotId) {
+            setAnalyzeError(analyzeFailureText(analyzeRoot, "分析结束但没有产出可加载的快照"));
+            setAnalyzeState("idle");
+            return;
+          }
+          if (status.state === "Completed" && status.publishedSnapshotId) {
+            // 加载精确的 publishedSnapshotId（不依赖 snaps[0] 排序）
+            const data = await props.transport.loadSnapshot(status.publishedSnapshotId);
+            const index = buildIndex(data, status.publishedSnapshotId);
+            indexRef.current = index;
+            evidenceRef.current = new EvidenceClient(props.transport, index, data);
+            const newSessionId = await props.transport.sessionCreate(index.snapshotId);
+            if (!mountedRef.current) {
+              await props.transport.sessionClose(newSessionId).catch(() => {});
+              return;
+            }
+            const oldSessionId = activeSessionIdRef.current;
+            activeSessionIdRef.current = newSessionId;
+            if (oldSessionId) {
+              await props.transport.sessionClose(oldSessionId).catch(() => {});
+            }
+            convStore.dispatch({
+              type: "replace-session",
+              sessionId: newSessionId,
+              snapshotId: index.snapshotId,
+            });
+            setSnapshotMeta(buildMeta(data));
+            setSnapshot(data);
+            setAnalyzeState("idle");
+          }
+        }
+      } catch (e) {
+        // 轮询本身出错同样要说话，不能静默停表。
+        if (analyzePollRef.current) {
+          clearInterval(analyzePollRef.current);
+          analyzePollRef.current = null;
+        }
+        setAnalyzeProgress(null);
+        setAnalyzeError(analyzeFailureText(analyzeRoot, String(e)));
+        setAnalyzeState("idle");
+      } finally {
+        tickInFlight = false;
+      }
+    };
+    // 立即打一枪：否则 setInterval 首拍要等 2s，合并进程已在跑却显示 starting、取消按钮也不出。
+    void tick();
+    analyzePollRef.current = setInterval(() => { void tick(); }, 2000);
+  }, [props.transport, convStore]);
+
   // 第二段：以体检行为准分析。语言与标签全部来自所选行（多语言卡 3），
   // 轮询/加载/会话切换逻辑保持原样。
   const startAnalyze = useCallback(async (root: string, row: InspectionRow) => {
@@ -516,71 +615,31 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
       ?? (row.relativePath === "." ? projectLabelOf(root) : projectLabelOf(row.relativePath));
     try {
       setAnalyzeState("starting");
+      setAnalyzeProgress(null);
       await props.transport.analyze(analyzeRoot, language);
-      // 轮询状态
-      const poll = setInterval(async () => {
-        try {
-          const status = await props.transport.analyzeStatus();
-          setAnalyzeState(status.state);
-          if (["Completed", "Failed", "Cancelled"].includes(status.state)) {
-            clearInterval(poll);
-            // 失败必须说明原因：后端已经返回 error，之前被整段丢弃，
-            // 用户只看到按钮闪一下、图还停在旧快照。
-            if (status.state === "Failed") {
-              setAnalyzeError(analyzeFailureText(analyzeRoot, status.error));
-              setAnalyzeState("idle");
-              return;
-            }
-            if (status.state === "Cancelled") {
-              setAnalyzeState("idle");
-              return;
-            }
-            if (status.state === "Completed" && !status.publishedSnapshotId) {
-              setAnalyzeError(analyzeFailureText(analyzeRoot, "分析结束但没有产出可加载的快照"));
-              setAnalyzeState("idle");
-              return;
-            }
-            if (status.state === "Completed" && status.publishedSnapshotId) {
-              // 加载精确的 publishedSnapshotId（不依赖 snaps[0] 排序）
-              const data = await props.transport.loadSnapshot(status.publishedSnapshotId);
-              const index = buildIndex(data, status.publishedSnapshotId);
-              indexRef.current = index;
-              evidenceRef.current = new EvidenceClient(props.transport, index, data);
-              const newSessionId = await props.transport.sessionCreate(index.snapshotId);
-              if (!mountedRef.current) {
-                await props.transport.sessionClose(newSessionId).catch(() => {});
-                return;
-              }
-              const oldSessionId = activeSessionIdRef.current;
-              activeSessionIdRef.current = newSessionId;
-              if (oldSessionId) {
-                await props.transport.sessionClose(oldSessionId).catch(() => {});
-              }
-              convStore.dispatch({
-                type: "replace-session",
-                sessionId: newSessionId,
-                snapshotId: index.snapshotId,
-              });
-              setSnapshotMeta({
-                language,
-                rootLabel,
-              });
-              setSnapshot(data);
-              setAnalyzeState("idle");
-            }
-          }
-        } catch (e) {
-          // 轮询本身出错同样要说话，不能静默停表。
-          clearInterval(poll);
-          setAnalyzeError(analyzeFailureText(analyzeRoot, String(e)));
-          setAnalyzeState("idle");
-        }
-      }, 2000);
+      void pollAnalyzeCompletion(analyzeRoot, () => ({ language, rootLabel }));
     } catch (e) {
       setAnalyzeState("idle");
       setAnalyzeError(analyzeFailureText(analyzeRoot, String(e)));
     }
-  }, [props.transport, convStore]);
+  }, [props.transport, pollAnalyzeCompletion]);
+
+  // P2：多语言合并分析。root 是对话框选中的工作区根，语言与根目录名来自
+  // 合并产物（languages[] 字母序）；轮询/取消/发布守卫与单项目同一条链。
+  const startAnalyzeWorkspace = useCallback(async (root: string) => {
+    try {
+      setAnalyzeState("starting");
+      setAnalyzeProgress(null);
+      await props.transport.analyzeWorkspace(root);
+      void pollAnalyzeCompletion(root, (data) => ({
+        language: data.languages?.length ? data.languages.join(" · ") : "multi",
+        rootLabel: projectLabelOf(root),
+      }));
+    } catch (e) {
+      setAnalyzeState("idle");
+      setAnalyzeError(analyzeFailureText(root, String(e)));
+    }
+  }, [props.transport, pollAnalyzeCompletion]);
 
   // 第一段：选目录 → 体检 → 单候选直通 / 零候选报错 / 多候选进挑选态。
   // 一切语言信息来自 inspect 信封，前端不自建检测（stop-line）。
@@ -631,6 +690,14 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
     void startAnalyze(root, row);
   }
 
+  /** 挑选器「全部分析（合并）」：卸载挑选器后进 analyze-workspace 合并轮询（P2）。 */
+  function pickProjectAll() {
+    const root = picker?.root;
+    setPicker(null);
+    if (!root) return;
+    void startAnalyzeWorkspace(root);
+  }
+
   const cancelAnalyze = useCallback(async () => {
     try { await props.transport.analyzeCancel(); setAnalyzeState("Cancelled"); } catch { /* ignore */ }
   }, [props.transport]);
@@ -656,7 +723,7 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
           disabled={analyzeState === "Running" || analyzeState === "starting" || analyzeState === "selecting"}>
           {analyzeState === "idle" ? "分析项目" : analyzeState}
         </button>
-        {analyzeState === "Running" && (
+        {(analyzeState === "Running" || analyzeState === "starting") && (
           <button type="button" onClick={cancelAnalyze} data-testid="analyze-cancel-btn">取消分析</button>
         )}
         <label className="wb-model-picker">
@@ -695,6 +762,7 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
           <ProjectPickerPanel
             inspection={picker.inspection}
             onSelect={pickProjectRow}
+            onAnalyzeAll={pickProjectAll}
             onCancel={() => setPicker(null)}
           />
         )}
@@ -817,7 +885,11 @@ export function WorkbenchApp(props: { transport: DesktopTransport }) {
           {" · "}
           {graphLevel === "module" ? "模块图" : graphLevel === "file" ? "文件图" : "符号图"}
           {" · "}
-          {analyzeState === "idle" ? "就绪" : analyzeState}
+          {analyzeState === "idle"
+            ? "就绪"
+            : analyzeState === "Running" && analyzeProgress
+              ? analyzeProgress
+              : analyzeState}
         </footer>
       )}
     </div>

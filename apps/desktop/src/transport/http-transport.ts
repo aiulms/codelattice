@@ -81,7 +81,11 @@ export class HttpDesktopTransport implements DesktopTransport {
     throw new Error("not available on legacy runner");
   }
 
-  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }> {
+  async analyzeWorkspace(_root: string): Promise<{ jobId: string }> {
+    throw new Error("not available on legacy runner");
+  }
+
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null; progress?: string | null; mode?: "workspace-merge" | "single" | null }> {
     throw new Error("not available on legacy runner");
   }
 

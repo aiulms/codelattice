@@ -20,6 +20,10 @@ struct RunningJob {
     cancel_flag: AtomicBool,
     temp_output: PathBuf,
     publish_dir: PathBuf,
+    /// 是否 analyze-workspace 合并模式（status 的 mode 字段来源）。
+    is_merge: bool,
+    /// CLI stderr 最后一行（如「分析中 rust (2/3): backend」）；读线程独写。
+    progress: Arc<Mutex<String>>,
 }
 
 pub struct AnalyzerSupervisor {
@@ -28,6 +32,10 @@ pub struct AnalyzerSupervisor {
     /// 最终结果（完成后可查）。
     last_result: Mutex<Option<AnalyzerResult>>,
 }
+
+/// 进程内 job 序列号：纳秒时间戳在并发 start 时可能重复，重复 job_id 会让
+/// 两个 job 共享同一 temp_output 互相 truncate（产物损坏的偶发竞争源）。
+static JOB_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// 分析器完成结果。
 #[derive(Debug, Clone)]
@@ -83,13 +91,25 @@ impl AnalyzerSupervisor {
         self.last_result.lock().unwrap().clone()
     }
 
-    /// 启动分析。
+    /// 当前运行 job 的 (是否合并模式, 最后一行 stderr 进度)；空闲时 None（不阻塞）。
+    pub fn running_progress(&self) -> Option<(bool, String)> {
+        let guard = self.running.lock().unwrap();
+        guard
+            .as_ref()
+            .map(|j| (j.is_merge, j.progress.lock().unwrap().clone()))
+    }
+
+    /// 启动分析。`merge=true` 时 spawn `analyze-workspace --root <dir>
+    /// --format webui-snapshot`（多语言卡 P2：不传 --language，产物仍是
+    /// webui.snapshot.v1）；否则保持单项目 `analyze --language <lang>`。
+    /// 两种模式 stderr 都走管道：合并可能数分钟，进度不能丢进 Stdio::null()。
     pub fn start(
         &self,
         project_root: PathBuf,
         language: String,
         codelattice_bin: PathBuf,
         publish_dir: PathBuf,
+        merge: bool,
     ) -> Result<String, String> {
         // 单任务 gate
         if self.running.lock().unwrap().is_some() {
@@ -97,31 +117,54 @@ impl AnalyzerSupervisor {
         }
 
         let job_id = format!(
-            "job-{}",
+            "job-{}-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map_err(|e| e.to_string())?
-                .as_nanos()
+                .as_nanos(),
+            JOB_SEQ.fetch_add(1, Ordering::Relaxed),
         );
         let temp_output = std::env::temp_dir().join(format!("{job_id}.tmp.json"));
         let stdout = File::create(&temp_output)
             .map_err(|e| format!("create analyzer output failed: {e}"))?;
 
         let mut command = std::process::Command::new("nice");
-        command
-            .arg("-n")
-            .arg("10")
-            .arg(&codelattice_bin)
-            .args(["analyze", "--root"])
-            .arg(&project_root)
-            .args(["--language", &language, "--format", "webui-snapshot"])
-            .stdout(Stdio::from(stdout))
-            .stderr(Stdio::null());
+        command.arg("-n").arg("10").arg(&codelattice_bin);
+        if merge {
+            // 合并模式根是对话框选中的工作区根；--language 不得出现（那是单项目开关）
+            command
+                .args(["analyze-workspace", "--root"])
+                .arg(&project_root)
+                .args(["--format", "webui-snapshot"]);
+        } else {
+            command
+                .args(["analyze", "--root"])
+                .arg(&project_root)
+                .args(["--language", &language, "--format", "webui-snapshot"]);
+        }
+        command.stdout(Stdio::from(stdout)).stderr(Stdio::piped());
 
-        let child = command.spawn().map_err(|e| {
+        let mut child = command.spawn().map_err(|e| {
             let _ = std::fs::remove_file(&temp_output);
             format!("spawn failed: {e}")
         })?;
+
+        // stderr 读线程只更新「最后一行」共享串，不碰 supervisor 锁模型；
+        // child 被 kill 后管道关闭，线程自然结束。
+        let progress = Arc::new(Mutex::new(String::new()));
+        if let Some(stderr) = child.stderr.take() {
+            let progress = Arc::clone(&progress);
+            std::thread::spawn(move || {
+                use std::io::BufRead;
+                let reader = std::io::BufReader::new(stderr);
+                for line in reader.lines().map_while(Result::ok) {
+                    let trimmed = line.trim().to_string();
+                    if !trimmed.is_empty() {
+                        *progress.lock().unwrap() = trimmed;
+                    }
+                }
+            });
+        }
 
         let job = Arc::new(RunningJob {
             job_id: job_id.clone(),
@@ -129,6 +172,8 @@ impl AnalyzerSupervisor {
             cancel_flag: AtomicBool::new(false),
             temp_output,
             publish_dir,
+            is_merge: merge,
+            progress,
         });
         *self.running.lock().unwrap() = Some(job);
         *self.last_result.lock().unwrap() = None;
@@ -245,7 +290,7 @@ impl AnalyzerSupervisor {
         let schema_problem = match schema.as_deref() {
             Some("webui.snapshot.v1") => None,
             Some("codelattice.workspaceAutoEntry.v1") => Some(
-                "该目录是多项目工作区：需要先选择一个子项目再分析（界面挑选流程尚未支持）"
+                "该目录是多项目工作区：请在挑选器里选一个子项目，或用「全部分析（合并）」"
                     .to_string(),
             ),
             other => Some(format!(
@@ -337,7 +382,7 @@ mod tests {
 
         let supervisor = Arc::new(AnalyzerSupervisor::default());
         supervisor
-            .start(dir.clone(), "rust".into(), script, dir.clone())
+            .start(dir.clone(), "rust".into(), script, dir.clone(), false)
             .unwrap();
 
         let waiter = Arc::clone(&supervisor);
@@ -383,7 +428,114 @@ mod tests {
         );
         let supervisor = AnalyzerSupervisor::default();
         let job_id = supervisor
-            .start(dir.clone(), "rust".into(), script, dir.clone())
+            .start(dir.clone(), "rust".into(), script, dir.clone(), false)
+            .unwrap();
+        let result = supervisor.wait_and_publish();
+        assert_eq!(result.state, AnalyzerState::Completed);
+        assert!(dir.join(format!("{job_id}.json")).exists());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// 记录 spawn 参数的假 CLI：把 "$@" 一行一个写进 args 文件，再吐 v1 快照。
+    /// 用来锁定 merge/单项目两种模式的实际 spawn 参数（P2 执行卡要求）。
+    fn arg_logging_cli(dir: &std::path::Path, label: &str, payload: &str) -> PathBuf {
+        let args_file = dir.join(format!("{label}-args.txt"));
+        let script = dir.join(format!("{label}.sh"));
+        fs::write(
+            &script,
+            format!(
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"{}\"\ncat \"{}\"\n",
+                args_file.display(),
+                dir.join(format!("{label}.json")).display(),
+            ),
+        )
+        .unwrap();
+        fs::write(dir.join(format!("{label}.json")), payload).unwrap();
+        let mut permissions = fs::metadata(&script).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script, permissions).unwrap();
+        script
+    }
+
+    fn read_args(dir: &std::path::Path, label: &str) -> Vec<String> {
+        fs::read_to_string(dir.join(format!("{label}-args.txt")))
+            .unwrap()
+            .lines()
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn merge_mode_spawns_analyze_workspace_without_language() {
+        let dir = test_dir("merge-args");
+        let script = arg_logging_cli(
+            &dir,
+            "merge",
+            r#"{"schemaVersion":"webui.snapshot.v1","generatedAt":"2026-09-13T00:00:00Z","root":"/x","languages":["rust","shell"],"graph":{"nodes":[],"edges":[],"summary":{}}}"#,
+        );
+        let supervisor = AnalyzerSupervisor::default();
+        supervisor
+            .start(dir.clone(), String::new(), script, dir.clone(), true)
+            .unwrap();
+        // 运行中要能看出这是 workspace-merge 模式（status 的 mode 来源）
+        assert_eq!(supervisor.running_progress().map(|(m, _)| m), Some(true));
+
+        let result = supervisor.wait_and_publish();
+        assert_eq!(result.state, AnalyzerState::Completed, "{:?}", result.error);
+
+        let args = read_args(&dir, "merge");
+        assert_eq!(
+            args[0], "analyze-workspace",
+            "合并模式必须用 analyze-workspace: {args:?}"
+        );
+        assert!(
+            !args.iter().any(|a| a == "--language"),
+            "合并模式禁止传 --language: {args:?}"
+        );
+        assert!(args.iter().any(|a| a == "--format"), "{args:?}");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn single_mode_keeps_analyze_with_language() {
+        let dir = test_dir("single-args");
+        let script = arg_logging_cli(
+            &dir,
+            "single",
+            r#"{"schemaVersion":"webui.snapshot.v1","generatedAt":"2026-09-13T00:00:00Z","root":"/x","language":"rust","graph":{"nodes":[],"edges":[],"summary":{}}}"#,
+        );
+        let supervisor = AnalyzerSupervisor::default();
+        supervisor
+            .start(dir.clone(), "rust".into(), script, dir.clone(), false)
+            .unwrap();
+        // 单项目模式 mode 标记为 false
+        assert_eq!(supervisor.running_progress().map(|(m, _)| m), Some(false));
+
+        let result = supervisor.wait_and_publish();
+        assert_eq!(result.state, AnalyzerState::Completed, "{:?}", result.error);
+
+        let args = read_args(&dir, "single");
+        assert_eq!(args[0], "analyze", "单项目模式保持 analyze: {args:?}");
+        assert!(
+            args.iter().any(|a| a == "--language"),
+            "单项目模式必须带 --language: {args:?}"
+        );
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn publish_accepts_merged_webui_snapshot() {
+        // 合并信封（P2）：顶层 languages[]、无单数 language——守卫只看
+        // schemaVersion == webui.snapshot.v1，合并产物必须照常发布
+        let dir = test_dir("merged-publish");
+        let script = fake_cli(
+            &dir,
+            "merged",
+            r#"{"schemaVersion":"webui.snapshot.v1","generatedAt":"2026-09-13T00:00:00Z","root":"/x","languages":["rust","shell"],"summary":{"languages":["rust","shell"]},"graph":{"nodes":[],"edges":[],"summary":{}}}"#,
+        );
+        let supervisor = AnalyzerSupervisor::default();
+        let job_id = supervisor
+            .start(dir.clone(), String::new(), script, dir.clone(), true)
             .unwrap();
         let result = supervisor.wait_and_publish();
         assert_eq!(result.state, AnalyzerState::Completed);
@@ -401,7 +553,7 @@ mod tests {
         );
         let supervisor = AnalyzerSupervisor::default();
         let job_id = supervisor
-            .start(dir.clone(), "auto".into(), script, dir.clone())
+            .start(dir.clone(), "auto".into(), script, dir.clone(), false)
             .unwrap();
         let result = supervisor.wait_and_publish();
 
@@ -419,7 +571,7 @@ mod tests {
         let script = fake_cli(&dir, "bad", r#"{"schemaVersion":"0.3.0","graph":{}}"#);
         let supervisor = AnalyzerSupervisor::default();
         let job_id = supervisor
-            .start(dir.clone(), "rust".into(), script, dir.clone())
+            .start(dir.clone(), "rust".into(), script, dir.clone(), false)
             .unwrap();
         let result = supervisor.wait_and_publish();
 

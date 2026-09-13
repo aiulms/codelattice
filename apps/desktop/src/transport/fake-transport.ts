@@ -168,7 +168,11 @@ export class FakeDesktopTransport implements DesktopTransport {
     return { jobId: "job-fake-1" };
   }
 
-  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }> {
+  async analyzeWorkspace(_root: string): Promise<{ jobId: string }> {
+    return { jobId: "job-fake-merge" };
+  }
+
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null; progress?: string | null; mode?: "workspace-merge" | "single" | null }> {
     return { state: "Completed", jobId: "job-fake-1", publishedSnapshotId: null, error: null };
   }
 

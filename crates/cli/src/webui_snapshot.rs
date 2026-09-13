@@ -195,7 +195,7 @@ fn edge_endpoint<'a>(e: &'a Value, keys: &[&str]) -> &'a str {
 }
 
 /// 从节点 id 里抠文件路径（py:src:src/main.py / c:src:main.c 这类内嵌路径的 id）。
-fn extract_path_from_id(node_id: &str) -> String {
+pub(crate) fn extract_path_from_id(node_id: &str) -> String {
     const EXTS: [&str; 12] = [
         ".py", ".rs", ".c", ".cpp", ".h", ".ts", ".tsx", ".ets", ".sh", ".bash", ".zsh", ".ksh",
     ];
@@ -230,7 +230,7 @@ fn truncate_chars(s: &str, max: usize) -> String {
     s.chars().take(max).collect()
 }
 
-fn node_file_path(n: &Value) -> String {
+pub(crate) fn node_file_path(n: &Value) -> String {
     prop_str(n, "sourcePath")
         .or_else(|| prop_str(n, "file"))
         .or_else(|| prop_str(n, "path"))

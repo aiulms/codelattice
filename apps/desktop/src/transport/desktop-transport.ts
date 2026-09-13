@@ -62,7 +62,12 @@ export class TauriDesktopTransport implements DesktopTransport {
   async analyze(root: string, language: string): Promise<{ jobId: string }> {
     return invoke<{ jobId: string }>("workbench_analyze", { root, language });
   }
-  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }> {
+  async analyzeWorkspace(root: string): Promise<{ jobId: string }> {
+    // 多语言合并（P2）：merge=true 走 analyze-workspace。language 可缺席，
+    // 这里仍传空串，避免旧命令签名把 String 当必填时 IPC 直接失败。
+    return invoke<{ jobId: string }>("workbench_analyze", { root, language: "", merge: true });
+  }
+  async analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null; progress?: string | null; mode?: "workspace-merge" | "single" | null }> {
     return invoke("workbench_analyze_status");
   }
   async analyzeCancel(): Promise<void> { await invoke("workbench_analyze_cancel"); }

@@ -100,6 +100,10 @@ export type SnapshotData = {
   generatedAt: string;
   generatedFrom: { staticAnalysis: boolean; runtimeVerified: boolean };
   summary: Record<string, unknown>;
+  /** 合并快照（analyze-workspace）才写的顶层语言数组（字母序去重）；单语言快照缺席。 */
+  languages?: string[];
+  /** 合并快照才写的三桶体检摘要（projectsTotal/mergedProjectCount/…）；单语言快照缺席。 */
+  inspectionSummary?: Record<string, unknown>;
   graph: {
     status: string;
     stability: string;
@@ -307,7 +311,18 @@ export interface DesktopTransport {
   selectProjectDirectory(): Promise<string>;
   inspect(root: string): Promise<WorkspaceInspection>;
   analyze(root: string, language: string): Promise<{ jobId: string }>;
-  analyzeStatus(): Promise<{ state: string; jobId: string | null; publishedSnapshotId?: string | null; error?: string | null }>;
+  /** 多语言合并分析（P2）：root 是对话框选中的工作区根，后端 spawn `analyze-workspace`。 */
+  analyzeWorkspace(root: string): Promise<{ jobId: string }>;
+  analyzeStatus(): Promise<{
+    state: string;
+    jobId: string | null;
+    publishedSnapshotId?: string | null;
+    error?: string | null;
+    /** 运行中最后一行 CLI stderr 进度（如「分析中 rust (2/3): backend」）；空闲时缺席。 */
+    progress?: string | null;
+    /** 运行模式：workspace-merge = analyze-workspace 合并；single = 单项目 analyze。 */
+    mode?: "workspace-merge" | "single" | null;
+  }>;
   analyzeCancel(): Promise<void>;
   pinSnapshot(snapshotId: string): Promise<void>;
   unpinSnapshot(snapshotId: string): Promise<void>;

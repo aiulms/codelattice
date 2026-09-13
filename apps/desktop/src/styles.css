@@ -446,6 +446,9 @@ button { color: inherit; }
   background: #f8fafc; border-radius: 7px; cursor: pointer;
 }
 .picker-head button:hover { background: var(--cyan-soft); }
+/* P2：合并分析主入口 + 取消并排 */
+.picker-head-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+.picker-analyze-all { border-color: #99ced2; color: var(--ink-800); font-weight: 600; }
 .picker-list { list-style: none; margin: 12px 0 8px; padding: 0; display: grid; gap: 6px; }
 .picker-row button {
   display: grid; grid-template-columns: 1.6fr .8fr .6fr 1fr; gap: 8px; align-items: center;
