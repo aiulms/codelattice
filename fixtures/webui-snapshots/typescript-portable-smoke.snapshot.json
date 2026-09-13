@@ -1,375 +1,829 @@
 {
-  "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-05-16T17:34:53+00:00",
-  "generatedFrom": {
-    "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.15.0-beta.1",
-    "snapshotSchema": "webui.snapshot.v1",
-    "staticAnalysis": true,
-    "runtimeVerified": false,
-    "generationMethod": "cli-aggregate-phase-a"
-  },
-  "summary": {
-    "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 26,
-    "edgeCount": 54,
-    "symbolCount": 20,
-    "sourceFileCount": 4,
-    "moduleCount": 0,
-    "packageCount": 1,
-    "generatedAt": "2026-05-16T17:34:53+00:00",
-    "language": "unknown",
-    "toolVersion": "codelattice 0.15.0-beta.1"
-  },
-  "quality": {
-    "overall": "pass",
-    "gates": [
-      {
-        "gateName": "duplicate_nodes",
-        "passed": true,
-        "detail": "0 duplicate node IDs found"
-      },
-      {
-        "gateName": "dangling_source",
-        "passed": true,
-        "detail": "0 dangling source references found"
-      },
-      {
-        "gateName": "deterministic",
-        "passed": true,
-        "detail": "not verified from single CLI run; verified by test suite"
-      }
-    ],
-    "passedGateCount": 0,
-    "failedGateCount": 0,
-    "diagnosticsSummary": null,
-    "cautions": [
-      "Quality gates are based on static analysis only.",
-      "Pass/fail status does not guarantee runtime correctness.",
-      "External crate resolution is bounded; stdlib-only."
-    ]
-  },
-  "limitations": {
-    "runtimeVerified": false,
-    "externalUsageVerified": false,
-    "coverageVerified": false,
-    "deletionSafetyVerified": false,
-    "projectCodeExecuted": false,
-    "notes": [
-      "All results derived from static source analysis via CodeLattice CLI.",
-      "No project code was executed during snapshot generation.",
-      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
-      "External crate symbols are resolved only for std/core/alloc direct imports.",
-      "Trait resolution and type inference are NOT performed.",
-      "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting.",
-      "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
-    ]
-  },
-  "explore": {
-    "status": "collected",
-    "sourceFiles": [
-      {
-        "path": "src/index.ts",
-        "language": "",
-        "symbolCount": 2
-      },
-      {
-        "path": "src/math.ts",
-        "language": "",
-        "symbolCount": 7
-      },
-      {
-        "path": "src/model.ts",
-        "language": "",
-        "symbolCount": 10
-      },
-      {
-        "path": "src/utils.ts",
-        "language": "",
-        "symbolCount": 1
-      }
-    ],
-    "symbols": [
-      {
-        "id": "sym:src/index.ts:interface:User:6",
-        "name": "User",
-        "kind": "interface",
-        "kindLabel": "Interface",
-        "file": "src/index.ts",
-        "line": 6,
-        "endLine": 9
-      },
-      {
-        "id": "sym:src/index.ts:function:main:11",
-        "name": "main",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/index.ts",
-        "line": 11,
-        "endLine": 26
-      },
-      {
-        "id": "sym:src/math.ts:function:add:3",
-        "name": "add",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/math.ts",
-        "line": 3,
-        "endLine": 5
-      },
-      {
-        "id": "sym:src/math.ts:function:subtract:7",
-        "name": "subtract",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/math.ts",
-        "line": 7,
-        "endLine": 9
-      },
-      {
-        "id": "sym:src/math.ts:class:Calculator:13",
-        "name": "Calculator",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/math.ts",
-        "line": 13,
-        "endLine": 28
-      },
-      {
-        "id": "sym:src/math.ts:property:result:14",
-        "name": "result",
-        "kind": "property",
-        "kindLabel": "property",
-        "file": "src/math.ts",
-        "line": 14,
-        "endLine": 14
-      },
-      {
-        "id": "sym:src/math.ts:method:constructor:16",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 16,
-        "endLine": 18
-      },
-      {
-        "id": "sym:src/math.ts:method:add:20",
-        "name": "add",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 20,
-        "endLine": 23
-      },
-      {
-        "id": "sym:src/math.ts:method:getResult:25",
-        "name": "getResult",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/math.ts",
-        "line": 25,
-        "endLine": 27
-      },
-      {
-        "id": "sym:src/model.ts:interface:Shape:3",
-        "name": "Shape",
-        "kind": "interface",
-        "kindLabel": "Interface",
-        "file": "src/model.ts",
-        "line": 3,
-        "endLine": 6
-      },
-      {
-        "id": "sym:src/model.ts:typeAlias:Point:8",
-        "name": "Point",
-        "kind": "typeAlias",
-        "kindLabel": "typeAlias",
-        "file": "src/model.ts",
-        "line": 8,
-        "endLine": 8
-      },
-      {
-        "id": "sym:src/model.ts:typeAlias:Vector:10",
-        "name": "Vector",
-        "kind": "typeAlias",
-        "kindLabel": "typeAlias",
-        "file": "src/model.ts",
-        "line": 10,
-        "endLine": 10
-      },
-      {
-        "id": "sym:src/model.ts:class:Circle:12",
-        "name": "Circle",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/model.ts",
-        "line": 12,
-        "endLine": 22
-      },
-      {
-        "id": "sym:src/model.ts:method:constructor:13",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 13,
-        "endLine": 13
-      },
-      {
-        "id": "sym:src/model.ts:method:area:15",
-        "name": "area",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 15,
-        "endLine": 17
-      },
-      {
-        "id": "sym:src/model.ts:method:circumference:19",
-        "name": "circumference",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 19,
-        "endLine": 21
-      },
-      {
-        "id": "sym:src/model.ts:class:Rectangle:24",
-        "name": "Rectangle",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/model.ts",
-        "line": 24,
-        "endLine": 34
-      },
-      {
-        "id": "sym:src/model.ts:method:constructor:25",
-        "name": "constructor",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 25,
-        "endLine": 29
-      },
-      {
-        "id": "sym:src/model.ts:method:area:31",
-        "name": "area",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/model.ts",
-        "line": 31,
-        "endLine": 33
-      },
-      {
-        "id": "sym:src/utils.ts:function:greet:1",
-        "name": "greet",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/utils.ts",
-        "line": 1,
-        "endLine": 3
-      }
-    ],
-    "topFiles": [
-      {
-        "path": "src/model.ts",
-        "symbolCount": 10,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/math.ts",
-        "symbolCount": 7,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/index.ts",
-        "symbolCount": 2,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/utils.ts",
-        "symbolCount": 1,
-        "reason": "highest-symbol-count"
-      }
-    ],
-    "totalSymbols": 20,
-    "totalSourceFiles": 4,
-    "truncated": false
-  },
   "cleanup": {
-    "status": "partial",
-    "deadCodeCandidateCount": 20,
-    "unreachableCandidateCount": 20,
-    "externalApiSurfaceCount": null,
-    "frameworkEntryHintCount": null,
     "cautions": [
       "Dead-code detection is heuristic-based on call-graph shape.",
       "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
       "Public/exported symbols may be used by external crates not analyzed here.",
       "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
       "Auto-deletion is explicitly forbidden without human review + test regression check."
-    ]
-  },
-  "releaseReview": {
+    ],
+    "deadCodeCandidateCount": 14,
+    "externalApiSurfaceCount": null,
+    "frameworkEntryHintCount": null,
     "status": "partial",
-    "breakingChangeRisk": "low",
-    "breakingChangeSurface": 0,
-    "staleDocCandidateCount": null,
-    "missingTestCandidateCount": null,
-    "configExampleIssueCount": null,
+    "unreachableCandidateCount": 14
+  },
+  "explore": {
+    "sourceFiles": [
+      {
+        "language": "",
+        "path": "src/index.ts",
+        "symbolCount": 2
+      },
+      {
+        "language": "",
+        "path": "src/math.ts",
+        "symbolCount": 7
+      },
+      {
+        "language": "",
+        "path": "src/model.ts",
+        "symbolCount": 10
+      },
+      {
+        "language": "",
+        "path": "src/utils.ts",
+        "symbolCount": 1
+      }
+    ],
+    "status": "collected",
+    "symbols": [
+      {
+        "endLine": 9,
+        "file": "src/index.ts",
+        "id": "sym:src/index.ts:interface:User:6",
+        "kind": "interface",
+        "kindLabel": "Interface",
+        "line": 6,
+        "name": "User"
+      },
+      {
+        "endLine": 26,
+        "file": "src/index.ts",
+        "id": "sym:src/index.ts:function:main:11",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 11,
+        "name": "main"
+      },
+      {
+        "endLine": 5,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:function:add:3",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 3,
+        "name": "add"
+      },
+      {
+        "endLine": 9,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:function:subtract:7",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 7,
+        "name": "subtract"
+      },
+      {
+        "endLine": 28,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:class:Calculator:13",
+        "kind": "class",
+        "kindLabel": "Class",
+        "line": 13,
+        "name": "Calculator"
+      },
+      {
+        "endLine": 14,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:property:result:14",
+        "kind": "property",
+        "kindLabel": "property",
+        "line": 14,
+        "name": "result"
+      },
+      {
+        "endLine": 18,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:method:constructor:16",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 16,
+        "name": "constructor"
+      },
+      {
+        "endLine": 23,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:method:add:20",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 20,
+        "name": "add"
+      },
+      {
+        "endLine": 27,
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:method:getResult:25",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 25,
+        "name": "getResult"
+      },
+      {
+        "endLine": 6,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:interface:Shape:3",
+        "kind": "interface",
+        "kindLabel": "Interface",
+        "line": 3,
+        "name": "Shape"
+      },
+      {
+        "endLine": 8,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:typeAlias:Point:8",
+        "kind": "typeAlias",
+        "kindLabel": "typeAlias",
+        "line": 8,
+        "name": "Point"
+      },
+      {
+        "endLine": 10,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:typeAlias:Vector:10",
+        "kind": "typeAlias",
+        "kindLabel": "typeAlias",
+        "line": 10,
+        "name": "Vector"
+      },
+      {
+        "endLine": 22,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:class:Circle:12",
+        "kind": "class",
+        "kindLabel": "Class",
+        "line": 12,
+        "name": "Circle"
+      },
+      {
+        "endLine": 13,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:constructor:13",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 13,
+        "name": "constructor"
+      },
+      {
+        "endLine": 17,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:area:15",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 15,
+        "name": "area"
+      },
+      {
+        "endLine": 21,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:circumference:19",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 19,
+        "name": "circumference"
+      },
+      {
+        "endLine": 34,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:class:Rectangle:24",
+        "kind": "class",
+        "kindLabel": "Class",
+        "line": 24,
+        "name": "Rectangle"
+      },
+      {
+        "endLine": 29,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:constructor:25",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 25,
+        "name": "constructor"
+      },
+      {
+        "endLine": 33,
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:area:31",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 31,
+        "name": "area"
+      },
+      {
+        "endLine": 3,
+        "file": "src/utils.ts",
+        "id": "sym:src/utils.ts:function:greet:1",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 1,
+        "name": "greet"
+      }
+    ],
+    "topFiles": [
+      {
+        "path": "src/model.ts",
+        "reason": "highest-symbol-count",
+        "symbolCount": 10
+      },
+      {
+        "path": "src/math.ts",
+        "reason": "highest-symbol-count",
+        "symbolCount": 7
+      },
+      {
+        "path": "src/index.ts",
+        "reason": "highest-symbol-count",
+        "symbolCount": 2
+      },
+      {
+        "path": "src/utils.ts",
+        "reason": "highest-symbol-count",
+        "symbolCount": 1
+      }
+    ],
+    "totalSourceFiles": 4,
+    "totalSymbols": 20,
+    "truncated": false
+  },
+  "generatedAt": "2026-09-13T03:40:55Z",
+  "generatedFrom": {
+    "generationMethod": "cli-format-webui-snapshot",
+    "runtimeVerified": false,
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "tool": "CodeLattice",
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "graph": {
     "cautions": [
-      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
-      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
-      "Documentation staleness requires manual review — this only lists doc files found.",
-      "Test coverage gaps require test runner integration — not available in static mode.",
-      "Config example drift needs template comparison — not performed in this snapshot."
-    ]
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
+    ],
+    "edges": [
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:7219a77dc6b2aa31f5450dc1a131b0d59b9f6ef9f8aa4e81298fc80cdf06e59e",
+        "source": "repo:<redacted-root>",
+        "target": "pkg:portable-smoke"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:9db5e204d36464246f72a7e3afac0e1ae557a2d6ac706fa9efa2035eff724c71",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/index.ts"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:92a3dbcb3efc5ab8bd670221474300c428fae455bc72253267620b67e8ecdec5",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/index.ts:interface:User:6"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:5664442f7378fe057e21c256c9eafdafde8d701c741dfcc69bcb14d77d87abd2",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/index.ts:function:main:11"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:9319492918c7bd66a9914850397361533a9cdab0fe60247f00b84a9d8baf2339",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/math.ts"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:9b02fe1a7622a1f152e25eeb9200de6668806d3ac955a303b05f4a8d1a668d0f",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:function:add:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:7fc2ae717203c983017c922d46d9e4be789068d047e953dc86064a5730f48879",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:function:subtract:7"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:96811ba25eadd4fe30f6689e0e151313623a8311d516ed3dec6ccac967593dce",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:class:Calculator:13"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:a6a21e6a1a24ab32e2c8ee3b1d47e10b5f1e1e58c394bc2d48e954c59c12b277",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:property:result:14"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:5ff1ad3cf9bf496f4e30e42658f0aee0e353eef6f41907cd3535aec92c067a9f",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:method:constructor:16"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:e95351f7cc4e98be674032b341a0c51d662bc36811063155933314922b36e0e8",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:method:add:20"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:2d0c2b978b78212e0617ce15ca48bf8c6188cea74f15a680eddcce0775906ae0",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:method:getResult:25"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:12ef28772bda2b21f276efcd384905253e07481286e6c7fa2b0725a495f2e7f4",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/model.ts"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4d90f8e2709c3b15f03ae4dfc8007deaba3b2df688cc61db317aeab07fbf3440",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:interface:Shape:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:b2d5ac86392086d05ddd5e2a1fe6f513b411ae329693acb106463e77bfe8c4e4",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:typeAlias:Point:8"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ccfd25cad82098642861804caf1ee4079a80ddd5046c2d6c744666e254b306b3",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:typeAlias:Vector:10"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:b210ca557c89e81879aab08f6fac4e28804af59236aee4fdbf17b8179814ded1",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:class:Circle:12"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:9be7cba07cdd00297bda76c2cb090bb5ab0b6ecece0a36d63161bd9a13e09a6b",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:constructor:13"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:38e8e722f4e17e5c096d2d0604ace8832b71582dc02db88298b4c0ea68bfe937",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:area:15"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:f6066eb2e5cd2aa71698da2d977508ec57f93b4610482d75b64104165e0a8b79",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:circumference:19"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ddac8f9a19353241f43e9ab30f255bf4d3e911eead6a6853e2b46e1c1c178ac1",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:class:Rectangle:24"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4f5f57864ce66fccd0d001c5ed5ea6d609eac46f43b0f4f3deaacd00d227cc80",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:constructor:25"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:9ee9d10b989e418c4541617af2a618cf5d5820761328223fbc37c49c452005b8",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:method:area:31"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:2b5980bb16b1222a4770b8dd7c1ec0d68d819b8b9ba9991060ca925d6c502de7",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/utils.ts"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:0791277d40a5de6d83109f1d8383d6e9fa644566280316b2364f8d856bbd44b3",
+        "source": "file:<redacted-root>/src/utils.ts",
+        "target": "sym:src/utils.ts:function:greet:1"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "typescript-relative-import-resolved",
+        "relationKey": "rel:sha256:0cadf57c602404e4d9660203c4afe6537a4f26fce5c4e42dc19cc1a8fdd04237",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/math.ts"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "typescript-relative-import-resolved",
+        "relationKey": "rel:sha256:6a69de5a5c93630636d15f7c257f950f555010042a25287aa73861116569a786",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/model.ts"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "typescript-relative-import-resolved",
+        "relationKey": "rel:sha256:1677c94d290110deb4dfc0eddb1824bdf61caf3effa8143968f6c8da11724ca4",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "file:<redacted-root>/src/utils.ts"
+      },
+      {
+        "confidence": 0.88,
+        "kind": "calls",
+        "reason": "imported-callee-name",
+        "relationKey": "rel:sha256:e87a614a01c31842e4c5032fbdd098c6192107d6e01ece7ef44450866107cdf8",
+        "source": "sym:src/index.ts:function:main:11",
+        "target": "sym:src/math.ts:class:Calculator:13"
+      },
+      {
+        "confidence": 0.88,
+        "kind": "calls",
+        "reason": "imported-callee-name",
+        "relationKey": "rel:sha256:5b397d16023b2adcf8509a12dc0c8c038ce54d9e2283ab9e3b4761ab1b7eed9f",
+        "source": "sym:src/index.ts:function:main:11",
+        "target": "sym:src/math.ts:function:add:3"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:1aa65f40907eab9b07fd4805d5c287788e434a8c820bb635178b19e27d304735",
+        "source": "sym:src/index.ts:function:main:11",
+        "target": "sym:src/math.ts:method:add:20"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:685f000d03a280dff76c13cea16d4f94df21b46d341ed1ab9007e03dae929c27",
+        "source": "sym:src/index.ts:function:main:11",
+        "target": "sym:src/math.ts:method:getResult:25"
+      },
+      {
+        "confidence": 0.88,
+        "kind": "calls",
+        "reason": "imported-callee-name",
+        "relationKey": "rel:sha256:60f58d3771f4361b646e658620386d0abc6cbfafec2deaea0df0b4f486635b8b",
+        "source": "sym:src/index.ts:function:main:11",
+        "target": "sym:src/model.ts:class:Circle:12"
+      },
+      {
+        "confidence": 0.88,
+        "kind": "calls",
+        "reason": "imported-callee-name",
+        "relationKey": "rel:sha256:2b9c082af5381210fe356d2f125e6f1153d6019b983864a206d013d42f8ddbcf",
+        "source": "sym:src/index.ts:function:main:11",
+        "target": "sym:src/utils.ts:function:greet:1"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:51ec5ef1c01328b90446b5b8f8e4ad85d09d45448cda8ae3cb475dd3d7565da3",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/index.ts:interface:User:6"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "related",
+        "reason": "imported-type",
+        "relationKey": "rel:sha256:0812b03305469c90aa02ca3c0144897742f94248db5a03381551ce284e53c2d7",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/model.ts:interface:Shape:3"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "related",
+        "reason": "imported-type",
+        "relationKey": "rel:sha256:d21761170587c1aa401ddea43e590bc8154e9742d8fb03debb4b7613020eb483",
+        "source": "file:<redacted-root>/src/index.ts",
+        "target": "sym:src/model.ts:typeAlias:Point:8"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:c57c725abfe3a9e582c8f3ecc9bd7d318c7836aeaf2ba093e05ec32dddc82cd5",
+        "source": "file:<redacted-root>/src/math.ts",
+        "target": "sym:src/math.ts:class:Calculator:13"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:85674c1e57c8453f47c4bacd6837fc179251761c64f2f68c51cdc10a31f7320a",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:class:Circle:12"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:2babb32a66e70bfee9fbc6a0e848feec9e6988ba1cf77cbb761422958f8075ba",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:class:Rectangle:24"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:7897ce324a36d8fe1624e4a31b817e78581b95729ab5ac11edb8171ec8439bf5",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:interface:Shape:3"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:765b5ce5aaa2fe10fdbf4909c44d805faa7db95b49d800d678c1e50887fc5bf4",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:typeAlias:Point:8"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "same-file-type",
+        "relationKey": "rel:sha256:e990065e582f3f72f0b37170493ec9021f3f1617fff505a358b6580f12133bac",
+        "source": "file:<redacted-root>/src/model.ts",
+        "target": "sym:src/model.ts:typeAlias:Vector:10"
+      }
+    ],
+    "nodes": [
+      {
+        "file": "",
+        "id": "repo:<redacted-root>",
+        "kind": "package",
+        "label": "portable-smoke"
+      },
+      {
+        "file": "",
+        "id": "pkg:portable-smoke",
+        "kind": "package",
+        "label": "portable-smoke"
+      },
+      {
+        "file": "src/index.ts",
+        "id": "file:<redacted-root>/src/index.ts",
+        "kind": "file",
+        "label": "src/index.ts",
+        "language": "typescript"
+      },
+      {
+        "file": "src/math.ts",
+        "id": "file:<redacted-root>/src/math.ts",
+        "kind": "file",
+        "label": "src/math.ts",
+        "language": "typescript"
+      },
+      {
+        "file": "src/model.ts",
+        "id": "file:<redacted-root>/src/model.ts",
+        "kind": "file",
+        "label": "src/model.ts",
+        "language": "typescript"
+      },
+      {
+        "file": "src/utils.ts",
+        "id": "file:<redacted-root>/src/utils.ts",
+        "kind": "file",
+        "label": "src/utils.ts",
+        "language": "typescript"
+      },
+      {
+        "file": "src/index.ts",
+        "id": "sym:src/index.ts:interface:User:6",
+        "kind": "symbol",
+        "label": "User",
+        "language": "typescript",
+        "line": 6
+      },
+      {
+        "file": "src/index.ts",
+        "id": "sym:src/index.ts:function:main:11",
+        "kind": "symbol",
+        "label": "main",
+        "language": "typescript",
+        "line": 11
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:function:add:3",
+        "kind": "symbol",
+        "label": "add",
+        "language": "typescript",
+        "line": 3
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:function:subtract:7",
+        "kind": "symbol",
+        "label": "subtract",
+        "language": "typescript",
+        "line": 7
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:class:Calculator:13",
+        "kind": "symbol",
+        "label": "Calculator",
+        "language": "typescript",
+        "line": 13
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:property:result:14",
+        "kind": "symbol",
+        "label": "result",
+        "language": "typescript",
+        "line": 14
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:method:constructor:16",
+        "kind": "symbol",
+        "label": "constructor",
+        "language": "typescript",
+        "line": 16
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:method:add:20",
+        "kind": "symbol",
+        "label": "add",
+        "language": "typescript",
+        "line": 20
+      },
+      {
+        "file": "src/math.ts",
+        "id": "sym:src/math.ts:method:getResult:25",
+        "kind": "symbol",
+        "label": "getResult",
+        "language": "typescript",
+        "line": 25
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:interface:Shape:3",
+        "kind": "symbol",
+        "label": "Shape",
+        "language": "typescript",
+        "line": 3
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:typeAlias:Point:8",
+        "kind": "symbol",
+        "label": "Point",
+        "language": "typescript",
+        "line": 8
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:typeAlias:Vector:10",
+        "kind": "symbol",
+        "label": "Vector",
+        "language": "typescript",
+        "line": 10
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:class:Circle:12",
+        "kind": "symbol",
+        "label": "Circle",
+        "language": "typescript",
+        "line": 12
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:constructor:13",
+        "kind": "symbol",
+        "label": "constructor",
+        "language": "typescript",
+        "line": 13
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:area:15",
+        "kind": "symbol",
+        "label": "area",
+        "language": "typescript",
+        "line": 15
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:circumference:19",
+        "kind": "symbol",
+        "label": "circumference",
+        "language": "typescript",
+        "line": 19
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:class:Rectangle:24",
+        "kind": "symbol",
+        "label": "Rectangle",
+        "language": "typescript",
+        "line": 24
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:constructor:25",
+        "kind": "symbol",
+        "label": "constructor",
+        "language": "typescript",
+        "line": 25
+      },
+      {
+        "file": "src/model.ts",
+        "id": "sym:src/model.ts:method:area:31",
+        "kind": "symbol",
+        "label": "area",
+        "language": "typescript",
+        "line": 31
+      },
+      {
+        "file": "src/utils.ts",
+        "id": "sym:src/utils.ts:function:greet:1",
+        "kind": "symbol",
+        "label": "greet",
+        "language": "typescript",
+        "line": 1
+      }
+    ],
+    "stability": "preview",
+    "status": "collected",
+    "summary": {
+      "callEdgeCount": 6,
+      "edgeCount": 43,
+      "fileNodeCount": 4,
+      "nodeCount": 26,
+      "symbolNodeCount": 20
+    },
+    "truncated": false
   },
   "insights": {
-    "status": "partial",
-    "hotspots": [
-      {
-        "id": "file:<redacted-root>/src/index.ts",
-        "name": "file:<redacted-root>/src/index.ts",
-        "fanOut": 22,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "file:<redacted-root>/src/model.ts",
-        "name": "file:<redacted-root>/src/model.ts",
-        "fanOut": 18,
-        "fanIn": 3,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "file:<redacted-root>/src/math.ts",
-        "name": "file:<redacted-root>/src/math.ts",
-        "fanOut": 8,
-        "fanIn": 2,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "repo:<redacted-root>",
-        "name": "repo:<redacted-root>",
-        "fanOut": 5,
-        "fanIn": 0,
-        "file": "",
-        "kind": ""
-      }
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
     ],
     "entryPoints": [
       {
-        "id": "sym:src/index.ts:function:main:11",
-        "name": "main",
-        "kind": "function",
         "file": "src/index.ts",
+        "id": "sym:src/index.ts:function:main:11",
+        "kind": "function",
+        "name": "main",
         "reason": "well-known-entry-point"
+      }
+    ],
+    "hotspots": [
+      {
+        "fanIn": 2,
+        "fanOut": 15,
+        "file": "",
+        "id": "file:<redacted-root>/src/model.ts",
+        "kind": "",
+        "name": "file:<redacted-root>/src/model.ts"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 8,
+        "file": "",
+        "id": "file:<redacted-root>/src/index.ts",
+        "kind": "",
+        "name": "file:<redacted-root>/src/index.ts"
+      },
+      {
+        "fanIn": 2,
+        "fanOut": 8,
+        "file": "",
+        "id": "file:<redacted-root>/src/math.ts",
+        "kind": "",
+        "name": "file:<redacted-root>/src/math.ts"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 6,
+        "file": "src/index.ts",
+        "id": "sym:src/index.ts:function:main:11",
+        "kind": "function",
+        "name": "main"
+      },
+      {
+        "fanIn": 0,
+        "fanOut": 5,
+        "file": "",
+        "id": "repo:<redacted-root>",
+        "kind": "",
+        "name": "repo:<redacted-root>"
       }
     ],
     "reviewFirst": [
@@ -386,526 +840,276 @@
         "reason": "high-fan-out-hotspot"
       }
     ],
+    "status": "partial"
+  },
+  "language": "typescript",
+  "limitations": {
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "externalUsageVerified": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects.",
+      "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
+    ],
+    "projectCodeExecuted": false,
+    "runtimeVerified": false
+  },
+  "moduleGraph": {
+    "edges": [],
+    "modules": [
+      {
+        "files": 4,
+        "id": "src",
+        "languages": [
+          "typescript"
+        ],
+        "symbols": 20
+      }
+    ],
+    "truncated": false
+  },
+  "quality": {
     "cautions": [
-      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
-      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
-    ]
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ],
+    "diagnosticsSummary": {
+      "error": 0,
+      "info": 0,
+      "total": 1,
+      "warning": 0
+    },
+    "failedGateCount": 0,
+    "gates": [
+      {
+        "detail": "0 duplicate node IDs found",
+        "gateName": "duplicate_nodes",
+        "passed": true
+      },
+      {
+        "detail": "0 duplicate edge triples found",
+        "gateName": "duplicate_edges",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling source references found",
+        "gateName": "dangling_source",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling target references found",
+        "gateName": "dangling_target",
+        "passed": true
+      },
+      {
+        "detail": "not verified from single CLI run; verified by test suite",
+        "gateName": "deterministic",
+        "passed": true
+      },
+      {
+        "detail": "All CALLS edge endpoints exist in nodes",
+        "gateName": "calls_endpoint_integrity",
+        "passed": true
+      },
+      {
+        "detail": "No external package imports detected",
+        "gateName": "external_symbol_marking",
+        "passed": true
+      }
+    ],
+    "overall": "pass",
+    "passedGateCount": 7
+  },
+  "releaseReview": {
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 0,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ],
+    "configExampleIssueCount": null,
+    "missingTestCandidateCount": null,
+    "staleDocCandidateCount": null,
+    "status": "partial"
+  },
+  "root": "<redacted-root>",
+  "schemaVersion": "webui.snapshot.v1",
+  "summary": {
+    "edgeCount": 43,
+    "generatedAt": "2026-09-13T03:40:55Z",
+    "language": "typescript",
+    "moduleCount": 0,
+    "nodeCount": 26,
+    "packageCount": 2,
+    "schemaVersion": "webui.snapshot.v1",
+    "sourceFileCount": 4,
+    "symbolCount": 20,
+    "toolVersion": "0.17.0-beta.2"
   },
   "workflowPresets": {
-    "status": "collected",
     "presets": [
       {
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
         "id": "onboarding",
         "name": "项目接入 / Onboarding",
-        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
-        "tools": [
-          "analyze",
-          "summary",
-          "explore"
-        ],
         "stopLines": [
           "不执行目标项目代码",
           "不修改源码",
           "静态分析结果仅供参考"
+        ],
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
         ]
       },
       {
+        "description": "修改代码前了解影响范围、调用链、风险点",
         "id": "before_edit",
         "name": "编辑前检查 / Before Edit",
-        "description": "修改代码前了解影响范围、调用链、风险点",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze"
-        ],
         "stopLines": [
           "不替代 code review",
           "运行时行为需实测确认",
           "trait 解析为启发式"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
         ]
       },
       {
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
         "id": "after_edit",
         "name": "编辑后验证 / After Edit",
-        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
-        "tools": [
-          "quality",
-          "analyze",
-          "detect-changes"
-        ],
         "stopLines": [
           "不运行测试套件",
           "不执行 package manager",
           "不保证无回归"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
         ]
       },
       {
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
         "id": "delete_code",
         "name": "删除代码前评估 / Delete Code Assessment",
-        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include calls"
-        ],
         "stopLines": [
           "dead-code candidate ≠ 可安全删除",
           "外部 API heuristic 不等于真实使用者",
           "必须人工复核"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
         ]
       },
       {
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
         "id": "release_check",
         "name": "发布前检查 / Release Check",
-        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
-        "tools": [
-          "quality",
-          "analyze",
-          "release_review"
-        ],
         "stopLines": [
           "不是 GA 质量证明",
           "不覆盖运行时测试",
           "不验证外部依赖兼容性"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
         ]
       },
       {
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
         "id": "legacy_cleanup",
         "name": "遗留代码清理 / Legacy Cleanup",
-        "description": "识别未使用的符号、过时的模块、可简化的调用链",
-        "tools": [
-          "analyze --include calls",
-          "quality",
-          "cleanup_summary"
-        ],
         "stopLines": [
           "低置信度标记需逐一核实",
           "不自动删除任何代码",
           "framework entry 点不可轻移"
+        ],
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
         ]
       },
       {
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
         "id": "public_api_change",
         "name": "公共 API 变更评估 / Public API Change",
-        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include graph"
-        ],
         "stopLines": [
           "external usage 为启发式推断",
           "文档同步需人工处理",
           "semantic versioning 需人工判断"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
         ]
       },
       {
+        "description": "修改框架入口/路由/控制器时的影响分析",
         "id": "framework_route_change",
         "name": "框架路由变更 / Framework Route Change",
-        "description": "修改框架入口/路由/控制器时的影响分析",
-        "tools": [
-          "analyze",
-          "impact_preview",
-          "entry_points"
-        ],
         "stopLines": [
           "路由解析为模式匹配",
           "动态路由不可完全覆盖",
           "需结合框架文档"
+        ],
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
         ]
       },
       {
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
         "id": "docs_tests_sync",
         "name": "文档-测试同步检查 / Docs-Tests Sync",
-        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
-        "tools": [
-          "analyze",
-          "quality",
-          "release_review"
-        ],
         "stopLines": [
           "基于文件名/符号名的启发式",
           "不解析文档内容语义",
           "不判断测试充分性"
-        ]
-      },
-      {
-        "id": "config_examples_sync",
-        "name": "配置-示例同步检查 / Config-Examples Sync",
-        "description": "发现配置项与示例/文档不同步的问题",
+        ],
         "tools": [
           "analyze",
           "quality",
           "release_review"
-        ],
+        ]
+      },
+      {
+        "description": "发现配置项与示例/文档不同步的问题",
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
         "stopLines": [
           "不验证配置值正确性",
           "不执行配置加载",
           "模板/占位符可能误报"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
         ]
       }
-    ]
-  },
-  "graph": {
-    "status": "collected",
-    "stability": "preview",
-    "nodes": [
-      {
-        "id": "sym:src/index.ts:interface:User:6",
-        "label": "User",
-        "kind": "symbol",
-        "file": "src/index.ts",
-        "line": 6
-      },
-      {
-        "id": "sym:src/index.ts:function:main:11",
-        "label": "main",
-        "kind": "symbol",
-        "file": "src/index.ts",
-        "line": 11
-      },
-      {
-        "id": "sym:src/math.ts:function:add:3",
-        "label": "add",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 3
-      },
-      {
-        "id": "sym:src/math.ts:function:subtract:7",
-        "label": "subtract",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 7
-      },
-      {
-        "id": "sym:src/math.ts:class:Calculator:13",
-        "label": "Calculator",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 13
-      },
-      {
-        "id": "sym:src/math.ts:property:result:14",
-        "label": "result",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 14
-      },
-      {
-        "id": "sym:src/math.ts:method:constructor:16",
-        "label": "constructor",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 16
-      },
-      {
-        "id": "sym:src/math.ts:method:add:20",
-        "label": "add",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 20
-      },
-      {
-        "id": "sym:src/math.ts:method:getResult:25",
-        "label": "getResult",
-        "kind": "symbol",
-        "file": "src/math.ts",
-        "line": 25
-      },
-      {
-        "id": "sym:src/model.ts:interface:Shape:3",
-        "label": "Shape",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 3
-      },
-      {
-        "id": "sym:src/model.ts:typeAlias:Point:8",
-        "label": "Point",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 8
-      },
-      {
-        "id": "sym:src/model.ts:typeAlias:Vector:10",
-        "label": "Vector",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 10
-      },
-      {
-        "id": "sym:src/model.ts:class:Circle:12",
-        "label": "Circle",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 12
-      },
-      {
-        "id": "sym:src/model.ts:method:constructor:13",
-        "label": "constructor",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 13
-      },
-      {
-        "id": "sym:src/model.ts:method:area:15",
-        "label": "area",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 15
-      },
-      {
-        "id": "sym:src/model.ts:method:circumference:19",
-        "label": "circumference",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 19
-      },
-      {
-        "id": "sym:src/model.ts:class:Rectangle:24",
-        "label": "Rectangle",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 24
-      },
-      {
-        "id": "sym:src/model.ts:method:constructor:25",
-        "label": "constructor",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 25
-      },
-      {
-        "id": "sym:src/model.ts:method:area:31",
-        "label": "area",
-        "kind": "symbol",
-        "file": "src/model.ts",
-        "line": 31
-      },
-      {
-        "id": "sym:src/utils.ts:function:greet:1",
-        "label": "greet",
-        "kind": "symbol",
-        "file": "src/utils.ts",
-        "line": 1
-      },
-      {
-        "id": "file:<redacted-root>/src/index.ts",
-        "label": "src/index.ts",
-        "kind": "file",
-        "file": "src/index.ts"
-      },
-      {
-        "id": "file:<redacted-root>/src/math.ts",
-        "label": "src/math.ts",
-        "kind": "file",
-        "file": "src/math.ts"
-      },
-      {
-        "id": "file:<redacted-root>/src/model.ts",
-        "label": "src/model.ts",
-        "kind": "file",
-        "file": "src/model.ts"
-      },
-      {
-        "id": "file:<redacted-root>/src/utils.ts",
-        "label": "src/utils.ts",
-        "kind": "file",
-        "file": "src/utils.ts"
-      },
-      {
-        "id": "pkg:portable-smoke",
-        "label": "portable-smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "repo:<redacted-root>",
-        "label": "portable-smoke",
-        "kind": "package",
-        "file": ""
-      }
     ],
-    "edges": [
-      {
-        "source": "repo:<redacted-root>",
-        "target": "pkg:portable-smoke",
-        "kind": "owns"
-      },
-      {
-        "source": "repo:<redacted-root>",
-        "target": "file:<redacted-root>/src/index.ts",
-        "kind": "owns"
-      },
-      {
-        "source": "file:<redacted-root>/src/index.ts",
-        "target": "sym:src/index.ts:interface:User:6",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/index.ts",
-        "target": "sym:src/index.ts:function:main:11",
-        "kind": "defines"
-      },
-      {
-        "source": "repo:<redacted-root>",
-        "target": "file:<redacted-root>/src/math.ts",
-        "kind": "owns"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:function:add:3",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:function:subtract:7",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:class:Calculator:13",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:property:result:14",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:method:constructor:16",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:method:add:20",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/math.ts",
-        "target": "sym:src/math.ts:method:getResult:25",
-        "kind": "defines"
-      },
-      {
-        "source": "repo:<redacted-root>",
-        "target": "file:<redacted-root>/src/model.ts",
-        "kind": "owns"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:interface:Shape:3",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:typeAlias:Point:8",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:typeAlias:Vector:10",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:class:Circle:12",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:method:constructor:13",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:method:area:15",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:method:circumference:19",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:class:Rectangle:24",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:method:constructor:25",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/model.ts",
-        "target": "sym:src/model.ts:method:area:31",
-        "kind": "defines"
-      },
-      {
-        "source": "repo:<redacted-root>",
-        "target": "file:<redacted-root>/src/utils.ts",
-        "kind": "owns"
-      },
-      {
-        "source": "file:<redacted-root>/src/utils.ts",
-        "target": "sym:src/utils.ts:function:greet:1",
-        "kind": "defines"
-      },
-      {
-        "source": "file:<redacted-root>/src/index.ts",
-        "target": "file:<redacted-root>/src/utils.ts",
-        "kind": "imports",
-        "confidence": 0.9,
-        "reason": "typescript-relative-import-resolved"
-      },
-      {
-        "source": "file:<redacted-root>/src/index.ts",
-        "target": "file:<redacted-root>/src/math.ts",
-        "kind": "imports",
-        "confidence": 0.9,
-        "reason": "typescript-relative-import-resolved"
-      },
-      {
-        "source": "file:<redacted-root>/src/index.ts",
-        "target": "file:<redacted-root>/src/model.ts",
-        "kind": "imports",
-        "confidence": 0.9,
-        "reason": "typescript-relative-import-resolved"
-      },
-      {
-        "source": "file:<redacted-root>/src/index.ts",
-        "target": "file:<redacted-root>/src/model.ts",
-        "kind": "imports",
-        "confidence": 0.9,
-        "reason": "typescript-relative-import-resolved"
-      }
-    ],
-    "summary": {
-      "nodeCount": 26,
-      "edgeCount": 29,
-      "fileNodeCount": 4,
-      "symbolNodeCount": 20,
-      "callEdgeCount": 0
-    },
-    "truncated": false,
-    "cautions": [
-      "Graph is a static preview — limited to top nodes and edges.",
-      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
-      "Call edges are heuristic with confidence scores — not compiler-verified.",
-      "Dynamic dispatch / reflection / plugins may hide actual callers."
-    ]
-  },
-  "moduleGraph": {
-    "modules": [
-      {
-        "id": "src",
-        "files": 4,
-        "symbols": 20
-      }
-    ],
-    "edges": [],
-    "truncated": false
+    "status": "collected"
   }
 }

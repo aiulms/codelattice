@@ -678,7 +678,7 @@ Runner 模式会 best-effort 填充该 section。MCP 不可用时允许：
 
 ### 3.11 moduleGraph — 模块级聚合图（optional）
 
-**来源:** `scripts/codelattice-snapshot-gen.py` 对已生成 `graph` 段做向上归并。不改 CALLS 提取。
+**来源:** CLI 转换器（`crates/cli/src/webui_snapshot.rs`）对已生成 `graph` 段做向上归并。不改 CALLS 提取。（P3 起 Python snapshot-gen 已退役，单一事实源在 core。）
 
 **稳定性:** preview（缺省兼容旧 snapshot；新生成 snapshot 应包含此段）
 

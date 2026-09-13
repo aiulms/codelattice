@@ -1,9 +1,10 @@
 // webui_snapshot —— analyze 结果（LanguageAnalysisResult，0.3.0 信封）→ webui.snapshot.v1。
 //
-// 取舍：转换逻辑移植自 scripts/codelattice-snapshot-gen.py，但只保留桌面工作台实际消费的段
-// （summary / graph / moduleGraph / limitations / insights）；explore、cleanup、
-// releaseReview、workflowPresets、quality 前端没有读取点，不移植。
-// CLI 产物不做路径 redact：redact 是 webui fixture 发布场景的需求，仍由 Python 脚本负责。
+// P3 起（2026-09-13）本模块是 webui.snapshot.v1 的唯一事实源：Phase A enriched
+// 全量段（summary / quality / explore / cleanup / releaseReview / insights /
+// workflowPresets / graph / moduleGraph / limitations）全部在此实算产出，
+// scripts/codelattice-snapshot-gen.py（Python 聚合实现）已退役删除。
+// --redact-root 路径脱敏也在此完成，脱敏后 relationKey 按最终端点重算。
 
 use gitnexus_workspace_model::SOURCE_EXTENSIONS;
 use serde_json::{json, Value};
@@ -19,6 +20,15 @@ const MAX_MODULES: usize = 200;
 
 /// 把 analyze 结果（完整 full profile JSON）转换为 webui.snapshot.v1 快照。
 pub fn convert_analyze_result(analyze: &Value, tool_version: &str) -> Value {
+    convert_analyze_result_with_options(analyze, tool_version, false)
+}
+
+/// 带 --redact-root 选项的完整转换（P3 退役 Python snapshot-gen 后的唯一生成路径）。
+pub fn convert_analyze_result_with_options(
+    analyze: &Value,
+    tool_version: &str,
+    redact_root: bool,
+) -> Value {
     let graph = analyze.get("graph").cloned().unwrap_or(json!({}));
     let nodes = json_array(&graph, "nodes");
     let edges = flatten_edges(&graph);
@@ -57,18 +67,15 @@ pub fn convert_analyze_result(analyze: &Value, tool_version: &str) -> Value {
     // 节点不算 package（与图节点选择器口径不同是有意的，保持与现有生成器一致）。
     let mut symbol_count = 0u64;
     let mut source_file_count = 0u64;
+    let mut module_count = 0u64;
     let mut package_count = 0u64;
     for n in &nodes {
-        let label = n.get("label").and_then(Value::as_str).unwrap_or("");
-        let kind = n.get("kind").and_then(Value::as_str).unwrap_or("");
-        if label == "symbol" || kind == "symbol" {
-            symbol_count += 1;
-        } else if label == "source-file" || kind == "source-file" || kind == "sourceFile" {
-            source_file_count += 1;
-        } else if ["package", "module"].contains(&label)
-            || ["package", "module", "repository", "repo"].contains(&kind)
-        {
-            package_count += 1;
+        match normalized_node_kind(n) {
+            "symbol" => symbol_count += 1,
+            "source-file" => source_file_count += 1,
+            "module" => module_count += 1,
+            "package" => package_count += 1,
+            _ => {}
         }
     }
 
@@ -85,25 +92,10 @@ pub fn convert_analyze_result(analyze: &Value, tool_version: &str) -> Value {
         // 按冻结规则写进 limitations，不在转换器里猜。
         "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects.".to_string(),
     ];
-    // 扁平项目或未知归属必须写进 limitations，避免前端当成推断结果
-    let modules = module_graph["modules"]
-        .as_array()
-        .cloned()
-        .unwrap_or_default();
-    if modules.len() <= 1 {
-        limitation_notes.push(
-            "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
-                .to_string(),
-        );
-    }
-    if modules.iter().any(|m| m["id"] == "(unknown)") {
-        limitation_notes.push(
-            "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
-                .to_string(),
-        );
-    }
 
-    json!({
+    // P3 起信封为 Phase A enriched 全量段（原 Python snapshot-gen 的桌面外消费面：
+    // quality/explore/cleanup/releaseReview/workflowPresets 全部收敛到本转换器实算）。
+    let mut snapshot = json!({
         "schemaVersion": SCHEMA_VERSION,
         "generatedAt": generated_at,
         "generatedFrom": {
@@ -122,13 +114,18 @@ pub fn convert_analyze_result(analyze: &Value, tool_version: &str) -> Value {
             "edgeCount": edges.len(),
             "symbolCount": symbol_count,
             "sourceFileCount": source_file_count,
+            "moduleCount": module_count,
             "packageCount": package_count,
             "generatedAt": generated_at,
             "language": language,
             "toolVersion": tool_version,
         },
+        "quality": build_quality_section(analyze),
+        "explore": build_explore_section(&nodes),
+        "cleanup": build_cleanup_section(&nodes, &edges),
+        "releaseReview": build_release_review_section(&nodes),
+        "workflowPresets": workflow_presets_section(),
         "graph": graph_section,
-        "moduleGraph": module_graph,
         "insights": insights,
         "limitations": {
             "runtimeVerified": false,
@@ -138,7 +135,83 @@ pub fn convert_analyze_result(analyze: &Value, tool_version: &str) -> Value {
             "projectCodeExecuted": false,
             "notes": limitation_notes,
         },
-    })
+    });
+
+    // --redact-root：先做全局路径脱敏（含 relationKey 按脱敏后的最终端点重算），
+    // 模块图必须在脱敏之后基于最终 graph 段归并（对齐 Python 的段落顺序）。
+    if redact_root {
+        redact_all_paths(&mut snapshot, &root);
+        replace_project_path_fragments(&mut snapshot);
+        if let Some(edges) = snapshot
+            .get_mut("graph")
+            .and_then(|g| g.get_mut("edges"))
+            .and_then(Value::as_array_mut)
+        {
+            for e in edges.iter_mut() {
+                let src = e.get("source").and_then(Value::as_str).unwrap_or("");
+                let tgt = e.get("target").and_then(Value::as_str).unwrap_or("");
+                let kind = e.get("kind").and_then(Value::as_str).unwrap_or("related");
+                e["relationKey"] = json!(relation_key(src, kind, tgt));
+            }
+        }
+    }
+    let redacted_graph = snapshot.get("graph").cloned().unwrap_or(json!({}));
+    let module_graph = build_module_graph(&redacted_graph, &language);
+
+    // 扁平项目或未知归属必须写进 limitations，避免前端当成推断结果
+    if let Some(obj) = snapshot.as_object_mut() {
+        obj.insert("moduleGraph".to_string(), module_graph.clone());
+    }
+    let modules = module_graph["modules"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if let Some(limitations) = snapshot
+        .get_mut("limitations")
+        .and_then(Value::as_object_mut)
+    {
+        if let Some(notes) = limitations.get_mut("notes").and_then(Value::as_array_mut) {
+            if modules.len() <= 1 {
+                notes.push(json!(
+                    "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
+                ));
+            }
+            if modules.iter().any(|m| m["id"] == "(unknown)") {
+                notes.push(json!(
+                    "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
+                ));
+            }
+        }
+    }
+
+    snapshot
+}
+
+/// summary 分类口径：对齐 Python build_summary 的 normalized_node_kind
+/// （label 优先；repository/repo 归 package；module 独立计数不进 package）。
+fn normalized_node_kind(n: &Value) -> &str {
+    let label = n.get("label").and_then(Value::as_str).unwrap_or("");
+    let kind = n.get("kind").and_then(Value::as_str).unwrap_or("");
+    if ["symbol", "source-file", "package", "module"].contains(&label) {
+        label
+    } else if kind == "sourceFile" {
+        "source-file"
+    } else if ["symbol", "source-file"].contains(&kind) {
+        kind
+    } else if ["repository", "repo"].contains(&kind) {
+        "package"
+    } else if ["package", "module"].contains(&kind) {
+        kind
+    } else {
+        // 与 Python `kind or label or "?"` 对齐：空串回退 label 再回退 "?"
+        if !kind.is_empty() {
+            kind
+        } else if !label.is_empty() {
+            label
+        } else {
+            "?"
+        }
+    }
 }
 
 fn json_array(v: &Value, key: &str) -> Vec<Value> {
@@ -746,7 +819,17 @@ fn build_insights(nodes: &[Value], edge_list: &[Value]) -> Value {
         "status": if has_data { "partial" } else { "not_collected" },
         "hotspots": hotspots,
         "entryPoints": entry_points,
-        "reviewFirst": [],
+        // reviewFirst = 热点前 3 的文件清单（对齐 Python：high-fan-out 优先复核）
+        "reviewFirst": hotspots
+            .iter()
+            .take(3)
+            .map(|h| {
+                json!({
+                    "file": h.get("file").cloned().unwrap_or(json!("?")),
+                    "reason": "high-fan-out-hotspot",
+                })
+            })
+            .collect::<Vec<_>>(),
         "cautions": if has_data {
             json!([
                 "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
@@ -756,6 +839,559 @@ fn build_insights(nodes: &[Value], edge_list: &[Value]) -> Value {
             json!([])
         },
     })
+}
+
+// ── Phase A enrichment 段（P3 自 scripts/codelattice-snapshot-gen.py 移植；
+//    Python 脚本退役后本模块是 webui.snapshot.v1 的唯一事实源）────────────────
+
+const MAX_EXPLORE_SYMBOLS: usize = 500;
+const MAX_EXPLORE_SOURCE_FILES: usize = 200;
+
+/// 符号 kind → 展示标签（对齐 Python symbol_kind_label）。
+fn symbol_kind_label(kind: &str) -> String {
+    match kind {
+        "function" | "fn" => "Function",
+        "method" => "Method",
+        "struct" => "Struct",
+        "enum" => "Enum",
+        "trait" => "Trait",
+        "impl" => "Impl",
+        "mod" => "Module",
+        "const" => "Constant",
+        "static" => "Static",
+        "type" => "Type Alias",
+        "macro" => "Macro",
+        "interface" => "Interface",
+        "class" => "Class",
+        "variable" => "Variable",
+        "parameter" => "Parameter",
+        "unknown" => "Unknown",
+        other => return other.to_string(),
+    }
+    .to_string()
+}
+
+/// quality 段：门来自 analyze.qualityGates（与 `codelattice quality` 命令同一份
+/// 计算），diagnostics 摘要来自 graph.diagnostics。overall 全过=pass、有败=fail、
+/// 无门=unknown；passed/failed 计数按 `passed` 字段实算（Python 旧输出读 `status`
+/// 字段恒得 0/0，属于历史缺陷，此处按 AGENTS.md stats 实算规则修正）。
+fn build_quality_section(analyze: &Value) -> Value {
+    let gates = analyze
+        .get("qualityGates")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let passed = gates
+        .iter()
+        .filter(|g| g.get("passed").and_then(Value::as_bool) == Some(true))
+        .count() as u64;
+    let failed = gates
+        .iter()
+        .filter(|g| g.get("passed").and_then(Value::as_bool) == Some(false))
+        .count() as u64;
+    let overall = if gates.is_empty() {
+        "unknown"
+    } else if failed == 0 {
+        "pass"
+    } else {
+        "fail"
+    };
+
+    let diagnostics = analyze
+        .get("graph")
+        .and_then(|g| g.get("diagnostics"))
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let level_count = |level: &str| -> u64 {
+        diagnostics
+            .iter()
+            .filter(|d| d.get("level").and_then(Value::as_str) == Some(level))
+            .count() as u64
+    };
+    let diagnostics_summary = if diagnostics.is_empty() {
+        Value::Null
+    } else {
+        json!({
+            "total": diagnostics.len(),
+            "error": level_count("error"),
+            "warning": level_count("warning"),
+            "info": level_count("info"),
+        })
+    };
+
+    json!({
+        "overall": overall,
+        "gates": gates,
+        "passedGateCount": passed,
+        "failedGateCount": failed,
+        "diagnosticsSummary": diagnostics_summary,
+        "cautions": [
+            "Quality gates are based on static analysis only.",
+            "Pass/fail status does not guarantee runtime correctness.",
+            "External crate resolution is bounded; stdlib-only.",
+        ],
+    })
+}
+
+/// explore 段：符号 + 源文件清单（对齐 Python build_explore_section 的字段与上限）。
+fn build_explore_section(nodes: &[Value]) -> Value {
+    let is_repo_node = |n: &Value| {
+        let label = n.get("label").and_then(Value::as_str).unwrap_or("");
+        let kind = n.get("kind").and_then(Value::as_str).unwrap_or("");
+        ["repository", "repo"].contains(&label) || ["repository", "repo"].contains(&kind)
+    };
+    let sym_nodes: Vec<&Value> = nodes
+        .iter()
+        .filter(|n| is_symbol_node(n) && !is_repo_node(n))
+        .collect();
+    let sf_nodes: Vec<&Value> = nodes.iter().filter(|n| is_source_file_node(n)).collect();
+
+    let mut symbols: Vec<Value> = Vec::new();
+    // 计数器用 BTreeMap 保证确定性（Python Counter.most_common 的并列序不保证）
+    let mut sf_symbol_counts: BTreeMap<String, usize> = BTreeMap::new();
+    for n in sym_nodes.iter().take(MAX_EXPLORE_SYMBOLS) {
+        let props = n.get("properties").cloned().unwrap_or(json!({}));
+        let prop = |key: &str| props.get(key).and_then(Value::as_str);
+        let node_id = n.get("id").and_then(Value::as_str).unwrap_or("");
+        let src_path = prop("sourcePath")
+            .or_else(|| prop("file"))
+            .or_else(|| prop("path"))
+            .map(str::to_string)
+            .or_else(|| {
+                let p = extract_path_from_id(node_id);
+                (!p.is_empty()).then_some(p)
+            })
+            .unwrap_or_else(|| "?".to_string());
+        let kind = prop("symbolKind")
+            .or_else(|| prop("kind"))
+            .unwrap_or("unknown");
+        let mut entry = json!({
+            "id": node_id,
+            "name": prop("name").unwrap_or(node_id),
+            "kind": kind,
+            "kindLabel": symbol_kind_label(kind),
+            "file": src_path,
+            // Python 恒写 line/endLine（缺省 null），保持信封形状一致
+            "line": props.get("lineStart").cloned().or_else(|| props.get("line").cloned()).unwrap_or(Value::Null),
+            "endLine": props.get("lineEnd").cloned().unwrap_or(Value::Null),
+        });
+        if let Some(vis) = prop("visibility") {
+            if !vis.is_empty() {
+                entry["visibility"] = json!(vis);
+                if ["pub", "public", "exported", "export"].contains(&vis) {
+                    entry["exported"] = json!(true);
+                }
+            }
+        }
+        *sf_symbol_counts.entry(src_path).or_insert(0) += 1;
+        symbols.push(entry);
+    }
+
+    let mut source_files: Vec<Value> = Vec::new();
+    for n in sf_nodes.iter().take(MAX_EXPLORE_SOURCE_FILES) {
+        let props = n.get("properties").cloned().unwrap_or(json!({}));
+        let prop = |key: &str| props.get(key).and_then(Value::as_str);
+        let node_id = n.get("id").and_then(Value::as_str).unwrap_or("");
+        let label = n.get("label").and_then(Value::as_str).unwrap_or("");
+        let path = prop("path")
+            .or_else(|| prop("sourcePath"))
+            .map(str::to_string)
+            .or_else(|| (!label.is_empty()).then(|| label.to_string()))
+            .or_else(|| {
+                let p = extract_path_from_id(node_id);
+                (!p.is_empty()).then_some(p)
+            })
+            .unwrap_or_else(|| "?".to_string());
+        let count = sf_symbol_counts.get(&path).copied().unwrap_or(0);
+        source_files.push(json!({
+            "path": path,
+            "language": prop("language").unwrap_or(""),
+            "symbolCount": count,
+        }));
+    }
+    // 有符号但缺 source-file 节点的路径补进清单（对齐 Python）
+    let mut seen: HashSet<String> = source_files
+        .iter()
+        .filter_map(|sf| sf.get("path").and_then(Value::as_str).map(str::to_string))
+        .collect();
+    let mut by_count: Vec<(String, usize)> = sf_symbol_counts
+        .iter()
+        .map(|(k, v)| (k.clone(), *v))
+        .collect();
+    by_count.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    for (path, count) in by_count.iter().take(MAX_EXPLORE_SOURCE_FILES) {
+        if !path.is_empty() && path != "?" && !seen.contains(path) {
+            source_files.push(json!({"path": path, "language": "", "symbolCount": count}));
+            seen.insert(path.clone());
+        }
+    }
+
+    let top_files: Vec<Value> = by_count
+        .iter()
+        .take(10)
+        .filter(|(p, _)| !p.is_empty() && p != "?")
+        .map(|(p, c)| json!({"path": p, "symbolCount": c, "reason": "highest-symbol-count"}))
+        .collect();
+
+    let has_data = !symbols.is_empty() || !source_files.is_empty();
+    json!({
+        "status": if has_data { "collected" } else { "empty" },
+        "sourceFiles": source_files.into_iter().take(MAX_EXPLORE_SOURCE_FILES).collect::<Vec<_>>(),
+        "symbols": symbols,
+        "topFiles": top_files,
+        "totalSymbols": sym_nodes.len(),
+        "totalSourceFiles": sf_nodes.len(),
+        "truncated": sym_nodes.len() > MAX_EXPLORE_SYMBOLS || sf_nodes.len() > MAX_EXPLORE_SOURCE_FILES,
+    })
+}
+
+/// cleanup 段：基于调用图形状的死代码候选启发式（对齐 Python build_cleanup_section；
+/// 只认 label=="symbol"，未被任何 CALLS 边指向的符号即候选，绝不判定可删）。
+fn build_cleanup_section(nodes: &[Value], edge_list: &[Value]) -> Value {
+    let sym_nodes: Vec<&Value> = nodes
+        .iter()
+        .filter(|n| n.get("label").and_then(Value::as_str) == Some("symbol"))
+        .collect();
+    let mut call_targets: HashSet<&str> = HashSet::new();
+    for e in edge_list {
+        let etype = e
+            .get("type")
+            .or_else(|| e.get("label"))
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_lowercase();
+        if etype.contains("call") {
+            if let Some(t) = e.get("target").and_then(Value::as_str) {
+                call_targets.insert(t);
+            }
+        }
+    }
+    let uncalled: Vec<&&Value> = sym_nodes
+        .iter()
+        .filter(|s| {
+            let id = s.get("id").and_then(Value::as_str).unwrap_or("");
+            !call_targets.contains(id)
+        })
+        .collect();
+    let external_api = sym_nodes
+        .iter()
+        .filter(|s| {
+            matches!(
+                prop_str(s, "visibility"),
+                Some("pub") | Some("public") | Some("exported")
+            )
+        })
+        .count();
+
+    let candidates = uncalled.len().min(sym_nodes.len());
+    json!({
+        "status": if !sym_nodes.is_empty() { "partial" } else { "not_collected" },
+        "deadCodeCandidateCount": if candidates > 0 { json!(candidates) } else { Value::Null },
+        "unreachableCandidateCount": if !uncalled.is_empty() { json!(uncalled.len()) } else { Value::Null },
+        "externalApiSurfaceCount": if external_api > 0 { json!(external_api) } else { Value::Null },
+        "frameworkEntryHintCount": Value::Null, // 需更深分析，Python 同样恒 None
+        "cautions": [
+            "Dead-code detection is heuristic-based on call-graph shape.",
+            "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
+            "Public/exported symbols may be used by external crates not analyzed here.",
+            "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
+            "Auto-deletion is explicitly forbidden without human review + test regression check.",
+        ],
+    })
+}
+
+/// releaseReview 段：发布前静态审查摘要（对齐 Python build_release_review_section）。
+fn build_release_review_section(nodes: &[Value]) -> Value {
+    let sym_nodes: Vec<&Value> = nodes
+        .iter()
+        .filter(|n| n.get("label").and_then(Value::as_str) == Some("symbol"))
+        .collect();
+    let pub_symbols = sym_nodes
+        .iter()
+        .filter(|s| {
+            matches!(
+                prop_str(s, "visibility"),
+                Some("pub") | Some("public") | Some("exported")
+            )
+        })
+        .count();
+
+    let mut all_paths: HashSet<&str> = HashSet::new();
+    for n in nodes {
+        if let Some(p) = prop_str(n, "sourcePath")
+            .or_else(|| prop_str(n, "path"))
+            .or_else(|| prop_str(n, "file"))
+        {
+            if !p.is_empty() {
+                all_paths.insert(p);
+            }
+        }
+    }
+    let doc_files: Vec<&&str> = all_paths
+        .iter()
+        .filter(|p| {
+            let lower = p.to_lowercase();
+            [".md", ".rst", ".txt", "doc/", "docs/", "readme"]
+                .iter()
+                .any(|ext| lower.contains(ext))
+        })
+        .collect();
+
+    json!({
+        "status": if !sym_nodes.is_empty() { "partial" } else { "not_collected" },
+        "breakingChangeRisk": if pub_symbols > 20 { "medium" } else { "low" },
+        "breakingChangeSurface": pub_symbols,
+        "staleDocCandidateCount": if !doc_files.is_empty() { json!(doc_files.len()) } else { Value::Null },
+        "missingTestCandidateCount": Value::Null,  // 需覆盖率数据
+        "configExampleIssueCount": Value::Null,    // 需配置文件解析
+        "cautions": [
+            "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+            "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+            "Documentation staleness requires manual review — this only lists doc files found.",
+            "Test coverage gaps require test runner integration — not available in static mode.",
+            "Config example drift needs template comparison — not performed in this snapshot.",
+        ],
+    })
+}
+
+/// workflowPresets 段：10 个固定工作流预设（对齐 Python WORKFLOW_PRESETS 原表）。
+fn workflow_presets_section() -> Value {
+    json!({
+        "status": "collected",
+        "presets": [
+            {"id": "onboarding", "name": "项目接入 / Onboarding",
+             "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
+             "tools": ["analyze", "summary", "explore"],
+             "stopLines": ["不执行目标项目代码", "不修改源码", "静态分析结果仅供参考"]},
+            {"id": "before_edit", "name": "编辑前检查 / Before Edit",
+             "description": "修改代码前了解影响范围、调用链、风险点",
+             "tools": ["impact_preview", "context", "analyze"],
+             "stopLines": ["不替代 code review", "运行时行为需实测确认", "trait 解析为启发式"]},
+            {"id": "after_edit", "name": "编辑后验证 / After Edit",
+             "description": "修改后快速检查格式、符号完整性、基本质量门禁",
+             "tools": ["quality", "analyze", "detect-changes"],
+             "stopLines": ["不运行测试套件", "不执行 package manager", "不保证无回归"]},
+            {"id": "delete_code", "name": "删除代码前评估 / Delete Code Assessment",
+             "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
+             "tools": ["impact_preview", "context", "analyze --include calls"],
+             "stopLines": ["dead-code candidate ≠ 可安全删除", "外部 API heuristic 不等于真实使用者", "必须人工复核"]},
+            {"id": "release_check", "name": "发布前检查 / Release Check",
+             "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
+             "tools": ["quality", "analyze", "release_review"],
+             "stopLines": ["不是 GA 质量证明", "不覆盖运行时测试", "不验证外部依赖兼容性"]},
+            {"id": "legacy_cleanup", "name": "遗留代码清理 / Legacy Cleanup",
+             "description": "识别未使用的符号、过时的模块、可简化的调用链",
+             "tools": ["analyze --include calls", "quality", "cleanup_summary"],
+             "stopLines": ["低置信度标记需逐一核实", "不自动删除任何代码", "framework entry 点不可轻移"]},
+            {"id": "public_api_change", "name": "公共 API 变更评估 / Public API Change",
+             "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
+             "tools": ["impact_preview", "context", "analyze --include graph"],
+             "stopLines": ["external usage 为启发式推断", "文档同步需人工处理", "semantic versioning 需人工判断"]},
+            {"id": "framework_route_change", "name": "框架路由变更 / Framework Route Change",
+             "description": "修改框架入口/路由/控制器时的影响分析",
+             "tools": ["analyze", "impact_preview", "entry_points"],
+             "stopLines": ["路由解析为模式匹配", "动态路由不可完全覆盖", "需结合框架文档"]},
+            {"id": "docs_tests_sync", "name": "文档-测试同步检查 / Docs-Tests Sync",
+             "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
+             "tools": ["analyze", "quality", "release_review"],
+             "stopLines": ["基于文件名/符号名的启发式", "不解析文档内容语义", "不判断测试充分性"]},
+            {"id": "config_examples_sync", "name": "配置-示例同步检查 / Config-Examples Sync",
+             "description": "发现配置项与示例/文档不同步的问题",
+             "tools": ["analyze", "quality", "release_review"],
+             "stopLines": ["不验证配置值正确性", "不执行配置加载", "模板/占位符可能误报"]}
+        ],
+    })
+}
+
+// ── --redact-root 路径脱敏（对齐 Python redact_path / _looks_like_absolute_path /
+//    _redact_all_paths；脱敏后 relationKey 由调用方按最终端点重算）────────────────
+
+/// 把 `/Users/<name>/`、`/home/<name>/` 段替换为 `<redacted-user>/`（全部出现）。
+fn replace_user_dir_segments(s: &str, marker: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(idx) = rest.find(marker) {
+        let after = &rest[idx + marker.len()..];
+        match after.find('/') {
+            Some(end) if !after[..end].is_empty() && !after[..end].contains('/') => {
+                out.push_str(&rest[..idx]);
+                out.push_str("<redacted-user>/");
+                rest = &after[end + 1..];
+            }
+            _ => {
+                out.push_str(&rest[..idx + marker.len()]);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// 路径脱敏：项目根 → <redacted-root>；用户目录 → <redacted-user>；
+/// 绝对路径 → <redacted-abs>（带 file:/repo:/py:repo:/c:repo: 前缀保留）。
+fn redact_path(path: &str, root: &str) -> String {
+    if path.is_empty() {
+        return path.to_string();
+    }
+    // 语义 id 内嵌绝对根（arkts:component:/Users/... 等） anywhere 替换
+    if !root.is_empty() && path.contains(root) {
+        return path.replace(root, "<redacted-root>");
+    }
+    let user_redacted =
+        replace_user_dir_segments(&replace_user_dir_segments(path, "/Users/"), "/home/");
+    if user_redacted != path {
+        return user_redacted;
+    }
+
+    let mut uri_prefix = "";
+    let mut check = path;
+    for prefix in ["file:", "repo:", "py:repo:", "c:repo:"] {
+        if let Some(rest) = path.strip_prefix(prefix) {
+            uri_prefix = prefix;
+            check = rest;
+            break;
+        }
+    }
+
+    // 1. 项目根（剥前缀后）
+    if !root.is_empty() {
+        if let Some(rest) = check.strip_prefix(root) {
+            let rest = rest.strip_prefix('/').unwrap_or(rest);
+            return if rest.is_empty() {
+                format!("{uri_prefix}<redacted-root>")
+            } else {
+                format!("{uri_prefix}<redacted-root>/{rest}")
+            };
+        }
+    }
+
+    // 2. 常见用户目录
+    for prefix in ["/Users/", "/home/", "/tmp/"] {
+        if let Some(rest) = check.strip_prefix(prefix) {
+            let parts: Vec<&str> = check.split('/').collect();
+            if parts.len() > 2 {
+                return format!("{uri_prefix}<redacted-user>/{}", parts[3..].join("/"));
+            }
+            let _ = rest;
+            return format!("{uri_prefix}<redacted-path>");
+        }
+    }
+
+    // 3. 像工作区根的绝对路径：留最后 ≤3 段
+    if check.starts_with('/') && check[1..].contains('/') {
+        let parts: Vec<&str> = check.split('/').collect();
+        if parts.len() >= 3 {
+            let keep = parts.len().min(3);
+            return format!(
+                "{uri_prefix}<redacted-abs>/{}",
+                parts[parts.len() - keep..].join("/")
+            );
+        }
+    }
+
+    path.to_string()
+}
+
+/// 判断字符串是否像需要脱敏的绝对路径（对齐 Python _looks_like_absolute_path）。
+fn looks_like_absolute_path(s: &str) -> bool {
+    if s.len() < 5 {
+        return false;
+    }
+    if s.contains("/Users/") || s.contains("/home/") || s.contains("/tmp/") {
+        return true;
+    }
+    let is_prefixed = ["file:/", "repo:/", "py:repo:/"]
+        .iter()
+        .any(|p| s.starts_with(p));
+    let is_abs = s.starts_with('/');
+    if !is_prefixed && !is_abs {
+        return false;
+    }
+    let check = if is_prefixed { s } else { &s[1..] };
+    if !check.contains('/') {
+        return false;
+    }
+    let indicators = [
+        "/Users/",
+        "/home/",
+        "/tmp/",
+        "/Desktop/",
+        "Desktop/",
+        "/opt/",
+        "/usr/local/",
+        "/var/",
+        "fixtures/",
+        "codelattice",
+    ];
+    if indicators.iter().any(|ind| s.contains(ind)) {
+        return true;
+    }
+    [".py", ".rs", ".ts", ".c", ".cpp", ".sh", ".bash"]
+        .iter()
+        .any(|ext| {
+            [format!("{ext}\""), format!("{ext},")]
+                .iter()
+                .any(|pat| s.contains(pat.as_str()))
+        })
+}
+
+/// 递归脱敏 JSON 里所有像绝对路径的字符串值（对齐 Python _redact_all_paths）。
+fn redact_all_paths(obj: &mut Value, root: &str) {
+    match obj {
+        Value::Object(map) => {
+            for (_, value) in map.iter_mut() {
+                if let Some(s) = value.as_str() {
+                    if looks_like_absolute_path(s) {
+                        *value = Value::String(redact_path(s, root));
+                    } else {
+                        redact_all_paths(value, root);
+                    }
+                } else {
+                    redact_all_paths(value, root);
+                }
+            }
+        }
+        Value::Array(list) => {
+            for item in list.iter_mut() {
+                if let Some(s) = item.as_str() {
+                    if looks_like_absolute_path(s) {
+                        *item = Value::String(redact_path(s, root));
+                    } else {
+                        redact_all_paths(item, root);
+                    }
+                } else {
+                    redact_all_paths(item, root);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+/// 顽固路径片段的字符串级兜底替换（对齐 Python Phase B fallback）。
+fn replace_project_path_fragments(obj: &mut Value) {
+    match obj {
+        Value::Object(map) => {
+            for (_, value) in map.iter_mut() {
+                replace_project_path_fragments(value);
+            }
+        }
+        Value::Array(list) => {
+            for item in list.iter_mut() {
+                replace_project_path_fragments(item);
+            }
+        }
+        Value::String(s) => {
+            let mut result = s.replace("Desktop/codelattice", "project/codelattice");
+            result = result.replace("codelattice/fixtures", "project/fixtures");
+            if &result != s {
+                *s = result;
+            }
+        }
+        _ => {}
+    }
 }
 
 #[cfg(test)]
@@ -1124,5 +1760,228 @@ mod tests {
             }),
             "limitations 必须包含 .h→c 误伤说明: {notes:?}"
         );
+    }
+
+    // ── P3：Phase A enriched 段 + --redact-root（退役 Python snapshot-gen 的契约锁）──
+
+    /// 死代码候选必须按 CALLS 边实算（未被调用 = 候选）。这是对 Python
+    /// snapshot-gen 真 bug 的回归锁：其 call_targets 恒为空，候选数恒等于
+    /// 符号总数；core 按段语义实算，不允许退役时把 bug 一起搬进来。
+    #[test]
+    fn cleanup_counts_uncalled_symbols_from_call_edges() {
+        let out = convert(&analyze_fixture());
+        let c = &out["cleanup"];
+        assert_eq!(c["status"], "partial");
+        // fixture 3 个符号：beta（alpha→beta）、gamma（alpha/beta→gamma）有入边；
+        // alpha 无任何 CALLS 入边 → 候选 1；external API：alpha/gamma pub → 2
+        assert_eq!(c["unreachableCandidateCount"], 1);
+        assert_eq!(c["deadCodeCandidateCount"], 1);
+        assert_eq!(c["externalApiSurfaceCount"], 2);
+        assert_eq!(c["frameworkEntryHintCount"], Value::Null);
+    }
+
+    #[test]
+    fn quality_section_computes_overall_and_gate_counts_from_passed_field() {
+        let mut analyze = analyze_fixture();
+        analyze["qualityGates"] = json!([
+            {"gateName": "a", "passed": true, "detail": "ok"},
+            {"gateName": "b", "passed": true, "detail": "ok"},
+            {"gateName": "c", "passed": false, "detail": "bad"}
+        ]);
+        let out = convert(&analyze);
+        let q = &out["quality"];
+        assert_eq!(q["overall"], "fail");
+        // stats 实算回归锁：Python 旧输出读 status 字段恒得 0/0
+        assert_eq!(q["passedGateCount"], 2);
+        assert_eq!(q["failedGateCount"], 1);
+        assert_eq!(q["gates"].as_array().unwrap().len(), 3);
+        // 无门时 overall=unknown
+        analyze["qualityGates"] = json!([]);
+        let out = convert(&analyze);
+        assert_eq!(out["quality"]["overall"], "unknown");
+    }
+
+    #[test]
+    fn explore_section_lists_symbols_with_identity_and_source_files() {
+        let out = convert(&analyze_fixture());
+        let e = &out["explore"];
+        assert_eq!(e["status"], "collected");
+        assert_eq!(e["totalSymbols"], 3);
+        assert_eq!(e["totalSourceFiles"], 2);
+        assert_eq!(e["truncated"], false);
+        let syms = e["symbols"].as_array().unwrap();
+        let alpha = syms
+            .iter()
+            .find(|s| s["id"] == "symbol:crate::alpha")
+            .unwrap();
+        assert_eq!(alpha["name"], "alpha");
+        assert_eq!(alpha["kind"], "function");
+        assert_eq!(alpha["kindLabel"], "Function");
+        assert_eq!(alpha["file"], "src/lib.rs");
+        assert_eq!(alpha["visibility"], "pub");
+        assert_eq!(alpha["exported"], true);
+        // 源文件清单带符号计数（alpha/beta 在 src/lib.rs，gamma 在 tests/helper.rs）
+        let sfs = e["sourceFiles"].as_array().unwrap();
+        let lib = sfs.iter().find(|f| f["path"] == "src/lib.rs").unwrap();
+        assert_eq!(lib["symbolCount"], 2);
+        // topFiles：按符号数排序带 reason
+        let top = e["topFiles"].as_array().unwrap();
+        assert!(top
+            .iter()
+            .any(|t| t["path"] == "src/lib.rs" && t["symbolCount"] == 2));
+        assert!(top.iter().all(|t| t["reason"] == "highest-symbol-count"));
+    }
+
+    #[test]
+    fn release_review_counts_public_surface_and_risk_level() {
+        let out = convert(&analyze_fixture());
+        let r = &out["releaseReview"];
+        assert_eq!(r["status"], "partial");
+        // fixture pub 符号 alpha/gamma → surface 2，≤20 → low
+        assert_eq!(r["breakingChangeSurface"], 2);
+        assert_eq!(r["breakingChangeRisk"], "low");
+        assert_eq!(r["missingTestCandidateCount"], Value::Null);
+    }
+
+    #[test]
+    fn workflow_presets_carry_ten_frozen_entries() {
+        let out = convert(&analyze_fixture());
+        let w = &out["workflowPresets"];
+        assert_eq!(w["status"], "collected");
+        let presets = w["presets"].as_array().unwrap();
+        assert_eq!(presets.len(), 10);
+        assert!(presets
+            .iter()
+            .all(|p| p["id"].is_string() && p["stopLines"].is_array()));
+    }
+
+    #[test]
+    fn insights_review_first_lists_top_hotspot_files() {
+        // fixture 唯一热点 alpha→beta（fan-out 1 < 3 无热点）→ reviewFirst 空；构造高扇出：
+        let mut analyze = analyze_fixture();
+        let mut edges = Vec::new();
+        for i in 0..4 {
+            edges.push(json!({
+                "source": "symbol:crate::alpha",
+                "target": format!("symbol:crate::t{i}"),
+                "type": "CALLS",
+                "properties": {"confidence": 0.9}
+            }));
+            analyze["graph"]["nodes"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({
+                    "id": format!("symbol:crate::t{i}"), "label": "symbol",
+                    "properties": {"name": format!("t{i}"), "sourcePath": "src/t.rs"}
+                }));
+        }
+        analyze["graph"]["edges"] = json!(edges);
+        let out = convert(&analyze);
+        let rf = out["insights"]["reviewFirst"].as_array().unwrap();
+        assert_eq!(rf.len(), 1);
+        assert_eq!(rf[0]["file"], "src/lib.rs");
+        assert_eq!(rf[0]["reason"], "high-fan-out-hotspot");
+    }
+
+    #[test]
+    fn redact_root_replaces_paths_and_recomputes_relation_keys_afterwards() {
+        let mut analyze = analyze_fixture();
+        let root = "/Users/dev/work/portable-smoke";
+        analyze["root"] = json!(root);
+        let nodes = analyze["graph"]["nodes"].as_array_mut().unwrap();
+        // repo 容器 id 内嵌绝对根；符号 sourcePath 用绝对路径
+        nodes[0]["properties"]["sourcePath"] = json!(format!("{root}/src"));
+        for n in nodes.iter_mut().skip(1) {
+            let sp = n["properties"]["sourcePath"].as_str().unwrap().to_string();
+            n["properties"]["sourcePath"] = json!(format!("{root}/{sp}"));
+        }
+        let edges = analyze["graph"]["edges"].as_array_mut().unwrap();
+        for e in edges.iter_mut() {
+            let t = e["target"].as_str().unwrap().to_string();
+            e["source"] = json!("symbol:x::abs:/Users/dev/other/a.rs");
+            e["target"] = json!(t);
+        }
+        let out = convert_analyze_result_with_options(&analyze, "9.9.9", true);
+        let raw = serde_json::to_string(&out).unwrap();
+        assert!(!raw.contains("/Users/dev"), "机器路径泄漏: {raw}");
+        // 根字段也脱敏
+        assert_eq!(out["root"], "<redacted-root>");
+        // relationKey 必须基于脱敏后的最终端点重算（拿 CALLS 边验证）
+        let edges = out["graph"]["edges"].as_array().unwrap();
+        for e in edges {
+            let s = e["source"].as_str().unwrap();
+            let t = e["target"].as_str().unwrap();
+            let k = e["kind"].as_str().unwrap();
+            let expect = format!("rel:sha256:{}", {
+                use sha2::{Digest, Sha256};
+                let mut h = Sha256::new();
+                h.update(s.as_bytes());
+                h.update([0u8]);
+                h.update(k.as_bytes());
+                h.update([0u8]);
+                h.update(t.as_bytes());
+                h.finalize()
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect::<String>()
+            });
+            assert_eq!(e["relationKey"], expect, "脱敏后 relationKey 未重算: {e}");
+        }
+        // 未开 redact 时同一路径保持原样
+        let out_plain = convert_analyze_result_with_options(&analyze, "9.9.9", false);
+        assert!(serde_json::to_string(&out_plain)
+            .unwrap()
+            .contains("/Users/dev"));
+    }
+
+    #[test]
+    fn enriched_envelope_carries_all_contract_top_keys() {
+        let out = convert(&analyze_fixture());
+        for k in [
+            "schemaVersion",
+            "generatedAt",
+            "generatedFrom",
+            "summary",
+            "quality",
+            "limitations",
+            "explore",
+            "cleanup",
+            "releaseReview",
+            "insights",
+            "workflowPresets",
+            "graph",
+            "moduleGraph",
+        ] {
+            assert!(out.get(k).is_some(), "缺顶层键: {k}");
+        }
+        // 卡 1 既有断言不受 enrichment 影响：summary 计数与 moduleGraph languages
+        assert_eq!(out["summary"]["moduleCount"], 0);
+        assert_eq!(out["summary"]["packageCount"], 1);
+    }
+
+    /// module-id 规则冻结用例（承接 scripts/test_module_graph.py 退役后的覆盖）：
+    /// 前两级目录、(root)、<redacted-root> 占位段剥离、rust modulePath 回退。
+    #[test]
+    fn module_id_rules_freeze_placeholder_strip_and_module_path_fallback() {
+        assert_eq!(
+            module_id_from_file("crates/cli/src/main.rs").as_deref(),
+            Some("crates/cli")
+        );
+        assert_eq!(module_id_from_file("src/lib.rs").as_deref(), Some("src"));
+        assert_eq!(module_id_from_file("main.rs").as_deref(), Some("(root)"));
+        assert_eq!(
+            module_id_from_file("<redacted-root>/crates/core/src/lib.rs").as_deref(),
+            Some("crates/core")
+        );
+        assert_eq!(module_id_from_file("").as_deref(), None);
+        assert_eq!(
+            module_id_from_rust_module_path("crate::foo::bar").as_deref(),
+            Some("crate::foo")
+        );
+        assert_eq!(
+            module_id_from_rust_module_path("crate").as_deref(),
+            Some("crate")
+        );
+        assert_eq!(module_id_from_rust_module_path("").as_deref(), None);
     }
 }

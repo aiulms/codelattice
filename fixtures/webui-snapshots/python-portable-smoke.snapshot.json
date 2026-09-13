@@ -1,448 +1,906 @@
 {
-  "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-08-05T06:46:13+00:00",
-  "generatedFrom": {
-    "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.17.0-beta.1",
-    "snapshotSchema": "webui.snapshot.v1",
-    "staticAnalysis": true,
-    "runtimeVerified": false,
-    "generationMethod": "cli-aggregate-phase-a"
-  },
-  "summary": {
-    "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 29,
-    "edgeCount": 46,
-    "symbolCount": 23,
-    "sourceFileCount": 5,
-    "moduleCount": 0,
-    "packageCount": 1,
-    "generatedAt": "2026-08-05T06:46:13+00:00",
-    "language": "python",
-    "toolVersion": "codelattice 0.17.0-beta.1"
-  },
-  "quality": {
-    "overall": "pass",
-    "gates": [
-      {
-        "gateName": "duplicate_nodes",
-        "passed": true,
-        "detail": "0 duplicate node IDs found"
-      },
-      {
-        "gateName": "dangling_source",
-        "passed": true,
-        "detail": "0 dangling source references found"
-      },
-      {
-        "gateName": "deterministic",
-        "passed": true,
-        "detail": "not verified from single CLI run; verified by test suite"
-      }
-    ],
-    "passedGateCount": 0,
-    "failedGateCount": 0,
-    "diagnosticsSummary": null,
-    "cautions": [
-      "Quality gates are based on static analysis only.",
-      "Pass/fail status does not guarantee runtime correctness.",
-      "External crate resolution is bounded; stdlib-only."
-    ]
-  },
-  "limitations": {
-    "runtimeVerified": false,
-    "externalUsageVerified": false,
-    "coverageVerified": false,
-    "deletionSafetyVerified": false,
-    "projectCodeExecuted": false,
-    "notes": [
-      "All results derived from static source analysis via CodeLattice CLI.",
-      "No project code was executed during snapshot generation.",
-      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
-      "External crate symbols are resolved only for std/core/alloc direct imports.",
-      "Trait resolution and type inference are NOT performed.",
-      "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting."
-    ]
-  },
-  "explore": {
-    "status": "collected",
-    "sourceFiles": [
-      {
-        "path": "src/sample_app/__init__.py",
-        "language": "",
-        "symbolCount": 1
-      },
-      {
-        "path": "src/sample_app/main.py",
-        "language": "",
-        "symbolCount": 5
-      },
-      {
-        "path": "src/sample_app/math_utils.py",
-        "language": "",
-        "symbolCount": 3
-      },
-      {
-        "path": "src/sample_app/service.py",
-        "language": "",
-        "symbolCount": 10
-      },
-      {
-        "path": "tests/test_math_utils.py",
-        "language": "",
-        "symbolCount": 4
-      }
-    ],
-    "symbols": [
-      {
-        "id": "py:sym:src/sample_app/__init__.py:__version__:3",
-        "name": "py:sym:src/sample_app/__init__.py:__version__:3",
-        "kind": "variable",
-        "kindLabel": "Variable",
-        "file": "src/sample_app/__init__.py",
-        "line": 3,
-        "endLine": 3,
-        "visibility": "dunder"
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:main:7",
-        "name": "py:sym:src/sample_app/main.py:main:7",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/sample_app/main.py",
-        "line": 7,
-        "endLine": 13,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:result:9",
-        "name": "py:sym:src/sample_app/main.py:result:9",
-        "kind": "variable",
-        "kindLabel": "Variable",
-        "file": "src/sample_app/main.py",
-        "line": 9,
-        "endLine": 9,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:product:10",
-        "name": "py:sym:src/sample_app/main.py:product:10",
-        "kind": "variable",
-        "kindLabel": "Variable",
-        "file": "src/sample_app/main.py",
-        "line": 10,
-        "endLine": 10,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:user:11",
-        "name": "py:sym:src/sample_app/main.py:user:11",
-        "kind": "variable",
-        "kindLabel": "Variable",
-        "file": "src/sample_app/main.py",
-        "line": 11,
-        "endLine": 11,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/math_utils.py:add:4",
-        "name": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/sample_app/math_utils.py",
-        "line": 4,
-        "endLine": 6,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "name": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/sample_app/math_utils.py",
-        "line": 9,
-        "endLine": 11,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/math_utils.py:PI:14",
-        "name": "py:sym:src/sample_app/math_utils.py:PI:14",
-        "kind": "constant",
-        "kindLabel": "constant",
-        "file": "src/sample_app/math_utils.py",
-        "line": 14,
-        "endLine": 14,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService:7",
-        "name": "py:sym:src/sample_app/service.py:UserService:7",
-        "kind": "class",
-        "kindLabel": "Class",
-        "file": "src/sample_app/service.py",
-        "line": 7,
-        "endLine": 22,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService.__init__:10",
-        "name": "py:sym:src/sample_app/service.py:UserService.__init__:10",
-        "kind": "constructor",
-        "kindLabel": "constructor",
-        "file": "src/sample_app/service.py",
-        "line": 10,
-        "endLine": 13,
-        "visibility": "dunder"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService.run:15",
-        "name": "py:sym:src/sample_app/service.py:UserService.run:15",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/sample_app/service.py",
-        "line": 15,
-        "endLine": 18,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:result:17",
-        "name": "py:sym:src/sample_app/service.py:result:17",
-        "kind": "variable",
-        "kindLabel": "Variable",
-        "file": "src/sample_app/service.py",
-        "line": 17,
-        "endLine": 17,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
-        "name": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/sample_app/service.py",
-        "line": 20,
-        "endLine": 22,
-        "visibility": "private"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:fetch_data:25",
-        "name": "py:sym:src/sample_app/service.py:fetch_data:25",
-        "kind": "asyncFunction",
-        "kindLabel": "asyncFunction",
-        "file": "src/sample_app/service.py",
-        "line": 25,
-        "endLine": 27,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:process_items:30",
-        "name": "py:sym:src/sample_app/service.py:process_items:30",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/sample_app/service.py",
-        "line": 30,
-        "endLine": 32,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:test_add:6",
-        "name": "py:sym:tests/test_math_utils.py:test_add:6",
-        "kind": "testFunction",
-        "kindLabel": "testFunction",
-        "file": "tests/test_math_utils.py",
-        "line": 6,
-        "endLine": 9,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:test_multiply:12",
-        "name": "py:sym:tests/test_math_utils.py:test_multiply:12",
-        "kind": "testFunction",
-        "kindLabel": "testFunction",
-        "file": "tests/test_math_utils.py",
-        "line": 12,
-        "endLine": 15,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
-        "name": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
-        "kind": "testFunction",
-        "kindLabel": "testFunction",
-        "file": "tests/test_math_utils.py",
-        "line": 18,
-        "endLine": 21,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:result:20",
-        "name": "py:sym:tests/test_math_utils.py:result:20",
-        "kind": "variable",
-        "kindLabel": "Variable",
-        "file": "tests/test_math_utils.py",
-        "line": 20,
-        "endLine": 20,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/main.py:print:13",
-        "name": "py:call-target:py:src:src/sample_app/main.py:print:13",
-        "kind": "unresolved",
-        "kindLabel": "unresolved",
-        "file": "src/sample_app/main.py",
-        "line": 13,
-        "endLine": null
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/service.py:id:13",
-        "name": "py:call-target:py:src:src/sample_app/service.py:id:13",
-        "kind": "unresolved",
-        "kindLabel": "unresolved",
-        "file": "src/sample_app/service.py",
-        "line": 13,
-        "endLine": null
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/service.py:mul:17",
-        "name": "py:call-target:py:src:src/sample_app/service.py:mul:17",
-        "kind": "unresolved",
-        "kindLabel": "unresolved",
-        "file": "src/sample_app/service.py",
-        "line": 17,
-        "endLine": null
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/service.py:len:17",
-        "name": "py:call-target:py:src:src/sample_app/service.py:len:17",
-        "kind": "unresolved",
-        "kindLabel": "unresolved",
-        "file": "src/sample_app/service.py",
-        "line": 17,
-        "endLine": null
-      }
-    ],
-    "topFiles": [
-      {
-        "path": "src/sample_app/service.py",
-        "symbolCount": 10,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/sample_app/main.py",
-        "symbolCount": 5,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "tests/test_math_utils.py",
-        "symbolCount": 4,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/sample_app/math_utils.py",
-        "symbolCount": 3,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/sample_app/__init__.py",
-        "symbolCount": 1,
-        "reason": "highest-symbol-count"
-      }
-    ],
-    "totalSymbols": 23,
-    "totalSourceFiles": 5,
-    "truncated": false
-  },
   "cleanup": {
-    "status": "not_collected",
-    "deadCodeCandidateCount": null,
-    "unreachableCandidateCount": null,
-    "externalApiSurfaceCount": null,
-    "frameworkEntryHintCount": null,
     "cautions": [
       "Dead-code detection is heuristic-based on call-graph shape.",
       "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
       "Public/exported symbols may be used by external crates not analyzed here.",
       "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
       "Auto-deletion is explicitly forbidden without human review + test regression check."
-    ]
-  },
-  "releaseReview": {
+    ],
+    "deadCodeCandidateCount": null,
+    "externalApiSurfaceCount": null,
+    "frameworkEntryHintCount": null,
     "status": "not_collected",
-    "breakingChangeRisk": "low",
-    "breakingChangeSurface": 0,
-    "staleDocCandidateCount": null,
-    "missingTestCandidateCount": null,
-    "configExampleIssueCount": null,
-    "cautions": [
-      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
-      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
-      "Documentation staleness requires manual review — this only lists doc files found.",
-      "Test coverage gaps require test runner integration — not available in static mode.",
-      "Config example drift needs template comparison — not performed in this snapshot."
-    ]
+    "unreachableCandidateCount": null
   },
-  "insights": {
-    "status": "partial",
-    "hotspots": [
+  "explore": {
+    "sourceFiles": [
       {
-        "id": "py:src:src/sample_app/service.py",
-        "name": "py:src:src/sample_app/service.py",
-        "fanOut": 14,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/sample_app/__init__.py",
+        "symbolCount": 1
       },
       {
-        "id": "py:src:src/sample_app/main.py",
-        "name": "py:src:src/sample_app/main.py",
-        "fanOut": 10,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/sample_app/main.py",
+        "symbolCount": 5
       },
       {
-        "id": "py:src:tests/test_math_utils.py",
-        "name": "py:src:tests/test_math_utils.py",
-        "fanOut": 10,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/sample_app/math_utils.py",
+        "symbolCount": 3
       },
       {
-        "id": "py:repo:<redacted-root>",
-        "name": "py:repo:<redacted-root>",
-        "fanOut": 5,
-        "fanIn": 0,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/sample_app/service.py",
+        "symbolCount": 10
       },
       {
-        "id": "py:src:src/sample_app/math_utils.py",
-        "name": "py:src:src/sample_app/math_utils.py",
-        "fanOut": 3,
-        "fanIn": 2,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "tests/test_math_utils.py",
+        "symbolCount": 4
       }
     ],
+    "status": "collected",
+    "symbols": [
+      {
+        "endLine": 3,
+        "file": "src/sample_app/__init__.py",
+        "id": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 3,
+        "name": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "visibility": "dunder"
+      },
+      {
+        "endLine": 13,
+        "exported": true,
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:main:7",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 7,
+        "name": "py:sym:src/sample_app/main.py:main:7",
+        "visibility": "public"
+      },
+      {
+        "endLine": 9,
+        "exported": true,
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:result:9",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 9,
+        "name": "py:sym:src/sample_app/main.py:result:9",
+        "visibility": "public"
+      },
+      {
+        "endLine": 10,
+        "exported": true,
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:product:10",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 10,
+        "name": "py:sym:src/sample_app/main.py:product:10",
+        "visibility": "public"
+      },
+      {
+        "endLine": 11,
+        "exported": true,
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:user:11",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 11,
+        "name": "py:sym:src/sample_app/main.py:user:11",
+        "visibility": "public"
+      },
+      {
+        "endLine": 6,
+        "exported": true,
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:sym:src/sample_app/math_utils.py:add:4",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 4,
+        "name": "py:sym:src/sample_app/math_utils.py:add:4",
+        "visibility": "public"
+      },
+      {
+        "endLine": 11,
+        "exported": true,
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:sym:src/sample_app/math_utils.py:multiply:9",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 9,
+        "name": "py:sym:src/sample_app/math_utils.py:multiply:9",
+        "visibility": "public"
+      },
+      {
+        "endLine": 14,
+        "exported": true,
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:sym:src/sample_app/math_utils.py:PI:14",
+        "kind": "constant",
+        "kindLabel": "constant",
+        "line": 14,
+        "name": "py:sym:src/sample_app/math_utils.py:PI:14",
+        "visibility": "public"
+      },
+      {
+        "endLine": 22,
+        "exported": true,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService:7",
+        "kind": "class",
+        "kindLabel": "Class",
+        "line": 7,
+        "name": "py:sym:src/sample_app/service.py:UserService:7",
+        "visibility": "public"
+      },
+      {
+        "endLine": 13,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService.__init__:10",
+        "kind": "constructor",
+        "kindLabel": "constructor",
+        "line": 10,
+        "name": "py:sym:src/sample_app/service.py:UserService.__init__:10",
+        "visibility": "dunder"
+      },
+      {
+        "endLine": 18,
+        "exported": true,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService.run:15",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 15,
+        "name": "py:sym:src/sample_app/service.py:UserService.run:15",
+        "visibility": "public"
+      },
+      {
+        "endLine": 17,
+        "exported": true,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:result:17",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 17,
+        "name": "py:sym:src/sample_app/service.py:result:17",
+        "visibility": "public"
+      },
+      {
+        "endLine": 22,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 20,
+        "name": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
+        "visibility": "private"
+      },
+      {
+        "endLine": 27,
+        "exported": true,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:fetch_data:25",
+        "kind": "asyncFunction",
+        "kindLabel": "asyncFunction",
+        "line": 25,
+        "name": "py:sym:src/sample_app/service.py:fetch_data:25",
+        "visibility": "public"
+      },
+      {
+        "endLine": 32,
+        "exported": true,
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:process_items:30",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 30,
+        "name": "py:sym:src/sample_app/service.py:process_items:30",
+        "visibility": "public"
+      },
+      {
+        "endLine": 9,
+        "exported": true,
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:test_add:6",
+        "kind": "testFunction",
+        "kindLabel": "testFunction",
+        "line": 6,
+        "name": "py:sym:tests/test_math_utils.py:test_add:6",
+        "visibility": "public"
+      },
+      {
+        "endLine": 15,
+        "exported": true,
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:test_multiply:12",
+        "kind": "testFunction",
+        "kindLabel": "testFunction",
+        "line": 12,
+        "name": "py:sym:tests/test_math_utils.py:test_multiply:12",
+        "visibility": "public"
+      },
+      {
+        "endLine": 21,
+        "exported": true,
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
+        "kind": "testFunction",
+        "kindLabel": "testFunction",
+        "line": 18,
+        "name": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
+        "visibility": "public"
+      },
+      {
+        "endLine": 20,
+        "exported": true,
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:result:20",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 20,
+        "name": "py:sym:tests/test_math_utils.py:result:20",
+        "visibility": "public"
+      },
+      {
+        "endLine": null,
+        "file": "src/sample_app/main.py",
+        "id": "py:call-target:py:src:src/sample_app/main.py:print:13",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "line": 13,
+        "name": "py:call-target:py:src:src/sample_app/main.py:print:13"
+      },
+      {
+        "endLine": null,
+        "file": "src/sample_app/service.py",
+        "id": "py:call-target:py:src:src/sample_app/service.py:id:13",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "line": 13,
+        "name": "py:call-target:py:src:src/sample_app/service.py:id:13"
+      },
+      {
+        "endLine": null,
+        "file": "src/sample_app/service.py",
+        "id": "py:call-target:py:src:src/sample_app/service.py:mul:17",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "line": 17,
+        "name": "py:call-target:py:src:src/sample_app/service.py:mul:17"
+      },
+      {
+        "endLine": null,
+        "file": "src/sample_app/service.py",
+        "id": "py:call-target:py:src:src/sample_app/service.py:len:17",
+        "kind": "unresolved",
+        "kindLabel": "unresolved",
+        "line": 17,
+        "name": "py:call-target:py:src:src/sample_app/service.py:len:17"
+      }
+    ],
+    "topFiles": [
+      {
+        "path": "src/sample_app/service.py",
+        "reason": "highest-symbol-count",
+        "symbolCount": 10
+      },
+      {
+        "path": "src/sample_app/main.py",
+        "reason": "highest-symbol-count",
+        "symbolCount": 5
+      },
+      {
+        "path": "tests/test_math_utils.py",
+        "reason": "highest-symbol-count",
+        "symbolCount": 4
+      },
+      {
+        "path": "src/sample_app/math_utils.py",
+        "reason": "highest-symbol-count",
+        "symbolCount": 3
+      },
+      {
+        "path": "src/sample_app/__init__.py",
+        "reason": "highest-symbol-count",
+        "symbolCount": 1
+      }
+    ],
+    "totalSourceFiles": 5,
+    "totalSymbols": 23,
+    "truncated": false
+  },
+  "generatedAt": "2026-09-13T03:40:55Z",
+  "generatedFrom": {
+    "generationMethod": "cli-format-webui-snapshot",
+    "runtimeVerified": false,
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "tool": "CodeLattice",
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "graph": {
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
+    ],
+    "edges": [
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:929c1016f0b7c48bb88a237796c018cc7ca24b3bcd70a1a1875799b2836212fb",
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/__init__.py"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:afcb2bf6ff355278093f8d536026daf6b8953618ad091c3530871acd6145a830",
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/main.py"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:41144ea61c2ae5e17a828e0d137886a37d1d7672cea8efba997189bec0610af9",
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/math_utils.py"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:169927a878762cf4270398c2a15faa74c829ac3038190ee60faa0eabbbbcbe53",
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:src/sample_app/service.py"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:d3788348562aaa1ebdf4c31bdeb233890e05757f4693eb54891ea9970972ef63",
+        "source": "py:repo:<redacted-root>",
+        "target": "py:src:tests/test_math_utils.py"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ac883e4be144e56609a57d3a088744d96feb4edb90bad12ae9ee91e5a3d6ca8c",
+        "source": "py:src:src/sample_app/__init__.py",
+        "target": "py:sym:src/sample_app/__init__.py:__version__:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d81b3c33896d88001241325c659992150bb3ade3f7c56b6971764b3f1d2a03f3",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:main:7"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:c5e6421b04d1386e5e3f776f45476673f11a6213bed36a2470c97629ca838e41",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:result:9"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:95596db4ec60a4890e29e3241d50e1c9783e73ef20ac3f1cf1419f56dc3616c7",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:product:10"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4051ce0bbc1c6a5150e3cb278dfa0efd78e7a47ebfcafbc71164d8d356a33245",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:user:11"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:897c263e5c7634f588cda26c772939d396f408b0f6a2a13bd4fc2ced53ae626d",
+        "source": "py:src:src/sample_app/math_utils.py",
+        "target": "py:sym:src/sample_app/math_utils.py:add:4"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:feff5ebd0a2f2b62d611d57921a3c9370fcfb8731e81910e85a985e6f7b67053",
+        "source": "py:src:src/sample_app/math_utils.py",
+        "target": "py:sym:src/sample_app/math_utils.py:multiply:9"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:63f7155c15c93d82add56686a71559240f0eaa68fbf8dcb23bbccdaff21eb44b",
+        "source": "py:src:src/sample_app/math_utils.py",
+        "target": "py:sym:src/sample_app/math_utils.py:PI:14"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ee1cc9ddcb2e70ddb9be6286bde709581c1398c2aea82f0d13a47c9d3b0b7d8f",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:UserService:7"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:5a85c18ac3dfb0023abfcd6743ee719b0cd984a66d686cfb8da5da2beb212696",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:UserService.__init__:10"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:0eb8e46904771b62e9ff75afc10497e5fe82652b8fdf4df479f29bc12ee425ec",
+        "source": "py:sym:src/sample_app/service.py:UserService:7",
+        "target": "py:sym:src/sample_app/service.py:UserService.__init__:10"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:29ab42a35c947e2169d058348ef5b496dc76693fc3661820d19bd375de24b356",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:UserService.run:15"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:63db8f5d556b7a68318f0cc3bbc33b3b63969a8582bfc8de33fe3429478c2055",
+        "source": "py:sym:src/sample_app/service.py:UserService:7",
+        "target": "py:sym:src/sample_app/service.py:UserService.run:15"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:fac2c87ac90b584dae357962854611f5b0f8817111d21e310f29282ff9653530",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:result:17"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:64e681cc091e3d2dd6c8ae8362df3a38655e0babaf1f760518afadf25ca96b09",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:UserService._private_helper:20"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:9ca841ad74cf336d4c616fc3791c399f8ceaaf4c6a0851e0d382092e1db0e597",
+        "source": "py:sym:src/sample_app/service.py:UserService:7",
+        "target": "py:sym:src/sample_app/service.py:UserService._private_helper:20"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ddf7c3303d8721d2bc79bf3d63a6502bd8742620e7da90d7d22476a7b14809cb",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:fetch_data:25"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:0c0aaa0057f700cd98ae75199c85a2a98467ce9b141e035e03dc2d73ceb0e83e",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/service.py:process_items:30"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:1c6897577a311aec972458a85b4c155839e665049be96e4999a2f9875edfb55a",
+        "source": "py:src:tests/test_math_utils.py",
+        "target": "py:sym:tests/test_math_utils.py:test_add:6"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:336b8275dc2ab945aeb5fcc9e4b8b2f76ebd418d6e55bf6501f263ae41238ac5",
+        "source": "py:src:tests/test_math_utils.py",
+        "target": "py:sym:tests/test_math_utils.py:test_multiply:12"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:2a0df0d464e9569a77a3c0eb3e7202fdc42d814c75b285e1646c008904f30723",
+        "source": "py:src:tests/test_math_utils.py",
+        "target": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:fa99a854ee76a8aeca02bc607e333f9de27970f94bbfa3db1863c0bc94b90046",
+        "source": "py:src:tests/test_math_utils.py",
+        "target": "py:sym:tests/test_math_utils.py:result:20"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "explicit-import: resolved to sample_app.math_utils",
+        "relationKey": "rel:sha256:b34f20ee1c33449cca9d7dba47f3bbf97522ab371f09b368da0d23ba33ed3d02",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:src:src/sample_app/math_utils.py"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "calls",
+        "reason": "direct-same-file-or-imported-function-call",
+        "relationKey": "rel:sha256:232dd5d96a553c65cf0dded88ecbe37d9981ff02fdd147a0c67de7b2a69a83e8",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/math_utils.py:add:4"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "calls",
+        "reason": "direct-same-file-or-imported-function-call",
+        "relationKey": "rel:sha256:d4313802f267c5c5f9d78459955e2d2d4424355a46d2fb07e36a36b4cdae2c19",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/math_utils.py:multiply:9"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "calls",
+        "reason": "name-only-candidate-not-in-project-index",
+        "relationKey": "rel:sha256:3b4b8777aa6c4b785859414fbb5f37fb9961fde47159f0260fc9896871a2604b",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/service.py:UserService:7"
+      },
+      {
+        "confidence": 0.45,
+        "kind": "calls",
+        "reason": "receiver-method-name-only",
+        "relationKey": "rel:sha256:6c1f246faaf2d094cad22ca0a0f8dc2e3021bf469911cbfc6f75ff9509dea63a",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:user:11"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "calls",
+        "reason": "name-only-candidate-not-in-project-index",
+        "relationKey": "rel:sha256:b8c5f0ef66b02400208c98215d66d94ba3bebfe57e66a079f423075d86ec5252",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:call-target:py:src:src/sample_app/main.py:print:13"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "calls",
+        "reason": "direct-same-file-or-imported-function-call",
+        "relationKey": "rel:sha256:cb87748db85efc490864fbc937ab4b65370f913a14626ee287f74402f99afb88",
+        "source": "py:src:src/sample_app/main.py",
+        "target": "py:sym:src/sample_app/main.py:main:7"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "calls",
+        "reason": "direct-same-file-or-imported-function-call",
+        "relationKey": "rel:sha256:2db345ffa64637c97af2790afa15ef5ea4e554ebdba12e48d86582e378916e7c",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:sym:src/sample_app/math_utils.py:add:4"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "calls",
+        "reason": "name-only-candidate-not-in-project-index",
+        "relationKey": "rel:sha256:ee5029c12618b9b93b1ee8dd5ea4615f2c9d0c88bde567da4a0ee3dfd4a6e50d",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:call-target:py:src:src/sample_app/service.py:id:13"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "calls",
+        "reason": "name-only-candidate-not-in-project-index",
+        "relationKey": "rel:sha256:dc6241673f14a6a9e97c31007b72ab2d09fc3c3702fbf8fdba78c08bcc6f28c9",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:call-target:py:src:src/sample_app/service.py:mul:17"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "calls",
+        "reason": "name-only-candidate-not-in-project-index",
+        "relationKey": "rel:sha256:ff770e7f3fe724cd0042342acd1c91f8363b248a8cafd905a9612f349e493e0d",
+        "source": "py:src:src/sample_app/service.py",
+        "target": "py:call-target:py:src:src/sample_app/service.py:len:17"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "calls",
+        "reason": "direct-same-file-or-imported-function-call",
+        "relationKey": "rel:sha256:0b98e12c11266ba2a5540c06e3128f0b9859dc07cb487044daba042c285894cc",
+        "source": "py:src:tests/test_math_utils.py",
+        "target": "py:sym:src/sample_app/math_utils.py:add:4"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "calls",
+        "reason": "direct-same-file-or-imported-function-call",
+        "relationKey": "rel:sha256:f3f4df1c4ce7a5c8cecae814bd48d8d90fd1a92c5e984e3085bca60f5f0cfe98",
+        "source": "py:src:tests/test_math_utils.py",
+        "target": "py:sym:src/sample_app/math_utils.py:multiply:9"
+      }
+    ],
+    "nodes": [
+      {
+        "file": "<redacted-root>",
+        "id": "py:repo:<redacted-root>",
+        "kind": "package",
+        "label": "py:repo:<redacted-user>/project/project/fixtures/py"
+      },
+      {
+        "file": "src/sample_app/__init__.py",
+        "id": "py:src:src/sample_app/__init__.py",
+        "kind": "src/sample_app/__init__.py",
+        "label": "py:src:src/sample_app/__init__.py"
+      },
+      {
+        "file": "src/sample_app/main.py",
+        "id": "py:src:src/sample_app/main.py",
+        "kind": "src/sample_app/main.py",
+        "label": "py:src:src/sample_app/main.py"
+      },
+      {
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:src:src/sample_app/math_utils.py",
+        "kind": "src/sample_app/math_utils.py",
+        "label": "py:src:src/sample_app/math_utils.py"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:src:src/sample_app/service.py",
+        "kind": "src/sample_app/service.py",
+        "label": "py:src:src/sample_app/service.py"
+      },
+      {
+        "file": "tests/test_math_utils.py",
+        "id": "py:src:tests/test_math_utils.py",
+        "kind": "tests/test_math_utils.py",
+        "label": "py:src:tests/test_math_utils.py"
+      },
+      {
+        "file": "src/sample_app/__init__.py",
+        "id": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/__init__.py:__version__:3",
+        "language": "python",
+        "line": 3,
+        "visibility": "dunder"
+      },
+      {
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:main:7",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/main.py:main:7",
+        "language": "python",
+        "line": 7,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:result:9",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/main.py:result:9",
+        "language": "python",
+        "line": 9,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:product:10",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/main.py:product:10",
+        "language": "python",
+        "line": 10,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/main.py",
+        "id": "py:sym:src/sample_app/main.py:user:11",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/main.py:user:11",
+        "language": "python",
+        "line": 11,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:sym:src/sample_app/math_utils.py:add:4",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/math_utils.py:add:4",
+        "language": "python",
+        "line": 4,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:sym:src/sample_app/math_utils.py:multiply:9",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/math_utils.py:multiply:9",
+        "language": "python",
+        "line": 9,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/math_utils.py",
+        "id": "py:sym:src/sample_app/math_utils.py:PI:14",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/math_utils.py:PI:14",
+        "language": "python",
+        "line": 14,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService:7",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:UserService:7",
+        "language": "python",
+        "line": 7,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService.__init__:10",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:UserService.__init__:10",
+        "language": "python",
+        "line": 10,
+        "visibility": "dunder"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService.run:15",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:UserService.run:15",
+        "language": "python",
+        "line": 15,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:result:17",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:result:17",
+        "language": "python",
+        "line": 17,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:UserService._private_helper",
+        "language": "python",
+        "line": 20,
+        "visibility": "private"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:fetch_data:25",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:fetch_data:25",
+        "language": "python",
+        "line": 25,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:sym:src/sample_app/service.py:process_items:30",
+        "kind": "symbol",
+        "label": "py:sym:src/sample_app/service.py:process_items:30",
+        "language": "python",
+        "line": 30,
+        "visibility": "public"
+      },
+      {
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:test_add:6",
+        "kind": "symbol",
+        "label": "py:sym:tests/test_math_utils.py:test_add:6",
+        "language": "python",
+        "line": 6,
+        "visibility": "public"
+      },
+      {
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:test_multiply:12",
+        "kind": "symbol",
+        "label": "py:sym:tests/test_math_utils.py:test_multiply:12",
+        "language": "python",
+        "line": 12,
+        "visibility": "public"
+      },
+      {
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
+        "kind": "symbol",
+        "label": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
+        "language": "python",
+        "line": 18,
+        "visibility": "public"
+      },
+      {
+        "file": "tests/test_math_utils.py",
+        "id": "py:sym:tests/test_math_utils.py:result:20",
+        "kind": "symbol",
+        "label": "py:sym:tests/test_math_utils.py:result:20",
+        "language": "python",
+        "line": 20,
+        "visibility": "public"
+      },
+      {
+        "file": "src/sample_app/main.py",
+        "id": "py:call-target:py:src:src/sample_app/main.py:print:13",
+        "kind": "symbol",
+        "label": "py:call-target:py:src:src/sample_app/main.py:print:13",
+        "language": "python",
+        "line": 13
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:call-target:py:src:src/sample_app/service.py:id:13",
+        "kind": "symbol",
+        "label": "py:call-target:py:src:src/sample_app/service.py:id:13",
+        "language": "python",
+        "line": 13
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:call-target:py:src:src/sample_app/service.py:mul:17",
+        "kind": "symbol",
+        "label": "py:call-target:py:src:src/sample_app/service.py:mul:17",
+        "language": "python",
+        "line": 17
+      },
+      {
+        "file": "src/sample_app/service.py",
+        "id": "py:call-target:py:src:src/sample_app/service.py:len:17",
+        "kind": "symbol",
+        "label": "py:call-target:py:src:src/sample_app/service.py:len:17",
+        "language": "python",
+        "line": 17
+      }
+    ],
+    "stability": "preview",
+    "status": "collected",
+    "summary": {
+      "callEdgeCount": 12,
+      "edgeCount": 40,
+      "fileNodeCount": 0,
+      "nodeCount": 29,
+      "symbolNodeCount": 23
+    },
+    "truncated": false
+  },
+  "insights": {
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
+    ],
     "entryPoints": [],
+    "hotspots": [
+      {
+        "fanIn": 1,
+        "fanOut": 12,
+        "file": "",
+        "id": "py:src:src/sample_app/service.py",
+        "kind": "",
+        "name": "py:src:src/sample_app/service.py"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 10,
+        "file": "",
+        "id": "py:src:src/sample_app/main.py",
+        "kind": "",
+        "name": "py:src:src/sample_app/main.py"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 6,
+        "file": "",
+        "id": "py:src:tests/test_math_utils.py",
+        "kind": "",
+        "name": "py:src:tests/test_math_utils.py"
+      },
+      {
+        "fanIn": 0,
+        "fanOut": 5,
+        "file": "",
+        "id": "py:repo:<redacted-root>",
+        "kind": "",
+        "name": "py:repo:<redacted-root>"
+      },
+      {
+        "fanIn": 2,
+        "fanOut": 3,
+        "file": "",
+        "id": "py:src:src/sample_app/math_utils.py",
+        "kind": "",
+        "name": "py:src:src/sample_app/math_utils.py"
+      }
+    ],
     "reviewFirst": [
       {
         "file": "",
@@ -457,745 +915,291 @@
         "reason": "high-fan-out-hotspot"
       }
     ],
+    "status": "partial"
+  },
+  "language": "python",
+  "limitations": {
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "externalUsageVerified": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects."
+    ],
+    "projectCodeExecuted": false,
+    "runtimeVerified": false
+  },
+  "moduleGraph": {
+    "edges": [
+      {
+        "count": 2,
+        "kinds": [
+          "calls"
+        ],
+        "minConfidence": 0.9,
+        "reasons": [
+          "direct-same-file-or-imported-function-call"
+        ],
+        "source": "tests",
+        "target": "src/sample_app"
+      }
+    ],
+    "modules": [
+      {
+        "files": 4,
+        "id": "src/sample_app",
+        "languages": [
+          "python"
+        ],
+        "symbols": 19
+      },
+      {
+        "files": 1,
+        "id": "tests",
+        "languages": [
+          "python"
+        ],
+        "symbols": 4
+      }
+    ],
+    "truncated": false
+  },
+  "quality": {
     "cautions": [
-      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
-      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
-    ]
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ],
+    "diagnosticsSummary": null,
+    "failedGateCount": 0,
+    "gates": [
+      {
+        "detail": "0 duplicate node IDs found",
+        "gateName": "duplicate_nodes",
+        "passed": true
+      },
+      {
+        "detail": "0 duplicate edge triples found",
+        "gateName": "duplicate_edges",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling source references found",
+        "gateName": "dangling_source",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling target references found",
+        "gateName": "dangling_target",
+        "passed": true
+      },
+      {
+        "detail": "not verified from single CLI run; verified by test suite",
+        "gateName": "deterministic",
+        "passed": true
+      },
+      {
+        "detail": "All CALLS edge endpoints exist in nodes",
+        "gateName": "calls_endpoint_integrity",
+        "passed": true
+      },
+      {
+        "detail": "All imports resolved within project",
+        "gateName": "external_symbol_marking",
+        "passed": true
+      }
+    ],
+    "overall": "pass",
+    "passedGateCount": 7
+  },
+  "releaseReview": {
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 0,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ],
+    "configExampleIssueCount": null,
+    "missingTestCandidateCount": null,
+    "staleDocCandidateCount": null,
+    "status": "not_collected"
+  },
+  "root": "<redacted-root>",
+  "schemaVersion": "webui.snapshot.v1",
+  "summary": {
+    "edgeCount": 40,
+    "generatedAt": "2026-09-13T03:40:55Z",
+    "language": "python",
+    "moduleCount": 0,
+    "nodeCount": 29,
+    "packageCount": 1,
+    "schemaVersion": "webui.snapshot.v1",
+    "sourceFileCount": 5,
+    "symbolCount": 23,
+    "toolVersion": "0.17.0-beta.2"
   },
   "workflowPresets": {
-    "status": "collected",
     "presets": [
       {
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
         "id": "onboarding",
         "name": "项目接入 / Onboarding",
-        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
-        "tools": [
-          "analyze",
-          "summary",
-          "explore"
-        ],
         "stopLines": [
           "不执行目标项目代码",
           "不修改源码",
           "静态分析结果仅供参考"
+        ],
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
         ]
       },
       {
+        "description": "修改代码前了解影响范围、调用链、风险点",
         "id": "before_edit",
         "name": "编辑前检查 / Before Edit",
-        "description": "修改代码前了解影响范围、调用链、风险点",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze"
-        ],
         "stopLines": [
           "不替代 code review",
           "运行时行为需实测确认",
           "trait 解析为启发式"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
         ]
       },
       {
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
         "id": "after_edit",
         "name": "编辑后验证 / After Edit",
-        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
-        "tools": [
-          "quality",
-          "analyze",
-          "detect-changes"
-        ],
         "stopLines": [
           "不运行测试套件",
           "不执行 package manager",
           "不保证无回归"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
         ]
       },
       {
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
         "id": "delete_code",
         "name": "删除代码前评估 / Delete Code Assessment",
-        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include calls"
-        ],
         "stopLines": [
           "dead-code candidate ≠ 可安全删除",
           "外部 API heuristic 不等于真实使用者",
           "必须人工复核"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
         ]
       },
       {
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
         "id": "release_check",
         "name": "发布前检查 / Release Check",
-        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
-        "tools": [
-          "quality",
-          "analyze",
-          "release_review"
-        ],
         "stopLines": [
           "不是 GA 质量证明",
           "不覆盖运行时测试",
           "不验证外部依赖兼容性"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
         ]
       },
       {
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
         "id": "legacy_cleanup",
         "name": "遗留代码清理 / Legacy Cleanup",
-        "description": "识别未使用的符号、过时的模块、可简化的调用链",
-        "tools": [
-          "analyze --include calls",
-          "quality",
-          "cleanup_summary"
-        ],
         "stopLines": [
           "低置信度标记需逐一核实",
           "不自动删除任何代码",
           "framework entry 点不可轻移"
+        ],
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
         ]
       },
       {
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
         "id": "public_api_change",
         "name": "公共 API 变更评估 / Public API Change",
-        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include graph"
-        ],
         "stopLines": [
           "external usage 为启发式推断",
           "文档同步需人工处理",
           "semantic versioning 需人工判断"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
         ]
       },
       {
+        "description": "修改框架入口/路由/控制器时的影响分析",
         "id": "framework_route_change",
         "name": "框架路由变更 / Framework Route Change",
-        "description": "修改框架入口/路由/控制器时的影响分析",
-        "tools": [
-          "analyze",
-          "impact_preview",
-          "entry_points"
-        ],
         "stopLines": [
           "路由解析为模式匹配",
           "动态路由不可完全覆盖",
           "需结合框架文档"
+        ],
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
         ]
       },
       {
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
         "id": "docs_tests_sync",
         "name": "文档-测试同步检查 / Docs-Tests Sync",
-        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
-        "tools": [
-          "analyze",
-          "quality",
-          "release_review"
-        ],
         "stopLines": [
           "基于文件名/符号名的启发式",
           "不解析文档内容语义",
           "不判断测试充分性"
-        ]
-      },
-      {
-        "id": "config_examples_sync",
-        "name": "配置-示例同步检查 / Config-Examples Sync",
-        "description": "发现配置项与示例/文档不同步的问题",
+        ],
         "tools": [
           "analyze",
           "quality",
           "release_review"
-        ],
+        ]
+      },
+      {
+        "description": "发现配置项与示例/文档不同步的问题",
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
         "stopLines": [
           "不验证配置值正确性",
           "不执行配置加载",
           "模板/占位符可能误报"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
         ]
       }
-    ]
-  },
-  "graph": {
-    "status": "collected",
-    "stability": "preview",
-    "nodes": [
-      {
-        "id": "py:repo:<redacted-root>",
-        "label": "py:repo:<redacted-user>/project/project/fixtures/py",
-        "kind": "package",
-        "file": "<redacted-root>"
-      },
-      {
-        "id": "py:src:src/sample_app/__init__.py",
-        "label": "py:src:src/sample_app/__init__.py",
-        "kind": "src/sample_app/__init__.py",
-        "file": "src/sample_app/__init__.py"
-      },
-      {
-        "id": "py:src:src/sample_app/main.py",
-        "label": "py:src:src/sample_app/main.py",
-        "kind": "src/sample_app/main.py",
-        "file": "src/sample_app/main.py"
-      },
-      {
-        "id": "py:src:src/sample_app/math_utils.py",
-        "label": "py:src:src/sample_app/math_utils.py",
-        "kind": "src/sample_app/math_utils.py",
-        "file": "src/sample_app/math_utils.py"
-      },
-      {
-        "id": "py:src:src/sample_app/service.py",
-        "label": "py:src:src/sample_app/service.py",
-        "kind": "src/sample_app/service.py",
-        "file": "src/sample_app/service.py"
-      },
-      {
-        "id": "py:src:tests/test_math_utils.py",
-        "label": "py:src:tests/test_math_utils.py",
-        "kind": "tests/test_math_utils.py",
-        "file": "tests/test_math_utils.py"
-      },
-      {
-        "id": "py:sym:src/sample_app/__init__.py:__version__:3",
-        "label": "py:sym:src/sample_app/__init__.py:__version__:3",
-        "kind": "symbol",
-        "file": "src/sample_app/__init__.py",
-        "line": 3,
-        "visibility": "dunder"
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:main:7",
-        "label": "py:sym:src/sample_app/main.py:main:7",
-        "kind": "symbol",
-        "file": "src/sample_app/main.py",
-        "line": 7,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:result:9",
-        "label": "py:sym:src/sample_app/main.py:result:9",
-        "kind": "symbol",
-        "file": "src/sample_app/main.py",
-        "line": 9,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:product:10",
-        "label": "py:sym:src/sample_app/main.py:product:10",
-        "kind": "symbol",
-        "file": "src/sample_app/main.py",
-        "line": 10,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/main.py:user:11",
-        "label": "py:sym:src/sample_app/main.py:user:11",
-        "kind": "symbol",
-        "file": "src/sample_app/main.py",
-        "line": 11,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/math_utils.py:add:4",
-        "label": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "symbol",
-        "file": "src/sample_app/math_utils.py",
-        "line": 4,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "label": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "symbol",
-        "file": "src/sample_app/math_utils.py",
-        "line": 9,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/math_utils.py:PI:14",
-        "label": "py:sym:src/sample_app/math_utils.py:PI:14",
-        "kind": "symbol",
-        "file": "src/sample_app/math_utils.py",
-        "line": 14,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService:7",
-        "label": "py:sym:src/sample_app/service.py:UserService:7",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 7,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService.__init__:10",
-        "label": "py:sym:src/sample_app/service.py:UserService.__init__:10",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 10,
-        "visibility": "dunder"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService.run:15",
-        "label": "py:sym:src/sample_app/service.py:UserService.run:15",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 15,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:result:17",
-        "label": "py:sym:src/sample_app/service.py:result:17",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 17,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
-        "label": "py:sym:src/sample_app/service.py:UserService._private_helper",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 20,
-        "visibility": "private"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:fetch_data:25",
-        "label": "py:sym:src/sample_app/service.py:fetch_data:25",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 25,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:src/sample_app/service.py:process_items:30",
-        "label": "py:sym:src/sample_app/service.py:process_items:30",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 30,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:test_add:6",
-        "label": "py:sym:tests/test_math_utils.py:test_add:6",
-        "kind": "symbol",
-        "file": "tests/test_math_utils.py",
-        "line": 6,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:test_multiply:12",
-        "label": "py:sym:tests/test_math_utils.py:test_multiply:12",
-        "kind": "symbol",
-        "file": "tests/test_math_utils.py",
-        "line": 12,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
-        "label": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
-        "kind": "symbol",
-        "file": "tests/test_math_utils.py",
-        "line": 18,
-        "visibility": "public"
-      },
-      {
-        "id": "py:sym:tests/test_math_utils.py:result:20",
-        "label": "py:sym:tests/test_math_utils.py:result:20",
-        "kind": "symbol",
-        "file": "tests/test_math_utils.py",
-        "line": 20,
-        "visibility": "public"
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/main.py:print:13",
-        "label": "py:call-target:py:src:src/sample_app/main.py:print:13",
-        "kind": "symbol",
-        "file": "src/sample_app/main.py",
-        "line": 13
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/service.py:id:13",
-        "label": "py:call-target:py:src:src/sample_app/service.py:id:13",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 13
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/service.py:mul:17",
-        "label": "py:call-target:py:src:src/sample_app/service.py:mul:17",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 17
-      },
-      {
-        "id": "py:call-target:py:src:src/sample_app/service.py:len:17",
-        "label": "py:call-target:py:src:src/sample_app/service.py:len:17",
-        "kind": "symbol",
-        "file": "src/sample_app/service.py",
-        "line": 17
-      }
     ],
-    "edges": [
-      {
-        "source": "py:repo:<redacted-root>",
-        "target": "py:src:src/sample_app/__init__.py",
-        "kind": "owns",
-        "relationKey": "rel:sha256:929c1016f0b7c48bb88a237796c018cc7ca24b3bcd70a1a1875799b2836212fb"
-      },
-      {
-        "source": "py:repo:<redacted-root>",
-        "target": "py:src:src/sample_app/main.py",
-        "kind": "owns",
-        "relationKey": "rel:sha256:afcb2bf6ff355278093f8d536026daf6b8953618ad091c3530871acd6145a830"
-      },
-      {
-        "source": "py:repo:<redacted-root>",
-        "target": "py:src:src/sample_app/math_utils.py",
-        "kind": "owns",
-        "relationKey": "rel:sha256:41144ea61c2ae5e17a828e0d137886a37d1d7672cea8efba997189bec0610af9"
-      },
-      {
-        "source": "py:repo:<redacted-root>",
-        "target": "py:src:src/sample_app/service.py",
-        "kind": "owns",
-        "relationKey": "rel:sha256:169927a878762cf4270398c2a15faa74c829ac3038190ee60faa0eabbbbcbe53"
-      },
-      {
-        "source": "py:repo:<redacted-root>",
-        "target": "py:src:tests/test_math_utils.py",
-        "kind": "owns",
-        "relationKey": "rel:sha256:d3788348562aaa1ebdf4c31bdeb233890e05757f4693eb54891ea9970972ef63"
-      },
-      {
-        "source": "py:src:src/sample_app/__init__.py",
-        "target": "py:sym:src/sample_app/__init__.py:__version__:3",
-        "kind": "defines",
-        "relationKey": "rel:sha256:ac883e4be144e56609a57d3a088744d96feb4edb90bad12ae9ee91e5a3d6ca8c"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/main.py:main:7",
-        "kind": "defines",
-        "relationKey": "rel:sha256:d81b3c33896d88001241325c659992150bb3ade3f7c56b6971764b3f1d2a03f3"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/main.py:result:9",
-        "kind": "defines",
-        "relationKey": "rel:sha256:c5e6421b04d1386e5e3f776f45476673f11a6213bed36a2470c97629ca838e41"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/main.py:product:10",
-        "kind": "defines",
-        "relationKey": "rel:sha256:95596db4ec60a4890e29e3241d50e1c9783e73ef20ac3f1cf1419f56dc3616c7"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/main.py:user:11",
-        "kind": "defines",
-        "relationKey": "rel:sha256:4051ce0bbc1c6a5150e3cb278dfa0efd78e7a47ebfcafbc71164d8d356a33245"
-      },
-      {
-        "source": "py:src:src/sample_app/math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "defines",
-        "relationKey": "rel:sha256:897c263e5c7634f588cda26c772939d396f408b0f6a2a13bd4fc2ced53ae626d"
-      },
-      {
-        "source": "py:src:src/sample_app/math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "defines",
-        "relationKey": "rel:sha256:feff5ebd0a2f2b62d611d57921a3c9370fcfb8731e81910e85a985e6f7b67053"
-      },
-      {
-        "source": "py:src:src/sample_app/math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:PI:14",
-        "kind": "defines",
-        "relationKey": "rel:sha256:63f7155c15c93d82add56686a71559240f0eaa68fbf8dcb23bbccdaff21eb44b"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:UserService:7",
-        "kind": "defines",
-        "relationKey": "rel:sha256:ee1cc9ddcb2e70ddb9be6286bde709581c1398c2aea82f0d13a47c9d3b0b7d8f"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:UserService.__init__:10",
-        "kind": "defines",
-        "relationKey": "rel:sha256:5a85c18ac3dfb0023abfcd6743ee719b0cd984a66d686cfb8da5da2beb212696"
-      },
-      {
-        "source": "py:sym:src/sample_app/service.py:UserService:7",
-        "target": "py:sym:src/sample_app/service.py:UserService.__init__:10",
-        "kind": "related",
-        "relationKey": "rel:sha256:0eb8e46904771b62e9ff75afc10497e5fe82652b8fdf4df479f29bc12ee425ec"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:UserService.run:15",
-        "kind": "defines",
-        "relationKey": "rel:sha256:29ab42a35c947e2169d058348ef5b496dc76693fc3661820d19bd375de24b356"
-      },
-      {
-        "source": "py:sym:src/sample_app/service.py:UserService:7",
-        "target": "py:sym:src/sample_app/service.py:UserService.run:15",
-        "kind": "related",
-        "relationKey": "rel:sha256:63db8f5d556b7a68318f0cc3bbc33b3b63969a8582bfc8de33fe3429478c2055"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:result:17",
-        "kind": "defines",
-        "relationKey": "rel:sha256:fac2c87ac90b584dae357962854611f5b0f8817111d21e310f29282ff9653530"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
-        "kind": "defines",
-        "relationKey": "rel:sha256:64e681cc091e3d2dd6c8ae8362df3a38655e0babaf1f760518afadf25ca96b09"
-      },
-      {
-        "source": "py:sym:src/sample_app/service.py:UserService:7",
-        "target": "py:sym:src/sample_app/service.py:UserService._private_helper:20",
-        "kind": "related",
-        "relationKey": "rel:sha256:9ca841ad74cf336d4c616fc3791c399f8ceaaf4c6a0851e0d382092e1db0e597"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:fetch_data:25",
-        "kind": "defines",
-        "relationKey": "rel:sha256:ddf7c3303d8721d2bc79bf3d63a6502bd8742620e7da90d7d22476a7b14809cb"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/service.py:process_items:30",
-        "kind": "defines",
-        "relationKey": "rel:sha256:0c0aaa0057f700cd98ae75199c85a2a98467ce9b141e035e03dc2d73ceb0e83e"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:tests/test_math_utils.py:test_add:6",
-        "kind": "defines",
-        "relationKey": "rel:sha256:1c6897577a311aec972458a85b4c155839e665049be96e4999a2f9875edfb55a"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:tests/test_math_utils.py:test_multiply:12",
-        "kind": "defines",
-        "relationKey": "rel:sha256:336b8275dc2ab945aeb5fcc9e4b8b2f76ebd418d6e55bf6501f263ae41238ac5"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:tests/test_math_utils.py:test_add_with_multiply:18",
-        "kind": "defines",
-        "relationKey": "rel:sha256:2a0df0d464e9569a77a3c0eb3e7202fdc42d814c75b285e1646c008904f30723"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:tests/test_math_utils.py:result:20",
-        "kind": "defines",
-        "relationKey": "rel:sha256:fa99a854ee76a8aeca02bc607e333f9de27970f94bbfa3db1863c0bc94b90046"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:src:src/sample_app/math_utils.py",
-        "kind": "imports",
-        "relationKey": "rel:sha256:b34f20ee1c33449cca9d7dba47f3bbf97522ab371f09b368da0d23ba33ed3d02",
-        "confidence": 0.9,
-        "reason": "explicit-import: resolved to sample_app.math_utils"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:232dd5d96a553c65cf0dded88ecbe37d9981ff02fdd147a0c67de7b2a69a83e8",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "calls",
-        "relationKey": "rel:sha256:d4313802f267c5c5f9d78459955e2d2d4424355a46d2fb07e36a36b4cdae2c19",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/service.py:UserService:7",
-        "kind": "calls",
-        "relationKey": "rel:sha256:3b4b8777aa6c4b785859414fbb5f37fb9961fde47159f0260fc9896871a2604b",
-        "confidence": 0.6,
-        "reason": "name-only-candidate-not-in-project-index"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/main.py:user:11",
-        "kind": "calls",
-        "relationKey": "rel:sha256:6c1f246faaf2d094cad22ca0a0f8dc2e3021bf469911cbfc6f75ff9509dea63a",
-        "confidence": 0.45,
-        "reason": "receiver-method-name-only"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:call-target:py:src:src/sample_app/main.py:print:13",
-        "kind": "calls",
-        "relationKey": "rel:sha256:b8c5f0ef66b02400208c98215d66d94ba3bebfe57e66a079f423075d86ec5252",
-        "confidence": 0.6,
-        "reason": "name-only-candidate-not-in-project-index"
-      },
-      {
-        "source": "py:src:src/sample_app/main.py",
-        "target": "py:sym:src/sample_app/main.py:main:7",
-        "kind": "calls",
-        "relationKey": "rel:sha256:cb87748db85efc490864fbc937ab4b65370f913a14626ee287f74402f99afb88",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:2db345ffa64637c97af2790afa15ef5ea4e554ebdba12e48d86582e378916e7c",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:call-target:py:src:src/sample_app/service.py:id:13",
-        "kind": "calls",
-        "relationKey": "rel:sha256:ee5029c12618b9b93b1ee8dd5ea4615f2c9d0c88bde567da4a0ee3dfd4a6e50d",
-        "confidence": 0.6,
-        "reason": "name-only-candidate-not-in-project-index"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:call-target:py:src:src/sample_app/service.py:mul:17",
-        "kind": "calls",
-        "relationKey": "rel:sha256:dc6241673f14a6a9e97c31007b72ab2d09fc3c3702fbf8fdba78c08bcc6f28c9",
-        "confidence": 0.6,
-        "reason": "name-only-candidate-not-in-project-index"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:call-target:py:src:src/sample_app/service.py:len:17",
-        "kind": "calls",
-        "relationKey": "rel:sha256:ff770e7f3fe724cd0042342acd1c91f8363b248a8cafd905a9612f349e493e0d",
-        "confidence": 0.6,
-        "reason": "name-only-candidate-not-in-project-index"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:2db345ffa64637c97af2790afa15ef5ea4e554ebdba12e48d86582e378916e7c",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:src/sample_app/service.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:2db345ffa64637c97af2790afa15ef5ea4e554ebdba12e48d86582e378916e7c",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:0b98e12c11266ba2a5540c06e3128f0b9859dc07cb487044daba042c285894cc",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:0b98e12c11266ba2a5540c06e3128f0b9859dc07cb487044daba042c285894cc",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "calls",
-        "relationKey": "rel:sha256:f3f4df1c4ce7a5c8cecae814bd48d8d90fd1a92c5e984e3085bca60f5f0cfe98",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "calls",
-        "relationKey": "rel:sha256:f3f4df1c4ce7a5c8cecae814bd48d8d90fd1a92c5e984e3085bca60f5f0cfe98",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:add:4",
-        "kind": "calls",
-        "relationKey": "rel:sha256:0b98e12c11266ba2a5540c06e3128f0b9859dc07cb487044daba042c285894cc",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      },
-      {
-        "source": "py:src:tests/test_math_utils.py",
-        "target": "py:sym:src/sample_app/math_utils.py:multiply:9",
-        "kind": "calls",
-        "relationKey": "rel:sha256:f3f4df1c4ce7a5c8cecae814bd48d8d90fd1a92c5e984e3085bca60f5f0cfe98",
-        "confidence": 0.9,
-        "reason": "direct-same-file-or-imported-function-call"
-      }
-    ],
-    "summary": {
-      "nodeCount": 29,
-      "edgeCount": 46,
-      "fileNodeCount": 0,
-      "symbolNodeCount": 23,
-      "callEdgeCount": 18
-    },
-    "truncated": false,
-    "cautions": [
-      "Graph is a static preview — limited to top nodes and edges.",
-      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
-      "Call edges are heuristic with confidence scores — not compiler-verified.",
-      "Dynamic dispatch / reflection / plugins may hide actual callers."
-    ]
-  },
-  "moduleGraph": {
-    "modules": [
-      {
-        "id": "src/sample_app",
-        "files": 4,
-        "symbols": 19
-      },
-      {
-        "id": "tests",
-        "files": 1,
-        "symbols": 4
-      }
-    ],
-    "edges": [
-      {
-        "source": "tests",
-        "target": "src/sample_app",
-        "count": 6,
-        "kinds": [
-          "calls"
-        ],
-        "reasons": [
-          "direct-same-file-or-imported-function-call"
-        ],
-        "minConfidence": 0.9
-      }
-    ],
-    "truncated": false
+    "status": "collected"
   }
 }

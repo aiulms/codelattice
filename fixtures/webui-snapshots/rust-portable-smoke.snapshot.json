@@ -1,276 +1,502 @@
 {
-  "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-08-05T06:46:12+00:00",
-  "generatedFrom": {
-    "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.17.0-beta.1",
-    "snapshotSchema": "webui.snapshot.v1",
-    "staticAnalysis": true,
-    "runtimeVerified": false,
-    "generationMethod": "cli-aggregate-phase-a"
-  },
-  "summary": {
-    "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 16,
-    "edgeCount": 25,
-    "symbolCount": 9,
-    "sourceFileCount": 2,
-    "moduleCount": 0,
-    "packageCount": 1,
-    "generatedAt": "2026-08-05T06:46:12+00:00",
-    "language": "rust",
-    "toolVersion": "codelattice 0.17.0-beta.1"
-  },
-  "quality": {
-    "overall": "pass",
-    "gates": [
-      {
-        "gateName": "duplicate_nodes",
-        "passed": true,
-        "detail": "0 duplicate node IDs found"
-      },
-      {
-        "gateName": "duplicate_edges",
-        "passed": true,
-        "detail": "0 duplicate edge triples found"
-      },
-      {
-        "gateName": "dangling_source",
-        "passed": true,
-        "detail": "0 dangling source references found"
-      },
-      {
-        "gateName": "dangling_target",
-        "passed": true,
-        "detail": "0 dangling target references found"
-      },
-      {
-        "gateName": "deterministic",
-        "passed": true,
-        "detail": "not verified from single CLI run; verified by test suite"
-      },
-      {
-        "gateName": "calls_endpoint_integrity",
-        "passed": true,
-        "detail": "All CALLS edge endpoints exist in nodes"
-      },
-      {
-        "gateName": "external_symbol_marking",
-        "passed": true,
-        "detail": "No external symbols (or no external crate imports in this project)"
-      }
-    ],
-    "passedGateCount": 0,
-    "failedGateCount": 0,
-    "diagnosticsSummary": null,
-    "cautions": [
-      "Quality gates are based on static analysis only.",
-      "Pass/fail status does not guarantee runtime correctness.",
-      "External crate resolution is bounded; stdlib-only."
-    ]
-  },
-  "limitations": {
-    "runtimeVerified": false,
-    "externalUsageVerified": false,
-    "coverageVerified": false,
-    "deletionSafetyVerified": false,
-    "projectCodeExecuted": false,
-    "notes": [
-      "All results derived from static source analysis via CodeLattice CLI.",
-      "No project code was executed during snapshot generation.",
-      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
-      "External crate symbols are resolved only for std/core/alloc direct imports.",
-      "Trait resolution and type inference are NOT performed.",
-      "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting.",
-      "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
-    ]
-  },
-  "explore": {
-    "status": "collected",
-    "sourceFiles": [
-      {
-        "path": "src/lib.rs",
-        "language": "",
-        "symbolCount": 8
-      },
-      {
-        "path": "src/main.rs",
-        "language": "",
-        "symbolCount": 1
-      }
-    ],
-    "symbols": [
-      {
-        "id": "symbol:portable-smoke::crate::Calculator",
-        "name": "Calculator",
-        "kind": "struct",
-        "kindLabel": "Struct",
-        "file": "src/lib.rs",
-        "line": 5,
-        "endLine": 7,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "symbol:portable-smoke::crate::_impl_Calculator",
-        "name": "_impl_Calculator",
-        "kind": "impl-block",
-        "kindLabel": "impl-block",
-        "file": "src/lib.rs",
-        "line": 9,
-        "endLine": 21,
-        "visibility": "private"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::add",
-        "name": "add",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/lib.rs",
-        "line": 14,
-        "endLine": 16,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "symbol:portable-smoke::crate::add::_L29",
-        "name": "add",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/lib.rs",
-        "line": 29,
-        "endLine": 31,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "symbol:portable-smoke::crate::create_calculator",
-        "name": "create_calculator",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/lib.rs",
-        "line": 24,
-        "endLine": 26,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "symbol:portable-smoke::crate::get",
-        "name": "get",
-        "kind": "method",
-        "kindLabel": "Method",
-        "file": "src/lib.rs",
-        "line": 18,
-        "endLine": 20,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "symbol:portable-smoke::crate::main",
-        "name": "main",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/main.rs",
-        "line": 7,
-        "endLine": 18,
-        "visibility": "private"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::multiply",
-        "name": "multiply",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "src/lib.rs",
-        "line": 34,
-        "endLine": 36,
-        "visibility": "public",
-        "exported": true
-      },
-      {
-        "id": "symbol:portable-smoke::crate::new",
-        "name": "new",
-        "kind": "associated-function",
-        "kindLabel": "associated-function",
-        "file": "src/lib.rs",
-        "line": 10,
-        "endLine": 12,
-        "visibility": "public",
-        "exported": true
-      }
-    ],
-    "topFiles": [
-      {
-        "path": "src/lib.rs",
-        "symbolCount": 8,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "src/main.rs",
-        "symbolCount": 1,
-        "reason": "highest-symbol-count"
-      }
-    ],
-    "totalSymbols": 9,
-    "totalSourceFiles": 2,
-    "truncated": false
-  },
   "cleanup": {
-    "status": "partial",
-    "deadCodeCandidateCount": 9,
-    "unreachableCandidateCount": 9,
-    "externalApiSurfaceCount": 7,
-    "frameworkEntryHintCount": null,
     "cautions": [
       "Dead-code detection is heuristic-based on call-graph shape.",
       "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
       "Public/exported symbols may be used by external crates not analyzed here.",
       "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
       "Auto-deletion is explicitly forbidden without human review + test regression check."
-    ]
-  },
-  "releaseReview": {
+    ],
+    "deadCodeCandidateCount": 5,
+    "externalApiSurfaceCount": 7,
+    "frameworkEntryHintCount": null,
     "status": "partial",
-    "breakingChangeRisk": "low",
-    "breakingChangeSurface": 7,
-    "staleDocCandidateCount": null,
-    "missingTestCandidateCount": null,
-    "configExampleIssueCount": null,
-    "cautions": [
-      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
-      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
-      "Documentation staleness requires manual review — this only lists doc files found.",
-      "Test coverage gaps require test runner integration — not available in static mode.",
-      "Config example drift needs template comparison — not performed in this snapshot."
-    ]
+    "unreachableCandidateCount": 5
   },
-  "insights": {
-    "status": "partial",
-    "hotspots": [
+  "explore": {
+    "sourceFiles": [
       {
-        "id": "file:src/lib.rs",
-        "name": "file:src/lib.rs",
-        "fanOut": 8,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/lib.rs",
+        "symbolCount": 8
       },
       {
-        "id": "symbol:portable-smoke::crate::main",
-        "name": "main",
-        "fanOut": 4,
-        "fanIn": 1,
-        "file": "src/main.rs",
-        "kind": "function"
+        "language": "",
+        "path": "src/main.rs",
+        "symbolCount": 1
       }
+    ],
+    "status": "collected",
+    "symbols": [
+      {
+        "endLine": 7,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::Calculator",
+        "kind": "struct",
+        "kindLabel": "Struct",
+        "line": 5,
+        "name": "Calculator",
+        "visibility": "public"
+      },
+      {
+        "endLine": 21,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::_impl_Calculator",
+        "kind": "impl-block",
+        "kindLabel": "impl-block",
+        "line": 9,
+        "name": "_impl_Calculator",
+        "visibility": "private"
+      },
+      {
+        "endLine": 16,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::add",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 14,
+        "name": "add",
+        "visibility": "public"
+      },
+      {
+        "endLine": 31,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::add::_L29",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 29,
+        "name": "add",
+        "visibility": "public"
+      },
+      {
+        "endLine": 26,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::create_calculator",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 24,
+        "name": "create_calculator",
+        "visibility": "public"
+      },
+      {
+        "endLine": 20,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::get",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 18,
+        "name": "get",
+        "visibility": "public"
+      },
+      {
+        "endLine": 18,
+        "file": "src/main.rs",
+        "id": "symbol:portable-smoke::crate::main",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 7,
+        "name": "main",
+        "visibility": "private"
+      },
+      {
+        "endLine": 36,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::multiply",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 34,
+        "name": "multiply",
+        "visibility": "public"
+      },
+      {
+        "endLine": 12,
+        "exported": true,
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::new",
+        "kind": "associated-function",
+        "kindLabel": "associated-function",
+        "line": 10,
+        "name": "new",
+        "visibility": "public"
+      }
+    ],
+    "topFiles": [
+      {
+        "path": "src/lib.rs",
+        "reason": "highest-symbol-count",
+        "symbolCount": 8
+      },
+      {
+        "path": "src/main.rs",
+        "reason": "highest-symbol-count",
+        "symbolCount": 1
+      }
+    ],
+    "totalSourceFiles": 2,
+    "totalSymbols": 9,
+    "truncated": false
+  },
+  "generatedAt": "2026-09-13T03:40:55Z",
+  "generatedFrom": {
+    "generationMethod": "cli-format-webui-snapshot",
+    "runtimeVerified": false,
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "tool": "CodeLattice",
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "graph": {
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
+    ],
+    "edges": [
+      {
+        "confidence": 0.85,
+        "kind": "related",
+        "reason": "function-return-type-access",
+        "relationKey": "rel:sha256:c5875acb99522cd86af408d87cb0f6a47487c15417fc276e0e2bbde07dc414d9",
+        "source": "symbol:portable-smoke::crate::create_calculator",
+        "target": "symbol:portable-smoke::crate::Calculator"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "related",
+        "reason": "function-return-type-access",
+        "relationKey": "rel:sha256:64423d361dc9d329dcac0d90f430fdbe311e9fbfc8d1076ef71afe6b7a3e6780",
+        "source": "symbol:portable-smoke::crate::new",
+        "target": "symbol:portable-smoke::crate::Calculator"
+      },
+      {
+        "confidence": 0.75,
+        "kind": "calls",
+        "reason": "call-associated-fn-resolved",
+        "relationKey": "rel:sha256:36b203af975003b4208321f73a9fe8d8775af22869f3f6e6b303b38d0bfad4f8",
+        "source": "symbol:portable-smoke::crate::create_calculator",
+        "target": "symbol:portable-smoke::crate::new"
+      },
+      {
+        "confidence": 0.6499999761581421,
+        "kind": "calls",
+        "reason": "call-method-name-resolved",
+        "relationKey": "rel:sha256:d8c0746789c169239e3ba53a2d402026e064c274a7450b45015ab59b5816c648",
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::add"
+      },
+      {
+        "confidence": 0.6499999761581421,
+        "kind": "calls",
+        "reason": "call-method-name-resolved",
+        "relationKey": "rel:sha256:214d45ff74207458c856862ac598980d545f4614d1025f21c6d2a81bf908b384",
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::get"
+      },
+      {
+        "confidence": 0.8999999761581421,
+        "kind": "calls",
+        "reason": "call-same-module-resolved",
+        "relationKey": "rel:sha256:248723c47e17ec98214a84e3bcc7d365b9471f0880fcd21081ca27859adf15bd",
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::multiply"
+      },
+      {
+        "confidence": 0.75,
+        "kind": "calls",
+        "reason": "call-associated-fn-resolved",
+        "relationKey": "rel:sha256:251887adbc96dab8d41d346fa41f4dfe9d11644b7f9fd9ce7b313ee2047e89bc",
+        "source": "symbol:portable-smoke::crate::main",
+        "target": "symbol:portable-smoke::crate::new"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:c81662335b8341f6dd06d1214aed61994ee35bb30bab5d9f1f0c2caf40b54377",
+        "source": "repo:<redacted-root>",
+        "target": "package:Cargo.toml"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d5aedff8f72ce570024f8e9f68616588be935bdc9aa2ee0c9eab862ece80df0f",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::Calculator"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:98168c0eb181f5aa8b40dd36164b7c223f34c85758223ed1f474d0455596681d",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:cac028fcfddb62a81296e7617f2d1a538df5c69146670c109b7d2ee9da6d087e",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::add"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:3b35303d968df124cf04bb860fadd9e3cb52cea1f83dc30ccb5dc0a652605210",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::add::_L29"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:2a73719b065009db32c09b262eab27641ec4e2bc9313e3df85145e8406e666e2",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::create_calculator"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:f9bacf46caf406c5a85cd407612b5bb2d5fbcd1e97be198387a78bc9ec3d6d6b",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::get"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:757733a9d0c8ad2c0381c93d3d46c8459a661ff74e5192099a1b18a8213a07fe",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::multiply"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:81d00cc686b0ee4eb4e6319e7241e39171e54e7cf08fc1195645e1239799aba1",
+        "source": "file:src/lib.rs",
+        "target": "symbol:portable-smoke::crate::new"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:f46c1930ceaaa2148626ec667f9131ce513fff744ec9d292cd037c8f3b568894",
+        "source": "file:src/main.rs",
+        "target": "symbol:portable-smoke::crate::main"
+      },
+      {
+        "confidence": 0.95,
+        "kind": "related",
+        "reason": "impl-block-target-designation",
+        "relationKey": "rel:sha256:43923f1ece5602d81192fd5ecd4be37c3507a1f79c2cdd6ab04bb0763823d8a6",
+        "source": "symbol:portable-smoke::crate::_impl_Calculator",
+        "target": "symbol:portable-smoke::crate::Calculator"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:1d4e3ad75b436150bfd7d564c167c05b5b75cfa2b9c8a51fdfe9716ade8160d4",
+        "source": "symbol:portable-smoke::crate::add",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:72491ae0cc121244c712b0c686055ef8a5416da8a7819802775e2b54af9a5fdc",
+        "source": "symbol:portable-smoke::crate::get",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:4c1fd74af83f9e5228e86c307d3db460c3d090583fdd6cee225cd86efd090726",
+        "source": "symbol:portable-smoke::crate::new",
+        "target": "symbol:portable-smoke::crate::_impl_Calculator"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:784993c87004c14d9d3f2448eb5212f2cdf740425907524c09dae59b9a2aab08",
+        "source": "package:Cargo.toml",
+        "target": "target:portable-smoke::portable_smoke::bin"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:c6cc840b4b1a66d58efec6a795992e8097a08f6aa822268d5f0e853af33199f1",
+        "source": "package:Cargo.toml",
+        "target": "target:portable-smoke::portable_smoke::lib"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:8942b5adacde5e335f5bdd05c51df1ef693b97d3ec1d41db04ce4668178f74a6",
+        "source": "target:portable-smoke::portable_smoke::lib",
+        "target": "file:src/lib.rs"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:c4ede271539b15c0bfa522489ac034c3975ab12489d0222854bdfba47fbe09dd",
+        "source": "target:portable-smoke::portable_smoke::lib",
+        "target": "file:src/main.rs"
+      }
+    ],
+    "nodes": [
+      {
+        "file": "",
+        "id": "package:Cargo.toml",
+        "kind": "package",
+        "label": "portable-smoke"
+      },
+      {
+        "file": "",
+        "id": "repo:<redacted-root>",
+        "kind": "package",
+        "label": "repo:<redacted-user>/project/project/fixtures/rust/"
+      },
+      {
+        "file": "",
+        "id": "target:portable-smoke::portable_smoke::bin",
+        "kind": "package",
+        "label": "portable_smoke"
+      },
+      {
+        "file": "",
+        "id": "target:portable-smoke::portable_smoke::lib",
+        "kind": "package",
+        "label": "portable_smoke"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "file:src/lib.rs",
+        "kind": "file",
+        "label": "src/lib.rs",
+        "language": "rust"
+      },
+      {
+        "file": "src/main.rs",
+        "id": "file:src/main.rs",
+        "kind": "file",
+        "label": "src/main.rs",
+        "language": "rust"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::Calculator",
+        "kind": "symbol",
+        "label": "Calculator",
+        "language": "rust",
+        "line": 5,
+        "modulePath": "crate",
+        "visibility": "public"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::_impl_Calculator",
+        "kind": "symbol",
+        "label": "_impl_Calculator",
+        "language": "rust",
+        "line": 9,
+        "modulePath": "crate",
+        "visibility": "private"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::add",
+        "kind": "symbol",
+        "label": "add",
+        "language": "rust",
+        "line": 14,
+        "modulePath": "crate",
+        "visibility": "public"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::add::_L29",
+        "kind": "symbol",
+        "label": "add",
+        "language": "rust",
+        "line": 29,
+        "modulePath": "crate",
+        "visibility": "public"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::create_calculator",
+        "kind": "symbol",
+        "label": "create_calculator",
+        "language": "rust",
+        "line": 24,
+        "modulePath": "crate",
+        "visibility": "public"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::get",
+        "kind": "symbol",
+        "label": "get",
+        "language": "rust",
+        "line": 18,
+        "modulePath": "crate",
+        "visibility": "public"
+      },
+      {
+        "file": "src/main.rs",
+        "id": "symbol:portable-smoke::crate::main",
+        "kind": "symbol",
+        "label": "main",
+        "language": "rust",
+        "line": 7,
+        "modulePath": "crate",
+        "visibility": "private"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::multiply",
+        "kind": "symbol",
+        "label": "multiply",
+        "language": "rust",
+        "line": 34,
+        "modulePath": "crate",
+        "visibility": "public"
+      },
+      {
+        "file": "src/lib.rs",
+        "id": "symbol:portable-smoke::crate::new",
+        "kind": "symbol",
+        "label": "new",
+        "language": "rust",
+        "line": 10,
+        "modulePath": "crate",
+        "visibility": "public"
+      }
+    ],
+    "stability": "preview",
+    "status": "collected",
+    "summary": {
+      "callEdgeCount": 5,
+      "edgeCount": 25,
+      "fileNodeCount": 2,
+      "nodeCount": 15,
+      "symbolNodeCount": 9
+    },
+    "truncated": false
+  },
+  "insights": {
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
     ],
     "entryPoints": [
       {
-        "id": "symbol:portable-smoke::crate::main",
-        "name": "main",
-        "kind": "function",
         "file": "src/main.rs",
+        "id": "symbol:portable-smoke::crate::main",
+        "kind": "function",
+        "name": "main",
         "reason": "well-known-entry-point"
+      }
+    ],
+    "hotspots": [
+      {
+        "fanIn": 1,
+        "fanOut": 8,
+        "file": "",
+        "id": "file:src/lib.rs",
+        "kind": "",
+        "name": "file:src/lib.rs"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 4,
+        "file": "src/main.rs",
+        "id": "symbol:portable-smoke::crate::main",
+        "kind": "function",
+        "name": "main"
       }
     ],
     "reviewFirst": [
@@ -283,471 +509,276 @@
         "reason": "high-fan-out-hotspot"
       }
     ],
+    "status": "partial"
+  },
+  "language": "rust",
+  "limitations": {
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "externalUsageVerified": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects.",
+      "Module graph collapsed to a single module because the project is flat (one directory / one crate); directory-prefix aggregation is the intended fallback."
+    ],
+    "projectCodeExecuted": false,
+    "runtimeVerified": false
+  },
+  "moduleGraph": {
+    "edges": [],
+    "modules": [
+      {
+        "files": 2,
+        "id": "src",
+        "languages": [
+          "rust"
+        ],
+        "symbols": 9
+      }
+    ],
+    "truncated": false
+  },
+  "quality": {
     "cautions": [
-      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
-      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
-    ]
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ],
+    "diagnosticsSummary": {
+      "error": 0,
+      "info": 0,
+      "total": 1,
+      "warning": 0
+    },
+    "failedGateCount": 0,
+    "gates": [
+      {
+        "detail": "0 duplicate node IDs found",
+        "gateName": "duplicate_nodes",
+        "passed": true
+      },
+      {
+        "detail": "0 duplicate edge triples found",
+        "gateName": "duplicate_edges",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling source references found",
+        "gateName": "dangling_source",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling target references found",
+        "gateName": "dangling_target",
+        "passed": true
+      },
+      {
+        "detail": "not verified from single CLI run; verified by test suite",
+        "gateName": "deterministic",
+        "passed": true
+      },
+      {
+        "detail": "All CALLS edge endpoints exist in nodes",
+        "gateName": "calls_endpoint_integrity",
+        "passed": true
+      },
+      {
+        "detail": "No external symbols (or no external crate imports in this project)",
+        "gateName": "external_symbol_marking",
+        "passed": true
+      }
+    ],
+    "overall": "pass",
+    "passedGateCount": 7
+  },
+  "releaseReview": {
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 7,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ],
+    "configExampleIssueCount": null,
+    "missingTestCandidateCount": null,
+    "staleDocCandidateCount": null,
+    "status": "partial"
+  },
+  "root": "<redacted-root>",
+  "schemaVersion": "webui.snapshot.v1",
+  "summary": {
+    "edgeCount": 25,
+    "generatedAt": "2026-09-13T03:40:55Z",
+    "language": "rust",
+    "moduleCount": 0,
+    "nodeCount": 16,
+    "packageCount": 1,
+    "schemaVersion": "webui.snapshot.v1",
+    "sourceFileCount": 2,
+    "symbolCount": 9,
+    "toolVersion": "0.17.0-beta.2"
   },
   "workflowPresets": {
-    "status": "collected",
     "presets": [
       {
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
         "id": "onboarding",
         "name": "项目接入 / Onboarding",
-        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
-        "tools": [
-          "analyze",
-          "summary",
-          "explore"
-        ],
         "stopLines": [
           "不执行目标项目代码",
           "不修改源码",
           "静态分析结果仅供参考"
+        ],
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
         ]
       },
       {
+        "description": "修改代码前了解影响范围、调用链、风险点",
         "id": "before_edit",
         "name": "编辑前检查 / Before Edit",
-        "description": "修改代码前了解影响范围、调用链、风险点",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze"
-        ],
         "stopLines": [
           "不替代 code review",
           "运行时行为需实测确认",
           "trait 解析为启发式"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
         ]
       },
       {
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
         "id": "after_edit",
         "name": "编辑后验证 / After Edit",
-        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
-        "tools": [
-          "quality",
-          "analyze",
-          "detect-changes"
-        ],
         "stopLines": [
           "不运行测试套件",
           "不执行 package manager",
           "不保证无回归"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
         ]
       },
       {
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
         "id": "delete_code",
         "name": "删除代码前评估 / Delete Code Assessment",
-        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include calls"
-        ],
         "stopLines": [
           "dead-code candidate ≠ 可安全删除",
           "外部 API heuristic 不等于真实使用者",
           "必须人工复核"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
         ]
       },
       {
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
         "id": "release_check",
         "name": "发布前检查 / Release Check",
-        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
-        "tools": [
-          "quality",
-          "analyze",
-          "release_review"
-        ],
         "stopLines": [
           "不是 GA 质量证明",
           "不覆盖运行时测试",
           "不验证外部依赖兼容性"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
         ]
       },
       {
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
         "id": "legacy_cleanup",
         "name": "遗留代码清理 / Legacy Cleanup",
-        "description": "识别未使用的符号、过时的模块、可简化的调用链",
-        "tools": [
-          "analyze --include calls",
-          "quality",
-          "cleanup_summary"
-        ],
         "stopLines": [
           "低置信度标记需逐一核实",
           "不自动删除任何代码",
           "framework entry 点不可轻移"
+        ],
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
         ]
       },
       {
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
         "id": "public_api_change",
         "name": "公共 API 变更评估 / Public API Change",
-        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include graph"
-        ],
         "stopLines": [
           "external usage 为启发式推断",
           "文档同步需人工处理",
           "semantic versioning 需人工判断"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
         ]
       },
       {
+        "description": "修改框架入口/路由/控制器时的影响分析",
         "id": "framework_route_change",
         "name": "框架路由变更 / Framework Route Change",
-        "description": "修改框架入口/路由/控制器时的影响分析",
-        "tools": [
-          "analyze",
-          "impact_preview",
-          "entry_points"
-        ],
         "stopLines": [
           "路由解析为模式匹配",
           "动态路由不可完全覆盖",
           "需结合框架文档"
+        ],
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
         ]
       },
       {
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
         "id": "docs_tests_sync",
         "name": "文档-测试同步检查 / Docs-Tests Sync",
-        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
-        "tools": [
-          "analyze",
-          "quality",
-          "release_review"
-        ],
         "stopLines": [
           "基于文件名/符号名的启发式",
           "不解析文档内容语义",
           "不判断测试充分性"
-        ]
-      },
-      {
-        "id": "config_examples_sync",
-        "name": "配置-示例同步检查 / Config-Examples Sync",
-        "description": "发现配置项与示例/文档不同步的问题",
+        ],
         "tools": [
           "analyze",
           "quality",
           "release_review"
-        ],
+        ]
+      },
+      {
+        "description": "发现配置项与示例/文档不同步的问题",
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
         "stopLines": [
           "不验证配置值正确性",
           "不执行配置加载",
           "模板/占位符可能误报"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
         ]
       }
-    ]
-  },
-  "graph": {
-    "status": "collected",
-    "stability": "preview",
-    "nodes": [
-      {
-        "id": "package:Cargo.toml",
-        "label": "portable-smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "repo:<redacted-root>",
-        "label": "repo:<redacted-user>/project/project/fixtures/rust/",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "target:portable-smoke::portable_smoke::bin",
-        "label": "portable_smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "target:portable-smoke::portable_smoke::lib",
-        "label": "portable_smoke",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "file:src/lib.rs",
-        "label": "src/lib.rs",
-        "kind": "file",
-        "file": "src/lib.rs"
-      },
-      {
-        "id": "file:src/main.rs",
-        "label": "src/main.rs",
-        "kind": "file",
-        "file": "src/main.rs"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::Calculator",
-        "label": "Calculator",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 5,
-        "visibility": "public"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::_impl_Calculator",
-        "label": "_impl_Calculator",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 9,
-        "visibility": "private"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::add",
-        "label": "add",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 14,
-        "visibility": "public"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::add::_L29",
-        "label": "add",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 29,
-        "visibility": "public"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::create_calculator",
-        "label": "create_calculator",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 24,
-        "visibility": "public"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::get",
-        "label": "get",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 18,
-        "visibility": "public"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::main",
-        "label": "main",
-        "kind": "symbol",
-        "file": "src/main.rs",
-        "line": 7,
-        "visibility": "private"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::multiply",
-        "label": "multiply",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 34,
-        "visibility": "public"
-      },
-      {
-        "id": "symbol:portable-smoke::crate::new",
-        "label": "new",
-        "kind": "symbol",
-        "file": "src/lib.rs",
-        "line": 10,
-        "visibility": "public"
-      }
     ],
-    "edges": [
-      {
-        "source": "symbol:portable-smoke::crate::create_calculator",
-        "target": "symbol:portable-smoke::crate::Calculator",
-        "kind": "related",
-        "relationKey": "rel:sha256:c5875acb99522cd86af408d87cb0f6a47487c15417fc276e0e2bbde07dc414d9",
-        "confidence": 0.85,
-        "reason": "function-return-type-access"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::new",
-        "target": "symbol:portable-smoke::crate::Calculator",
-        "kind": "related",
-        "relationKey": "rel:sha256:64423d361dc9d329dcac0d90f430fdbe311e9fbfc8d1076ef71afe6b7a3e6780",
-        "confidence": 0.85,
-        "reason": "function-return-type-access"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::create_calculator",
-        "target": "symbol:portable-smoke::crate::new",
-        "kind": "calls",
-        "relationKey": "rel:sha256:36b203af975003b4208321f73a9fe8d8775af22869f3f6e6b303b38d0bfad4f8",
-        "confidence": 0.75,
-        "reason": "call-associated-fn-resolved"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::main",
-        "target": "symbol:portable-smoke::crate::add",
-        "kind": "calls",
-        "relationKey": "rel:sha256:d8c0746789c169239e3ba53a2d402026e064c274a7450b45015ab59b5816c648",
-        "confidence": 0.6499999761581421,
-        "reason": "call-method-name-resolved"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::main",
-        "target": "symbol:portable-smoke::crate::get",
-        "kind": "calls",
-        "relationKey": "rel:sha256:214d45ff74207458c856862ac598980d545f4614d1025f21c6d2a81bf908b384",
-        "confidence": 0.6499999761581421,
-        "reason": "call-method-name-resolved"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::main",
-        "target": "symbol:portable-smoke::crate::multiply",
-        "kind": "calls",
-        "relationKey": "rel:sha256:248723c47e17ec98214a84e3bcc7d365b9471f0880fcd21081ca27859adf15bd",
-        "confidence": 0.8999999761581421,
-        "reason": "call-same-module-resolved"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::main",
-        "target": "symbol:portable-smoke::crate::new",
-        "kind": "calls",
-        "relationKey": "rel:sha256:251887adbc96dab8d41d346fa41f4dfe9d11644b7f9fd9ce7b313ee2047e89bc",
-        "confidence": 0.75,
-        "reason": "call-associated-fn-resolved"
-      },
-      {
-        "source": "repo:<redacted-root>",
-        "target": "package:Cargo.toml",
-        "kind": "owns",
-        "relationKey": "rel:sha256:c81662335b8341f6dd06d1214aed61994ee35bb30bab5d9f1f0c2caf40b54377"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::Calculator",
-        "kind": "defines",
-        "relationKey": "rel:sha256:d5aedff8f72ce570024f8e9f68616588be935bdc9aa2ee0c9eab862ece80df0f"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "defines",
-        "relationKey": "rel:sha256:98168c0eb181f5aa8b40dd36164b7c223f34c85758223ed1f474d0455596681d"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::add",
-        "kind": "defines",
-        "relationKey": "rel:sha256:cac028fcfddb62a81296e7617f2d1a538df5c69146670c109b7d2ee9da6d087e"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::add::_L29",
-        "kind": "defines",
-        "relationKey": "rel:sha256:3b35303d968df124cf04bb860fadd9e3cb52cea1f83dc30ccb5dc0a652605210"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::create_calculator",
-        "kind": "defines",
-        "relationKey": "rel:sha256:2a73719b065009db32c09b262eab27641ec4e2bc9313e3df85145e8406e666e2"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::get",
-        "kind": "defines",
-        "relationKey": "rel:sha256:f9bacf46caf406c5a85cd407612b5bb2d5fbcd1e97be198387a78bc9ec3d6d6b"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::multiply",
-        "kind": "defines",
-        "relationKey": "rel:sha256:757733a9d0c8ad2c0381c93d3d46c8459a661ff74e5192099a1b18a8213a07fe"
-      },
-      {
-        "source": "file:src/lib.rs",
-        "target": "symbol:portable-smoke::crate::new",
-        "kind": "defines",
-        "relationKey": "rel:sha256:81d00cc686b0ee4eb4e6319e7241e39171e54e7cf08fc1195645e1239799aba1"
-      },
-      {
-        "source": "file:src/main.rs",
-        "target": "symbol:portable-smoke::crate::main",
-        "kind": "defines",
-        "relationKey": "rel:sha256:f46c1930ceaaa2148626ec667f9131ce513fff744ec9d292cd037c8f3b568894"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::_impl_Calculator",
-        "target": "symbol:portable-smoke::crate::Calculator",
-        "kind": "related",
-        "relationKey": "rel:sha256:43923f1ece5602d81192fd5ecd4be37c3507a1f79c2cdd6ab04bb0763823d8a6",
-        "confidence": 0.95,
-        "reason": "impl-block-target-designation"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::add",
-        "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "related",
-        "relationKey": "rel:sha256:1d4e3ad75b436150bfd7d564c167c05b5b75cfa2b9c8a51fdfe9716ade8160d4"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::get",
-        "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "related",
-        "relationKey": "rel:sha256:72491ae0cc121244c712b0c686055ef8a5416da8a7819802775e2b54af9a5fdc"
-      },
-      {
-        "source": "symbol:portable-smoke::crate::new",
-        "target": "symbol:portable-smoke::crate::_impl_Calculator",
-        "kind": "related",
-        "relationKey": "rel:sha256:4c1fd74af83f9e5228e86c307d3db460c3d090583fdd6cee225cd86efd090726"
-      },
-      {
-        "source": "package:Cargo.toml",
-        "target": "target:portable-smoke::portable_smoke::bin",
-        "kind": "related",
-        "relationKey": "rel:sha256:784993c87004c14d9d3f2448eb5212f2cdf740425907524c09dae59b9a2aab08"
-      },
-      {
-        "source": "package:Cargo.toml",
-        "target": "target:portable-smoke::portable_smoke::lib",
-        "kind": "related",
-        "relationKey": "rel:sha256:c6cc840b4b1a66d58efec6a795992e8097a08f6aa822268d5f0e853af33199f1"
-      },
-      {
-        "source": "target:portable-smoke::portable_smoke::lib",
-        "target": "file:src/lib.rs",
-        "kind": "owns",
-        "relationKey": "rel:sha256:8942b5adacde5e335f5bdd05c51df1ef693b97d3ec1d41db04ce4668178f74a6"
-      },
-      {
-        "source": "target:portable-smoke::portable_smoke::lib",
-        "target": "file:src/main.rs",
-        "kind": "owns",
-        "relationKey": "rel:sha256:c4ede271539b15c0bfa522489ac034c3975ab12489d0222854bdfba47fbe09dd"
-      }
-    ],
-    "summary": {
-      "nodeCount": 15,
-      "edgeCount": 25,
-      "fileNodeCount": 2,
-      "symbolNodeCount": 9,
-      "callEdgeCount": 5
-    },
-    "truncated": false,
-    "cautions": [
-      "Graph is a static preview — limited to top nodes and edges.",
-      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
-      "Call edges are heuristic with confidence scores — not compiler-verified.",
-      "Dynamic dispatch / reflection / plugins may hide actual callers."
-    ]
-  },
-  "moduleGraph": {
-    "modules": [
-      {
-        "id": "src",
-        "files": 2,
-        "symbols": 9
-      }
-    ],
-    "edges": [],
-    "truncated": false
+    "status": "collected"
   }
 }

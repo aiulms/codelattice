@@ -1,60 +1,731 @@
 {
-  "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-08-05T06:46:13+00:00",
-  "generatedFrom": {
-    "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.17.0-beta.1",
-    "snapshotSchema": "webui.snapshot.v1",
-    "staticAnalysis": true,
-    "runtimeVerified": false,
-    "generationMethod": "cli-aggregate-phase-a"
+  "cleanup": {
+    "cautions": [
+      "Dead-code detection is heuristic-based on call-graph shape.",
+      "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
+      "Public/exported symbols may be used by external crates not analyzed here.",
+      "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
+      "Auto-deletion is explicitly forbidden without human review + test regression check."
+    ],
+    "deadCodeCandidateCount": null,
+    "externalApiSurfaceCount": null,
+    "frameworkEntryHintCount": null,
+    "status": "not_collected",
+    "unreachableCandidateCount": null
   },
-  "summary": {
-    "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 35,
-    "edgeCount": 50,
-    "symbolCount": 11,
-    "sourceFileCount": 4,
-    "moduleCount": 0,
-    "packageCount": 1,
-    "generatedAt": "2026-08-05T06:46:13+00:00",
-    "language": "shell",
-    "toolVersion": "codelattice 0.17.0-beta.1"
-  },
-  "quality": {
-    "overall": "pass",
-    "gates": [
+  "explore": {
+    "sourceFiles": [
       {
-        "gateName": "duplicate_nodes",
-        "passed": true,
-        "detail": "0 duplicate node IDs found"
+        "language": "",
+        "path": "build.sh",
+        "symbolCount": 3
       },
       {
-        "gateName": "dangling_source",
-        "passed": true,
-        "detail": "0 dangling source references found"
+        "language": "",
+        "path": "scripts/common.sh",
+        "symbolCount": 3
       },
       {
-        "gateName": "deterministic",
-        "passed": true,
-        "detail": "not verified from single CLI run; verified by test suite"
+        "language": "",
+        "path": "scripts/release.sh",
+        "symbolCount": 3
+      },
+      {
+        "language": "",
+        "path": "scripts/test.sh",
+        "symbolCount": 2
       }
     ],
-    "passedGateCount": 0,
-    "failedGateCount": 0,
-    "diagnosticsSummary": null,
-    "cautions": [
-      "Quality gates are based on static analysis only.",
-      "Pass/fail status does not guarantee runtime correctness.",
-      "External crate resolution is bounded; stdlib-only."
-    ]
+    "status": "collected",
+    "symbols": [
+      {
+        "endLine": 20,
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:script-entry",
+        "kind": "scriptEntry",
+        "kindLabel": "scriptEntry",
+        "line": 1,
+        "name": "build.sh",
+        "visibility": "script"
+      },
+      {
+        "endLine": 14,
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:build_project",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 9,
+        "name": "build_project",
+        "visibility": "script"
+      },
+      {
+        "endLine": 18,
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:prepare_dist",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 16,
+        "name": "prepare_dist",
+        "visibility": "script"
+      },
+      {
+        "endLine": 11,
+        "file": "scripts/common.sh",
+        "id": "shell:symbol:scripts/common.sh:script-entry",
+        "kind": "scriptEntry",
+        "kindLabel": "scriptEntry",
+        "line": 1,
+        "name": "scripts/common.sh",
+        "visibility": "script"
+      },
+      {
+        "endLine": 7,
+        "file": "scripts/common.sh",
+        "id": "shell:symbol:scripts/common.sh:log_info",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 5,
+        "name": "log_info",
+        "visibility": "script"
+      },
+      {
+        "endLine": 11,
+        "file": "scripts/common.sh",
+        "id": "shell:symbol:scripts/common.sh:require_command",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 9,
+        "name": "require_command",
+        "visibility": "script"
+      },
+      {
+        "endLine": 13,
+        "file": "scripts/release.sh",
+        "id": "shell:symbol:scripts/release.sh:script-entry",
+        "kind": "scriptEntry",
+        "kindLabel": "scriptEntry",
+        "line": 1,
+        "name": "scripts/release.sh",
+        "visibility": "script"
+      },
+      {
+        "endLine": 9,
+        "file": "scripts/release.sh",
+        "id": "shell:symbol:scripts/release.sh:package_release",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 6,
+        "name": "package_release",
+        "visibility": "script"
+      },
+      {
+        "endLine": 13,
+        "file": "scripts/release.sh",
+        "id": "shell:symbol:scripts/release.sh:download_installer",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 11,
+        "name": "download_installer",
+        "visibility": "script"
+      },
+      {
+        "endLine": 14,
+        "file": "scripts/test.sh",
+        "id": "shell:symbol:scripts/test.sh:script-entry",
+        "kind": "scriptEntry",
+        "kindLabel": "scriptEntry",
+        "line": 1,
+        "name": "scripts/test.sh",
+        "visibility": "script"
+      },
+      {
+        "endLine": 12,
+        "file": "scripts/test.sh",
+        "id": "shell:symbol:scripts/test.sh:run_tests",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 7,
+        "name": "run_tests",
+        "visibility": "script"
+      }
+    ],
+    "topFiles": [
+      {
+        "path": "build.sh",
+        "reason": "highest-symbol-count",
+        "symbolCount": 3
+      },
+      {
+        "path": "scripts/common.sh",
+        "reason": "highest-symbol-count",
+        "symbolCount": 3
+      },
+      {
+        "path": "scripts/release.sh",
+        "reason": "highest-symbol-count",
+        "symbolCount": 3
+      },
+      {
+        "path": "scripts/test.sh",
+        "reason": "highest-symbol-count",
+        "symbolCount": 2
+      }
+    ],
+    "totalSourceFiles": 4,
+    "totalSymbols": 11,
+    "truncated": false
   },
-  "limitations": {
+  "generatedAt": "2026-09-13T03:40:55Z",
+  "generatedFrom": {
+    "generationMethod": "cli-format-webui-snapshot",
     "runtimeVerified": false,
-    "externalUsageVerified": false,
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "tool": "CodeLattice",
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "graph": {
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
+    ],
+    "edges": [
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:b0ddbeae2dd6dd2536cdac0dc4f168f57f2205d569d3de7523c4c81f3ed9b360",
+        "source": "shell:repo:<redacted-root>",
+        "target": "shell:file:build.sh"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:f854b0e63b78e8c489cbae2beffe4d6da8fda9558b8f3bf063a6d6b937dd1e49",
+        "source": "shell:repo:<redacted-root>",
+        "target": "shell:file:scripts/common.sh"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:1f23b578333e72e1b44d962361a9a3735301611b3a0d5a93a3ae4058635ce4f9",
+        "source": "shell:repo:<redacted-root>",
+        "target": "shell:file:scripts/release.sh"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:556a6f94887ed4e5536d078229c8367aa9e0df41c4b618447ddd6f93a85e6dcb",
+        "source": "shell:repo:<redacted-root>",
+        "target": "shell:file:scripts/test.sh"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:bc6c371131ff838d420c0a90b37c096afaa2aaaa96ab1cab085583b962a4c3d7",
+        "source": "shell:file:build.sh",
+        "target": "shell:symbol:build.sh:script-entry"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:e2da3608d14d47442c9489f01bd4fc9e253536da04e2372f7c3be2b5630182d6",
+        "source": "shell:file:build.sh",
+        "target": "shell:symbol:build.sh:build_project"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:bed102f1ce46c5fd3ce6a1c67b3bce67b39e94913787d27be865b1b2b9b2ce89",
+        "source": "shell:file:build.sh",
+        "target": "shell:symbol:build.sh:prepare_dist"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:1eb8c17af7e3b9d90b479fdfe4e90c5b9f2bbe2129ce3ad27ae58df4ec8f8cdf",
+        "source": "shell:file:scripts/common.sh",
+        "target": "shell:symbol:scripts/common.sh:script-entry"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:efd9f411b8c40bdb16e41b583898df3fc5cd6e0d10b3c4e9c6952c966794f4ee",
+        "source": "shell:file:scripts/common.sh",
+        "target": "shell:symbol:scripts/common.sh:log_info"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:aaee13d0da182fa5a00585f28a48062bab7c287c93e8f566afcde3abfbb8dd87",
+        "source": "shell:file:scripts/common.sh",
+        "target": "shell:symbol:scripts/common.sh:require_command"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:216e6d8d9d7a523a9d709d5c879e7ea3a6dba48013ebeab148ab0b2eac65eb6b",
+        "source": "shell:file:scripts/release.sh",
+        "target": "shell:symbol:scripts/release.sh:script-entry"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:16810928b6a84068191f395f351810470fb18ef6b6dbd6bb71b6211cf8e0d6e2",
+        "source": "shell:file:scripts/release.sh",
+        "target": "shell:symbol:scripts/release.sh:package_release"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4e4efe7cae5cc13f3cbd64c9b1239b28e1aa81b918776c5ea89ca86fc2192008",
+        "source": "shell:file:scripts/release.sh",
+        "target": "shell:symbol:scripts/release.sh:download_installer"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:3ab1afa821874c4f45d63a22fae78a2a940410d74a4fe338fd5415af92502a2a",
+        "source": "shell:file:scripts/test.sh",
+        "target": "shell:symbol:scripts/test.sh:script-entry"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:e797afe01efd467f1574be75786f74ec9d2b6fca75a38a3fd93c95b63101565c",
+        "source": "shell:file:scripts/test.sh",
+        "target": "shell:symbol:scripts/test.sh:run_tests"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:905051df4dc073453043bd91b62295fd233c4351804c8dbd89f6894c6f09adcd",
+        "source": "shell:symbol:build.sh:script-entry",
+        "target": "shell:command:pwd_"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "calls",
+        "reason": "shell-function-name-match",
+        "relationKey": "rel:sha256:1a8c53a0510543a1813602556fce83f8f9d8292c9a30d038ee6fa05687a6ee3d",
+        "source": "shell:symbol:build.sh:build_project",
+        "target": "shell:symbol:scripts/common.sh:log_info"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "calls",
+        "reason": "shell-function-name-match",
+        "relationKey": "rel:sha256:1cce86e3d4ffea8568bf9e5318d1f0bc485ef9f37121fe99f2adc584fb7512e8",
+        "source": "shell:symbol:build.sh:build_project",
+        "target": "shell:symbol:build.sh:prepare_dist"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:0a2b2b5194b631abdebc7d330063a9bc3d49723d1f5752eab3a3bfb19ae783c3",
+        "source": "shell:symbol:build.sh:build_project",
+        "target": "shell:command:cargo"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:2b520d91ceb4f28a8fc6781b955d4b1ae51683ccec1cda91be8f158c3bc49291",
+        "source": "shell:symbol:build.sh:build_project",
+        "target": "shell:command:./scripts/test.sh"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:39014c379f9521c629909779a8a59b4a2576a7e57aecc6402d50606531881c60",
+        "source": "shell:symbol:build.sh:prepare_dist",
+        "target": "shell:command:mkdir"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "calls",
+        "reason": "shell-function-name-match",
+        "relationKey": "rel:sha256:a4726a670af7951290d223ed5c5dfa428e514a32caa870d7053644ddd5b28212",
+        "source": "shell:symbol:build.sh:script-entry",
+        "target": "shell:symbol:build.sh:build_project"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "related",
+        "reason": "literal-source-path",
+        "relationKey": "rel:sha256:941bdfe29d0bda2a9adf8ec61c5ca423e18efb7abd6d5e92f39ee4e4ca77fc0a",
+        "source": "shell:symbol:build.sh:script-entry",
+        "target": "shell:file:scripts/common.sh"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:f28c183111ec8bb42fc811f2aae53ebf69c4a390da49c2e11628d84571641e8d",
+        "source": "shell:symbol:build.sh:script-entry",
+        "target": "shell:env:ROOT_DIR"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:76f8f988ff417f2da138dfbf3863a59a54cd821aacdd3dcba8700383a20cac98",
+        "source": "shell:symbol:build.sh:script-entry",
+        "target": "shell:env:BUILD_MODE"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:f28c183111ec8bb42fc811f2aae53ebf69c4a390da49c2e11628d84571641e8d",
+        "source": "shell:symbol:build.sh:script-entry",
+        "target": "shell:env:ROOT_DIR"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:7daca866f3cfeab536c791e1385f71ae63a2ba6379e7585698db49f72c6369a0",
+        "source": "shell:symbol:build.sh:build_project",
+        "target": "shell:env:BUILD_MODE"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:90000650fe0988399d8405ce43e6a1f2c5783d1bb142860d398c96f71ff1fa3f",
+        "source": "shell:symbol:build.sh:prepare_dist",
+        "target": "shell:env:ROOT_DIR"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:452d47c62c2506855211e4050864cf20e99078ec1b6490fdabbc0f291d7679de",
+        "source": "shell:symbol:scripts/common.sh:script-entry",
+        "target": "shell:command::"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:26b30b09907a24d677075880028024d756c8dd877a4a207d58c7b966510a7d97",
+        "source": "shell:symbol:scripts/common.sh:log_info",
+        "target": "shell:command:printf"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:f56462f069cf9d26dd65adb7ef96fe9a0aab9ae29b2efee62d679b575ea850b3",
+        "source": "shell:symbol:scripts/common.sh:require_command",
+        "target": "shell:command:command"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:5e3db56871ebccbbad4e34ad11802463b041053a2c8dc308d677812e0d2ec67e",
+        "source": "shell:symbol:scripts/common.sh:log_info",
+        "target": "shell:env:LOG_PREFIX"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:cea5388948e6ad9d4d2ea313077d6b740638e8aaf141536918d490263dd794aa",
+        "source": "shell:symbol:scripts/test.sh:script-entry",
+        "target": "shell:command:pwd_"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "calls",
+        "reason": "shell-function-name-match",
+        "relationKey": "rel:sha256:cb84f5671b4d8fcfb1309d7b150f8b8f5215dd125897ef5115596428dab25ccb",
+        "source": "shell:symbol:scripts/test.sh:run_tests",
+        "target": "shell:symbol:scripts/common.sh:require_command"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "calls",
+        "reason": "shell-function-name-match",
+        "relationKey": "rel:sha256:8499054fbb5c5c9bd87c1f6999dbde9eff2d6f533d5c72918cf421e2315bde93",
+        "source": "shell:symbol:scripts/test.sh:run_tests",
+        "target": "shell:symbol:scripts/common.sh:log_info"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "external-command-invocation",
+        "relationKey": "rel:sha256:9a474344c76f5b41aa0b6d8afdc001a66acfc647be137caf0d181a648c04e3db",
+        "source": "shell:symbol:scripts/test.sh:run_tests",
+        "target": "shell:command:cargo"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "calls",
+        "reason": "shell-function-name-match",
+        "relationKey": "rel:sha256:e9753d5eb3359c3cf4dc472b4064d4afa5316173901963117c04e526da176ec7",
+        "source": "shell:symbol:scripts/test.sh:script-entry",
+        "target": "shell:symbol:scripts/test.sh:run_tests"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "related",
+        "reason": "literal-source-path",
+        "relationKey": "rel:sha256:a5b2b7b36e7e7cafa42b1624078c98363703c7e624d37bb9f6b813c666df04ad",
+        "source": "shell:symbol:scripts/test.sh:script-entry",
+        "target": "shell:file:scripts/common.sh"
+      }
+    ],
+    "nodes": [
+      {
+        "file": "<redacted-root>",
+        "id": "shell:repo:<redacted-root>",
+        "kind": "package",
+        "label": "shell:repo:<redacted-user>/project/project/fixtures"
+      },
+      {
+        "file": "build.sh",
+        "id": "shell:file:build.sh",
+        "kind": "build.sh",
+        "label": "build.sh"
+      },
+      {
+        "file": "scripts/common.sh",
+        "id": "shell:file:scripts/common.sh",
+        "kind": "scripts/common.sh",
+        "label": "scripts/common.sh"
+      },
+      {
+        "file": "scripts/release.sh",
+        "id": "shell:file:scripts/release.sh",
+        "kind": "scripts/release.sh",
+        "label": "scripts/release.sh"
+      },
+      {
+        "file": "scripts/test.sh",
+        "id": "shell:file:scripts/test.sh",
+        "kind": "scripts/test.sh",
+        "label": "scripts/test.sh"
+      },
+      {
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:script-entry",
+        "kind": "symbol",
+        "label": "build.sh",
+        "language": "shell",
+        "line": 1,
+        "visibility": "script"
+      },
+      {
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:build_project",
+        "kind": "symbol",
+        "label": "build_project",
+        "language": "shell",
+        "line": 9,
+        "visibility": "script"
+      },
+      {
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:prepare_dist",
+        "kind": "symbol",
+        "label": "prepare_dist",
+        "language": "shell",
+        "line": 16,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/common.sh",
+        "id": "shell:symbol:scripts/common.sh:script-entry",
+        "kind": "symbol",
+        "label": "scripts/common.sh",
+        "language": "shell",
+        "line": 1,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/common.sh",
+        "id": "shell:symbol:scripts/common.sh:log_info",
+        "kind": "symbol",
+        "label": "log_info",
+        "language": "shell",
+        "line": 5,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/common.sh",
+        "id": "shell:symbol:scripts/common.sh:require_command",
+        "kind": "symbol",
+        "label": "require_command",
+        "language": "shell",
+        "line": 9,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/release.sh",
+        "id": "shell:symbol:scripts/release.sh:script-entry",
+        "kind": "symbol",
+        "label": "scripts/release.sh",
+        "language": "shell",
+        "line": 1,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/release.sh",
+        "id": "shell:symbol:scripts/release.sh:package_release",
+        "kind": "symbol",
+        "label": "package_release",
+        "language": "shell",
+        "line": 6,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/release.sh",
+        "id": "shell:symbol:scripts/release.sh:download_installer",
+        "kind": "symbol",
+        "label": "download_installer",
+        "language": "shell",
+        "line": 11,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/test.sh",
+        "id": "shell:symbol:scripts/test.sh:script-entry",
+        "kind": "symbol",
+        "label": "scripts/test.sh",
+        "language": "shell",
+        "line": 1,
+        "visibility": "script"
+      },
+      {
+        "file": "scripts/test.sh",
+        "id": "shell:symbol:scripts/test.sh:run_tests",
+        "kind": "symbol",
+        "label": "run_tests",
+        "language": "shell",
+        "line": 7,
+        "visibility": "script"
+      },
+      {
+        "file": "",
+        "id": "shell:command:pwd_",
+        "kind": "pwd)",
+        "label": "shell:command:pwd_"
+      },
+      {
+        "file": "",
+        "id": "shell:command:cargo",
+        "kind": "cargo",
+        "label": "shell:command:cargo"
+      },
+      {
+        "file": "./scripts/test.sh",
+        "id": "shell:command:./scripts/test.sh",
+        "kind": "./scripts/test.sh",
+        "label": "shell:command:./scripts/test.sh"
+      },
+      {
+        "file": "",
+        "id": "shell:command:mkdir",
+        "kind": "mkdir",
+        "label": "shell:command:mkdir"
+      },
+      {
+        "file": "",
+        "id": "shell:env:ROOT_DIR",
+        "kind": "ROOT_DIR",
+        "label": "ROOT_DIR"
+      },
+      {
+        "file": "",
+        "id": "shell:env:BUILD_MODE",
+        "kind": "BUILD_MODE",
+        "label": "BUILD_MODE"
+      },
+      {
+        "file": "",
+        "id": "shell:command::",
+        "kind": ":",
+        "label": "shell:command::"
+      },
+      {
+        "file": "",
+        "id": "shell:command:printf",
+        "kind": "printf",
+        "label": "shell:command:printf"
+      },
+      {
+        "file": "",
+        "id": "shell:command:command",
+        "kind": "command",
+        "label": "shell:command:command"
+      },
+      {
+        "file": "",
+        "id": "shell:env:LOG_PREFIX",
+        "kind": "LOG_PREFIX",
+        "label": "LOG_PREFIX"
+      }
+    ],
+    "stability": "preview",
+    "status": "collected",
+    "summary": {
+      "callEdgeCount": 15,
+      "edgeCount": 38,
+      "fileNodeCount": 0,
+      "nodeCount": 26,
+      "symbolNodeCount": 11
+    },
+    "truncated": false
+  },
+  "insights": {
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
+    ],
+    "entryPoints": [],
+    "hotspots": [
+      {
+        "fanIn": 1,
+        "fanOut": 6,
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:script-entry",
+        "kind": "scriptEntry",
+        "name": "build.sh"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 6,
+        "file": "scripts/test.sh",
+        "id": "shell:symbol:scripts/test.sh:script-entry",
+        "kind": "scriptEntry",
+        "name": "scripts/test.sh"
+      },
+      {
+        "fanIn": 2,
+        "fanOut": 5,
+        "file": "build.sh",
+        "id": "shell:symbol:build.sh:build_project",
+        "kind": "function",
+        "name": "build_project"
+      },
+      {
+        "fanIn": 0,
+        "fanOut": 4,
+        "file": "",
+        "id": "shell:repo:<redacted-root>",
+        "kind": "",
+        "name": "shell:repo:<redacted-root>"
+      },
+      {
+        "fanIn": 2,
+        "fanOut": 4,
+        "file": "scripts/test.sh",
+        "id": "shell:symbol:scripts/test.sh:run_tests",
+        "kind": "function",
+        "name": "run_tests"
+      }
+    ],
+    "reviewFirst": [
+      {
+        "file": "build.sh",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "scripts/test.sh",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "build.sh",
+        "reason": "high-fan-out-hotspot"
+      }
+    ],
+    "status": "partial"
+  },
+  "language": "shell",
+  "limitations": {
     "coverageVerified": false,
     "deletionSafetyVerified": false,
-    "projectCodeExecuted": false,
+    "externalUsageVerified": false,
     "notes": [
       "All results derived from static source analysis via CodeLattice CLI.",
       "No project code was executed during snapshot generation.",
@@ -63,941 +734,315 @@
       "Trait resolution and type inference are NOT performed.",
       "Macro expansion is NOT performed.",
       "Results are informative, not prescriptive. Always verify before acting.",
+      "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects.",
       "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
-    ]
+    ],
+    "projectCodeExecuted": false,
+    "runtimeVerified": false
   },
-  "explore": {
-    "status": "collected",
-    "sourceFiles": [
+  "moduleGraph": {
+    "edges": [
       {
-        "path": "build.sh",
-        "language": "",
-        "symbolCount": 3
+        "count": 8,
+        "kinds": [
+          "calls",
+          "related"
+        ],
+        "minConfidence": 0.55,
+        "reasons": [
+          "external-command-invocation"
+        ],
+        "source": "(root)",
+        "target": "(unknown)"
       },
       {
-        "path": "scripts/common.sh",
-        "language": "",
-        "symbolCount": 3
+        "count": 3,
+        "kinds": [
+          "calls",
+          "related"
+        ],
+        "minConfidence": 0.55,
+        "reasons": [
+          "shell-function-name-match",
+          "external-command-invocation"
+        ],
+        "source": "(root)",
+        "target": "scripts"
       },
       {
-        "path": "scripts/release.sh",
-        "language": "",
-        "symbolCount": 3
-      },
-      {
-        "path": "scripts/test.sh",
-        "language": "",
-        "symbolCount": 2
+        "count": 6,
+        "kinds": [
+          "calls",
+          "related"
+        ],
+        "minConfidence": 0.55,
+        "reasons": [
+          "external-command-invocation"
+        ],
+        "source": "scripts",
+        "target": "(unknown)"
       }
     ],
-    "symbols": [
+    "modules": [
       {
-        "id": "shell:symbol:build.sh:script-entry",
-        "name": "build.sh",
-        "kind": "scriptEntry",
-        "kindLabel": "scriptEntry",
-        "file": "build.sh",
-        "line": 1,
-        "endLine": 20,
-        "visibility": "script"
+        "files": 4,
+        "id": "scripts",
+        "languages": [
+          "shell"
+        ],
+        "symbols": 8
       },
       {
-        "id": "shell:symbol:build.sh:build_project",
-        "name": "build_project",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "build.sh",
-        "line": 9,
-        "endLine": 14,
-        "visibility": "script"
+        "files": 1,
+        "id": "(root)",
+        "languages": [
+          "shell"
+        ],
+        "symbols": 3
       },
       {
-        "id": "shell:symbol:build.sh:prepare_dist",
-        "name": "prepare_dist",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "build.sh",
-        "line": 16,
-        "endLine": 18,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/common.sh:script-entry",
-        "name": "scripts/common.sh",
-        "kind": "scriptEntry",
-        "kindLabel": "scriptEntry",
-        "file": "scripts/common.sh",
-        "line": 1,
-        "endLine": 11,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/common.sh:log_info",
-        "name": "log_info",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "scripts/common.sh",
-        "line": 5,
-        "endLine": 7,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/common.sh:require_command",
-        "name": "require_command",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "scripts/common.sh",
-        "line": 9,
-        "endLine": 11,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/release.sh:script-entry",
-        "name": "scripts/release.sh",
-        "kind": "scriptEntry",
-        "kindLabel": "scriptEntry",
-        "file": "scripts/release.sh",
-        "line": 1,
-        "endLine": 13,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/release.sh:package_release",
-        "name": "package_release",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "scripts/release.sh",
-        "line": 6,
-        "endLine": 9,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/release.sh:download_installer",
-        "name": "download_installer",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "scripts/release.sh",
-        "line": 11,
-        "endLine": 13,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/test.sh:script-entry",
-        "name": "scripts/test.sh",
-        "kind": "scriptEntry",
-        "kindLabel": "scriptEntry",
-        "file": "scripts/test.sh",
-        "line": 1,
-        "endLine": 14,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/test.sh:run_tests",
-        "name": "run_tests",
-        "kind": "function",
-        "kindLabel": "Function",
-        "file": "scripts/test.sh",
-        "line": 7,
-        "endLine": 12,
-        "visibility": "script"
+        "files": 0,
+        "id": "(unknown)",
+        "symbols": 0
       }
     ],
-    "topFiles": [
-      {
-        "path": "build.sh",
-        "symbolCount": 3,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "scripts/common.sh",
-        "symbolCount": 3,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "scripts/release.sh",
-        "symbolCount": 3,
-        "reason": "highest-symbol-count"
-      },
-      {
-        "path": "scripts/test.sh",
-        "symbolCount": 2,
-        "reason": "highest-symbol-count"
-      }
-    ],
-    "totalSymbols": 11,
-    "totalSourceFiles": 4,
     "truncated": false
   },
-  "cleanup": {
-    "status": "not_collected",
-    "deadCodeCandidateCount": null,
-    "unreachableCandidateCount": null,
-    "externalApiSurfaceCount": null,
-    "frameworkEntryHintCount": null,
+  "quality": {
     "cautions": [
-      "Dead-code detection is heuristic-based on call-graph shape.",
-      "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
-      "Public/exported symbols may be used by external crates not analyzed here.",
-      "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
-      "Auto-deletion is explicitly forbidden without human review + test regression check."
-    ]
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ],
+    "diagnosticsSummary": {
+      "error": 0,
+      "info": 0,
+      "total": 2,
+      "warning": 0
+    },
+    "failedGateCount": 0,
+    "gates": [
+      {
+        "detail": "0 duplicate node IDs found",
+        "gateName": "duplicate_nodes",
+        "passed": true
+      },
+      {
+        "detail": "0 duplicate edge triples found",
+        "gateName": "duplicate_edges",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling source references found",
+        "gateName": "dangling_source",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling target references found",
+        "gateName": "dangling_target",
+        "passed": true
+      },
+      {
+        "detail": "not verified from single CLI run; verified by test suite",
+        "gateName": "deterministic",
+        "passed": true
+      },
+      {
+        "detail": "All CALLS edge endpoints exist in nodes",
+        "gateName": "calls_endpoint_integrity",
+        "passed": true
+      },
+      {
+        "detail": "external dependency tracking not yet implemented for this language — gate passes as not-tracked",
+        "gateName": "external_symbol_marking",
+        "passed": true
+      }
+    ],
+    "overall": "pass",
+    "passedGateCount": 7
   },
   "releaseReview": {
-    "status": "not_collected",
     "breakingChangeRisk": "low",
     "breakingChangeSurface": 0,
-    "staleDocCandidateCount": null,
-    "missingTestCandidateCount": null,
-    "configExampleIssueCount": null,
     "cautions": [
       "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
       "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
       "Documentation staleness requires manual review — this only lists doc files found.",
       "Test coverage gaps require test runner integration — not available in static mode.",
       "Config example drift needs template comparison — not performed in this snapshot."
-    ]
+    ],
+    "configExampleIssueCount": null,
+    "missingTestCandidateCount": null,
+    "staleDocCandidateCount": null,
+    "status": "not_collected"
   },
-  "insights": {
-    "status": "partial",
-    "hotspots": [
-      {
-        "id": "shell:symbol:build.sh:script-entry",
-        "name": "shell:symbol:build.sh:script-entry",
-        "fanOut": 6,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "shell:symbol:scripts/test.sh:script-entry",
-        "name": "shell:symbol:scripts/test.sh:script-entry",
-        "fanOut": 6,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "shell:symbol:build.sh:build_project",
-        "name": "shell:symbol:build.sh:build_project",
-        "fanOut": 5,
-        "fanIn": 2,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "shell:repo:<redacted-root>",
-        "name": "shell:repo:<redacted-root>",
-        "fanOut": 4,
-        "fanIn": 0,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "shell:symbol:scripts/test.sh:run_tests",
-        "name": "shell:symbol:scripts/test.sh:run_tests",
-        "fanOut": 4,
-        "fanIn": 2,
-        "file": "",
-        "kind": ""
-      }
-    ],
-    "entryPoints": [],
-    "reviewFirst": [
-      {
-        "file": "",
-        "reason": "high-fan-out-hotspot"
-      },
-      {
-        "file": "",
-        "reason": "high-fan-out-hotspot"
-      },
-      {
-        "file": "",
-        "reason": "high-fan-out-hotspot"
-      }
-    ],
-    "cautions": [
-      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
-      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
-    ]
+  "root": "<redacted-root>",
+  "schemaVersion": "webui.snapshot.v1",
+  "summary": {
+    "edgeCount": 50,
+    "generatedAt": "2026-09-13T03:40:55Z",
+    "language": "shell",
+    "moduleCount": 0,
+    "nodeCount": 35,
+    "packageCount": 1,
+    "schemaVersion": "webui.snapshot.v1",
+    "sourceFileCount": 4,
+    "symbolCount": 11,
+    "toolVersion": "0.17.0-beta.2"
   },
   "workflowPresets": {
-    "status": "collected",
     "presets": [
       {
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
         "id": "onboarding",
         "name": "项目接入 / Onboarding",
-        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
-        "tools": [
-          "analyze",
-          "summary",
-          "explore"
-        ],
         "stopLines": [
           "不执行目标项目代码",
           "不修改源码",
           "静态分析结果仅供参考"
+        ],
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
         ]
       },
       {
+        "description": "修改代码前了解影响范围、调用链、风险点",
         "id": "before_edit",
         "name": "编辑前检查 / Before Edit",
-        "description": "修改代码前了解影响范围、调用链、风险点",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze"
-        ],
         "stopLines": [
           "不替代 code review",
           "运行时行为需实测确认",
           "trait 解析为启发式"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
         ]
       },
       {
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
         "id": "after_edit",
         "name": "编辑后验证 / After Edit",
-        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
-        "tools": [
-          "quality",
-          "analyze",
-          "detect-changes"
-        ],
         "stopLines": [
           "不运行测试套件",
           "不执行 package manager",
           "不保证无回归"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
         ]
       },
       {
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
         "id": "delete_code",
         "name": "删除代码前评估 / Delete Code Assessment",
-        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include calls"
-        ],
         "stopLines": [
           "dead-code candidate ≠ 可安全删除",
           "外部 API heuristic 不等于真实使用者",
           "必须人工复核"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
         ]
       },
       {
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
         "id": "release_check",
         "name": "发布前检查 / Release Check",
-        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
-        "tools": [
-          "quality",
-          "analyze",
-          "release_review"
-        ],
         "stopLines": [
           "不是 GA 质量证明",
           "不覆盖运行时测试",
           "不验证外部依赖兼容性"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
         ]
       },
       {
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
         "id": "legacy_cleanup",
         "name": "遗留代码清理 / Legacy Cleanup",
-        "description": "识别未使用的符号、过时的模块、可简化的调用链",
-        "tools": [
-          "analyze --include calls",
-          "quality",
-          "cleanup_summary"
-        ],
         "stopLines": [
           "低置信度标记需逐一核实",
           "不自动删除任何代码",
           "framework entry 点不可轻移"
+        ],
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
         ]
       },
       {
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
         "id": "public_api_change",
         "name": "公共 API 变更评估 / Public API Change",
-        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include graph"
-        ],
         "stopLines": [
           "external usage 为启发式推断",
           "文档同步需人工处理",
           "semantic versioning 需人工判断"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
         ]
       },
       {
+        "description": "修改框架入口/路由/控制器时的影响分析",
         "id": "framework_route_change",
         "name": "框架路由变更 / Framework Route Change",
-        "description": "修改框架入口/路由/控制器时的影响分析",
-        "tools": [
-          "analyze",
-          "impact_preview",
-          "entry_points"
-        ],
         "stopLines": [
           "路由解析为模式匹配",
           "动态路由不可完全覆盖",
           "需结合框架文档"
+        ],
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
         ]
       },
       {
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
         "id": "docs_tests_sync",
         "name": "文档-测试同步检查 / Docs-Tests Sync",
-        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
-        "tools": [
-          "analyze",
-          "quality",
-          "release_review"
-        ],
         "stopLines": [
           "基于文件名/符号名的启发式",
           "不解析文档内容语义",
           "不判断测试充分性"
-        ]
-      },
-      {
-        "id": "config_examples_sync",
-        "name": "配置-示例同步检查 / Config-Examples Sync",
-        "description": "发现配置项与示例/文档不同步的问题",
+        ],
         "tools": [
           "analyze",
           "quality",
           "release_review"
-        ],
+        ]
+      },
+      {
+        "description": "发现配置项与示例/文档不同步的问题",
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
         "stopLines": [
           "不验证配置值正确性",
           "不执行配置加载",
           "模板/占位符可能误报"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
         ]
       }
-    ]
-  },
-  "graph": {
-    "status": "collected",
-    "stability": "preview",
-    "nodes": [
-      {
-        "id": "shell:repo:<redacted-root>",
-        "label": "shell:repo:<redacted-user>/project/project/fixtures",
-        "kind": "package",
-        "file": "<redacted-root>"
-      },
-      {
-        "id": "shell:file:build.sh",
-        "label": "build.sh",
-        "kind": "build.sh",
-        "file": "build.sh"
-      },
-      {
-        "id": "shell:file:scripts/common.sh",
-        "label": "scripts/common.sh",
-        "kind": "scripts/common.sh",
-        "file": "scripts/common.sh"
-      },
-      {
-        "id": "shell:file:scripts/release.sh",
-        "label": "scripts/release.sh",
-        "kind": "scripts/release.sh",
-        "file": "scripts/release.sh"
-      },
-      {
-        "id": "shell:file:scripts/test.sh",
-        "label": "scripts/test.sh",
-        "kind": "scripts/test.sh",
-        "file": "scripts/test.sh"
-      },
-      {
-        "id": "shell:symbol:build.sh:script-entry",
-        "label": "build.sh",
-        "kind": "symbol",
-        "file": "build.sh",
-        "line": 1,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:build.sh:build_project",
-        "label": "build_project",
-        "kind": "symbol",
-        "file": "build.sh",
-        "line": 9,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:build.sh:prepare_dist",
-        "label": "prepare_dist",
-        "kind": "symbol",
-        "file": "build.sh",
-        "line": 16,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/common.sh:script-entry",
-        "label": "scripts/common.sh",
-        "kind": "symbol",
-        "file": "scripts/common.sh",
-        "line": 1,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/common.sh:log_info",
-        "label": "log_info",
-        "kind": "symbol",
-        "file": "scripts/common.sh",
-        "line": 5,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/common.sh:require_command",
-        "label": "require_command",
-        "kind": "symbol",
-        "file": "scripts/common.sh",
-        "line": 9,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/release.sh:script-entry",
-        "label": "scripts/release.sh",
-        "kind": "symbol",
-        "file": "scripts/release.sh",
-        "line": 1,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/release.sh:package_release",
-        "label": "package_release",
-        "kind": "symbol",
-        "file": "scripts/release.sh",
-        "line": 6,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/release.sh:download_installer",
-        "label": "download_installer",
-        "kind": "symbol",
-        "file": "scripts/release.sh",
-        "line": 11,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/test.sh:script-entry",
-        "label": "scripts/test.sh",
-        "kind": "symbol",
-        "file": "scripts/test.sh",
-        "line": 1,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:symbol:scripts/test.sh:run_tests",
-        "label": "run_tests",
-        "kind": "symbol",
-        "file": "scripts/test.sh",
-        "line": 7,
-        "visibility": "script"
-      },
-      {
-        "id": "shell:command:pwd_",
-        "label": "shell:command:pwd_",
-        "kind": "pwd)",
-        "file": ""
-      },
-      {
-        "id": "shell:command:cargo",
-        "label": "shell:command:cargo",
-        "kind": "cargo",
-        "file": ""
-      },
-      {
-        "id": "shell:command:./scripts/test.sh",
-        "label": "shell:command:./scripts/test.sh",
-        "kind": "./scripts/test.sh",
-        "file": "./scripts/test.sh"
-      },
-      {
-        "id": "shell:command:mkdir",
-        "label": "shell:command:mkdir",
-        "kind": "mkdir",
-        "file": ""
-      },
-      {
-        "id": "shell:env:ROOT_DIR",
-        "label": "ROOT_DIR",
-        "kind": "ROOT_DIR",
-        "file": ""
-      },
-      {
-        "id": "shell:env:BUILD_MODE",
-        "label": "BUILD_MODE",
-        "kind": "BUILD_MODE",
-        "file": ""
-      },
-      {
-        "id": "shell:command::",
-        "label": "shell:command::",
-        "kind": ":",
-        "file": ""
-      },
-      {
-        "id": "shell:command:printf",
-        "label": "shell:command:printf",
-        "kind": "printf",
-        "file": ""
-      },
-      {
-        "id": "shell:command:command",
-        "label": "shell:command:command",
-        "kind": "command",
-        "file": ""
-      },
-      {
-        "id": "shell:env:LOG_PREFIX",
-        "label": "LOG_PREFIX",
-        "kind": "LOG_PREFIX",
-        "file": ""
-      }
     ],
-    "edges": [
-      {
-        "source": "shell:repo:<redacted-root>",
-        "target": "shell:file:build.sh",
-        "kind": "owns",
-        "relationKey": "rel:sha256:b0ddbeae2dd6dd2536cdac0dc4f168f57f2205d569d3de7523c4c81f3ed9b360"
-      },
-      {
-        "source": "shell:repo:<redacted-root>",
-        "target": "shell:file:scripts/common.sh",
-        "kind": "owns",
-        "relationKey": "rel:sha256:f854b0e63b78e8c489cbae2beffe4d6da8fda9558b8f3bf063a6d6b937dd1e49"
-      },
-      {
-        "source": "shell:repo:<redacted-root>",
-        "target": "shell:file:scripts/release.sh",
-        "kind": "owns",
-        "relationKey": "rel:sha256:1f23b578333e72e1b44d962361a9a3735301611b3a0d5a93a3ae4058635ce4f9"
-      },
-      {
-        "source": "shell:repo:<redacted-root>",
-        "target": "shell:file:scripts/test.sh",
-        "kind": "owns",
-        "relationKey": "rel:sha256:556a6f94887ed4e5536d078229c8367aa9e0df41c4b618447ddd6f93a85e6dcb"
-      },
-      {
-        "source": "shell:file:build.sh",
-        "target": "shell:symbol:build.sh:script-entry",
-        "kind": "defines",
-        "relationKey": "rel:sha256:bc6c371131ff838d420c0a90b37c096afaa2aaaa96ab1cab085583b962a4c3d7"
-      },
-      {
-        "source": "shell:file:build.sh",
-        "target": "shell:symbol:build.sh:build_project",
-        "kind": "defines",
-        "relationKey": "rel:sha256:e2da3608d14d47442c9489f01bd4fc9e253536da04e2372f7c3be2b5630182d6"
-      },
-      {
-        "source": "shell:file:build.sh",
-        "target": "shell:symbol:build.sh:prepare_dist",
-        "kind": "defines",
-        "relationKey": "rel:sha256:bed102f1ce46c5fd3ce6a1c67b3bce67b39e94913787d27be865b1b2b9b2ce89"
-      },
-      {
-        "source": "shell:file:scripts/common.sh",
-        "target": "shell:symbol:scripts/common.sh:script-entry",
-        "kind": "defines",
-        "relationKey": "rel:sha256:1eb8c17af7e3b9d90b479fdfe4e90c5b9f2bbe2129ce3ad27ae58df4ec8f8cdf"
-      },
-      {
-        "source": "shell:file:scripts/common.sh",
-        "target": "shell:symbol:scripts/common.sh:log_info",
-        "kind": "defines",
-        "relationKey": "rel:sha256:efd9f411b8c40bdb16e41b583898df3fc5cd6e0d10b3c4e9c6952c966794f4ee"
-      },
-      {
-        "source": "shell:file:scripts/common.sh",
-        "target": "shell:symbol:scripts/common.sh:require_command",
-        "kind": "defines",
-        "relationKey": "rel:sha256:aaee13d0da182fa5a00585f28a48062bab7c287c93e8f566afcde3abfbb8dd87"
-      },
-      {
-        "source": "shell:file:scripts/release.sh",
-        "target": "shell:symbol:scripts/release.sh:script-entry",
-        "kind": "defines",
-        "relationKey": "rel:sha256:216e6d8d9d7a523a9d709d5c879e7ea3a6dba48013ebeab148ab0b2eac65eb6b"
-      },
-      {
-        "source": "shell:file:scripts/release.sh",
-        "target": "shell:symbol:scripts/release.sh:package_release",
-        "kind": "defines",
-        "relationKey": "rel:sha256:16810928b6a84068191f395f351810470fb18ef6b6dbd6bb71b6211cf8e0d6e2"
-      },
-      {
-        "source": "shell:file:scripts/release.sh",
-        "target": "shell:symbol:scripts/release.sh:download_installer",
-        "kind": "defines",
-        "relationKey": "rel:sha256:4e4efe7cae5cc13f3cbd64c9b1239b28e1aa81b918776c5ea89ca86fc2192008"
-      },
-      {
-        "source": "shell:file:scripts/test.sh",
-        "target": "shell:symbol:scripts/test.sh:script-entry",
-        "kind": "defines",
-        "relationKey": "rel:sha256:3ab1afa821874c4f45d63a22fae78a2a940410d74a4fe338fd5415af92502a2a"
-      },
-      {
-        "source": "shell:file:scripts/test.sh",
-        "target": "shell:symbol:scripts/test.sh:run_tests",
-        "kind": "defines",
-        "relationKey": "rel:sha256:e797afe01efd467f1574be75786f74ec9d2b6fca75a38a3fd93c95b63101565c"
-      },
-      {
-        "source": "shell:symbol:build.sh:script-entry",
-        "target": "shell:command:pwd_",
-        "kind": "calls",
-        "relationKey": "rel:sha256:905051df4dc073453043bd91b62295fd233c4351804c8dbd89f6894c6f09adcd",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:build.sh:build_project",
-        "target": "shell:symbol:scripts/common.sh:log_info",
-        "kind": "calls",
-        "relationKey": "rel:sha256:1a8c53a0510543a1813602556fce83f8f9d8292c9a30d038ee6fa05687a6ee3d",
-        "confidence": 0.8,
-        "reason": "shell-function-name-match"
-      },
-      {
-        "source": "shell:symbol:build.sh:build_project",
-        "target": "shell:symbol:build.sh:prepare_dist",
-        "kind": "calls",
-        "relationKey": "rel:sha256:1cce86e3d4ffea8568bf9e5318d1f0bc485ef9f37121fe99f2adc584fb7512e8",
-        "confidence": 0.8,
-        "reason": "shell-function-name-match"
-      },
-      {
-        "source": "shell:symbol:build.sh:build_project",
-        "target": "shell:command:cargo",
-        "kind": "calls",
-        "relationKey": "rel:sha256:0a2b2b5194b631abdebc7d330063a9bc3d49723d1f5752eab3a3bfb19ae783c3",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:build.sh:build_project",
-        "target": "shell:command:./scripts/test.sh",
-        "kind": "calls",
-        "relationKey": "rel:sha256:2b520d91ceb4f28a8fc6781b955d4b1ae51683ccec1cda91be8f158c3bc49291",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:build.sh:prepare_dist",
-        "target": "shell:command:mkdir",
-        "kind": "calls",
-        "relationKey": "rel:sha256:39014c379f9521c629909779a8a59b4a2576a7e57aecc6402d50606531881c60",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:build.sh:script-entry",
-        "target": "shell:symbol:build.sh:build_project",
-        "kind": "calls",
-        "relationKey": "rel:sha256:a4726a670af7951290d223ed5c5dfa428e514a32caa870d7053644ddd5b28212",
-        "confidence": 0.8,
-        "reason": "shell-function-name-match"
-      },
-      {
-        "source": "shell:symbol:build.sh:script-entry",
-        "target": "shell:file:scripts/common.sh",
-        "kind": "related",
-        "relationKey": "rel:sha256:941bdfe29d0bda2a9adf8ec61c5ca423e18efb7abd6d5e92f39ee4e4ca77fc0a",
-        "confidence": 0.85,
-        "reason": "literal-source-path"
-      },
-      {
-        "source": "shell:symbol:build.sh:script-entry",
-        "target": "shell:env:ROOT_DIR",
-        "kind": "related",
-        "relationKey": "rel:sha256:f28c183111ec8bb42fc811f2aae53ebf69c4a390da49c2e11628d84571641e8d"
-      },
-      {
-        "source": "shell:symbol:build.sh:script-entry",
-        "target": "shell:env:BUILD_MODE",
-        "kind": "related",
-        "relationKey": "rel:sha256:76f8f988ff417f2da138dfbf3863a59a54cd821aacdd3dcba8700383a20cac98"
-      },
-      {
-        "source": "shell:symbol:build.sh:script-entry",
-        "target": "shell:env:ROOT_DIR",
-        "kind": "related",
-        "relationKey": "rel:sha256:f28c183111ec8bb42fc811f2aae53ebf69c4a390da49c2e11628d84571641e8d"
-      },
-      {
-        "source": "shell:symbol:build.sh:build_project",
-        "target": "shell:env:BUILD_MODE",
-        "kind": "related",
-        "relationKey": "rel:sha256:7daca866f3cfeab536c791e1385f71ae63a2ba6379e7585698db49f72c6369a0"
-      },
-      {
-        "source": "shell:symbol:build.sh:prepare_dist",
-        "target": "shell:env:ROOT_DIR",
-        "kind": "related",
-        "relationKey": "rel:sha256:90000650fe0988399d8405ce43e6a1f2c5783d1bb142860d398c96f71ff1fa3f"
-      },
-      {
-        "source": "shell:symbol:scripts/common.sh:script-entry",
-        "target": "shell:command::",
-        "kind": "calls",
-        "relationKey": "rel:sha256:452d47c62c2506855211e4050864cf20e99078ec1b6490fdabbc0f291d7679de",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:scripts/common.sh:log_info",
-        "target": "shell:command:printf",
-        "kind": "calls",
-        "relationKey": "rel:sha256:26b30b09907a24d677075880028024d756c8dd877a4a207d58c7b966510a7d97",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:scripts/common.sh:require_command",
-        "target": "shell:command:command",
-        "kind": "calls",
-        "relationKey": "rel:sha256:f56462f069cf9d26dd65adb7ef96fe9a0aab9ae29b2efee62d679b575ea850b3",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:scripts/common.sh:log_info",
-        "target": "shell:env:LOG_PREFIX",
-        "kind": "related",
-        "relationKey": "rel:sha256:5e3db56871ebccbbad4e34ad11802463b041053a2c8dc308d677812e0d2ec67e"
-      },
-      {
-        "source": "shell:symbol:scripts/test.sh:script-entry",
-        "target": "shell:command:pwd_",
-        "kind": "calls",
-        "relationKey": "rel:sha256:cea5388948e6ad9d4d2ea313077d6b740638e8aaf141536918d490263dd794aa",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:scripts/test.sh:run_tests",
-        "target": "shell:symbol:scripts/common.sh:require_command",
-        "kind": "calls",
-        "relationKey": "rel:sha256:cb84f5671b4d8fcfb1309d7b150f8b8f5215dd125897ef5115596428dab25ccb",
-        "confidence": 0.8,
-        "reason": "shell-function-name-match"
-      },
-      {
-        "source": "shell:symbol:scripts/test.sh:run_tests",
-        "target": "shell:symbol:scripts/common.sh:log_info",
-        "kind": "calls",
-        "relationKey": "rel:sha256:8499054fbb5c5c9bd87c1f6999dbde9eff2d6f533d5c72918cf421e2315bde93",
-        "confidence": 0.8,
-        "reason": "shell-function-name-match"
-      },
-      {
-        "source": "shell:symbol:scripts/test.sh:run_tests",
-        "target": "shell:command:cargo",
-        "kind": "calls",
-        "relationKey": "rel:sha256:9a474344c76f5b41aa0b6d8afdc001a66acfc647be137caf0d181a648c04e3db",
-        "confidence": 0.55,
-        "reason": "external-command-invocation"
-      },
-      {
-        "source": "shell:symbol:scripts/test.sh:script-entry",
-        "target": "shell:symbol:scripts/test.sh:run_tests",
-        "kind": "calls",
-        "relationKey": "rel:sha256:e9753d5eb3359c3cf4dc472b4064d4afa5316173901963117c04e526da176ec7",
-        "confidence": 0.8,
-        "reason": "shell-function-name-match"
-      },
-      {
-        "source": "shell:symbol:scripts/test.sh:script-entry",
-        "target": "shell:file:scripts/common.sh",
-        "kind": "related",
-        "relationKey": "rel:sha256:a5b2b7b36e7e7cafa42b1624078c98363703c7e624d37bb9f6b813c666df04ad",
-        "confidence": 0.85,
-        "reason": "literal-source-path"
-      }
-    ],
-    "summary": {
-      "nodeCount": 26,
-      "edgeCount": 38,
-      "fileNodeCount": 0,
-      "symbolNodeCount": 11,
-      "callEdgeCount": 15
-    },
-    "truncated": false,
-    "cautions": [
-      "Graph is a static preview — limited to top nodes and edges.",
-      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
-      "Call edges are heuristic with confidence scores — not compiler-verified.",
-      "Dynamic dispatch / reflection / plugins may hide actual callers."
-    ]
-  },
-  "moduleGraph": {
-    "modules": [
-      {
-        "id": "scripts",
-        "files": 4,
-        "symbols": 8
-      },
-      {
-        "id": "(root)",
-        "files": 1,
-        "symbols": 3
-      },
-      {
-        "id": "(unknown)",
-        "files": 0,
-        "symbols": 0
-      }
-    ],
-    "edges": [
-      {
-        "source": "(root)",
-        "target": "(unknown)",
-        "count": 8,
-        "kinds": [
-          "calls",
-          "related"
-        ],
-        "reasons": [
-          "external-command-invocation"
-        ],
-        "minConfidence": 0.55
-      },
-      {
-        "source": "(root)",
-        "target": "scripts",
-        "count": 3,
-        "kinds": [
-          "calls",
-          "related"
-        ],
-        "reasons": [
-          "shell-function-name-match",
-          "external-command-invocation"
-        ],
-        "minConfidence": 0.55
-      },
-      {
-        "source": "scripts",
-        "target": "(unknown)",
-        "count": 6,
-        "kinds": [
-          "calls",
-          "related"
-        ],
-        "reasons": [
-          "external-command-invocation"
-        ],
-        "minConfidence": 0.55
-      }
-    ],
-    "truncated": false
+    "status": "collected"
   }
 }

@@ -1,391 +1,735 @@
 {
-  "schemaVersion": "webui.snapshot.v1",
-  "generatedAt": "2026-08-05T06:46:12+00:00",
-  "generatedFrom": {
-    "tool": "CodeLattice",
-    "toolVersion": "codelattice 0.17.0-beta.1",
-    "snapshotSchema": "webui.snapshot.v1",
-    "staticAnalysis": true,
-    "runtimeVerified": false,
-    "generationMethod": "cli-aggregate-phase-a"
-  },
-  "summary": {
-    "schemaVersion": "webui.snapshot.v1",
-    "nodeCount": 28,
-    "edgeCount": 32,
-    "symbolCount": 22,
-    "sourceFileCount": 3,
-    "moduleCount": 0,
-    "packageCount": 1,
-    "generatedAt": "2026-08-05T06:46:12+00:00",
-    "language": "c",
-    "toolVersion": "codelattice 0.17.0-beta.1"
-  },
-  "quality": {
-    "overall": "pass",
-    "gates": [
-      {
-        "gateName": "duplicate_nodes",
-        "passed": true,
-        "detail": "0 duplicate node IDs found"
-      },
-      {
-        "gateName": "dangling_source",
-        "passed": true,
-        "detail": "0 dangling source references found"
-      },
-      {
-        "gateName": "deterministic",
-        "passed": true,
-        "detail": "not verified from single CLI run; verified by test suite"
-      }
-    ],
-    "passedGateCount": 0,
-    "failedGateCount": 0,
-    "diagnosticsSummary": null,
-    "cautions": [
-      "Quality gates are based on static analysis only.",
-      "Pass/fail status does not guarantee runtime correctness.",
-      "External crate resolution is bounded; stdlib-only."
-    ]
-  },
-  "limitations": {
-    "runtimeVerified": false,
-    "externalUsageVerified": false,
-    "coverageVerified": false,
-    "deletionSafetyVerified": false,
-    "projectCodeExecuted": false,
-    "notes": [
-      "All results derived from static source analysis via CodeLattice CLI.",
-      "No project code was executed during snapshot generation.",
-      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
-      "External crate symbols are resolved only for std/core/alloc direct imports.",
-      "Trait resolution and type inference are NOT performed.",
-      "Macro expansion is NOT performed.",
-      "Results are informative, not prescriptive. Always verify before acting.",
-      "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
-    ]
-  },
-  "explore": {
-    "status": "collected",
-    "sourceFiles": [
-      {
-        "path": "src/logger.c",
-        "language": "",
-        "symbolCount": 0
-      },
-      {
-        "path": "src/main.c",
-        "language": "",
-        "symbolCount": 0
-      },
-      {
-        "path": "src/math_utils.c",
-        "language": "",
-        "symbolCount": 0
-      }
-    ],
-    "symbols": [
-      {
-        "id": "sym:macroDefinition:LOGGER_H:0",
-        "name": "sym:macroDefinition:LOGGER_H:0",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
-        "name": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:LOG_LEVEL_INFO:2",
-        "name": "sym:macroDefinition:LOG_LEVEL_INFO:2",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
-        "name": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:MAX_LOG_MSG:4",
-        "name": "sym:macroDefinition:MAX_LOG_MSG:4",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:logger_init:5",
-        "name": "sym:functionDeclaration:logger_init:5",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:logger_log:6",
-        "name": "sym:functionDeclaration:logger_log:6",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:logger_shutdown:7",
-        "name": "sym:functionDeclaration:logger_shutdown:7",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:MATH_UTILS_H:0",
-        "name": "sym:macroDefinition:MATH_UTILS_H:0",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:math_add:1",
-        "name": "sym:functionDeclaration:math_add:1",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:math_subtract:2",
-        "name": "sym:functionDeclaration:math_subtract:2",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:math_multiply:3",
-        "name": "sym:functionDeclaration:math_multiply:3",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:typedef:MathResult:4",
-        "name": "sym:typedef:MathResult:4",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:typedef:MathStatus:5",
-        "name": "sym:typedef:MathStatus:5",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:logger_init:0",
-        "name": "sym:functionDefinition:logger_init:0",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:logger_log:1",
-        "name": "sym:functionDefinition:logger_log:1",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:logger_shutdown:2",
-        "name": "sym:functionDefinition:logger_shutdown:2",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:main:0",
-        "name": "sym:functionDefinition:main:0",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:math_add:0",
-        "name": "sym:functionDefinition:math_add:0",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:math_subtract:1",
-        "name": "sym:functionDefinition:math_subtract:1",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:math_multiply:2",
-        "name": "sym:functionDefinition:math_multiply:2",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:clamp_result:3",
-        "name": "sym:functionDefinition:clamp_result:3",
-        "kind": "unknown",
-        "kindLabel": "Unknown",
-        "file": "?",
-        "line": null,
-        "endLine": null,
-        "visibility": "default"
-      }
-    ],
-    "topFiles": [],
-    "totalSymbols": 22,
-    "totalSourceFiles": 3,
-    "truncated": false
-  },
   "cleanup": {
-    "status": "not_collected",
-    "deadCodeCandidateCount": null,
-    "unreachableCandidateCount": null,
-    "externalApiSurfaceCount": null,
-    "frameworkEntryHintCount": null,
     "cautions": [
       "Dead-code detection is heuristic-based on call-graph shape.",
       "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
       "Public/exported symbols may be used by external crates not analyzed here.",
       "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
       "Auto-deletion is explicitly forbidden without human review + test regression check."
-    ]
-  },
-  "releaseReview": {
+    ],
+    "deadCodeCandidateCount": null,
+    "externalApiSurfaceCount": null,
+    "frameworkEntryHintCount": null,
     "status": "not_collected",
-    "breakingChangeRisk": "low",
-    "breakingChangeSurface": 0,
-    "staleDocCandidateCount": null,
-    "missingTestCandidateCount": null,
-    "configExampleIssueCount": null,
-    "cautions": [
-      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
-      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
-      "Documentation staleness requires manual review — this only lists doc files found.",
-      "Test coverage gaps require test runner integration — not available in static mode.",
-      "Config example drift needs template comparison — not performed in this snapshot."
-    ]
+    "unreachableCandidateCount": null
   },
-  "insights": {
-    "status": "partial",
-    "hotspots": [
+  "explore": {
+    "sourceFiles": [
       {
-        "id": "file:include/logger.h",
-        "name": "file:include/logger.h",
-        "fanOut": 8,
-        "fanIn": 4,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/logger.c",
+        "symbolCount": 0
       },
       {
-        "id": "file:include/math_utils.h",
-        "name": "file:include/math_utils.h",
-        "fanOut": 6,
-        "fanIn": 3,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/main.c",
+        "symbolCount": 0
       },
       {
-        "id": "file:src/math_utils.c",
-        "name": "file:src/math_utils.c",
-        "fanOut": 6,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "repo:root",
-        "name": "repo:root",
-        "fanOut": 5,
-        "fanIn": 0,
-        "file": "",
-        "kind": ""
-      },
-      {
-        "id": "file:src/logger.c",
-        "name": "file:src/logger.c",
-        "fanOut": 4,
-        "fanIn": 1,
-        "file": "",
-        "kind": ""
+        "language": "",
+        "path": "src/math_utils.c",
+        "symbolCount": 0
       }
     ],
+    "status": "collected",
+    "symbols": [
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:macroDefinition:LOGGER_H:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:macroDefinition:LOGGER_H:0",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:macroDefinition:MAX_LOG_MSG:4",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:macroDefinition:MAX_LOG_MSG:4",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDeclaration:logger_init:5",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDeclaration:logger_init:5",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDeclaration:logger_log:6",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDeclaration:logger_log:6",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDeclaration:logger_shutdown:7",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDeclaration:logger_shutdown:7",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:macroDefinition:MATH_UTILS_H:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:macroDefinition:MATH_UTILS_H:0",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDeclaration:math_add:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDeclaration:math_add:1",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDeclaration:math_subtract:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDeclaration:math_subtract:2",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDeclaration:math_multiply:3",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDeclaration:math_multiply:3",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:typedef:MathResult:4",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:typedef:MathResult:4",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:typedef:MathStatus:5",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:typedef:MathStatus:5",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:logger_init:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:logger_init:0",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:logger_log:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:logger_log:1",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:logger_shutdown:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:logger_shutdown:2",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:main:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:main:0",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:math_add:0",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:math_add:0",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:math_subtract:1",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:math_subtract:1",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:math_multiply:2",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:math_multiply:2",
+        "visibility": "default"
+      },
+      {
+        "endLine": null,
+        "file": "?",
+        "id": "sym:functionDefinition:clamp_result:3",
+        "kind": "unknown",
+        "kindLabel": "Unknown",
+        "line": null,
+        "name": "sym:functionDefinition:clamp_result:3",
+        "visibility": "default"
+      }
+    ],
+    "topFiles": [],
+    "totalSourceFiles": 3,
+    "totalSymbols": 22,
+    "truncated": false
+  },
+  "generatedAt": "2026-09-13T03:40:55Z",
+  "generatedFrom": {
+    "generationMethod": "cli-format-webui-snapshot",
+    "runtimeVerified": false,
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "tool": "CodeLattice",
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "graph": {
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
+    ],
+    "edges": [
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:b4eb835f3177fd9b931f0965bce2d71ed9e3e7e1c74eb39fe288eb3b2feaf091",
+        "source": "repo:root",
+        "target": "file:src/logger.c"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:67990402f180805b34979b55e7a7740e8f7cebc418ea789923ebbe70da907242",
+        "source": "repo:root",
+        "target": "file:src/main.c"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:48dbfdfdfd87728ceaa99bf7b6339ae460b8344d36f69dce163d464c0a12b8ee",
+        "source": "repo:root",
+        "target": "file:src/math_utils.c"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:d031f4a245b86182ce9983c4c363e5335125c03bf1e6619c50c1c391608a8f8b",
+        "source": "repo:root",
+        "target": "file:include/logger.h"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:2453a3d87a093547b874cc4869713f55b5ba3956725cd03a653d3aa96e673ff8",
+        "source": "repo:root",
+        "target": "file:include/math_utils.h"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:b7e1340b7ae530457b685d8a45932b36437fcd96ccdb40d6043f901a7e4a24cc",
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOGGER_H:0"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:aa555b5ee25866a0c8a382ecffe6223364079e4604600049e0e13d35e943c5e8",
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOG_LEVEL_DEBUG:1"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:7a6a460a9a11a6c936cc24ff8d91288735d5aab8bc1959c2e2acbf1311e7e118",
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOG_LEVEL_INFO:2"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:34339332f60c31f84ce5a84cfcb414453c181af149e4d7a9cd2108ca7a1f6f66",
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:LOG_LEVEL_ERROR:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:2c58204142e0cf72b8648d830814257a162dcf9075dcc5a245a497972c6c2c2c",
+        "source": "file:include/logger.h",
+        "target": "sym:macroDefinition:MAX_LOG_MSG:4"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:6a3152bff65a0ed1c0b2cb9ad46771c92262f83ccd36598da95f1f96d35395c2",
+        "source": "file:include/logger.h",
+        "target": "sym:functionDeclaration:logger_init:5"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:9b1a73062be9a458a9fefaae66c22dce87bf358c1fecf8068082918578ec2cea",
+        "source": "file:include/logger.h",
+        "target": "sym:functionDeclaration:logger_log:6"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:b3cbb9fbc98151e67a4e21a461233da502741310a10cc7b6345d8c5a93e306be",
+        "source": "file:include/logger.h",
+        "target": "sym:functionDeclaration:logger_shutdown:7"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:a652db496bfe22037881b98660b69e083fda9d98dfe9795357dac1e88398636f",
+        "source": "file:include/math_utils.h",
+        "target": "sym:macroDefinition:MATH_UTILS_H:0"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:8d7b3ed7dc1adec382202468d1f963686b1fef59133c7eff3203f445b5217b7b",
+        "source": "file:include/math_utils.h",
+        "target": "sym:functionDeclaration:math_add:1"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d098b33ecc6f3506f54565a67fa6826e87c4da6bffa5a48c2b0598f76a69af19",
+        "source": "file:include/math_utils.h",
+        "target": "sym:functionDeclaration:math_subtract:2"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:45d89478843e93f253e8617e480e21dce8fc437f24f0ab9e470c712bf2017df8",
+        "source": "file:include/math_utils.h",
+        "target": "sym:functionDeclaration:math_multiply:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:a768c7e99b2bf2334f9895c6237a7c45a511e754036638ed43d36dba30dd55f2",
+        "source": "file:include/math_utils.h",
+        "target": "sym:typedef:MathResult:4"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:dd6bf38b55bd4f37b829fde88a5ad036842c615ccaec224387c54cdbfbdd63ee",
+        "source": "file:include/math_utils.h",
+        "target": "sym:typedef:MathStatus:5"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:bf1e9d2c7cf8a288eaf73927357a93412007ef2c87e134698c629d1b142f59d2",
+        "source": "file:src/logger.c",
+        "target": "sym:functionDefinition:logger_init:0"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:cd12fd3c286bbb562f2d10e5f2aa3fc91de2000674717f8607ea2589b80ad030",
+        "source": "file:src/logger.c",
+        "target": "sym:functionDefinition:logger_log:1"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:45f3b914dba16494c9147afc3febdfa395481d7cca4560376d47382ba0e71685",
+        "source": "file:src/logger.c",
+        "target": "sym:functionDefinition:logger_shutdown:2"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:405df0434309376f69aed0034793feaa98b60675ef1aa2579c1b49820bafeb5a",
+        "source": "file:src/main.c",
+        "target": "sym:functionDefinition:main:0"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ebefab54b3bd23755dd5247287b89eb0b1eade1978a33e39536c15becbdb86ed",
+        "source": "file:src/math_utils.c",
+        "target": "sym:functionDefinition:math_add:0"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d2725aca558fe9e544a3e20806a126e1021bad69b6944cd802e83191cfb5ebdd",
+        "source": "file:src/math_utils.c",
+        "target": "sym:functionDefinition:math_subtract:1"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:2754b332e471177cde9b850849b1e18ff5e729a553548c36e0634003efa067f2",
+        "source": "file:src/math_utils.c",
+        "target": "sym:functionDefinition:math_multiply:2"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ef2664557202bcd3fadc7ecb6fb5751970b05ed6b509557800a9b604d960b160",
+        "source": "file:src/math_utils.c",
+        "target": "sym:functionDefinition:clamp_result:3"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "related",
+        "reason": "c-filename-unique-fallback",
+        "relationKey": "rel:sha256:112bd36d087f9ba186279e9b9d99decee66173c3f73ee15385d2390e132b9c12",
+        "source": "file:src/logger.c",
+        "target": "file:include/logger.h"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "related",
+        "reason": "c-filename-unique-fallback",
+        "relationKey": "rel:sha256:c8668945dd41344e48ae7796899c4bf74971796d292a2db8a4081538e7aa9841",
+        "source": "file:src/main.c",
+        "target": "file:include/math_utils.h"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "related",
+        "reason": "c-filename-unique-fallback",
+        "relationKey": "rel:sha256:b043b31f62d09ff071b6d2c65c427f2a3ab82b61f847f1b7926b200ec78d6719",
+        "source": "file:src/main.c",
+        "target": "file:include/logger.h"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "related",
+        "reason": "c-filename-unique-fallback",
+        "relationKey": "rel:sha256:f33396f3356e9bf27cf10091569adc698f3ae8209543b842b191db0e8743d8b4",
+        "source": "file:src/math_utils.c",
+        "target": "file:include/math_utils.h"
+      },
+      {
+        "confidence": 0.6,
+        "kind": "related",
+        "reason": "c-filename-unique-fallback",
+        "relationKey": "rel:sha256:2602a3edd817297d783cdaf0de2697c386df07a2e941e1cd1879f5c41264e15a",
+        "source": "file:src/math_utils.c",
+        "target": "file:include/logger.h"
+      }
+    ],
+    "nodes": [
+      {
+        "file": "",
+        "id": "repo:root",
+        "kind": "package",
+        "label": "repo:root"
+      },
+      {
+        "file": "src/logger.c",
+        "id": "file:src/logger.c",
+        "kind": "src/logger.c",
+        "label": "file:src/logger.c"
+      },
+      {
+        "file": "src/main.c",
+        "id": "file:src/main.c",
+        "kind": "src/main.c",
+        "label": "file:src/main.c"
+      },
+      {
+        "file": "src/math_utils.c",
+        "id": "file:src/math_utils.c",
+        "kind": "src/math_utils.c",
+        "label": "file:src/math_utils.c"
+      },
+      {
+        "file": "",
+        "id": "sym:macroDefinition:LOGGER_H:0",
+        "kind": "symbol",
+        "label": "sym:macroDefinition:LOGGER_H:0",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "kind": "symbol",
+        "label": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "kind": "symbol",
+        "label": "sym:macroDefinition:LOG_LEVEL_INFO:2",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "kind": "symbol",
+        "label": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:macroDefinition:MAX_LOG_MSG:4",
+        "kind": "symbol",
+        "label": "sym:macroDefinition:MAX_LOG_MSG:4",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDeclaration:logger_init:5",
+        "kind": "symbol",
+        "label": "sym:functionDeclaration:logger_init:5",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDeclaration:logger_log:6",
+        "kind": "symbol",
+        "label": "sym:functionDeclaration:logger_log:6",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDeclaration:logger_shutdown:7",
+        "kind": "symbol",
+        "label": "sym:functionDeclaration:logger_shutdown:7",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:macroDefinition:MATH_UTILS_H:0",
+        "kind": "symbol",
+        "label": "sym:macroDefinition:MATH_UTILS_H:0",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDeclaration:math_add:1",
+        "kind": "symbol",
+        "label": "sym:functionDeclaration:math_add:1",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDeclaration:math_subtract:2",
+        "kind": "symbol",
+        "label": "sym:functionDeclaration:math_subtract:2",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDeclaration:math_multiply:3",
+        "kind": "symbol",
+        "label": "sym:functionDeclaration:math_multiply:3",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:typedef:MathResult:4",
+        "kind": "symbol",
+        "label": "sym:typedef:MathResult:4",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:typedef:MathStatus:5",
+        "kind": "symbol",
+        "label": "sym:typedef:MathStatus:5",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:logger_init:0",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:logger_init:0",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:logger_log:1",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:logger_log:1",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:logger_shutdown:2",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:logger_shutdown:2",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:main:0",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:main:0",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:math_add:0",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:math_add:0",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:math_subtract:1",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:math_subtract:1",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:math_multiply:2",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:math_multiply:2",
+        "visibility": "default"
+      },
+      {
+        "file": "",
+        "id": "sym:functionDefinition:clamp_result:3",
+        "kind": "symbol",
+        "label": "sym:functionDefinition:clamp_result:3",
+        "visibility": "default"
+      },
+      {
+        "file": "include/logger.h",
+        "id": "file:include/logger.h",
+        "kind": "include/logger.h",
+        "label": "file:include/logger.h"
+      },
+      {
+        "file": "include/math_utils.h",
+        "id": "file:include/math_utils.h",
+        "kind": "include/math_utils.h",
+        "label": "file:include/math_utils.h"
+      }
+    ],
+    "stability": "preview",
+    "status": "collected",
+    "summary": {
+      "callEdgeCount": 0,
+      "edgeCount": 32,
+      "fileNodeCount": 0,
+      "nodeCount": 28,
+      "symbolNodeCount": 22
+    },
+    "truncated": false
+  },
+  "insights": {
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
+    ],
     "entryPoints": [],
+    "hotspots": [
+      {
+        "fanIn": 4,
+        "fanOut": 8,
+        "file": "",
+        "id": "file:include/logger.h",
+        "kind": "",
+        "name": "file:include/logger.h"
+      },
+      {
+        "fanIn": 3,
+        "fanOut": 6,
+        "file": "",
+        "id": "file:include/math_utils.h",
+        "kind": "",
+        "name": "file:include/math_utils.h"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 6,
+        "file": "",
+        "id": "file:src/math_utils.c",
+        "kind": "",
+        "name": "file:src/math_utils.c"
+      },
+      {
+        "fanIn": 0,
+        "fanOut": 5,
+        "file": "",
+        "id": "repo:root",
+        "kind": "",
+        "name": "repo:root"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 4,
+        "file": "",
+        "id": "file:src/logger.c",
+        "kind": "",
+        "name": "file:src/logger.c"
+      }
+    ],
     "reviewFirst": [
       {
         "file": "",
@@ -400,630 +744,309 @@
         "reason": "high-fan-out-hotspot"
       }
     ],
-    "cautions": [
-      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
-      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
-    ]
+    "status": "partial"
   },
-  "workflowPresets": {
-    "status": "collected",
-    "presets": [
-      {
-        "id": "onboarding",
-        "name": "项目接入 / Onboarding",
-        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
-        "tools": [
-          "analyze",
-          "summary",
-          "explore"
-        ],
-        "stopLines": [
-          "不执行目标项目代码",
-          "不修改源码",
-          "静态分析结果仅供参考"
-        ]
-      },
-      {
-        "id": "before_edit",
-        "name": "编辑前检查 / Before Edit",
-        "description": "修改代码前了解影响范围、调用链、风险点",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze"
-        ],
-        "stopLines": [
-          "不替代 code review",
-          "运行时行为需实测确认",
-          "trait 解析为启发式"
-        ]
-      },
-      {
-        "id": "after_edit",
-        "name": "编辑后验证 / After Edit",
-        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
-        "tools": [
-          "quality",
-          "analyze",
-          "detect-changes"
-        ],
-        "stopLines": [
-          "不运行测试套件",
-          "不执行 package manager",
-          "不保证无回归"
-        ]
-      },
-      {
-        "id": "delete_code",
-        "name": "删除代码前评估 / Delete Code Assessment",
-        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include calls"
-        ],
-        "stopLines": [
-          "dead-code candidate ≠ 可安全删除",
-          "外部 API heuristic 不等于真实使用者",
-          "必须人工复核"
-        ]
-      },
-      {
-        "id": "release_check",
-        "name": "发布前检查 / Release Check",
-        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
-        "tools": [
-          "quality",
-          "analyze",
-          "release_review"
-        ],
-        "stopLines": [
-          "不是 GA 质量证明",
-          "不覆盖运行时测试",
-          "不验证外部依赖兼容性"
-        ]
-      },
-      {
-        "id": "legacy_cleanup",
-        "name": "遗留代码清理 / Legacy Cleanup",
-        "description": "识别未使用的符号、过时的模块、可简化的调用链",
-        "tools": [
-          "analyze --include calls",
-          "quality",
-          "cleanup_summary"
-        ],
-        "stopLines": [
-          "低置信度标记需逐一核实",
-          "不自动删除任何代码",
-          "framework entry 点不可轻移"
-        ]
-      },
-      {
-        "id": "public_api_change",
-        "name": "公共 API 变更评估 / Public API Change",
-        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
-        "tools": [
-          "impact_preview",
-          "context",
-          "analyze --include graph"
-        ],
-        "stopLines": [
-          "external usage 为启发式推断",
-          "文档同步需人工处理",
-          "semantic versioning 需人工判断"
-        ]
-      },
-      {
-        "id": "framework_route_change",
-        "name": "框架路由变更 / Framework Route Change",
-        "description": "修改框架入口/路由/控制器时的影响分析",
-        "tools": [
-          "analyze",
-          "impact_preview",
-          "entry_points"
-        ],
-        "stopLines": [
-          "路由解析为模式匹配",
-          "动态路由不可完全覆盖",
-          "需结合框架文档"
-        ]
-      },
-      {
-        "id": "docs_tests_sync",
-        "name": "文档-测试同步检查 / Docs-Tests Sync",
-        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
-        "tools": [
-          "analyze",
-          "quality",
-          "release_review"
-        ],
-        "stopLines": [
-          "基于文件名/符号名的启发式",
-          "不解析文档内容语义",
-          "不判断测试充分性"
-        ]
-      },
-      {
-        "id": "config_examples_sync",
-        "name": "配置-示例同步检查 / Config-Examples Sync",
-        "description": "发现配置项与示例/文档不同步的问题",
-        "tools": [
-          "analyze",
-          "quality",
-          "release_review"
-        ],
-        "stopLines": [
-          "不验证配置值正确性",
-          "不执行配置加载",
-          "模板/占位符可能误报"
-        ]
-      }
-    ]
-  },
-  "graph": {
-    "status": "collected",
-    "stability": "preview",
-    "nodes": [
-      {
-        "id": "repo:root",
-        "label": "repo:root",
-        "kind": "package",
-        "file": ""
-      },
-      {
-        "id": "file:src/logger.c",
-        "label": "file:src/logger.c",
-        "kind": "src/logger.c",
-        "file": "src/logger.c"
-      },
-      {
-        "id": "file:src/main.c",
-        "label": "file:src/main.c",
-        "kind": "src/main.c",
-        "file": "src/main.c"
-      },
-      {
-        "id": "file:src/math_utils.c",
-        "label": "file:src/math_utils.c",
-        "kind": "src/math_utils.c",
-        "file": "src/math_utils.c"
-      },
-      {
-        "id": "sym:macroDefinition:LOGGER_H:0",
-        "label": "sym:macroDefinition:LOGGER_H:0",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
-        "label": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:LOG_LEVEL_INFO:2",
-        "label": "sym:macroDefinition:LOG_LEVEL_INFO:2",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
-        "label": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:MAX_LOG_MSG:4",
-        "label": "sym:macroDefinition:MAX_LOG_MSG:4",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:logger_init:5",
-        "label": "sym:functionDeclaration:logger_init:5",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:logger_log:6",
-        "label": "sym:functionDeclaration:logger_log:6",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:logger_shutdown:7",
-        "label": "sym:functionDeclaration:logger_shutdown:7",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:macroDefinition:MATH_UTILS_H:0",
-        "label": "sym:macroDefinition:MATH_UTILS_H:0",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:math_add:1",
-        "label": "sym:functionDeclaration:math_add:1",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:math_subtract:2",
-        "label": "sym:functionDeclaration:math_subtract:2",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDeclaration:math_multiply:3",
-        "label": "sym:functionDeclaration:math_multiply:3",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:typedef:MathResult:4",
-        "label": "sym:typedef:MathResult:4",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:typedef:MathStatus:5",
-        "label": "sym:typedef:MathStatus:5",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:logger_init:0",
-        "label": "sym:functionDefinition:logger_init:0",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:logger_log:1",
-        "label": "sym:functionDefinition:logger_log:1",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:logger_shutdown:2",
-        "label": "sym:functionDefinition:logger_shutdown:2",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:main:0",
-        "label": "sym:functionDefinition:main:0",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:math_add:0",
-        "label": "sym:functionDefinition:math_add:0",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:math_subtract:1",
-        "label": "sym:functionDefinition:math_subtract:1",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:math_multiply:2",
-        "label": "sym:functionDefinition:math_multiply:2",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "sym:functionDefinition:clamp_result:3",
-        "label": "sym:functionDefinition:clamp_result:3",
-        "kind": "symbol",
-        "file": "",
-        "visibility": "default"
-      },
-      {
-        "id": "file:include/logger.h",
-        "label": "file:include/logger.h",
-        "kind": "include/logger.h",
-        "file": "include/logger.h"
-      },
-      {
-        "id": "file:include/math_utils.h",
-        "label": "file:include/math_utils.h",
-        "kind": "include/math_utils.h",
-        "file": "include/math_utils.h"
-      }
+  "language": "c",
+  "limitations": {
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "externalUsageVerified": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects.",
+      "Some nodes have no file/modulePath and were assigned module '(unknown)'; no module membership was inferred."
     ],
-    "edges": [
-      {
-        "source": "repo:root",
-        "target": "file:src/logger.c",
-        "kind": "owns",
-        "relationKey": "rel:sha256:b4eb835f3177fd9b931f0965bce2d71ed9e3e7e1c74eb39fe288eb3b2feaf091"
-      },
-      {
-        "source": "repo:root",
-        "target": "file:src/main.c",
-        "kind": "owns",
-        "relationKey": "rel:sha256:67990402f180805b34979b55e7a7740e8f7cebc418ea789923ebbe70da907242"
-      },
-      {
-        "source": "repo:root",
-        "target": "file:src/math_utils.c",
-        "kind": "owns",
-        "relationKey": "rel:sha256:48dbfdfdfd87728ceaa99bf7b6339ae460b8344d36f69dce163d464c0a12b8ee"
-      },
-      {
-        "source": "repo:root",
-        "target": "file:include/logger.h",
-        "kind": "owns",
-        "relationKey": "rel:sha256:d031f4a245b86182ce9983c4c363e5335125c03bf1e6619c50c1c391608a8f8b"
-      },
-      {
-        "source": "repo:root",
-        "target": "file:include/math_utils.h",
-        "kind": "owns",
-        "relationKey": "rel:sha256:2453a3d87a093547b874cc4869713f55b5ba3956725cd03a653d3aa96e673ff8"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:macroDefinition:LOGGER_H:0",
-        "kind": "defines",
-        "relationKey": "rel:sha256:b7e1340b7ae530457b685d8a45932b36437fcd96ccdb40d6043f901a7e4a24cc"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:macroDefinition:LOG_LEVEL_DEBUG:1",
-        "kind": "defines",
-        "relationKey": "rel:sha256:aa555b5ee25866a0c8a382ecffe6223364079e4604600049e0e13d35e943c5e8"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:macroDefinition:LOG_LEVEL_INFO:2",
-        "kind": "defines",
-        "relationKey": "rel:sha256:7a6a460a9a11a6c936cc24ff8d91288735d5aab8bc1959c2e2acbf1311e7e118"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:macroDefinition:LOG_LEVEL_ERROR:3",
-        "kind": "defines",
-        "relationKey": "rel:sha256:34339332f60c31f84ce5a84cfcb414453c181af149e4d7a9cd2108ca7a1f6f66"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:macroDefinition:MAX_LOG_MSG:4",
-        "kind": "defines",
-        "relationKey": "rel:sha256:2c58204142e0cf72b8648d830814257a162dcf9075dcc5a245a497972c6c2c2c"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:functionDeclaration:logger_init:5",
-        "kind": "defines",
-        "relationKey": "rel:sha256:6a3152bff65a0ed1c0b2cb9ad46771c92262f83ccd36598da95f1f96d35395c2"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:functionDeclaration:logger_log:6",
-        "kind": "defines",
-        "relationKey": "rel:sha256:9b1a73062be9a458a9fefaae66c22dce87bf358c1fecf8068082918578ec2cea"
-      },
-      {
-        "source": "file:include/logger.h",
-        "target": "sym:functionDeclaration:logger_shutdown:7",
-        "kind": "defines",
-        "relationKey": "rel:sha256:b3cbb9fbc98151e67a4e21a461233da502741310a10cc7b6345d8c5a93e306be"
-      },
-      {
-        "source": "file:include/math_utils.h",
-        "target": "sym:macroDefinition:MATH_UTILS_H:0",
-        "kind": "defines",
-        "relationKey": "rel:sha256:a652db496bfe22037881b98660b69e083fda9d98dfe9795357dac1e88398636f"
-      },
-      {
-        "source": "file:include/math_utils.h",
-        "target": "sym:functionDeclaration:math_add:1",
-        "kind": "defines",
-        "relationKey": "rel:sha256:8d7b3ed7dc1adec382202468d1f963686b1fef59133c7eff3203f445b5217b7b"
-      },
-      {
-        "source": "file:include/math_utils.h",
-        "target": "sym:functionDeclaration:math_subtract:2",
-        "kind": "defines",
-        "relationKey": "rel:sha256:d098b33ecc6f3506f54565a67fa6826e87c4da6bffa5a48c2b0598f76a69af19"
-      },
-      {
-        "source": "file:include/math_utils.h",
-        "target": "sym:functionDeclaration:math_multiply:3",
-        "kind": "defines",
-        "relationKey": "rel:sha256:45d89478843e93f253e8617e480e21dce8fc437f24f0ab9e470c712bf2017df8"
-      },
-      {
-        "source": "file:include/math_utils.h",
-        "target": "sym:typedef:MathResult:4",
-        "kind": "defines",
-        "relationKey": "rel:sha256:a768c7e99b2bf2334f9895c6237a7c45a511e754036638ed43d36dba30dd55f2"
-      },
-      {
-        "source": "file:include/math_utils.h",
-        "target": "sym:typedef:MathStatus:5",
-        "kind": "defines",
-        "relationKey": "rel:sha256:dd6bf38b55bd4f37b829fde88a5ad036842c615ccaec224387c54cdbfbdd63ee"
-      },
-      {
-        "source": "file:src/logger.c",
-        "target": "sym:functionDefinition:logger_init:0",
-        "kind": "defines",
-        "relationKey": "rel:sha256:bf1e9d2c7cf8a288eaf73927357a93412007ef2c87e134698c629d1b142f59d2"
-      },
-      {
-        "source": "file:src/logger.c",
-        "target": "sym:functionDefinition:logger_log:1",
-        "kind": "defines",
-        "relationKey": "rel:sha256:cd12fd3c286bbb562f2d10e5f2aa3fc91de2000674717f8607ea2589b80ad030"
-      },
-      {
-        "source": "file:src/logger.c",
-        "target": "sym:functionDefinition:logger_shutdown:2",
-        "kind": "defines",
-        "relationKey": "rel:sha256:45f3b914dba16494c9147afc3febdfa395481d7cca4560376d47382ba0e71685"
-      },
-      {
-        "source": "file:src/main.c",
-        "target": "sym:functionDefinition:main:0",
-        "kind": "defines",
-        "relationKey": "rel:sha256:405df0434309376f69aed0034793feaa98b60675ef1aa2579c1b49820bafeb5a"
-      },
-      {
-        "source": "file:src/math_utils.c",
-        "target": "sym:functionDefinition:math_add:0",
-        "kind": "defines",
-        "relationKey": "rel:sha256:ebefab54b3bd23755dd5247287b89eb0b1eade1978a33e39536c15becbdb86ed"
-      },
-      {
-        "source": "file:src/math_utils.c",
-        "target": "sym:functionDefinition:math_subtract:1",
-        "kind": "defines",
-        "relationKey": "rel:sha256:d2725aca558fe9e544a3e20806a126e1021bad69b6944cd802e83191cfb5ebdd"
-      },
-      {
-        "source": "file:src/math_utils.c",
-        "target": "sym:functionDefinition:math_multiply:2",
-        "kind": "defines",
-        "relationKey": "rel:sha256:2754b332e471177cde9b850849b1e18ff5e729a553548c36e0634003efa067f2"
-      },
-      {
-        "source": "file:src/math_utils.c",
-        "target": "sym:functionDefinition:clamp_result:3",
-        "kind": "defines",
-        "relationKey": "rel:sha256:ef2664557202bcd3fadc7ecb6fb5751970b05ed6b509557800a9b604d960b160"
-      },
-      {
-        "source": "file:src/logger.c",
-        "target": "file:include/logger.h",
-        "kind": "related",
-        "relationKey": "rel:sha256:112bd36d087f9ba186279e9b9d99decee66173c3f73ee15385d2390e132b9c12",
-        "confidence": 0.6,
-        "reason": "c-filename-unique-fallback"
-      },
-      {
-        "source": "file:src/main.c",
-        "target": "file:include/math_utils.h",
-        "kind": "related",
-        "relationKey": "rel:sha256:c8668945dd41344e48ae7796899c4bf74971796d292a2db8a4081538e7aa9841",
-        "confidence": 0.6,
-        "reason": "c-filename-unique-fallback"
-      },
-      {
-        "source": "file:src/main.c",
-        "target": "file:include/logger.h",
-        "kind": "related",
-        "relationKey": "rel:sha256:b043b31f62d09ff071b6d2c65c427f2a3ab82b61f847f1b7926b200ec78d6719",
-        "confidence": 0.6,
-        "reason": "c-filename-unique-fallback"
-      },
-      {
-        "source": "file:src/math_utils.c",
-        "target": "file:include/math_utils.h",
-        "kind": "related",
-        "relationKey": "rel:sha256:f33396f3356e9bf27cf10091569adc698f3ae8209543b842b191db0e8743d8b4",
-        "confidence": 0.6,
-        "reason": "c-filename-unique-fallback"
-      },
-      {
-        "source": "file:src/math_utils.c",
-        "target": "file:include/logger.h",
-        "kind": "related",
-        "relationKey": "rel:sha256:2602a3edd817297d783cdaf0de2697c386df07a2e941e1cd1879f5c41264e15a",
-        "confidence": 0.6,
-        "reason": "c-filename-unique-fallback"
-      }
-    ],
-    "summary": {
-      "nodeCount": 28,
-      "edgeCount": 32,
-      "fileNodeCount": 0,
-      "symbolNodeCount": 22,
-      "callEdgeCount": 0
-    },
-    "truncated": false,
-    "cautions": [
-      "Graph is a static preview — limited to top nodes and edges.",
-      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
-      "Call edges are heuristic with confidence scores — not compiler-verified.",
-      "Dynamic dispatch / reflection / plugins may hide actual callers."
-    ]
+    "projectCodeExecuted": false,
+    "runtimeVerified": false
   },
   "moduleGraph": {
-    "modules": [
-      {
-        "id": "(unknown)",
-        "files": 0,
-        "symbols": 22
-      },
-      {
-        "id": "include",
-        "files": 2,
-        "symbols": 0
-      },
-      {
-        "id": "src",
-        "files": 3,
-        "symbols": 0
-      }
-    ],
     "edges": [
       {
-        "source": "include",
-        "target": "(unknown)",
         "count": 14,
         "kinds": [
           "defines"
         ],
-        "reasons": []
+        "reasons": [],
+        "source": "include",
+        "target": "(unknown)"
       },
       {
-        "source": "src",
-        "target": "(unknown)",
         "count": 8,
         "kinds": [
           "defines"
         ],
-        "reasons": []
+        "reasons": [],
+        "source": "src",
+        "target": "(unknown)"
       },
       {
-        "source": "src",
-        "target": "include",
         "count": 5,
         "kinds": [
           "related"
         ],
+        "minConfidence": 0.6,
         "reasons": [
           "c-filename-unique-fallback"
         ],
-        "minConfidence": 0.6
+        "source": "src",
+        "target": "include"
+      }
+    ],
+    "modules": [
+      {
+        "files": 0,
+        "id": "(unknown)",
+        "symbols": 22
+      },
+      {
+        "files": 2,
+        "id": "include",
+        "symbols": 0
+      },
+      {
+        "files": 3,
+        "id": "src",
+        "symbols": 0
       }
     ],
     "truncated": false
+  },
+  "quality": {
+    "cautions": [
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ],
+    "diagnosticsSummary": null,
+    "failedGateCount": 0,
+    "gates": [
+      {
+        "detail": "0 duplicate node IDs found",
+        "gateName": "duplicate_nodes",
+        "passed": true
+      },
+      {
+        "detail": "0 duplicate edge triples found",
+        "gateName": "duplicate_edges",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling source references found",
+        "gateName": "dangling_source",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling target references found",
+        "gateName": "dangling_target",
+        "passed": true
+      },
+      {
+        "detail": "not verified from single CLI run; verified by test suite",
+        "gateName": "deterministic",
+        "passed": true
+      },
+      {
+        "detail": "All CALLS edge endpoints exist in nodes",
+        "gateName": "calls_endpoint_integrity",
+        "passed": true
+      },
+      {
+        "detail": "external dependency tracking not yet implemented for this language — gate passes as not-tracked",
+        "gateName": "external_symbol_marking",
+        "passed": true
+      }
+    ],
+    "overall": "pass",
+    "passedGateCount": 7
+  },
+  "releaseReview": {
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 0,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ],
+    "configExampleIssueCount": null,
+    "missingTestCandidateCount": null,
+    "staleDocCandidateCount": null,
+    "status": "not_collected"
+  },
+  "root": "<redacted-root>",
+  "schemaVersion": "webui.snapshot.v1",
+  "summary": {
+    "edgeCount": 32,
+    "generatedAt": "2026-09-13T03:40:55Z",
+    "language": "c",
+    "moduleCount": 0,
+    "nodeCount": 28,
+    "packageCount": 1,
+    "schemaVersion": "webui.snapshot.v1",
+    "sourceFileCount": 3,
+    "symbolCount": 22,
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "workflowPresets": {
+    "presets": [
+      {
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
+        "id": "onboarding",
+        "name": "项目接入 / Onboarding",
+        "stopLines": [
+          "不执行目标项目代码",
+          "不修改源码",
+          "静态分析结果仅供参考"
+        ],
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
+        ]
+      },
+      {
+        "description": "修改代码前了解影响范围、调用链、风险点",
+        "id": "before_edit",
+        "name": "编辑前检查 / Before Edit",
+        "stopLines": [
+          "不替代 code review",
+          "运行时行为需实测确认",
+          "trait 解析为启发式"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
+        ]
+      },
+      {
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
+        "id": "after_edit",
+        "name": "编辑后验证 / After Edit",
+        "stopLines": [
+          "不运行测试套件",
+          "不执行 package manager",
+          "不保证无回归"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
+        ]
+      },
+      {
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
+        "id": "delete_code",
+        "name": "删除代码前评估 / Delete Code Assessment",
+        "stopLines": [
+          "dead-code candidate ≠ 可安全删除",
+          "外部 API heuristic 不等于真实使用者",
+          "必须人工复核"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
+        ]
+      },
+      {
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
+        "id": "release_check",
+        "name": "发布前检查 / Release Check",
+        "stopLines": [
+          "不是 GA 质量证明",
+          "不覆盖运行时测试",
+          "不验证外部依赖兼容性"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
+        ]
+      },
+      {
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
+        "id": "legacy_cleanup",
+        "name": "遗留代码清理 / Legacy Cleanup",
+        "stopLines": [
+          "低置信度标记需逐一核实",
+          "不自动删除任何代码",
+          "framework entry 点不可轻移"
+        ],
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
+        ]
+      },
+      {
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
+        "id": "public_api_change",
+        "name": "公共 API 变更评估 / Public API Change",
+        "stopLines": [
+          "external usage 为启发式推断",
+          "文档同步需人工处理",
+          "semantic versioning 需人工判断"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
+        ]
+      },
+      {
+        "description": "修改框架入口/路由/控制器时的影响分析",
+        "id": "framework_route_change",
+        "name": "框架路由变更 / Framework Route Change",
+        "stopLines": [
+          "路由解析为模式匹配",
+          "动态路由不可完全覆盖",
+          "需结合框架文档"
+        ],
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
+        ]
+      },
+      {
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
+        "id": "docs_tests_sync",
+        "name": "文档-测试同步检查 / Docs-Tests Sync",
+        "stopLines": [
+          "基于文件名/符号名的启发式",
+          "不解析文档内容语义",
+          "不判断测试充分性"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ]
+      },
+      {
+        "description": "发现配置项与示例/文档不同步的问题",
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
+        "stopLines": [
+          "不验证配置值正确性",
+          "不执行配置加载",
+          "模板/占位符可能误报"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ]
+      }
+    ],
+    "status": "collected"
   }
 }

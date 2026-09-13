@@ -394,7 +394,7 @@ Workspace 模式新增跨项目关系图能力，从"能发现多个子项目"�
 ### 数据流架构
 
 ```
-项目源码 → CLI analyze (JSON) → webui-snapshot.sh (聚合) → CodeLatticeWebSnapshotV1 (JSON)
+项目源码 → CLI analyze --format webui-snapshot（webui-snapshot.sh 为瘦包装）→ CodeLatticeWebSnapshotV1 (JSON)
                                                                     ↓
                                               ┌─────────────────────┼─────────────────────┐
                                               ↓                     ↓                     ↓

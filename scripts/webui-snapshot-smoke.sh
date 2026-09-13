@@ -22,8 +22,7 @@ echo "  [OK] script"
 CB=""
 for c in "$WS/target/debug/codelattice" "$WS/target/release/codelattice"; do [[ -x "$c" ]] && CB="$c" && break; done
 [[ -z "$CB" ]] && echo "  [FAIL] no codelattice binary" && exit 1 || echo "  [OK] binary: $CB"
-command -v python3 >/dev/null 2>&1 || { echo "  [FAIL] no python3"; exit 1; }; echo "  [OK] python3"
-GP="$SD/codelattice-snapshot-gen.py"; [[ -f "$GP" ]] && echo "  [OK] gen.py" || { echo "  [FAIL] gen.py missing"; exit 1; }
+# P3 起 snapshot 由 CLI 转换器直接产出（webui-snapshot.sh 是瘦包装），无 gen.py 依赖
 FEATURES="tree-sitter-cangjie,tree-sitter-arkts,tree-sitter-typescript,tree-sitter-javascript,tree-sitter-c,tree-sitter-cpp,tree-sitter-python"
 echo "  [INFO] ensuring full-language debug binary"
 cargo build -p gitnexus-rust-core-cli --features "$FEATURES" --bin codelattice --quiet >/dev/null 2>&1 || { echo "  [FAIL] full-language build failed"; exit 1; }

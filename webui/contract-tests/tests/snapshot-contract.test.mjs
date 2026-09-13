@@ -1,6 +1,7 @@
 // P0-F0 characterization: snapshot JSON structure, truncation markers, key counts.
 // Freezes the observable contract of CodeLatticeWebSnapshotV1 (webui.snapshot.v1)
-// as produced by scripts/webui-snapshot.sh + scripts/codelattice-snapshot-gen.py.
+// as produced by scripts/webui-snapshot.sh (P3 起为 CLI 转换器的瘦包装，
+// 单一事实源在 crates/cli/src/webui_snapshot.rs).
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
@@ -198,24 +199,43 @@ test("moduleGraph is present and count-sum equals aggregatable edges", () => {
     if ("minConfidence" in e) assert.equal(typeof e.minConfidence, "number");
     countSum += e.count;
   }
-  const expected = Number(execFileSync("python3", ["-c", `
-import importlib.util, json, pathlib, sys
-p = pathlib.Path(sys.argv[1])
-spec = importlib.util.spec_from_file_location("snapshot_gen", p)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-snap = json.load(sys.stdin)
-lang = snap.get("summary", {}).get("language") or "rust"
-node_mod = {n["id"]: mod.module_id_for_node(n, lang) for n in snap["graph"]["nodes"]}
-n = 0
-for e in snap["graph"]["edges"]:
-    s, t = node_mod.get(e.get("source")), node_mod.get(e.get("target"))
-    if s and t and s != t:
-        n += 1
-print(n)
-`, path.join(WS, "scripts/codelattice-snapshot-gen.py")], {
-    input: JSON.stringify(snap),
-    encoding: "utf8",
-  }).trim());
+  // 期望值 oracle：module_id_for_node 规则的 JS 内联移植（1:1 对齐
+  // crates/cli/src/webui_snapshot.rs，该规则由 Rust 单测
+  // module_id_rules_freeze_placeholder_strip_and_module_path_fallback 冻结）。
+  // P3 退役后不再 exec Python 脚本，不变量本身不变：count 之和 == 可聚合边数。
+  const PATH_PLACEHOLDERS = ["<redacted-root>", "<redacted-user>", ".", ".."];
+  const moduleIdFromFile = (fp) => {
+    if (!fp) return null;
+    const parts = String(fp).replaceAll("\\", "/").split("/").filter((p) => p && !PATH_PLACEHOLDERS.includes(p));
+    if (parts.length === 0) return null;
+    const dirs = parts[parts.length - 1].includes(".") ? parts.slice(0, -1) : parts;
+    if (dirs.length === 0) return "(root)";
+    return dirs.slice(0, 2).join("/");
+  };
+  const moduleIdFromRustModulePath = (mp) => {
+    if (!mp) return null;
+    const segs = String(mp).split("::").filter(Boolean);
+    if (segs.length === 0) return null;
+    return segs.slice(0, 2).join("::");
+  };
+  const moduleIdForNode = (n, lang) => {
+    const mid = moduleIdFromFile(n.file || "");
+    if (mid) return mid;
+    if (lang === "rust") {
+      const m = moduleIdFromRustModulePath(n.modulePath || "");
+      if (m) return m;
+    }
+    const kind = String(n.kind || "");
+    if (["package", "file", ""].includes(kind)) return null;
+    return "(unknown)";
+  };
+  const lang = snap.summary?.language || "rust";
+  const nodeMod = new Map(snap.graph.nodes.map((n) => [n.id, moduleIdForNode(n, lang)]));
+  let expected = 0;
+  for (const e of snap.graph.edges) {
+    const srcMod = nodeMod.get(e.source);
+    const tgtMod = nodeMod.get(e.target);
+    if (srcMod && tgtMod && srcMod !== tgtMod) expected += 1;
+  }
   assert.equal(countSum, expected, "module edge counts must equal aggregatable base edges");
 });

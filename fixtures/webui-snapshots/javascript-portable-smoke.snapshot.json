@@ -1,0 +1,2228 @@
+{
+  "cleanup": {
+    "cautions": [
+      "Dead-code detection is heuristic-based on call-graph shape.",
+      "Candidates are NOT proven unused — they may be called via reflection/dynamic dispatch/tests.",
+      "Public/exported symbols may be used by external crates not analyzed here.",
+      "Framework entry points (main/test/bin) should NEVER be removed based on this analysis.",
+      "Auto-deletion is explicitly forbidden without human review + test regression check."
+    ],
+    "deadCodeCandidateCount": 44,
+    "externalApiSurfaceCount": null,
+    "frameworkEntryHintCount": null,
+    "status": "partial",
+    "unreachableCandidateCount": 44
+  },
+  "explore": {
+    "sourceFiles": [
+      {
+        "language": "",
+        "path": "bin/cli.js",
+        "symbolCount": 1
+      },
+      {
+        "language": "",
+        "path": "config/vite.config.js",
+        "symbolCount": 0
+      },
+      {
+        "language": "",
+        "path": "src/component.jsx",
+        "symbolCount": 5
+      },
+      {
+        "language": "",
+        "path": "src/dynamic.js",
+        "symbolCount": 7
+      },
+      {
+        "language": "",
+        "path": "src/index.js",
+        "symbolCount": 6
+      },
+      {
+        "language": "",
+        "path": "src/lib/index.js",
+        "symbolCount": 0
+      },
+      {
+        "language": "",
+        "path": "src/logger.cjs",
+        "symbolCount": 6
+      },
+      {
+        "language": "",
+        "path": "src/math.js",
+        "symbolCount": 8
+      },
+      {
+        "language": "",
+        "path": "src/routes.js",
+        "symbolCount": 6
+      },
+      {
+        "language": "",
+        "path": "src/utils.js",
+        "symbolCount": 9
+      },
+      {
+        "language": "",
+        "path": "tests/math.test.js",
+        "symbolCount": 3
+      }
+    ],
+    "status": "collected",
+    "symbols": [
+      {
+        "endLine": 5,
+        "file": "bin/cli.js",
+        "id": "sym:bin/cli.js:variable:info:5",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 5,
+        "name": "info"
+      },
+      {
+        "endLine": 15,
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:function:Button:3",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 3,
+        "name": "Button"
+      },
+      {
+        "endLine": 8,
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:arrowfunction:handleClick:4",
+        "kind": "arrowfunction",
+        "kindLabel": "arrowfunction",
+        "line": 4,
+        "name": "handleClick"
+      },
+      {
+        "endLine": 23,
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:method:constructor:18",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 18,
+        "name": "constructor"
+      },
+      {
+        "endLine": 44,
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:method:render:31",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 31,
+        "name": "render"
+      },
+      {
+        "endLine": 56,
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:function:App:47",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 47,
+        "name": "App"
+      },
+      {
+        "endLine": 5,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:variable:lazyModules:1",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 1,
+        "name": "lazyModules"
+      },
+      {
+        "endLine": 2,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:method:dashboard:2",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 2,
+        "name": "dashboard"
+      },
+      {
+        "endLine": 3,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:method:settings:3",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 3,
+        "name": "settings"
+      },
+      {
+        "endLine": 4,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:method:profile:4",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 4,
+        "name": "profile"
+      },
+      {
+        "endLine": 13,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:function:loadModule:7",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 7,
+        "name": "loadModule"
+      },
+      {
+        "endLine": 8,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:variable:loader:8",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 8,
+        "name": "loader"
+      },
+      {
+        "endLine": 17,
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:function:getAvailableModules:15",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 15,
+        "name": "getAvailableModules"
+      },
+      {
+        "endLine": 5,
+        "file": "src/index.js",
+        "id": "sym:src/index.js:variable:result:5",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 5,
+        "name": "result"
+      },
+      {
+        "endLine": 6,
+        "file": "src/index.js",
+        "id": "sym:src/index.js:variable:product:6",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 6,
+        "name": "product"
+      },
+      {
+        "endLine": 8,
+        "file": "src/index.js",
+        "id": "sym:src/index.js:variable:appName:8",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 8,
+        "name": "appName"
+      },
+      {
+        "endLine": 17,
+        "file": "src/index.js",
+        "id": "sym:src/index.js:function:getAppInfo:10",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 10,
+        "name": "getAppInfo"
+      },
+      {
+        "endLine": 26,
+        "file": "src/index.js",
+        "id": "sym:src/index.js:function:createApp:19",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 19,
+        "name": "createApp"
+      },
+      {
+        "endLine": 24,
+        "file": "src/index.js",
+        "id": "sym:src/index.js:method:run:21",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 21,
+        "name": "run"
+      },
+      {
+        "endLine": 6,
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:variable:levels:1",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 1,
+        "name": "levels"
+      },
+      {
+        "endLine": 12,
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:constructor:9",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 9,
+        "name": "constructor"
+      },
+      {
+        "endLine": 18,
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:debug:14",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 14,
+        "name": "debug"
+      },
+      {
+        "endLine": 24,
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:info:20",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 20,
+        "name": "info"
+      },
+      {
+        "endLine": 30,
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:warn:26",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 26,
+        "name": "warn"
+      },
+      {
+        "endLine": 36,
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:error:32",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 32,
+        "name": "error"
+      },
+      {
+        "endLine": 3,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:function:add:1",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 1,
+        "name": "add"
+      },
+      {
+        "endLine": 7,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:function:multiply:5",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 5,
+        "name": "multiply"
+      },
+      {
+        "endLine": 12,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:constructor:10",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 10,
+        "name": "constructor"
+      },
+      {
+        "endLine": 17,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:add:14",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 14,
+        "name": "add"
+      },
+      {
+        "endLine": 22,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:subtract:19",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 19,
+        "name": "subtract"
+      },
+      {
+        "endLine": 26,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:getValue:24",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 24,
+        "name": "getValue"
+      },
+      {
+        "endLine": 29,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:variable:PI:29",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 29,
+        "name": "PI"
+      },
+      {
+        "endLine": 30,
+        "file": "src/math.js",
+        "id": "sym:src/math.js:variable:E:30",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 30,
+        "name": "E"
+      },
+      {
+        "endLine": 3,
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:app:3",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 3,
+        "name": "app"
+      },
+      {
+        "endLine": 4,
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:PORT:4",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 4,
+        "name": "PORT"
+      },
+      {
+        "endLine": 38,
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:function:createServer:6",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 6,
+        "name": "createServer"
+      },
+      {
+        "endLine": 7,
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:server:7",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 7,
+        "name": "server"
+      },
+      {
+        "endLine": 45,
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:function:startServer:40",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 40,
+        "name": "startServer"
+      },
+      {
+        "endLine": 41,
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:server:41",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 41,
+        "name": "server"
+      },
+      {
+        "endLine": 4,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:arrowfunction:formatDate:1",
+        "kind": "arrowfunction",
+        "kindLabel": "arrowfunction",
+        "line": 1,
+        "name": "formatDate"
+      },
+      {
+        "endLine": 2,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:variable:d:2",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 2,
+        "name": "d"
+      },
+      {
+        "endLine": 9,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:arrowfunction:capitalize:6",
+        "kind": "arrowfunction",
+        "kindLabel": "arrowfunction",
+        "line": 6,
+        "name": "capitalize"
+      },
+      {
+        "endLine": 17,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:arrowfunction:debounce:11",
+        "kind": "arrowfunction",
+        "kindLabel": "arrowfunction",
+        "line": 11,
+        "name": "debounce"
+      },
+      {
+        "endLine": 12,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:variable:timeoutId:12",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 12,
+        "name": "timeoutId"
+      },
+      {
+        "endLine": 23,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:variable:validators:19",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 19,
+        "name": "validators"
+      },
+      {
+        "endLine": 20,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:method:isEmail:20",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 20,
+        "name": "isEmail"
+      },
+      {
+        "endLine": 21,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:method:isUrl:21",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 21,
+        "name": "isUrl"
+      },
+      {
+        "endLine": 22,
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:method:isEmpty:22",
+        "kind": "method",
+        "kindLabel": "Method",
+        "line": 22,
+        "name": "isEmpty"
+      },
+      {
+        "endLine": 11,
+        "file": "tests/math.test.js",
+        "id": "sym:tests/math.test.js:function:test:3",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 3,
+        "name": "test"
+      },
+      {
+        "endLine": 17,
+        "file": "tests/math.test.js",
+        "id": "sym:tests/math.test.js:function:assertEqual:13",
+        "kind": "function",
+        "kindLabel": "Function",
+        "line": 13,
+        "name": "assertEqual"
+      },
+      {
+        "endLine": 30,
+        "file": "tests/math.test.js",
+        "id": "sym:tests/math.test.js:variable:helper:30",
+        "kind": "variable",
+        "kindLabel": "Variable",
+        "line": 30,
+        "name": "helper"
+      }
+    ],
+    "topFiles": [
+      {
+        "path": "src/utils.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 9
+      },
+      {
+        "path": "src/math.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 8
+      },
+      {
+        "path": "src/dynamic.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 7
+      },
+      {
+        "path": "src/index.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 6
+      },
+      {
+        "path": "src/logger.cjs",
+        "reason": "highest-symbol-count",
+        "symbolCount": 6
+      },
+      {
+        "path": "src/routes.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 6
+      },
+      {
+        "path": "src/component.jsx",
+        "reason": "highest-symbol-count",
+        "symbolCount": 5
+      },
+      {
+        "path": "tests/math.test.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 3
+      },
+      {
+        "path": "bin/cli.js",
+        "reason": "highest-symbol-count",
+        "symbolCount": 1
+      }
+    ],
+    "totalSourceFiles": 11,
+    "totalSymbols": 51,
+    "truncated": false
+  },
+  "generatedAt": "2026-09-13T03:40:55Z",
+  "generatedFrom": {
+    "generationMethod": "cli-format-webui-snapshot",
+    "runtimeVerified": false,
+    "snapshotSchema": "webui.snapshot.v1",
+    "staticAnalysis": true,
+    "tool": "CodeLattice",
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "graph": {
+    "cautions": [
+      "Graph is a static preview — limited to top nodes and edges.",
+      "Not all nodes/edges are shown; use CLI/MCP for full analysis.",
+      "Call edges are heuristic with confidence scores — not compiler-verified.",
+      "Dynamic dispatch / reflection / plugins may hide actual callers."
+    ],
+    "edges": [
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:a9baa5620b8c3374c1bc40817d9e0b565f9f619cec752a7eb58b1f30a300b456",
+        "source": "repo:<redacted-root>",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:575e868180571deeeb54ca4bf6311901f5a6a0f7af0f454d7bf8d066e0056707",
+        "source": "entry:main:src/index.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:e2713865344bf6c30947919aa1efbd9b753c87c0dd7bd864aac3dfe767725f7a",
+        "source": "entry:module:src/index.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:06ac43358400ad3ad57b93949d19a3381755ba5e5d530b405fe19e4a32bd1905",
+        "source": "entry:browser:src/index.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:376ef5eb36d634fc6d2ee7fddb3d9e6d840d347a899d19961d52bac7350afa63",
+        "source": "entry:bin:./bin/cli.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:f9e8d8eb6ceff4ddaee44e2a235c75bffd5b7e3f1e734b817e45e0a86d095576",
+        "source": "entry:exports..:./src/index.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:37bd55febb459ad3c6f5d373df0eaa132207970c6c3576e90f4730c1ab755a1c",
+        "source": "entry:exports../logger:./src/logger.cjs",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:0bd9050f4b64c0cd1062fbe5de499dbb0ce88f63a428fcc10e41a554dd16f2bc",
+        "source": "entry:exports../math:./src/math.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.8,
+        "kind": "related",
+        "reason": "package-json-field",
+        "relationKey": "rel:sha256:f0c6fb602a4e5f8b4435750ec4d6be05d450582703a21594727bba9bdb8caa15",
+        "source": "entry:exports../utils:./src/utils.js",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:12dd755c72b40e03b81c3e619b4437a165e14ed59a2ede406872a284d8f13268",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/bin/cli.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:42c046555aabaee270f8dc6e3008e208f77b4800930ec0696dbbe96c3f280504",
+        "source": "file:<redacted-root>/bin/cli.js",
+        "target": "sym:bin/cli.js:variable:info:5"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:b373da7c171ae7240d3189d7cdb0aa9a6e8b8ec2b8892ab98f52331e9bb1e147",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/config/vite.config.js"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:daff69ec5e2fc506d753d072b90a2de96f16e80a507ba9e96f72c1f832f45494",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/component.jsx"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:fb641058e80c48be339d26e50a471b2815a35c8c9d2bcb6aef66cc325e5dd2d2",
+        "source": "file:<redacted-root>/src/component.jsx",
+        "target": "sym:src/component.jsx:function:Button:3"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:a12c76db72f20e56b0d66fdd20440495e86802f4230c8f18d79ad36039cf85e2",
+        "source": "sym:src/component.jsx:function:Button:3",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:42e2326508edbba8d75005a8b2c33c329f0ae2bfa65265de32454c4a2f8402f5",
+        "source": "file:<redacted-root>/src/component.jsx",
+        "target": "sym:src/component.jsx:arrowfunction:handleClick:4"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:81594dc955d5d872ca99de514f26e55953a5562eb5740c716ee342532a4cf200",
+        "source": "file:<redacted-root>/src/component.jsx",
+        "target": "sym:src/component.jsx:method:constructor:18"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:5fba6b13704aea11a8d2c610a69abb1b55651c4d99311b7a0bc43109f84292be",
+        "source": "file:<redacted-root>/src/component.jsx",
+        "target": "sym:src/component.jsx:method:render:31"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:dba365896a00d615ac2c48f4536f0356080bb73d596b4bf47ca7ea26b202d669",
+        "source": "file:<redacted-root>/src/component.jsx",
+        "target": "sym:src/component.jsx:function:App:47"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:7e6d6bb67ca3dc2e260fc0231ec11a1182cea713dbb7a11ce18373ec576f123f",
+        "source": "sym:src/component.jsx:function:App:47",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:759380b18930963d3b9321dbf022adc789bac59c2710ab3aa47f0efedbf5aa67",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/dynamic.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:cb7dd15180fbf28f8321b91ed64fd6370eac5c7f747cfd1cd159d65a5bd13a98",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:variable:lazyModules:1"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:23c85179a1d386b799cf66046e694a0d22f92daa2601f7133bb6989cb8bd7864",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:method:dashboard:2"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:e83dd6f1d9203bf45c20a63c2f5ef3f4d363902a2f6f51b0b18299e8501d76dd",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:method:settings:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4fbfc7c241d31cd02edd81fd6d87963d529a94da3a65e121dd11f59e75935c35",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:method:profile:4"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:c8fb1c1ae7888cd193e814a2fe584f2c9f07819bc5c34928f1a1d9fcb5d6eb47",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:function:loadModule:7"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:303557cc79cda52655310bea9810e69072a5f0746588fdb553ab361b878ba5bf",
+        "source": "sym:src/dynamic.js:function:loadModule:7",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:f33413e73e49c9c0ce13d6998c76151245f55b762a0a1bdc3afc2031959cab25",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:variable:loader:8"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:9310ff2a470a5fad715210557bdf9aed9d8d5bd8dbb0fc6ab377bde8378073fa",
+        "source": "file:<redacted-root>/src/dynamic.js",
+        "target": "sym:src/dynamic.js:function:getAvailableModules:15"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:c7df24b89625a4433a7f0aa8780ef35b7f0511fe19dec110502e5b43dd8dd74b",
+        "source": "sym:src/dynamic.js:function:getAvailableModules:15",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:8048eccec9b7bd066d2db5eb9f138d7f8c64db76a1e9cb5da904247c6ad3aa79",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/index.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:f5d46610c5df4c3f77472c130f745c4f9be53e0a010e86a73a68a25b7acd2ad8",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "sym:src/index.js:variable:result:5"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:96ffff220175a7bd6448faa761d6f8954c3309eb7e39aa9127a4bc0baabf6b01",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "sym:src/index.js:variable:product:6"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:8594d2459b2e33796205ea9114efd78bf47e22cd6e85a6a0782b496ad399bd35",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "sym:src/index.js:variable:appName:8"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:5c1f4f488b5a2c008380f8bbf34d770c8d80b9e439cac8e6484d7e977ff27b9d",
+        "source": "sym:src/index.js:variable:appName:8",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ddafefe3b98ae9fa4ea27784c2def853dd1c72e2365b7f7c5186998cbd4179f8",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "sym:src/index.js:function:getAppInfo:10"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:3e93a892914d026a69b94823a73e928416563bd39383c28e3a89c9107d59b8b9",
+        "source": "sym:src/index.js:function:getAppInfo:10",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:eaf03407f939eda4069493f8776b68f81da479dc71eae7183832c60ba753e9ac",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "sym:src/index.js:function:createApp:19"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:ecd86e24990a26df26ba7ac2a0d0d51c4e017984b9072be37d7762746ef35aa0",
+        "source": "sym:src/index.js:function:createApp:19",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4c9528033ed8c8ef9f7a1ac3867a444fdeb3ba19efcb964df3b557397a8f40b0",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "sym:src/index.js:method:run:21"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:f771b8b57a8bd691c852b93b6b9996c44b051b7e7fa791ed9f28ca8a63016c6c",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/lib/index.js"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:c687780389f6482d7573aa90766cd0b8e73839e1bda3139885d324c8594f69f4",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/logger.cjs"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:1dc27f8574554fec4f69e1cf349c30f2988e73d55a80516cba74e6e9d0579e71",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "sym:src/logger.cjs:variable:levels:1"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:959a864e3fe63b6c777b8ab9c1e4c344dc9700b0d06f998ff5371f46a8c659ce",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "sym:src/logger.cjs:method:constructor:9"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:6bdda3339330337f830cb18d21444536b16488bd252afa9936b7e34e6a82375d",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "sym:src/logger.cjs:method:debug:14"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:69b96a989771400de8f762027e36bcc267cf755b870a42e1ed0bd2fab9664813",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "sym:src/logger.cjs:method:info:20"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:5cb977e4638682f996ab427ad60b95a809fe997d804ba8a43711b76435a7caf1",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "sym:src/logger.cjs:method:warn:26"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:cb73bde1d87a04d556343248423396b66549f9cd72a4653b94617b77a2b31352",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "sym:src/logger.cjs:method:error:32"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:36949301cd8fe514e9fe3ea43110b0801dd32e5b79d8a02678684b5fac711c3b",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/math.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:6cc4e57e66c3e952ef427c9a97bdb7e56233f7db8ce0e7a929261996747c6e71",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:function:add:1"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:7ea236aa97dfc7bc3843580cef27eca0f3612ebeb870ed4b1e19fec487c7e1aa",
+        "source": "sym:src/math.js:function:add:1",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:a45c561f5462f45a4d155d40ca050e19446119f06a71c4b0411014f6d35098f4",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:function:multiply:5"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:5aa47615f433a382fcc77b8cd001e679be4ab57bbd175081db8f5896d74e0ef0",
+        "source": "sym:src/math.js:function:multiply:5",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:5912ac0e76c452e226a638356caa835574da598d5a18ff1c43d3644dfb9fdfba",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:method:constructor:10"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:728cd3f1ffe113b217ea7a6d27ec54720f95e63d8e1fe1872ebb1a6efa373212",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:method:add:14"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ff2497e72b84b832b06a5377163a3b963c62308e4b6db888fa8d57c50267f34e",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:method:subtract:19"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:8e78b4aee26202b47bc8fe9eb92a49af258148523c99d92fe2e3b89e6e6461aa",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:method:getValue:24"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:284fb13354170956097a810f2f330fc9bdd390f1972c83921fe3f6f173788082",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:variable:PI:29"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:09a4ecfb64735e2ec85fd45fb1ea6d0ab376cf776609012d1e4c6b9d72e95591",
+        "source": "sym:src/math.js:variable:PI:29",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:49dc09bfe1da23980ee1a51245f7d999ff9d0fd2f46370dc572bec2105bb875a",
+        "source": "file:<redacted-root>/src/math.js",
+        "target": "sym:src/math.js:variable:E:30"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:93b25c2535189286df9ff1e4f7e326c02d9a791ba7ececba8c6f46d540f847f1",
+        "source": "sym:src/math.js:variable:E:30",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:a240170b4706aff23a3eff5db014f7c88fb606d45cb98efeded140861c96e787",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/routes.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:b80066d3f5c0c2e6e7707917d168994f01ad3d7f656fc8e7c462a6cebcb68a4a",
+        "source": "file:<redacted-root>/src/routes.js",
+        "target": "sym:src/routes.js:variable:app:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:fdf1f04e4ac6f501ca27935bbf91180185ca187881acb614e793592f2f962b98",
+        "source": "file:<redacted-root>/src/routes.js",
+        "target": "sym:src/routes.js:variable:PORT:4"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d4a486b5d2fef099d0e11c12ee5c93397635d0e0f0cad2b09ddf3efebf617fe1",
+        "source": "file:<redacted-root>/src/routes.js",
+        "target": "sym:src/routes.js:function:createServer:6"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:a88b0f568c9a302568b170734592a1ed7e5e3d9d468eb167378f7c2ce67883cf",
+        "source": "sym:src/routes.js:function:createServer:6",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:2e30d23f71101008972e7733ab0308876ded5c98cc6531e705797764e039b677",
+        "source": "file:<redacted-root>/src/routes.js",
+        "target": "sym:src/routes.js:variable:server:7"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:8cdb8d2b51c97b671863b74fa6ef31e3be356c5cc61d39a16dd9903749fc191b",
+        "source": "file:<redacted-root>/src/routes.js",
+        "target": "sym:src/routes.js:function:startServer:40"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:0e6981bda0aad16edc10fd0dc3e2b17a9ae4d1f3d03e253a6761fb3c31565680",
+        "source": "sym:src/routes.js:function:startServer:40",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:b9077f02a67c09618dfa1a2e6d06a9a4efe7fbbdf1c21d659e2102c3b2420883",
+        "source": "file:<redacted-root>/src/routes.js",
+        "target": "sym:src/routes.js:variable:server:41"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:3ab81fb6628b08bcdd69de99e6e7d37e8de9c2566ee6aecc9e6365a006b53718",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/src/utils.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d8d416c6b3d01648c1a1f28bf8bcdc39d666c14878aa365fa3a404d587a78222",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:arrowfunction:formatDate:1"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:c6f84f34ef86a9e61510287cb2da828d02fe05ab1578ddb6bb9ee60ba128da80",
+        "source": "sym:src/utils.js:arrowfunction:formatDate:1",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:746b8390e749c5e24d12fee60242af58629594ea7bdabf088adaffbcc6ec82d0",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:variable:d:2"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:4790bdaaadb410d7d8ae1534fd4d1e50eb7f356d567044bfd559c8b3953ce408",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:arrowfunction:capitalize:6"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:983a837b3b6dea0c451beea0f302ce2e36f4e3d71207f8ddb0038b3ddaf97b6f",
+        "source": "sym:src/utils.js:arrowfunction:capitalize:6",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:295d6757f778c27b357cbb40379c7fa21d5fff68c05b80a03e7ab72acf6b6601",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:arrowfunction:debounce:11"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:49b1375687ffb14c02c868b150f0a8350fa738e15c8b4778d17007dce7a1571e",
+        "source": "sym:src/utils.js:arrowfunction:debounce:11",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:221e1db0b3bd09d34330d26bc969eb7420fa8196665b58f410078178ea7ea327",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:variable:timeoutId:12"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ec29f6b3279a3871c4a73c98ddee77ba80f5d13d9a97e91404ac8ce19557a5f6",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:variable:validators:19"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:aa3a7f1d35b9027bafc1f37e29474768d10efe83cbf6726fceea8806cc242cf9",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:method:isEmail:20"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:caa0a817506c0c6402d1b95b1beccce1db1ce0640cb65143c7ee81436b352537",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:method:isUrl:21"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:d0bbf086dd372aefea71c27f75d95a35b2ed61ce0268fae710d0470416dd5df1",
+        "source": "file:<redacted-root>/src/utils.js",
+        "target": "sym:src/utils.js:method:isEmpty:22"
+      },
+      {
+        "kind": "owns",
+        "relationKey": "rel:sha256:e3003cd6b62404c0d843bb685dcfcffe602515a7b95936fd43d4f339682c4348",
+        "source": "repo:<redacted-root>",
+        "target": "file:<redacted-root>/tests/math.test.js"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:60dac3eaa56a559a3411d6acae91698a13760dc5189e57df33ab11d65b9545d1",
+        "source": "file:<redacted-root>/tests/math.test.js",
+        "target": "sym:tests/math.test.js:function:test:3"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:ac928d9b0a759e9de2062a2aa692bfde20e7e448811e97111bb77966b67ae024",
+        "source": "file:<redacted-root>/tests/math.test.js",
+        "target": "sym:tests/math.test.js:function:assertEqual:13"
+      },
+      {
+        "kind": "defines",
+        "relationKey": "rel:sha256:427e42cc08b8eca87c4779dbb31d846c04275a0f16fca4ed2e21d60d4f810d65",
+        "source": "file:<redacted-root>/tests/math.test.js",
+        "target": "sym:tests/math.test.js:variable:helper:30"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "relative-path-resolved",
+        "relationKey": "rel:sha256:cc3e579a8569326d003417b83a5773705930c05dcd14c2151a5d90dd581bbf39",
+        "source": "file:<redacted-root>/bin/cli.js",
+        "target": "file:<redacted-root>/src/index.js"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:623cb839cfc87ae1e81a3b5dafbfd83065314bc37e9b2973643fd94416176725",
+        "source": "sym:bin/cli.js:variable:info:5",
+        "target": "sym:src/index.js:function:getAppInfo:10"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "calls",
+        "reason": "same-file-callee-name",
+        "relationKey": "rel:sha256:bb40d5b703b84a03353103f832296ab814d72c3c20d0effb4e56c32a6f521a81",
+        "source": "sym:src/dynamic.js:function:loadModule:7",
+        "target": "sym:src/dynamic.js:variable:loader:8"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "relative-path-resolved",
+        "relationKey": "rel:sha256:4a1cb6be58dfc019d1d6c6840072238f100bbd4515b8d19945e74a52dc6e090f",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "file:<redacted-root>/src/math.js"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "relative-path-resolved",
+        "relationKey": "rel:sha256:e31c5866197e80faae78add0c21a6abfa256c10032a31d0e673cfd7b84cea295",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "file:<redacted-root>/src/logger.cjs"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "relative-path-resolved",
+        "relationKey": "rel:sha256:e3b7c8da28e19cf157c3f68bd65b519d416ee86ce0500d270194f22dbd847b6b",
+        "source": "file:<redacted-root>/src/index.js",
+        "target": "file:<redacted-root>/src/utils.js"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:698e3b6fe2af305f9fc3f852380deab2a64c1df4f800cbb58e02993fc9482dab",
+        "source": "sym:src/index.js:variable:product:6",
+        "target": "sym:src/math.js:function:multiply:5"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "calls",
+        "reason": "same-file-callee-name",
+        "relationKey": "rel:sha256:1e1838c86eced7f333fceb0792b5618a0a1c046eb1e6825a7f3d54017c0af13a",
+        "source": "sym:src/index.js:method:run:21",
+        "target": "sym:src/index.js:function:getAppInfo:10"
+      },
+      {
+        "kind": "related",
+        "relationKey": "rel:sha256:6a90be0c339a70d27742e34036aacfbcb3ed3b3aa6d2c3260a8e28c820d2a4ff",
+        "source": "file:<redacted-root>/src/logger.cjs",
+        "target": "pkg:codelattice-js-portable-smoke"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "calls",
+        "reason": "same-file-callee-name",
+        "relationKey": "rel:sha256:b060352a4c7bc1d7d348c0f97108f7f001a47551f2902f0d99339e34e3bf947e",
+        "source": "sym:src/logger.cjs:method:warn:26",
+        "target": "sym:src/logger.cjs:method:warn:26"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "calls",
+        "reason": "same-file-callee-name",
+        "relationKey": "rel:sha256:fd6c2474543a5211b795c289583edc03e02bc12061adbfbb1b048b92fb926996",
+        "source": "sym:src/logger.cjs:method:error:32",
+        "target": "sym:src/logger.cjs:method:error:32"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:368339da8445b565636b26833a5199d0ece20151fc21634b27cdb8d7751e8cfb",
+        "source": "sym:src/routes.js:function:createServer:6",
+        "target": "sym:src/logger.cjs:method:error:32"
+      },
+      {
+        "confidence": 0.85,
+        "kind": "calls",
+        "reason": "same-file-callee-name",
+        "relationKey": "rel:sha256:461bb0073bb7e5bb0b80fd8f85d3b411e06f213ea893318a57740bb148b41739",
+        "source": "sym:src/routes.js:variable:server:41",
+        "target": "sym:src/routes.js:function:createServer:6"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:cb2f272ae36d138aa06c3d3eefdec2a15f840b46a94afb0b976d12fddc0e9637",
+        "source": "sym:src/utils.js:method:isEmail:20",
+        "target": "sym:tests/math.test.js:function:test:3"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:e925f5a2eb49fdc6ca1c63a3836333f2aff1b3c5e43d6645a0a332781a00ac2b",
+        "source": "sym:src/utils.js:method:isUrl:21",
+        "target": "sym:tests/math.test.js:function:test:3"
+      },
+      {
+        "confidence": 0.9,
+        "kind": "imports",
+        "reason": "relative-path-resolved",
+        "relationKey": "rel:sha256:c0951b4977df5e72bc463778e7faf84685bd2098fd4197c4a5250bc16d95cd8d",
+        "source": "file:<redacted-root>/tests/math.test.js",
+        "target": "file:<redacted-root>/src/math.js"
+      },
+      {
+        "confidence": 0.55,
+        "kind": "calls",
+        "reason": "project-unique-callee-name",
+        "relationKey": "rel:sha256:53d18e3e3c77c711dc876e0ced437cf97011b8f0a503dfa58b835d061d1bf509",
+        "source": "sym:tests/math.test.js:function:test:3",
+        "target": "sym:src/logger.cjs:method:error:32"
+      }
+    ],
+    "nodes": [
+      {
+        "file": "",
+        "id": "repo:<redacted-root>",
+        "kind": "package",
+        "label": "portable-smoke"
+      },
+      {
+        "file": "",
+        "id": "pkg:codelattice-js-portable-smoke",
+        "kind": "package",
+        "label": "codelattice-js-portable-smoke"
+      },
+      {
+        "file": "bin/cli.js",
+        "id": "file:<redacted-root>/bin/cli.js",
+        "kind": "file",
+        "label": "bin/cli.js",
+        "language": "typescript"
+      },
+      {
+        "file": "config/vite.config.js",
+        "id": "file:<redacted-root>/config/vite.config.js",
+        "kind": "file",
+        "label": "config/vite.config.js",
+        "language": "typescript"
+      },
+      {
+        "file": "src/component.jsx",
+        "id": "file:<redacted-root>/src/component.jsx",
+        "kind": "file",
+        "label": "src/component.jsx"
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "file:<redacted-root>/src/dynamic.js",
+        "kind": "file",
+        "label": "src/dynamic.js",
+        "language": "typescript"
+      },
+      {
+        "file": "src/index.js",
+        "id": "file:<redacted-root>/src/index.js",
+        "kind": "file",
+        "label": "src/index.js",
+        "language": "typescript"
+      },
+      {
+        "file": "src/lib/index.js",
+        "id": "file:<redacted-root>/src/lib/index.js",
+        "kind": "file",
+        "label": "src/lib/index.js",
+        "language": "typescript"
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "file:<redacted-root>/src/logger.cjs",
+        "kind": "file",
+        "label": "src/logger.cjs"
+      },
+      {
+        "file": "src/math.js",
+        "id": "file:<redacted-root>/src/math.js",
+        "kind": "file",
+        "label": "src/math.js",
+        "language": "typescript"
+      },
+      {
+        "file": "src/routes.js",
+        "id": "file:<redacted-root>/src/routes.js",
+        "kind": "file",
+        "label": "src/routes.js",
+        "language": "typescript"
+      },
+      {
+        "file": "src/utils.js",
+        "id": "file:<redacted-root>/src/utils.js",
+        "kind": "file",
+        "label": "src/utils.js",
+        "language": "typescript"
+      },
+      {
+        "file": "tests/math.test.js",
+        "id": "file:<redacted-root>/tests/math.test.js",
+        "kind": "file",
+        "label": "tests/math.test.js",
+        "language": "typescript"
+      },
+      {
+        "file": "bin/cli.js",
+        "id": "sym:bin/cli.js:variable:info:5",
+        "kind": "symbol",
+        "label": "info",
+        "language": "typescript",
+        "line": 5
+      },
+      {
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:function:Button:3",
+        "kind": "symbol",
+        "label": "Button",
+        "line": 3
+      },
+      {
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:arrowfunction:handleClick:4",
+        "kind": "symbol",
+        "label": "handleClick",
+        "line": 4
+      },
+      {
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:method:constructor:18",
+        "kind": "symbol",
+        "label": "constructor",
+        "line": 18
+      },
+      {
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:method:render:31",
+        "kind": "symbol",
+        "label": "render",
+        "line": 31
+      },
+      {
+        "file": "src/component.jsx",
+        "id": "sym:src/component.jsx:function:App:47",
+        "kind": "symbol",
+        "label": "App",
+        "line": 47
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:variable:lazyModules:1",
+        "kind": "symbol",
+        "label": "lazyModules",
+        "language": "typescript",
+        "line": 1
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:method:dashboard:2",
+        "kind": "symbol",
+        "label": "dashboard",
+        "language": "typescript",
+        "line": 2
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:method:settings:3",
+        "kind": "symbol",
+        "label": "settings",
+        "language": "typescript",
+        "line": 3
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:method:profile:4",
+        "kind": "symbol",
+        "label": "profile",
+        "language": "typescript",
+        "line": 4
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:function:loadModule:7",
+        "kind": "symbol",
+        "label": "loadModule",
+        "language": "typescript",
+        "line": 7
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:variable:loader:8",
+        "kind": "symbol",
+        "label": "loader",
+        "language": "typescript",
+        "line": 8
+      },
+      {
+        "file": "src/dynamic.js",
+        "id": "sym:src/dynamic.js:function:getAvailableModules:15",
+        "kind": "symbol",
+        "label": "getAvailableModules",
+        "language": "typescript",
+        "line": 15
+      },
+      {
+        "file": "src/index.js",
+        "id": "sym:src/index.js:variable:result:5",
+        "kind": "symbol",
+        "label": "result",
+        "language": "typescript",
+        "line": 5
+      },
+      {
+        "file": "src/index.js",
+        "id": "sym:src/index.js:variable:product:6",
+        "kind": "symbol",
+        "label": "product",
+        "language": "typescript",
+        "line": 6
+      },
+      {
+        "file": "src/index.js",
+        "id": "sym:src/index.js:variable:appName:8",
+        "kind": "symbol",
+        "label": "appName",
+        "language": "typescript",
+        "line": 8
+      },
+      {
+        "file": "src/index.js",
+        "id": "sym:src/index.js:function:getAppInfo:10",
+        "kind": "symbol",
+        "label": "getAppInfo",
+        "language": "typescript",
+        "line": 10
+      },
+      {
+        "file": "src/index.js",
+        "id": "sym:src/index.js:function:createApp:19",
+        "kind": "symbol",
+        "label": "createApp",
+        "language": "typescript",
+        "line": 19
+      },
+      {
+        "file": "src/index.js",
+        "id": "sym:src/index.js:method:run:21",
+        "kind": "symbol",
+        "label": "run",
+        "language": "typescript",
+        "line": 21
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:variable:levels:1",
+        "kind": "symbol",
+        "label": "levels",
+        "line": 1
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:constructor:9",
+        "kind": "symbol",
+        "label": "constructor",
+        "line": 9
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:debug:14",
+        "kind": "symbol",
+        "label": "debug",
+        "line": 14
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:info:20",
+        "kind": "symbol",
+        "label": "info",
+        "line": 20
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:warn:26",
+        "kind": "symbol",
+        "label": "warn",
+        "line": 26
+      },
+      {
+        "file": "src/logger.cjs",
+        "id": "sym:src/logger.cjs:method:error:32",
+        "kind": "symbol",
+        "label": "error",
+        "line": 32
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:function:add:1",
+        "kind": "symbol",
+        "label": "add",
+        "language": "typescript",
+        "line": 1
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:function:multiply:5",
+        "kind": "symbol",
+        "label": "multiply",
+        "language": "typescript",
+        "line": 5
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:constructor:10",
+        "kind": "symbol",
+        "label": "constructor",
+        "language": "typescript",
+        "line": 10
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:add:14",
+        "kind": "symbol",
+        "label": "add",
+        "language": "typescript",
+        "line": 14
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:subtract:19",
+        "kind": "symbol",
+        "label": "subtract",
+        "language": "typescript",
+        "line": 19
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:method:getValue:24",
+        "kind": "symbol",
+        "label": "getValue",
+        "language": "typescript",
+        "line": 24
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:variable:PI:29",
+        "kind": "symbol",
+        "label": "PI",
+        "language": "typescript",
+        "line": 29
+      },
+      {
+        "file": "src/math.js",
+        "id": "sym:src/math.js:variable:E:30",
+        "kind": "symbol",
+        "label": "E",
+        "language": "typescript",
+        "line": 30
+      },
+      {
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:app:3",
+        "kind": "symbol",
+        "label": "app",
+        "language": "typescript",
+        "line": 3
+      },
+      {
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:PORT:4",
+        "kind": "symbol",
+        "label": "PORT",
+        "language": "typescript",
+        "line": 4
+      },
+      {
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:function:createServer:6",
+        "kind": "symbol",
+        "label": "createServer",
+        "language": "typescript",
+        "line": 6
+      },
+      {
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:server:7",
+        "kind": "symbol",
+        "label": "server",
+        "language": "typescript",
+        "line": 7
+      },
+      {
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:function:startServer:40",
+        "kind": "symbol",
+        "label": "startServer",
+        "language": "typescript",
+        "line": 40
+      },
+      {
+        "file": "src/routes.js",
+        "id": "sym:src/routes.js:variable:server:41",
+        "kind": "symbol",
+        "label": "server",
+        "language": "typescript",
+        "line": 41
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:arrowfunction:formatDate:1",
+        "kind": "symbol",
+        "label": "formatDate",
+        "language": "typescript",
+        "line": 1
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:variable:d:2",
+        "kind": "symbol",
+        "label": "d",
+        "language": "typescript",
+        "line": 2
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:arrowfunction:capitalize:6",
+        "kind": "symbol",
+        "label": "capitalize",
+        "language": "typescript",
+        "line": 6
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:arrowfunction:debounce:11",
+        "kind": "symbol",
+        "label": "debounce",
+        "language": "typescript",
+        "line": 11
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:variable:timeoutId:12",
+        "kind": "symbol",
+        "label": "timeoutId",
+        "language": "typescript",
+        "line": 12
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:variable:validators:19",
+        "kind": "symbol",
+        "label": "validators",
+        "language": "typescript",
+        "line": 19
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:method:isEmail:20",
+        "kind": "symbol",
+        "label": "isEmail",
+        "language": "typescript",
+        "line": 20
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:method:isUrl:21",
+        "kind": "symbol",
+        "label": "isUrl",
+        "language": "typescript",
+        "line": 21
+      },
+      {
+        "file": "src/utils.js",
+        "id": "sym:src/utils.js:method:isEmpty:22",
+        "kind": "symbol",
+        "label": "isEmpty",
+        "language": "typescript",
+        "line": 22
+      },
+      {
+        "file": "tests/math.test.js",
+        "id": "sym:tests/math.test.js:function:test:3",
+        "kind": "symbol",
+        "label": "test",
+        "language": "typescript",
+        "line": 3
+      },
+      {
+        "file": "tests/math.test.js",
+        "id": "sym:tests/math.test.js:function:assertEqual:13",
+        "kind": "symbol",
+        "label": "assertEqual",
+        "language": "typescript",
+        "line": 13
+      },
+      {
+        "file": "tests/math.test.js",
+        "id": "sym:tests/math.test.js:variable:helper:30",
+        "kind": "symbol",
+        "label": "helper",
+        "language": "typescript",
+        "line": 30
+      },
+      {
+        "file": "src/index.js",
+        "id": "entry:main:src/index.js",
+        "kind": "entry-point",
+        "label": "entry:main:src/index.js"
+      },
+      {
+        "file": "src/index.js",
+        "id": "entry:module:src/index.js",
+        "kind": "entry-point",
+        "label": "entry:module:src/index.js"
+      },
+      {
+        "file": "src/index.js",
+        "id": "entry:browser:src/index.js",
+        "kind": "entry-point",
+        "label": "entry:browser:src/index.js"
+      },
+      {
+        "file": "./bin/cli.js",
+        "id": "entry:bin:./bin/cli.js",
+        "kind": "entry-point",
+        "label": "entry:bin:./bin/cli.js"
+      },
+      {
+        "file": "./src/index.js",
+        "id": "entry:exports..:./src/index.js",
+        "kind": "entry-point",
+        "label": "entry:exports..:./src/index.js"
+      },
+      {
+        "file": "./src/logger.cjs",
+        "id": "entry:exports../logger:./src/logger.cjs",
+        "kind": "entry-point",
+        "label": "entry:exports../logger:./src/logger.cjs"
+      },
+      {
+        "file": "./src/math.js",
+        "id": "entry:exports../math:./src/math.js",
+        "kind": "entry-point",
+        "label": "entry:exports../math:./src/math.js"
+      },
+      {
+        "file": "./src/utils.js",
+        "id": "entry:exports../utils:./src/utils.js",
+        "kind": "entry-point",
+        "label": "entry:exports../utils:./src/utils.js"
+      }
+    ],
+    "stability": "preview",
+    "status": "collected",
+    "summary": {
+      "callEdgeCount": 11,
+      "edgeCount": 104,
+      "fileNodeCount": 11,
+      "nodeCount": 72,
+      "symbolNodeCount": 51
+    },
+    "truncated": false
+  },
+  "insights": {
+    "cautions": [
+      "Fan-in/out counts are based on resolved call edges only; unresolved calls are excluded.",
+      "Entry-point detection is heuristic; may miss dynamic/conditional entries or include false positives."
+    ],
+    "entryPoints": [],
+    "hotspots": [
+      {
+        "fanIn": 0,
+        "fanOut": 12,
+        "file": "",
+        "id": "repo:<redacted-root>",
+        "kind": "",
+        "name": "repo:<redacted-root>"
+      },
+      {
+        "fanIn": 2,
+        "fanOut": 9,
+        "file": "",
+        "id": "file:<redacted-root>/src/index.js",
+        "kind": "",
+        "name": "file:<redacted-root>/src/index.js"
+      },
+      {
+        "fanIn": 2,
+        "fanOut": 9,
+        "file": "",
+        "id": "file:<redacted-root>/src/utils.js",
+        "kind": "",
+        "name": "file:<redacted-root>/src/utils.js"
+      },
+      {
+        "fanIn": 3,
+        "fanOut": 8,
+        "file": "",
+        "id": "file:<redacted-root>/src/math.js",
+        "kind": "",
+        "name": "file:<redacted-root>/src/math.js"
+      },
+      {
+        "fanIn": 1,
+        "fanOut": 7,
+        "file": "",
+        "id": "file:<redacted-root>/src/dynamic.js",
+        "kind": "",
+        "name": "file:<redacted-root>/src/dynamic.js"
+      }
+    ],
+    "reviewFirst": [
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      },
+      {
+        "file": "",
+        "reason": "high-fan-out-hotspot"
+      }
+    ],
+    "status": "partial"
+  },
+  "language": "javascript",
+  "limitations": {
+    "coverageVerified": false,
+    "deletionSafetyVerified": false,
+    "externalUsageVerified": false,
+    "notes": [
+      "All results derived from static source analysis via CodeLattice CLI.",
+      "No project code was executed during snapshot generation.",
+      "Call graph is built from syntactic patterns; method dispatch is heuristic.",
+      "External crate symbols are resolved only for std/core/alloc direct imports.",
+      "Trait resolution and type inference are NOT performed.",
+      "Macro expansion is NOT performed.",
+      "Results are informative, not prescriptive. Always verify before acting.",
+      "Node language identity comes from properties.language or the shared extension table; '.h' files are labeled 'c' and are known to be mislabeled in C++ projects."
+    ],
+    "projectCodeExecuted": false,
+    "runtimeVerified": false
+  },
+  "moduleGraph": {
+    "edges": [
+      {
+        "count": 2,
+        "kinds": [
+          "calls",
+          "imports"
+        ],
+        "minConfidence": 0.55,
+        "reasons": [
+          "relative-path-resolved",
+          "project-unique-callee-name"
+        ],
+        "source": "bin",
+        "target": "src"
+      },
+      {
+        "count": 2,
+        "kinds": [
+          "calls"
+        ],
+        "minConfidence": 0.55,
+        "reasons": [
+          "project-unique-callee-name"
+        ],
+        "source": "src",
+        "target": "tests"
+      },
+      {
+        "count": 2,
+        "kinds": [
+          "calls",
+          "imports"
+        ],
+        "minConfidence": 0.55,
+        "reasons": [
+          "relative-path-resolved",
+          "project-unique-callee-name"
+        ],
+        "source": "tests",
+        "target": "src"
+      }
+    ],
+    "modules": [
+      {
+        "files": 11,
+        "id": "src",
+        "languages": [
+          "typescript"
+        ],
+        "symbols": 47
+      },
+      {
+        "files": 1,
+        "id": "tests",
+        "languages": [
+          "typescript"
+        ],
+        "symbols": 3
+      },
+      {
+        "files": 2,
+        "id": "bin",
+        "languages": [
+          "typescript"
+        ],
+        "symbols": 1
+      },
+      {
+        "files": 1,
+        "id": "config",
+        "languages": [
+          "typescript"
+        ],
+        "symbols": 0
+      },
+      {
+        "files": 1,
+        "id": "src/lib",
+        "languages": [
+          "typescript"
+        ],
+        "symbols": 0
+      }
+    ],
+    "truncated": false
+  },
+  "quality": {
+    "cautions": [
+      "Quality gates are based on static analysis only.",
+      "Pass/fail status does not guarantee runtime correctness.",
+      "External crate resolution is bounded; stdlib-only."
+    ],
+    "diagnosticsSummary": {
+      "error": 0,
+      "info": 0,
+      "total": 10,
+      "warning": 0
+    },
+    "failedGateCount": 0,
+    "gates": [
+      {
+        "detail": "0 duplicate node IDs found",
+        "gateName": "duplicate_nodes",
+        "passed": true
+      },
+      {
+        "detail": "0 duplicate edge triples found",
+        "gateName": "duplicate_edges",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling source references found",
+        "gateName": "dangling_source",
+        "passed": true
+      },
+      {
+        "detail": "0 dangling target references found",
+        "gateName": "dangling_target",
+        "passed": true
+      },
+      {
+        "detail": "not verified from single CLI run; verified by test suite",
+        "gateName": "deterministic",
+        "passed": true
+      },
+      {
+        "detail": "All CALLS edge endpoints exist in nodes",
+        "gateName": "calls_endpoint_integrity",
+        "passed": true
+      },
+      {
+        "detail": "4 external imports/requires recorded as diagnostics",
+        "gateName": "external_symbol_marking",
+        "passed": true
+      }
+    ],
+    "overall": "pass",
+    "passedGateCount": 7
+  },
+  "releaseReview": {
+    "breakingChangeRisk": "low",
+    "breakingChangeSurface": 0,
+    "cautions": [
+      "Release review is based on static analysis only — does not run tests or verify docs accuracy.",
+      "Breaking-change risk assessment is heuristic; actual impact depends on downstream usage.",
+      "Documentation staleness requires manual review — this only lists doc files found.",
+      "Test coverage gaps require test runner integration — not available in static mode.",
+      "Config example drift needs template comparison — not performed in this snapshot."
+    ],
+    "configExampleIssueCount": null,
+    "missingTestCandidateCount": null,
+    "staleDocCandidateCount": null,
+    "status": "partial"
+  },
+  "root": "<redacted-root>",
+  "schemaVersion": "webui.snapshot.v1",
+  "summary": {
+    "edgeCount": 104,
+    "generatedAt": "2026-09-13T03:40:55Z",
+    "language": "javascript",
+    "moduleCount": 0,
+    "nodeCount": 72,
+    "packageCount": 2,
+    "schemaVersion": "webui.snapshot.v1",
+    "sourceFileCount": 11,
+    "symbolCount": 51,
+    "toolVersion": "0.17.0-beta.2"
+  },
+  "workflowPresets": {
+    "presets": [
+      {
+        "description": "首次接入 CodeLattice：理解项目结构、符号分布、入口点",
+        "id": "onboarding",
+        "name": "项目接入 / Onboarding",
+        "stopLines": [
+          "不执行目标项目代码",
+          "不修改源码",
+          "静态分析结果仅供参考"
+        ],
+        "tools": [
+          "analyze",
+          "summary",
+          "explore"
+        ]
+      },
+      {
+        "description": "修改代码前了解影响范围、调用链、风险点",
+        "id": "before_edit",
+        "name": "编辑前检查 / Before Edit",
+        "stopLines": [
+          "不替代 code review",
+          "运行时行为需实测确认",
+          "trait 解析为启发式"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze"
+        ]
+      },
+      {
+        "description": "修改后快速检查格式、符号完整性、基本质量门禁",
+        "id": "after_edit",
+        "name": "编辑后验证 / After Edit",
+        "stopLines": [
+          "不运行测试套件",
+          "不执行 package manager",
+          "不保证无回归"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "detect-changes"
+        ]
+      },
+      {
+        "description": "删除代码/模块前识别引用关系、死代码候选、外部使用风险",
+        "id": "delete_code",
+        "name": "删除代码前评估 / Delete Code Assessment",
+        "stopLines": [
+          "dead-code candidate ≠ 可安全删除",
+          "外部 API heuristic 不等于真实使用者",
+          "必须人工复核"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include calls"
+        ]
+      },
+      {
+        "description": "版本发布前的静态审查：breaking change 风险、文档一致性、配置示例",
+        "id": "release_check",
+        "name": "发布前检查 / Release Check",
+        "stopLines": [
+          "不是 GA 质量证明",
+          "不覆盖运行时测试",
+          "不验证外部依赖兼容性"
+        ],
+        "tools": [
+          "quality",
+          "analyze",
+          "release_review"
+        ]
+      },
+      {
+        "description": "识别未使用的符号、过时的模块、可简化的调用链",
+        "id": "legacy_cleanup",
+        "name": "遗留代码清理 / Legacy Cleanup",
+        "stopLines": [
+          "低置信度标记需逐一核实",
+          "不自动删除任何代码",
+          "framework entry 点不可轻移"
+        ],
+        "tools": [
+          "analyze --include calls",
+          "quality",
+          "cleanup_summary"
+        ]
+      },
+      {
+        "description": "变更 public/exported 符号前评估下游影响、ABI 兼容性",
+        "id": "public_api_change",
+        "name": "公共 API 变更评估 / Public API Change",
+        "stopLines": [
+          "external usage 为启发式推断",
+          "文档同步需人工处理",
+          "semantic versioning 需人工判断"
+        ],
+        "tools": [
+          "impact_preview",
+          "context",
+          "analyze --include graph"
+        ]
+      },
+      {
+        "description": "修改框架入口/路由/控制器时的影响分析",
+        "id": "framework_route_change",
+        "name": "框架路由变更 / Framework Route Change",
+        "stopLines": [
+          "路由解析为模式匹配",
+          "动态路由不可完全覆盖",
+          "需结合框架文档"
+        ],
+        "tools": [
+          "analyze",
+          "impact_preview",
+          "entry_points"
+        ]
+      },
+      {
+        "description": "发现文档与测试覆盖不一致的区域、缺失的 API 文档候选",
+        "id": "docs_tests_sync",
+        "name": "文档-测试同步检查 / Docs-Tests Sync",
+        "stopLines": [
+          "基于文件名/符号名的启发式",
+          "不解析文档内容语义",
+          "不判断测试充分性"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ]
+      },
+      {
+        "description": "发现配置项与示例/文档不同步的问题",
+        "id": "config_examples_sync",
+        "name": "配置-示例同步检查 / Config-Examples Sync",
+        "stopLines": [
+          "不验证配置值正确性",
+          "不执行配置加载",
+          "模板/占位符可能误报"
+        ],
+        "tools": [
+          "analyze",
+          "quality",
+          "release_review"
+        ]
+      }
+    ],
+    "status": "collected"
+  }
+}

@@ -101,6 +101,10 @@ enum Commands {
         /// 仅输出 public/pub 符号（symbols profile 有效）
         #[arg(long, default_value_t = false)]
         public_only: bool,
+        /// webui-snapshot 专用：脱敏绝对路径（<redacted-root>/<redacted-user>），
+        /// 供 fixture 发布；其他 format 下使用会报错，不做静默忽略
+        #[arg(long, default_value_t = false)]
+        redact_root: bool,
     },
     /// 质量门检查：对指定项目运行质量门，输出 JSON，退出码反映结果
     Quality {
@@ -696,11 +700,13 @@ fn filter_analyze_profile(
 }
 
 /// 序列化分析结果并根据 --profile 过滤输出
+#[allow(clippy::too_many_arguments)]
 fn print_analyze_result(
     result: &LanguageAnalysisResult,
     profile: &str,
     options: AnalyzeProfileOptions,
     format: &str,
+    redact_root: bool,
 ) {
     let full_value = serde_json::to_value(result).unwrap_or_else(|e| {
         eprintln!("错误：JSON 序列化失败: {e}");
@@ -713,14 +719,21 @@ fn print_analyze_result(
             eprintln!("错误：--format webui-snapshot 只支持 --profile full");
             std::process::exit(1);
         }
-        let snapshot =
-            webui_snapshot::convert_analyze_result(&full_value, env!("CARGO_PKG_VERSION"));
+        let snapshot = webui_snapshot::convert_analyze_result_with_options(
+            &full_value,
+            env!("CARGO_PKG_VERSION"),
+            redact_root,
+        );
         let json = serde_json::to_string_pretty(&snapshot).unwrap_or_else(|e| {
             eprintln!("错误：webui-snapshot JSON 序列化失败: {e}");
             std::process::exit(1);
         });
         println!("{json}");
         return;
+    }
+    if redact_root {
+        eprintln!("错误：--redact-root 只支持 --format webui-snapshot");
+        std::process::exit(1);
     }
     let filtered = filter_analyze_profile(&full_value, profile, options);
     let json = serde_json::to_string_pretty(&filtered).unwrap_or_else(|e| {
@@ -4685,6 +4698,7 @@ pub fn run() {
             profile_page,
             profile_page_size,
             public_only,
+            redact_root,
         } => {
             // 分支 A（执行卡）：CLI analyze 主路径包进大栈独立线程，对齐 mcp_job.rs 的
             // stack_size 模式。serial 提取路径（inputs<8 走 output.rs 串行分支）与序列化
@@ -4847,7 +4861,7 @@ pub fn run() {
                                     analysis_trace: trace,
                                 };
 
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             // --strict 检查：质量门失败时 exit non-zero
@@ -4915,7 +4929,7 @@ pub fn run() {
                                     analysis_trace: None,
                                 };
 
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             // --strict 检查：质量门失败时 exit non-zero
@@ -4987,7 +5001,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {
@@ -5059,7 +5073,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {
@@ -5131,7 +5145,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {
@@ -5201,7 +5215,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {
@@ -5271,7 +5285,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {
@@ -5341,7 +5355,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {
@@ -5411,7 +5425,7 @@ pub fn run() {
                                     graph: json_val,
                                     analysis_trace: None,
                                 };
-                                print_analyze_result(&result, &profile, profile_options, &format);
+                                print_analyze_result(&result, &profile, profile_options, &format, redact_root);
                             }
 
                             if strict {

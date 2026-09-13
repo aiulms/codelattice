@@ -232,3 +232,91 @@ codelattice analyze-workspace --root <dir> [--format webui-snapshot]
    正确、展示略生硬（卫生级）
 2. App 轮询器已修为卸载清 interval；tick 互斥防重叠开-session（复核轮已修）
 3. 全仓 fmt 债 + c17 pre-existing red 可能误导复核人（归因见上）
+## Closure —— 第二段 P3（2026-09-13，执行者自报；P4 未开工）
+
+### 硬门结论：通过（无 core 无法等价的段）
+
+同一份 analyze JSON（fixtures/rust/portable-smoke，绝对根）下 Python 脚本 vs
+CLI `--format webui-snapshot --redact-root` 逐字段 diff：剩余 23 处全部可解释，
+无残缺段——
+
+- 卡 1 / P2 冻结超集：图节点 `language`、moduleGraph `languages[]`、顶层
+  `language`（单语言快照契约）
+- stats 实算修正（Python 旧缺陷，按 AGENTS.md stats 规则修正而非照搬）：
+  `quality.passedGateCount/failedGateCount`（Python 读 `status` 字段恒 0/0，
+  core 按 `passed` 实算 7/0）；`quality.diagnosticsSummary`（Python 读不存在的
+  analyze 顶层 diagnostics 恒 null，core 从 graph.diagnostics 实算）；
+  **`cleanup.deadCode/unreachableCandidateCount`（Python 真 bug：CALLS 边的
+  target 误写入 `target_ids` 而非 `call_targets`，候选数恒等于符号总数；
+  core 按段语义实算未被调用符号，portable-smoke 9→5）**——以 Rust 单测
+  `cleanup_counts_uncalled_symbols_from_call_edges` 作为回归锁
+- 格式差异：`toolVersion`（"codelattice 0.17.0-beta.2" → "0.17.0-beta.2"）、
+  `generatedFrom.generationMethod`（"cli-aggregate-phase-a" →
+  "cli-format-webui-snapshot"）
+- limitations notes 超集（core 多 .h 误伤说明一条）
+
+quality 输入无需外部 JSON：`analyze.qualityGates` 与 `codelattice quality`
+命令的 7 道门逐字段一致（已实测），转换器进程内直接取用。
+
+### 实际改动文件清单
+
+- `crates/cli/src/webui_snapshot.rs`：信封升级为 Phase A enriched 全量段——
+  新增 `build_quality_section`（qualityGates + graph.diagnostics 实算）、
+  `build_explore_section`（500 符号/200 文件上限、kindLabel、exported、
+  topFiles）、`build_cleanup_section`（CALLS 语义实算）、
+  `build_release_review_section`、`workflow_presets_section`（10 预设原表）、
+  insights.reviewFirst（热点前 3 文件）；summary 增 `moduleCount` 并对齐
+  Python normalized_node_kind 计数口径；`--redact-root` 全局路径脱敏
+  （redact_path/_looks_like_absolute_path/redact_all_paths 移植 + 顽固片段
+  替换 + relationKey 按脱敏后端点重算）+ moduleGraph 后置于脱敏；新增 8 个
+  单测（含 Python cleanup bug 回归锁、module-id 规则冻结用例，承接退役的
+  scripts/test_module_graph.py 覆盖）
+- `crates/cli/src/lib.rs`：`analyze` 加 `--redact-root` 开关（仅
+  webui-snapshot format 有效，其他 format 显式报错）
+- `scripts/webui-snapshot.sh`：改为 CLI 瘦包装
+  （`analyze --format webui-snapshot --profile full [--redact-root]`）；
+  `--full/--include-*` 保留接受（恒全开），`--compact/--no-enrichment` 移除
+  （无仓内调用方，误用时显式报错）
+- `scripts/webui-snapshot-smoke.sh`：去掉 gen.py/python3 前置检查
+- `scripts/codelattice-snapshot-gen.py`、`scripts/test_module_graph.py`：删除
+  （纯函数覆盖移入 Rust 单测）
+- `webui/contract-tests/tests/snapshot-contract.test.mjs`：模块图期望值 oracle
+  从 exec Python 脚本改为同规则 JS 内联移植（不变量本身不变：count 之和 ==
+  可聚合边数），头部注释更新
+- `fixtures/webui-snapshots/*.json`（7 个，非 6 个——目录实有 7 份）：全部用
+  CLI 新路径重生成，零手改数字
+- `docs/webui/README.md`、`docs/webui/webui-snapshot-contract.md`：聚合链路
+  叙述改到 CLI
+
+### 测试命令真实通过数字
+
+- `cargo test -p gitnexus-rust-core-cli --lib webui_snapshot`：**22 passed**
+- `cargo test -p gitnexus-rust-core-cli --test analyze_workspace`：**4 passed**
+- `cargo test -p gitnexus-rust-core-cli --lib workspace_analyze`：**4 passed**
+- `cd apps/desktop && npx vitest run src/e2e/project-picker.test.tsx`：**6 passed**
+- `cd webui/contract-tests && npm run test:node`：**22 passed; 0 failed**
+- `bash scripts/webui-snapshot-smoke.sh`：**8 pass 0 fail**（7 语言 + arkts-auto，
+  无 /Users 泄漏、quality/workflowPresets/explore 齐全）
+- `bash scripts/webui-snapshot.sh --root fixtures/rust/portable-smoke
+  --language rust --output - --redact-root`：exit 0，15 顶层键
+- `git diff --check`：干净；`webui_snapshot.rs` fmt 干净
+
+### 与卡的偏差
+
+1. 未按"6 个 portable-smoke"重生成，实为目录里的全部 7 份（rust/ts/js/c/cpp/
+   python/shell）
+2. 三处 stats 修正（cleanup 计数、passedGateCount、diagnosticsSummary）不是
+   字节级照搬 Python——Python 侧是缺陷（详见硬门结论），照搬违反 AGENTS.md
+   stats 实算规则；契约测试不冻结这些数字
+3. `webui-snapshot.sh` 的 `--compact/--no-enrichment` 未保留（CLI 恒输出全量
+   段无法表达"关闭"）；仓内无调用方，误用显式报错
+4. 契约测试的模块图 oracle 从"exec Python 脚本"改为"同规则 JS 内联"——测试
+   强度不变（同一不变量、同一归并规则，规则由 Rust 单测冻结），否则删 .py 后
+   测试自身跑不了
+
+### 已知小问题
+
+1. `quality.gates` 沿用 analyze.qualityGates 原样透传（gateName/passed/detail
+   键名与 v1 fixture 一致），未做键名归一
+2. explore 的 symbol `line/endLine` 沿用 Python 行为恒输出（缺省 null），未按
+   "缺席即未知"省略——保持信封形状一致优先
