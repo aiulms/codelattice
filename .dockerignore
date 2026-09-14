@@ -1,0 +1,14 @@
+# 容器构建上下文裁剪：镜像构建只需要 Cargo.toml / Cargo.lock / crates
+.git
+.github
+dist
+target
+node_modules
+webui
+apps
+docs
+fixtures
+scripts
+.playwright-mcp
+.codelattice-webui
+*.tar.gz
