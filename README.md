@@ -139,6 +139,7 @@ bash scripts/webui-runner.sh --open
 | 想了解什么 | 入口 |
 |---|---|
 | 安装、首次分析与平台准备 | [入门](docs/getting-started.md) · [安装](docs/release-install.md) · [Linux / openEuler](docs/platforms/linux-openeuler.md) |
+| 仓颉项目使用 | [仓颉支持指南](docs/cangjie-support.md) |
 | AI 工具接入与场景示例 | [MCP 指南](docs/guides/ai-mcp-tool-guide.md) · [提示词示例](docs/guides/ai-prompt-cookbook.md) |
 | 完整命令、语言细节和开发验证 | [CLI 与工程参考](docs/guides/cli-reference.md) |
 | 图谱与接口契约 | [统一输出](docs/architecture/unified-output-contract.md) · [MCP 契约](docs/architecture/mcp-v0-contract.md) |
